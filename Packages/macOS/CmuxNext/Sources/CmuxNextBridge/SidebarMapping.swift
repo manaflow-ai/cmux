@@ -32,7 +32,8 @@ public struct SidebarMapping {
     /// face of a workspace whose front tab is a browser, and the favicon of
     /// each browser tab in the tab list. `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`); without it a
-    /// tab shows its record's title.
+    /// tab shows its record's title. `iconAsset` draws a stored image or SVG
+    /// icon (`image:` / `svg:sha256-<hex>`); nil while it loads.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -42,7 +43,8 @@ public struct SidebarMapping {
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
                                 pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
-                                tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil }) -> [SidebarRowSection] {
+                                tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
+                                iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -51,7 +53,7 @@ public struct SidebarMapping {
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
                            selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace,
-                           tabTitle: tabTitle, notificationText: notificationText) }
+                           tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -77,10 +79,12 @@ public struct SidebarMapping {
     /// listed as `newTabTitle` when it is not empty.
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
+    /// `iconAsset` draws a stored image or SVG icon, as in `sections`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
-                    tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil }) -> SidebarWorkspace {
+                    tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
+                    iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
@@ -105,7 +109,8 @@ public struct SidebarMapping {
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
-            icon: Self.icon(color: workspace.color, icon: workspace.icon) ?? page?.favicon.map(WorkspaceIcon.favicon),
+            icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
+                ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
             kindBrand: front?.agentBrand,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
@@ -292,9 +297,12 @@ public struct SidebarMapping {
     }
 
     /// A workspace's sidebar icon: its icon with its color (a tinted symbol,
-    /// an emoji on a color chip), else its color as a swatch, else none.
-    public static func icon(color name: String?, icon: String?) -> WorkspaceIcon? {
+    /// an emoji on a color chip, a stored image or SVG as drawn by `asset`,
+    /// a placeholder symbol while it loads), else its color as a swatch, else none.
+    public static func icon(color name: String?, icon: String?,
+                            asset: (String) -> SidebarFavicon? = { _ in nil }) -> WorkspaceIcon? {
         let color = shared.color(name)
+        if let icon, let image = asset(icon) { return .favicon(image) }
         return icon.flatMap { WorkspaceIcon.parse($0, color: color) } ?? color.map(WorkspaceIcon.swatch)
     }
 
