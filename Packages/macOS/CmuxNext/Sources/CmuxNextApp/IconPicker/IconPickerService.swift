@@ -56,24 +56,41 @@ final class IconPickerService {
     /// Whether the panel, page and provider exist, so an open reuses them.
     var isWarm: Bool { warm != nil }
 
-    /// Makes the warm picker ahead of the first open; `then` runs when it is ready.
+    /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
+    var onOpened: ((IconPickerOpenTiming) -> Void)?
+
+    /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
+    /// launch); `then` runs when it is ready.
     func prepare(then: (() -> Void)? = nil) {
+        guard let catalog else {
+            loadCatalog { [weak self] in self?.prepare(then: then) }
+            return
+        }
+        if warm == nil { _ = makeWarm(catalog: catalog) }
         then?()
     }
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
     func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
+        pick(current: current, target: target, at: anchor, started: .now, completion: completion)
+    }
+
+    private func pick(current: String?, target: String, at anchor: Anchor, started: ContinuousClock.Instant,
+                      completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, completion: completion) }
+            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, started: started, completion: completion) }
             return
         }
+        let catalogReady = ContinuousClock.now
         open?.provider.finish(.cancel)
         prefs.load()
+        let createdPage = warm == nil
         guard let warm = warm ?? makeWarm(catalog: catalog) else {
             completion(.cancel)
             return
         }
+        let pageReady = ContinuousClock.now
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         session.symbolStyle = IconPickerSymbols.style(dark: dark)
@@ -89,10 +106,13 @@ final class IconPickerService {
         open = OpenPicker(panel: panel, provider: warm.provider, page: warm.page, target: target, anchor: screenAnchor, parent: parent)
         // Shown over its window (a child moves with it); never on screen for a window that is not
         // (tests, windows not ordered in).
-        guard let parent, parent.isVisible else { return }
-        parent.addChildWindow(panel, ordered: .above)
-        panel.makeKeyAndOrderFront(nil)
-        warm.page.focusPage()
+        if let parent, parent.isVisible {
+            parent.addChildWindow(panel, ordered: .above)
+            panel.makeKeyAndOrderFront(nil)
+            warm.page.focusPage()
+        }
+        onOpened?(IconPickerOpenTiming(catalog: started.duration(to: catalogReady), page: catalogReady.duration(to: pageReady),
+                                       present: pageReady.duration(to: .now), createdPage: createdPage))
     }
 
     /// Loads the symbol catalog off the main actor (a few plist reads), then runs `then`.
@@ -161,4 +181,15 @@ final class IconPickerService {
         open.parent?.removeChildWindow(open.panel)
         open.panel.orderOut(nil)
     }
+}
+
+/// One icon picker open: waiting for the symbol catalog (a first open with no warm-up), making or
+/// reusing the panel and page, and showing it.
+struct IconPickerOpenTiming {
+    let catalog: Duration
+    let page: Duration
+    let present: Duration
+    /// The open made the panel and its page (no warm picker yet).
+    let createdPage: Bool
+    var total: Duration { catalog + page + present }
 }
