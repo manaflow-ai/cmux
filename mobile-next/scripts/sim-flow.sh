@@ -15,7 +15,7 @@ xcrun simctl bootstatus "$UDID" -b >/dev/null
 xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
 xcodegen generate --quiet
 xcodebuild -project CmuxNextMobile.xcodeproj -scheme CmuxNext -destination "id=$UDID" -derivedDataPath "$HOME/cnm/dd-test" \
-  -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build-for-testing 2>&1 | grep -E 'error:|TEST BUILD|BUILD (SUCCEEDED|FAILED)' | sort -u
+  -skipPackagePluginValidation CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_ALLOWED=YES build-for-testing 2>&1 | grep -E 'error:|TEST BUILD|BUILD (SUCCEEDED|FAILED)' | sort -u
 for test in "$@"; do
   rm -rf "$OUT/$test.xcresult"
   xcrun simctl io "$UDID" recordVideo --codec h264 --force "$OUT/$test.mp4" > /dev/null 2>&1 &

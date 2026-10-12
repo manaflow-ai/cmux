@@ -76,24 +76,11 @@ struct AgentChatView: View {
                     }
                 }
             }
+            .navigationTitle(info?.title ?? "Agent")
+            .navigationSubtitle("\(((info?.cwd ?? "") as NSString).lastPathComponent) · \(host.name)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { DrawerButton() }
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(info?.title ?? "Agent")
-                            .font(.system(size: 16, weight: .semibold))
-                            .lineLimit(1)
-                        HStack(spacing: 4) {
-                            Image(systemName: HarnessStyle.of(info?.harness ?? "").symbol)
-                            Text("\(((info?.cwd ?? "") as NSString).lastPathComponent) · \(host.name)")
-                        }
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    }
-                    .frame(maxWidth: 230)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {

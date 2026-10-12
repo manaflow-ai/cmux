@@ -71,8 +71,7 @@ final class FlowTests: XCTestCase {
 
     /// Assumes a signed-in, paired app (run after testSignUpAndPair).
     func testChiefConversation() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchSignedIn()
         let chief = app.descendants(matching: .any)["home.pin.cv_chief"]
         XCTAssertTrue(chief.waitForExistence(timeout: 60))
         pause(1)
@@ -100,8 +99,7 @@ final class FlowTests: XCTestCase {
     }
 
     func testDrawerAndAgent() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchSignedIn()
         XCTAssertTrue(app.buttons["shell.menu"].waitForExistence(timeout: 30))
         pause(4)
         app.buttons["shell.menu"].tap()
@@ -126,8 +124,7 @@ final class FlowTests: XCTestCase {
     }
 
     func testTerminal() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let app = launchSignedIn()
         XCTAssertTrue(app.buttons["shell.menu"].waitForExistence(timeout: 30))
         pause(4)
         app.buttons["shell.menu"].tap()
@@ -145,6 +142,27 @@ final class FlowTests: XCTestCase {
         app.typeText("echo hello from $(hostname) && ls -la | head -12\n")
         pause(3)
         snap(app, "32-terminal-output")
+    }
+
+    /// Signs in with the test account when the app starts signed out.
+    private func launchSignedIn() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launch()
+        let menu = app.buttons["shell.menu"]
+        let login = app.buttons["auth.login"]
+        _ = menu.waitForExistence(timeout: 8) || login.waitForExistence(timeout: 2)
+        if !menu.exists, login.exists, let email = env["CNM_TEST_EMAIL"], let code = env["CNM_TEST_CODE"] {
+            login.tap()
+            let field = app.textFields["auth.email"]
+            _ = field.waitForExistence(timeout: 5)
+            field.typeText(email)
+            app.buttons["auth.continue"].tap()
+            let codeField = app.textFields["auth.code"]
+            _ = codeField.waitForExistence(timeout: 15)
+            codeField.typeText(code)
+        }
+        XCTAssertTrue(menu.waitForExistence(timeout: 30))
+        return app
     }
 
     private func pause(_ seconds: TimeInterval) {

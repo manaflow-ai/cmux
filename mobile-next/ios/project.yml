@@ -70,6 +70,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.mobile.uitests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: CmuxNext
 schemes:
   CmuxNext:

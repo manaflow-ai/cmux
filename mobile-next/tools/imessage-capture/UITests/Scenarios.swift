@@ -59,11 +59,6 @@ final class Scenarios: XCTestCase {
 
     func testS1List() throws {
         still("s1-list-light")
-        SMS.mark("relaunch")
-        app.terminate()
-        SMS.pause(1.0)
-        app.activate()
-        SMS.pause(2.0)
 
         SMS.mark("scroll-up-collapse")
         drag(CGPoint(x: 201, y: 650), CGPoint(x: 201, y: 350), velocity: 400, hold: 0.8)
@@ -94,12 +89,9 @@ final class Scenarios: XCTestCase {
         row.press(forDuration: 1.2)
         SMS.pause(1.2)
         still("s1-row-context-menu")
-        dump("ROW-MENU")
-        let pin = app.buttons["Pin"].exists ? app.buttons["Pin"] : app.otherElements["Pin"]
-        if pin.exists { pin.tap() } else { pt(201, 820).tap() }
-        SMS.pause(2.0)
-        still("s1-pinned")
-        dump("PINNED")
+        SMS.mark("dismiss-row-menu")
+        pt(201, 120).tap()
+        SMS.pause(1.5)
 
         SMS.mark("search-tap")
         app.searchFields.firstMatch.tap()
@@ -109,9 +101,34 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.5)
         still("s1-search-results")
         dump("SEARCH")
-        let cancel = app.buttons["Cancel"]
-        if cancel.exists { cancel.tap() } else { app.buttons["Close"].firstMatch.tap() }
+        app.buttons["close"].firstMatch.tap()
         SMS.pause(1.5)
+    }
+
+    /// Relaunch: NOTE the simulator Messages store is in-memory, so this wipes seeded messages.
+    func testS0Launch() throws {
+        SMS.mark("terminate")
+        app.terminate()
+        SMS.pause(1.0)
+        SMS.mark("launch")
+        app.activate()
+        SMS.pause(2.5)
+        still("s0-after-launch")
+    }
+
+    /// Pins the primary chat (run last: pinned layout changes the list).
+    func testS8Pin() throws {
+        let row = app.cells.containing(.staticText, identifier: Chat.a).firstMatch
+        SMS.mark("long-press-row")
+        row.press(forDuration: 1.2)
+        SMS.pause(1.2)
+        SMS.mark("tap-pin")
+        app.buttons["Pin"].firstMatch.tap()
+        SMS.pause(1.0)
+        still("s8-pinned-1s")
+        SMS.pause(3.0)
+        still("s8-pinned")
+        dump("PINNED")
     }
 
     /// Unpins whatever is pinned (best effort) so later scenarios see the plain list.
@@ -124,6 +141,13 @@ final class Scenarios: XCTestCase {
         dump("PIN-MENU")
         if app.buttons["Unpin"].exists { app.buttons["Unpin"].tap() } else { pt(201, 820).tap() }
         SMS.pause(1.5)
+    }
+
+    func testProbeState() throws {
+        still("probe-list")
+        app.staticTexts[Chat.a].firstMatch.tap()
+        SMS.pause(1.5)
+        still("probe-a")
     }
 
     // MARK: 2. Push / pop

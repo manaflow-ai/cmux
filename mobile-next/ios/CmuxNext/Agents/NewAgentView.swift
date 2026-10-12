@@ -140,6 +140,7 @@ struct NewAgentView: View {
             }
             .padding(.horizontal, 16)
         }
+        .tint(.primary)
         .padding(.bottom, 8)
     }
 

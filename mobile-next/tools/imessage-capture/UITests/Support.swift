@@ -27,8 +27,10 @@ enum SMS {
             let back = app.navigationBars.buttons["BackButton"]
             if back.exists { back.tap(); pause(0.8) } else { break }
         }
-        let cancel = app.buttons["Cancel"]
-        if cancel.exists { cancel.tap(); pause(0.6) }
+        for label in ["Cancel", "close"] {
+            let b = app.buttons[label]
+            if b.exists && b.isHittable { b.tap(); pause(0.8) }
+        }
     }
 
     static func screenCoordinate(_ app: XCUIApplication, x: CGFloat, y: CGFloat) -> XCUICoordinate {

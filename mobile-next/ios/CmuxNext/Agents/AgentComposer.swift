@@ -132,5 +132,6 @@ struct AgentComposer: View {
             .frame(height: 30)
             .background(Color(.tertiarySystemFill), in: .capsule)
         }
+        .tint(.primary)
     }
 }
