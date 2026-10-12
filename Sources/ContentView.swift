@@ -17122,8 +17122,8 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
-    let selectedForeground: NSColor
     let selectedBackground: NSColor
+    let selectedForeground: NSColor
     let fontScale: CGFloat
     let onFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
