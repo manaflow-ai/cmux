@@ -6,12 +6,20 @@ public import AppKit
 /// active field editor (text, caret, selection). Its placeholder is the scope's hint ink, never
 /// macOS's gray. It draws no focus ring: it sits inside a styled container whose own state shows
 /// focus, and AppKit's ring is a system-blue square around the field (cx-ncc.57).
-public final class ThemedTextField: NSTextField {
+public final class ThemedTextField: NSTextField, ThemedTextInput {
     /// The fill behind the text, resolved in the field's scope.
     public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
     private var placeholderText: String?
     /// AppKit's own placeholder bookkeeping while the themed one is set is not the caller's.
     private var applyingColors = false
+    /// Called with true when the field takes the keyboard and false when its edit ends, for a
+    /// container that shows focus (`ThemedFieldBox`).
+    public var onEditingChange: ((Bool) -> Void)?
+
+    /// The placeholder carries its own font: it follows the field's.
+    public override var font: NSFont? {
+        didSet { applyThemeColors() }
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -46,7 +54,13 @@ public final class ThemedTextField: NSTextField {
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         applyThemeColors()
+        if became { onEditingChange?(true) }
         return became
+    }
+
+    public override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        onEditingChange?(false)
     }
 
     public func applyThemeColors() {
@@ -59,12 +73,20 @@ public final class ThemedTextField: NSTextField {
 
 /// `ThemedTextField`'s colors on a secure field (a dialog's password or token): its characters
 /// never reach the screen or the pasteboard.
-public final class ThemedSecureTextField: NSSecureTextField {
+public final class ThemedSecureTextField: NSSecureTextField, ThemedTextInput {
     /// The fill behind the text, resolved in the field's scope.
     public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
     private var placeholderText: String?
     /// AppKit's own placeholder bookkeeping while the themed one is set is not the caller's.
     private var applyingColors = false
+    /// Called with true when the field takes the keyboard and false when its edit ends, for a
+    /// container that shows focus (`ThemedFieldBox`).
+    public var onEditingChange: ((Bool) -> Void)?
+
+    /// The placeholder carries its own font: it follows the field's.
+    public override var font: NSFont? {
+        didSet { applyThemeColors() }
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -99,7 +121,13 @@ public final class ThemedSecureTextField: NSSecureTextField {
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         applyThemeColors()
+        if became { onEditingChange?(true) }
         return became
+    }
+
+    public override func textDidEndEditing(_ notification: Notification) {
+        super.textDidEndEditing(notification)
+        onEditingChange?(false)
     }
 
     public func applyThemeColors() {
@@ -108,6 +136,12 @@ public final class ThemedSecureTextField: NSSecureTextField {
         defer { applyingColors = false }
         performWithTheme { applyThemedFieldColors(fill: fill(), placeholder: placeholderText) }
     }
+}
+
+/// A themed field (`ThemedTextField`, `ThemedSecureTextField`) that reports when it edits.
+@MainActor
+public protocol ThemedTextInput: NSTextField {
+    var onEditingChange: ((Bool) -> Void)? { get set }
 }
 
 extension NSTextField {

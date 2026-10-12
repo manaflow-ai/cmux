@@ -26,7 +26,7 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
         body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         stack.addArrangedSubview(body)
         email.delegate = self
-        stack.addArrangedSubview(email)
+        stack.addArrangedSubview(Self.boxed(email))
         pendingTitle.font = Typography.header
         stack.addArrangedSubview(pendingTitle)
         pendingList.font = Typography.caption
@@ -76,7 +76,7 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         stack.addArrangedSubview(body)
         name.delegate = self
-        stack.addArrangedSubview(name)
+        stack.addArrangedSubview(Self.boxed(name))
     }
 
     public override func viewDidAppear() {

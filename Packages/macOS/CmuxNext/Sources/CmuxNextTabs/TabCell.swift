@@ -78,7 +78,7 @@ final class TabCell {
     /// The tab's rounded pill (its background) in this cell's coordinates.
     var pillFrameInCell: CGRect { backgroundLayer.frame }
 
-    private let backgroundLayer = CALayer()
+    let backgroundLayer = CALayer()
     let iconLayer = CALayer()
     let titleLayer = ChromeTextLayer()
     /// Fades the clipped title and runs its hover marquee (one mask layer,
@@ -208,9 +208,10 @@ final class TabCell {
 
     private func updateLift() {
         themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
-        backgroundLayer.shadowRadius = Metrics.space3
-        backgroundLayer.shadowOffset = CGSize(width: 0, height: Metrics.space1)
-        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? 0.22 : 0), fade: .lift)
+        // The one popover shadow (PopupStyle), not a darker drag shadow.
+        backgroundLayer.shadowRadius = PopupStyle.standard.shadowBlur
+        backgroundLayer.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
+        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? PopupStyle.standard.shadowAlpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
