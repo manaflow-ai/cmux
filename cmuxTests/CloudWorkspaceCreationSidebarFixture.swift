@@ -24,9 +24,12 @@ final class CloudWorkspaceCreationSidebarFixture {
     private let defaults: UserDefaults
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
     private let previousSharedRenameService: CloudWorkspaceRenameService?
-    private let cloudOptIn = CloudOptInTestOverride()
+    private let cloudOptIn: CloudMachinesOptInForTesting?
 
-    init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
+    /// - Parameter enablesCloudMachines: Holds the Cloud opt-in on for tests
+    ///   that press a Cloud creation action, which otherwise shows the welcome.
+    init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil, enablesCloudMachines: Bool = false) throws {
+        cloudOptIn = enablesCloudMachines ? CloudMachinesOptInForTesting() : nil
         defaults = try #require(UserDefaults(suiteName: defaultsName))
         manager = TabManager(autoWelcomeIfNeeded: false, settings: UserDefaultsSettingsClient(defaults: defaults))
         originalWorkspaceID = try #require(manager.selectedTabId)
@@ -93,6 +96,6 @@ final class CloudWorkspaceCreationSidebarFixture {
         AppDelegate.shared = previousApp
         TerminalController.shared.setActiveTabManager(previousManager)
         defaults.removePersistentDomain(forName: defaultsName)
-        cloudOptIn.restore()
+        cloudOptIn?.restore()
     }
 }

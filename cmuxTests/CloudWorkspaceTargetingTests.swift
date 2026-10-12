@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCloud
 import CmuxCloudMachines
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,7 +11,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud workspace targeting", .serialized)
+@Suite("Cloud workspace targeting", .serialized, .exclusiveAppContext)
 struct CloudWorkspaceTargetingTests {
     @Test("The shared UI action follows A → local and B → local, independent of the legacy default")
     func selectionFlow() async throws {
@@ -250,7 +251,9 @@ struct CloudWorkspaceTargetingTests {
         #expect(manager.workspacesById[local.id] != nil)
     }
 
-    @Test("Unavailable Cloud access is consumed without creating a local workspace")
+    /// Signed out with Cloud on, Cmd-Y introduces Cloud through the welcome
+    /// card (#19876) and still never falls back to a local workspace.
+    @Test("Signed-out Cloud access introduces Cloud without creating a workspace")
     func unavailableAction() {
         let fixture = CloudWorkspaceTargetingFixture()
         defer {
@@ -259,9 +262,8 @@ struct CloudWorkspaceTargetingTests {
         }
         fixture.available = false
         let ids = fixture.manager.tabs.map(\.id)
-        // Signed out with Cloud on, a direct press opens the Cloud welcome
-        // (#19876): the action is handled, and nothing local is created.
         #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        #expect(NSApp.windows.contains { $0.identifier?.rawValue == "cmux.cloud.welcome" && $0.isVisible })
         #expect(fixture.requests.isEmpty)
         #expect(fixture.manager.tabs.map(\.id) == ids)
     }
