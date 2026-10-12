@@ -200,12 +200,22 @@ impl Mux {
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
+        // `apply` consumes the plan; keep what the tree delta needs.
+        let ledger = plan
+            .workspace_ledger
+            .as_ref()
+            .filter(|_| !commit.replayed)
+            .map(|ledger| (ledger.event_kind, ledger.workspace_key.clone()));
         plan.apply(&mut state, &commit, workspace_revision);
         let tab_deltas = tabs.and_then(|tabs| tabs.deltas(self, &state, &commit));
-        let workspace_delta =
-            plan.workspace_ledger.as_ref().filter(|_| !commit.replayed).and_then(|ledger| {
-                self.resource_workspace_tree_delta(&state, ledger, workspace_revision)
-            });
+        let workspace_delta = ledger.and_then(|(event_kind, workspace_key)| {
+            self.resource_workspace_tree_delta(
+                &state,
+                event_kind,
+                &workspace_key,
+                workspace_revision,
+            )
+        });
         drop(state);
         if let Some(delta) = workspace_delta {
             self.emit_committed_workspace_delta(&registry, delta, false);
@@ -228,17 +238,17 @@ impl Mux {
     fn resource_workspace_tree_delta(
         &self,
         state: &State,
-        ledger: &ResourceWorkspaceLedger,
+        event_kind: &str,
+        workspace_key: &str,
         workspace_revision: Option<u64>,
     ) -> Option<TreeDelta> {
-        let kind = match ledger.event_kind {
+        let kind = match event_kind {
             "workspace-renamed" => TreeDeltaKind::WorkspaceRenamed,
             "workspace-moved" => TreeDeltaKind::WorkspaceMoved,
             _ => return None,
         };
         workspace_revision?;
-        let index =
-            state.workspaces.iter().position(|workspace| workspace.key == ledger.workspace_key)?;
+        let index = state.workspaces.iter().position(|workspace| workspace.key == workspace_key)?;
         let workspace = state.workspaces[index].id;
         let decorations = self.tree_decorations_in_state(state);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;

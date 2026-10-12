@@ -3703,9 +3703,6 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-#[cfg(unix)]
-#[path = "cli/workspace_resource_deltas.rs"]
-mod workspace_resource_deltas;
 use state_helpers::*;
 
 #[cfg(unix)]
