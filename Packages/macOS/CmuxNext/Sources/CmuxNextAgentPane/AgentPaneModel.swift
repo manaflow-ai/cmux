@@ -133,6 +133,8 @@ public final class AgentPaneModel {
     /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
+    /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
+    @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
@@ -295,7 +297,7 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
-        case .gitWrite(let write): return await respondToGitWrite(write)
+        case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
         case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)

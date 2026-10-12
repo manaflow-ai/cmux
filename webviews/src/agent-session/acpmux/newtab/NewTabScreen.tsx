@@ -101,6 +101,8 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState(-1);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// Return asked with no agent to ask: the note under the field says so until the next edit.
+  const [noAgent, setNoAgent] = useState(false);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
@@ -215,12 +217,14 @@ export function NewTabScreen(props: Props) {
     }
     setText(next);
     setSelected(initialSelection(next, home));
+    setNoAgent(false);
   };
   const submit = () => {
     const row = rows[current];
     if (row) return activate(row);
     const prompt = text.trim();
-    if (!prompt || initialSelection(prompt, home) === 0 || !harness) return;
+    if (!prompt || initialSelection(prompt, home) === 0) return;
+    if (!harness) return setNoAgent(true);
     props.onAsk(harness, prompt, project);
   };
   const send = () => {
@@ -376,6 +380,20 @@ export function NewTabScreen(props: Props) {
           </button>
         </div>
       </div>
+      {noAgent && (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        <div className="nt-no-agent" role="status">
+          <span>{t("newtab.noAgent")}</span>
+          {props.onAddHarness && (
+            <button type="button" className="nt-tool nt-add-harness" onClick={() => props.onAddHarness?.()}>
+              <span className="nt-tool-icon" aria-hidden="true">
+                {toolIcon("plus")}
+              </span>
+              <span>{t("newtab.addHarness")}</span>
+            </button>
+          )}
+        </div>
+      )}
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>

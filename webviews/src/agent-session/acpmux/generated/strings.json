@@ -679,6 +679,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Tools",
     "newtab.addHarness": "Integrate a harness",
+    "newtab.noAgent": "No agent to ask.",
     "pane.renderFailed": "The agent pane could not be drawn.",
     "pane.renderRetry": "Try again",
     "pastChat.label": "From the original chat (read-only)",
@@ -798,6 +799,7 @@
     "project.noFolder": "No folder",
     "project.noProject": "Do not work in a project",
     "project.none": "No matching projects",
+    "project.noneYet": "No recent projects",
     "project.openFinder": "Open in Finder",
     "project.otherSources": "Other sources",
     "project.path": "Folder path",
@@ -1014,7 +1016,11 @@
     "turn.retryWith": "Retry with another model",
     "turn.signInAgain": "Sign in again",
     "turn.stopped": "You stopped after {time}",
-    "turn.worked": "Worked for {time}"
+    "turn.worked": "Worked for {time}",
+    "worktree.dismiss": "Dismiss",
+    "worktree.failed": "The host made no worktree.",
+    "worktree.failedBecause": "Couldn’t make a worktree: {reason}",
+    "worktree.new": "New Worktree"
   },
   "ar": {
     "adopt.live.fork": "تفريعها",
@@ -1696,6 +1702,7 @@
     "newTabPage.tool.terminal": "الطرفية",
     "newTabPage.tools": "الأدوات",
     "newtab.addHarness": "دمج أداة تشغيل",
+    "newtab.noAgent": "لا يوجد وكيل لسؤاله.",
     "pane.renderFailed": "تعذّر عرض لوحة الوكيل.",
     "pane.renderRetry": "إعادة المحاولة",
     "pastChat.label": "من المحادثة الأصلية (للقراءة فقط)",
@@ -1815,6 +1822,7 @@
     "project.noFolder": "بلا مجلد",
     "project.noProject": "لا تعمل في مشروع",
     "project.none": "لا توجد مشاريع مطابقة",
+    "project.noneYet": "لا توجد مشاريع حديثة",
     "project.openFinder": "فتح في Finder",
     "project.otherSources": "مصادر أخرى",
     "project.path": "مسار المجلد",
@@ -2031,7 +2039,11 @@
     "turn.retryWith": "إعادة المحاولة بنموذج آخر",
     "turn.signInAgain": "سجّل الدخول مرة أخرى",
     "turn.stopped": "أوقفت بعد {time}",
-    "turn.worked": "عمل لمدة {time}"
+    "turn.worked": "عمل لمدة {time}",
+    "worktree.dismiss": "إغلاق",
+    "worktree.failed": "لم ينشئ المضيف شجرة عمل.",
+    "worktree.failedBecause": "تعذّر إنشاء شجرة عمل: {reason}",
+    "worktree.new": "شجرة عمل جديدة"
   },
   "bs": {
     "adopt.live.fork": "Račvaj",
@@ -2713,6 +2725,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Alati",
     "newtab.addHarness": "Integriši harness",
+    "newtab.noAgent": "Nema agenta kojeg biste pitali.",
     "pane.renderFailed": "Panel agenta se nije mogao prikazati.",
     "pane.renderRetry": "Pokušaj ponovo",
     "pastChat.label": "Iz originalnog razgovora (samo za čitanje)",
@@ -2832,6 +2845,7 @@
     "project.noFolder": "Nema foldera",
     "project.noProject": "Ne radi u projektu",
     "project.none": "Nema odgovarajućih projekata",
+    "project.noneYet": "Nema nedavnih projekata",
     "project.openFinder": "Otvori u Finderu",
     "project.otherSources": "Drugi izvori",
     "project.path": "Putanja fascikle",
@@ -3048,7 +3062,11 @@
     "turn.retryWith": "Pokušaj ponovo s drugim modelom",
     "turn.signInAgain": "Ponovo se prijavi",
     "turn.stopped": "Zaustavili ste nakon {time}",
-    "turn.worked": "Radio {time}"
+    "turn.worked": "Radio {time}",
+    "worktree.dismiss": "Odbaci",
+    "worktree.failed": "Host nije napravio radno stablo.",
+    "worktree.failedBecause": "Radno stablo nije napravljeno: {reason}",
+    "worktree.new": "Novo radno stablo"
   },
   "da": {
     "adopt.live.fork": "Forgren den",
@@ -3730,6 +3748,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Værktøjer",
     "newtab.addHarness": "Integrer en harness",
+    "newtab.noAgent": "Der er ingen agent at spørge.",
     "pane.renderFailed": "Agentpanelet kunne ikke vises.",
     "pane.renderRetry": "Prøv igen",
     "pastChat.label": "Fra den oprindelige chat (skrivebeskyttet)",
@@ -3849,6 +3868,7 @@
     "project.noFolder": "Ingen mappe",
     "project.noProject": "Arbejd ikke i et projekt",
     "project.none": "Ingen matchende projekter",
+    "project.noneYet": "Ingen seneste projekter",
     "project.openFinder": "Åbn i Finder",
     "project.otherSources": "Andre kilder",
     "project.path": "Mappesti",
@@ -4065,7 +4085,11 @@
     "turn.retryWith": "Prøv igen med en anden model",
     "turn.signInAgain": "Log ind igen",
     "turn.stopped": "Du stoppede efter {time}",
-    "turn.worked": "Arbejdede i {time}"
+    "turn.worked": "Arbejdede i {time}",
+    "worktree.dismiss": "Luk",
+    "worktree.failed": "Værten oprettede intet arbejdstræ.",
+    "worktree.failedBecause": "Kunne ikke oprette et arbejdstræ: {reason}",
+    "worktree.new": "Nyt arbejdstræ"
   },
   "de": {
     "adopt.live.fork": "Abzweigen",
@@ -4747,6 +4771,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Werkzeuge",
     "newtab.addHarness": "Harness integrieren",
+    "newtab.noAgent": "Kein Agent zum Fragen.",
     "pane.renderFailed": "Der Agentenbereich konnte nicht dargestellt werden.",
     "pane.renderRetry": "Erneut versuchen",
     "pastChat.label": "Aus dem ursprünglichen Chat (schreibgeschützt)",
@@ -4866,6 +4891,7 @@
     "project.noFolder": "Kein Ordner",
     "project.noProject": "Nicht in einem Projekt arbeiten",
     "project.none": "Keine passenden Projekte",
+    "project.noneYet": "Keine letzten Projekte",
     "project.openFinder": "In Finder öffnen",
     "project.otherSources": "Andere Quellen",
     "project.path": "Ordnerpfad",
@@ -5082,7 +5108,11 @@
     "turn.retryWith": "Mit anderem Modell wiederholen",
     "turn.signInAgain": "Erneut anmelden",
     "turn.stopped": "Du hast nach {time} gestoppt",
-    "turn.worked": "Gearbeitet für {time}"
+    "turn.worked": "Gearbeitet für {time}",
+    "worktree.dismiss": "Schließen",
+    "worktree.failed": "Der Host hat keinen Worktree angelegt.",
+    "worktree.failedBecause": "Worktree konnte nicht angelegt werden: {reason}",
+    "worktree.new": "Neuer Worktree"
   },
   "es": {
     "adopt.live.fork": "Bifurcar",
@@ -5764,6 +5794,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Herramientas",
     "newtab.addHarness": "Integrar un harness",
+    "newtab.noAgent": "No hay ningún agente al que preguntar.",
     "pane.renderFailed": "No se pudo mostrar el panel del agente.",
     "pane.renderRetry": "Reintentar",
     "pastChat.label": "Del chat original (solo lectura)",
@@ -5883,6 +5914,7 @@
     "project.noFolder": "Sin carpeta",
     "project.noProject": "No trabajar en un proyecto",
     "project.none": "No hay proyectos coincidentes",
+    "project.noneYet": "No hay proyectos recientes",
     "project.openFinder": "Abrir en Finder",
     "project.otherSources": "Otras fuentes",
     "project.path": "Ruta de la carpeta",
@@ -6099,7 +6131,11 @@
     "turn.retryWith": "Reintentar con otro modelo",
     "turn.signInAgain": "Volver a iniciar sesión",
     "turn.stopped": "Detuviste tras {time}",
-    "turn.worked": "Trabajó durante {time}"
+    "turn.worked": "Trabajó durante {time}",
+    "worktree.dismiss": "Descartar",
+    "worktree.failed": "El host no creó ningún worktree.",
+    "worktree.failedBecause": "No se pudo crear un worktree: {reason}",
+    "worktree.new": "Nuevo worktree"
   },
   "fr": {
     "adopt.live.fork": "La dupliquer",
@@ -6781,6 +6817,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Outils",
     "newtab.addHarness": "Intégrer un harness",
+    "newtab.noAgent": "Aucun agent à qui demander.",
     "pane.renderFailed": "Le panneau de l'agent n'a pas pu être affiché.",
     "pane.renderRetry": "Réessayer",
     "pastChat.label": "De la discussion d’origine (lecture seule)",
@@ -6900,6 +6937,7 @@
     "project.noFolder": "Aucun dossier",
     "project.noProject": "Ne pas travailler dans un projet",
     "project.none": "Aucun projet correspondant",
+    "project.noneYet": "Aucun projet récent",
     "project.openFinder": "Ouvrir dans le Finder",
     "project.otherSources": "Autres sources",
     "project.path": "Chemin du dossier",
@@ -7116,7 +7154,11 @@
     "turn.retryWith": "Réessayer avec un autre modèle",
     "turn.signInAgain": "Se reconnecter",
     "turn.stopped": "Vous avez arrêté après {time}",
-    "turn.worked": "A travaillé pendant {time}"
+    "turn.worked": "A travaillé pendant {time}",
+    "worktree.dismiss": "Ignorer",
+    "worktree.failed": "L’hôte n’a créé aucun worktree.",
+    "worktree.failedBecause": "Impossible de créer un worktree : {reason}",
+    "worktree.new": "Nouveau worktree"
   },
   "it": {
     "adopt.live.fork": "Biforcala",
@@ -7798,6 +7840,7 @@
     "newTabPage.tool.terminal": "Terminale",
     "newTabPage.tools": "Strumenti",
     "newtab.addHarness": "Integra un harness",
+    "newtab.noAgent": "Nessun agente a cui chiedere.",
     "pane.renderFailed": "Impossibile visualizzare il pannello dell'agente.",
     "pane.renderRetry": "Riprova",
     "pastChat.label": "Dalla chat originale (sola lettura)",
@@ -7917,6 +7960,7 @@
     "project.noFolder": "Nessuna cartella",
     "project.noProject": "Non lavorare in un progetto",
     "project.none": "Nessun progetto corrispondente",
+    "project.noneYet": "Nessun progetto recente",
     "project.openFinder": "Apri nel Finder",
     "project.otherSources": "Altre origini",
     "project.path": "Percorso della cartella",
@@ -8133,7 +8177,11 @@
     "turn.retryWith": "Riprova con un altro modello",
     "turn.signInAgain": "Accedi di nuovo",
     "turn.stopped": "Hai interrotto dopo {time}",
-    "turn.worked": "Ha lavorato per {time}"
+    "turn.worked": "Ha lavorato per {time}",
+    "worktree.dismiss": "Ignora",
+    "worktree.failed": "L’host non ha creato alcun worktree.",
+    "worktree.failedBecause": "Impossibile creare un worktree: {reason}",
+    "worktree.new": "Nuovo worktree"
   },
   "ja": {
     "adopt.live.fork": "フォーク",
@@ -8815,6 +8863,7 @@
     "newTabPage.tool.terminal": "ターミナル",
     "newTabPage.tools": "ツール",
     "newtab.addHarness": "ハーネスを統合",
+    "newtab.noAgent": "質問できるエージェントがありません。",
     "pane.renderFailed": "エージェントペインを表示できませんでした。",
     "pane.renderRetry": "再試行",
     "pastChat.label": "元のチャットの内容（読み取り専用）",
@@ -8934,6 +8983,7 @@
     "project.noFolder": "フォルダなし",
     "project.noProject": "プロジェクトで作業しない",
     "project.none": "一致するプロジェクトはありません",
+    "project.noneYet": "最近のプロジェクトはありません",
     "project.openFinder": "Finderで開く",
     "project.otherSources": "その他のソース",
     "project.path": "フォルダのパス",
@@ -9150,7 +9200,11 @@
     "turn.retryWith": "別のモデルで再試行",
     "turn.signInAgain": "もう一度サインイン",
     "turn.stopped": "{time} 後に停止しました",
-    "turn.worked": "{time} 作業しました"
+    "turn.worked": "{time} 作業しました",
+    "worktree.dismiss": "閉じる",
+    "worktree.failed": "ホストはワークツリーを作成しませんでした。",
+    "worktree.failedBecause": "ワークツリーを作成できませんでした: {reason}",
+    "worktree.new": "新しいワークツリー"
   },
   "km": {
     "adopt.live.fork": "បំបែកវា",
@@ -9832,6 +9886,7 @@
     "newTabPage.tool.terminal": "ស្ថានីយ",
     "newTabPage.tools": "ឧបករណ៍",
     "newtab.addHarness": "បញ្ចូល harness",
+    "newtab.noAgent": "គ្មានភ្នាក់ងារដើម្បីសួរទេ។",
     "pane.renderFailed": "មិនអាចបង្ហាញផ្ទាំងភ្នាក់ងារបានទេ។",
     "pane.renderRetry": "ព្យាយាមម្តងទៀត",
     "pastChat.label": "ពីការជជែកដើម (សម្រាប់តែអាន)",
@@ -9951,6 +10006,7 @@
     "project.noFolder": "គ្មានថត",
     "project.noProject": "កុំធ្វើការក្នុងគម្រោង",
     "project.none": "គ្មានគម្រោងត្រូវគ្នា",
+    "project.noneYet": "គ្មានគម្រោងថ្មីៗ",
     "project.openFinder": "បើកក្នុង Finder",
     "project.otherSources": "ប្រភពផ្សេងទៀត",
     "project.path": "ផ្លូវថត",
@@ -10167,7 +10223,11 @@
     "turn.retryWith": "ព្យាយាមម្តងទៀតជាមួយម៉ូដែលផ្សេង",
     "turn.signInAgain": "ចូលគណនីម្ដងទៀត",
     "turn.stopped": "អ្នកបានបញ្ឈប់បន្ទាប់ពី {time}",
-    "turn.worked": "បានធ្វើការរយៈពេល {time}"
+    "turn.worked": "បានធ្វើការរយៈពេល {time}",
+    "worktree.dismiss": "បិទ",
+    "worktree.failed": "ម៉ាស៊ីនមិនបានបង្កើត worktree ទេ។",
+    "worktree.failedBecause": "មិនអាចបង្កើត worktree បានទេ៖ {reason}",
+    "worktree.new": "Worktree ថ្មី"
   },
   "ko": {
     "adopt.live.fork": "포크",
@@ -10849,6 +10909,7 @@
     "newTabPage.tool.terminal": "터미널",
     "newTabPage.tools": "도구",
     "newtab.addHarness": "하네스 통합",
+    "newtab.noAgent": "물어볼 에이전트가 없습니다.",
     "pane.renderFailed": "에이전트 패널을 표시할 수 없습니다.",
     "pane.renderRetry": "다시 시도",
     "pastChat.label": "원래 채팅의 내용(읽기 전용)",
@@ -10968,6 +11029,7 @@
     "project.noFolder": "폴더 없음",
     "project.noProject": "프로젝트에서 작업하지 않음",
     "project.none": "일치하는 프로젝트 없음",
+    "project.noneYet": "최근 프로젝트 없음",
     "project.openFinder": "Finder에서 열기",
     "project.otherSources": "기타 소스",
     "project.path": "폴더 경로",
@@ -11184,7 +11246,11 @@
     "turn.retryWith": "다른 모델로 다시 시도",
     "turn.signInAgain": "다시 로그인",
     "turn.stopped": "{time} 후에 중지함",
-    "turn.worked": "{time} 동안 작업함"
+    "turn.worked": "{time} 동안 작업함",
+    "worktree.dismiss": "닫기",
+    "worktree.failed": "호스트가 워크트리를 만들지 않았습니다.",
+    "worktree.failedBecause": "워크트리를 만들 수 없습니다: {reason}",
+    "worktree.new": "새 워크트리"
   },
   "nb": {
     "adopt.live.fork": "Forgren den",
@@ -11866,6 +11932,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Verktøy",
     "newtab.addHarness": "Integrer en harness",
+    "newtab.noAgent": "Ingen agent å spørre.",
     "pane.renderFailed": "Agentpanelet kunne ikke vises.",
     "pane.renderRetry": "Prøv igjen",
     "pastChat.label": "Fra den opprinnelige chatten (skrivebeskyttet)",
@@ -11985,6 +12052,7 @@
     "project.noFolder": "Ingen mappe",
     "project.noProject": "Ikke arbeid i et prosjekt",
     "project.none": "Ingen samsvarende prosjekter",
+    "project.noneYet": "Ingen nylige prosjekter",
     "project.openFinder": "Åpne i Finder",
     "project.otherSources": "Andre kilder",
     "project.path": "Mappebane",
@@ -12201,7 +12269,11 @@
     "turn.retryWith": "Prøv igjen med en annen modell",
     "turn.signInAgain": "Logg inn på nytt",
     "turn.stopped": "Du stoppet etter {time}",
-    "turn.worked": "Jobbet i {time}"
+    "turn.worked": "Jobbet i {time}",
+    "worktree.dismiss": "Lukk",
+    "worktree.failed": "Verten laget ikke noe arbeidstre.",
+    "worktree.failedBecause": "Kunne ikke lage et arbeidstre: {reason}",
+    "worktree.new": "Nytt arbeidstre"
   },
   "pl": {
     "adopt.live.fork": "Rozgałęź",
@@ -12883,6 +12955,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Narzędzia",
     "newtab.addHarness": "Zintegruj harness",
+    "newtab.noAgent": "Brak agenta, którego można zapytać.",
     "pane.renderFailed": "Nie udało się wyświetlić panelu agenta.",
     "pane.renderRetry": "Spróbuj ponownie",
     "pastChat.label": "Z oryginalnego czatu (tylko do odczytu)",
@@ -13002,6 +13075,7 @@
     "project.noFolder": "Brak folderu",
     "project.noProject": "Nie pracuj w projekcie",
     "project.none": "Brak pasujących projektów",
+    "project.noneYet": "Brak ostatnich projektów",
     "project.openFinder": "Otwórz w Finderze",
     "project.otherSources": "Inne źródła",
     "project.path": "Ścieżka folderu",
@@ -13218,7 +13292,11 @@
     "turn.retryWith": "Ponów z innym modelem",
     "turn.signInAgain": "Zaloguj się ponownie",
     "turn.stopped": "Zatrzymano po {time}",
-    "turn.worked": "Pracował przez {time}"
+    "turn.worked": "Pracował przez {time}",
+    "worktree.dismiss": "Zamknij",
+    "worktree.failed": "Host nie utworzył drzewa roboczego.",
+    "worktree.failedBecause": "Nie udało się utworzyć drzewa roboczego: {reason}",
+    "worktree.new": "Nowe drzewo robocze"
   },
   "pt-BR": {
     "adopt.live.fork": "Bifurcar",
@@ -13900,6 +13978,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Ferramentas",
     "newtab.addHarness": "Integrar um harness",
+    "newtab.noAgent": "Nenhum agente para perguntar.",
     "pane.renderFailed": "Não foi possível exibir o painel do agente.",
     "pane.renderRetry": "Tentar novamente",
     "pastChat.label": "Do chat original (somente leitura)",
@@ -14019,6 +14098,7 @@
     "project.noFolder": "Sem pasta",
     "project.noProject": "Não trabalhar em um projeto",
     "project.none": "Nenhum projeto correspondente",
+    "project.noneYet": "Nenhum projeto recente",
     "project.openFinder": "Abrir no Finder",
     "project.otherSources": "Outras fontes",
     "project.path": "Caminho da pasta",
@@ -14235,7 +14315,11 @@
     "turn.retryWith": "Tentar novamente com outro modelo",
     "turn.signInAgain": "Entrar novamente",
     "turn.stopped": "Você interrompeu após {time}",
-    "turn.worked": "Trabalhou por {time}"
+    "turn.worked": "Trabalhou por {time}",
+    "worktree.dismiss": "Dispensar",
+    "worktree.failed": "O host não criou nenhuma worktree.",
+    "worktree.failedBecause": "Não foi possível criar uma worktree: {reason}",
+    "worktree.new": "Nova worktree"
   },
   "ru": {
     "adopt.live.fork": "Ответвить",
@@ -14917,6 +15001,7 @@
     "newTabPage.tool.terminal": "Терминал",
     "newTabPage.tools": "Инструменты",
     "newtab.addHarness": "Подключить harness",
+    "newtab.noAgent": "Нет агента, которому можно задать вопрос.",
     "pane.renderFailed": "Не удалось отобразить панель агента.",
     "pane.renderRetry": "Повторить",
     "pastChat.label": "Из исходного чата (только чтение)",
@@ -15036,6 +15121,7 @@
     "project.noFolder": "Нет папки",
     "project.noProject": "Не работать в проекте",
     "project.none": "Подходящих проектов нет",
+    "project.noneYet": "Нет недавних проектов",
     "project.openFinder": "Открыть в Finder",
     "project.otherSources": "Другие источники",
     "project.path": "Путь к папке",
@@ -15252,7 +15338,11 @@
     "turn.retryWith": "Повторить с другой моделью",
     "turn.signInAgain": "Войти снова",
     "turn.stopped": "Вы остановили через {time}",
-    "turn.worked": "Работал {time}"
+    "turn.worked": "Работал {time}",
+    "worktree.dismiss": "Закрыть",
+    "worktree.failed": "Хост не создал рабочее дерево.",
+    "worktree.failedBecause": "Не удалось создать рабочее дерево: {reason}",
+    "worktree.new": "Новое рабочее дерево"
   },
   "th": {
     "adopt.live.fork": "แยกออกมา",
@@ -15934,6 +16024,7 @@
     "newTabPage.tool.terminal": "เทอร์มินัล",
     "newTabPage.tools": "เครื่องมือ",
     "newtab.addHarness": "ผสานรวม harness",
+    "newtab.noAgent": "ไม่มีเอเจนต์ให้ถาม",
     "pane.renderFailed": "ไม่สามารถแสดงแผงเอเจนต์ได้",
     "pane.renderRetry": "ลองอีกครั้ง",
     "pastChat.label": "จากแชตเดิม (อ่านอย่างเดียว)",
@@ -16053,6 +16144,7 @@
     "project.noFolder": "ไม่มีโฟลเดอร์",
     "project.noProject": "ไม่ทำงานในโปรเจกต์",
     "project.none": "ไม่พบโปรเจกต์ที่ตรงกัน",
+    "project.noneYet": "ไม่มีโปรเจกต์ล่าสุด",
     "project.openFinder": "เปิดใน Finder",
     "project.otherSources": "แหล่งอื่นๆ",
     "project.path": "เส้นทางโฟลเดอร์",
@@ -16269,7 +16361,11 @@
     "turn.retryWith": "ลองใหม่ด้วยโมเดลอื่น",
     "turn.signInAgain": "ลงชื่อเข้าใช้อีกครั้ง",
     "turn.stopped": "คุณหยุดหลังจาก {time}",
-    "turn.worked": "ทำงานเป็นเวลา {time}"
+    "turn.worked": "ทำงานเป็นเวลา {time}",
+    "worktree.dismiss": "ปิด",
+    "worktree.failed": "โฮสต์ไม่ได้สร้างเวิร์กทรี",
+    "worktree.failedBecause": "สร้างเวิร์กทรีไม่ได้: {reason}",
+    "worktree.new": "เวิร์กทรีใหม่"
   },
   "tr": {
     "adopt.live.fork": "Çatalla",
@@ -16951,6 +17047,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Araçlar",
     "newtab.addHarness": "Harness entegre et",
+    "newtab.noAgent": "Sorulacak bir ajan yok.",
     "pane.renderFailed": "Ajan paneli görüntülenemedi.",
     "pane.renderRetry": "Tekrar dene",
     "pastChat.label": "Orijinal sohbetten (salt okunur)",
@@ -17070,6 +17167,7 @@
     "project.noFolder": "Klasör yok",
     "project.noProject": "Bir projede çalışma",
     "project.none": "Eşleşen proje yok",
+    "project.noneYet": "Son proje yok",
     "project.openFinder": "Finder’da aç",
     "project.otherSources": "Diğer kaynaklar",
     "project.path": "Klasör yolu",
@@ -17286,7 +17384,11 @@
     "turn.retryWith": "Başka bir modelle yeniden dene",
     "turn.signInAgain": "Tekrar giriş yap",
     "turn.stopped": "{time} sonra durdurdunuz",
-    "turn.worked": "Şu kadar çalıştı: {time}"
+    "turn.worked": "Şu kadar çalıştı: {time}",
+    "worktree.dismiss": "Kapat",
+    "worktree.failed": "Ana makine çalışma ağacı oluşturmadı.",
+    "worktree.failedBecause": "Çalışma ağacı oluşturulamadı: {reason}",
+    "worktree.new": "Yeni çalışma ağacı"
   },
   "uk": {
     "adopt.live.fork": "Відгалузити",
@@ -17968,6 +18070,7 @@
     "newTabPage.tool.terminal": "Термінал",
     "newTabPage.tools": "Інструменти",
     "newtab.addHarness": "Під’єднати harness",
+    "newtab.noAgent": "Немає агента, якого можна запитати.",
     "pane.renderFailed": "Не вдалося показати панель агента.",
     "pane.renderRetry": "Спробувати ще раз",
     "pastChat.label": "З початкового чату (лише читання)",
@@ -18087,6 +18190,7 @@
     "project.noFolder": "Немає папки",
     "project.noProject": "Не працювати в проєкті",
     "project.none": "Немає відповідних проєктів",
+    "project.noneYet": "Немає нещодавніх проєктів",
     "project.openFinder": "Відкрити у Finder",
     "project.otherSources": "Інші джерела",
     "project.path": "Шлях до папки",
@@ -18303,7 +18407,11 @@
     "turn.retryWith": "Повторити з іншою моделлю",
     "turn.signInAgain": "Увійти знову",
     "turn.stopped": "Ви зупинили через {time}",
-    "turn.worked": "Працював {time}"
+    "turn.worked": "Працював {time}",
+    "worktree.dismiss": "Закрити",
+    "worktree.failed": "Хост не створив робоче дерево.",
+    "worktree.failedBecause": "Не вдалося створити робоче дерево: {reason}",
+    "worktree.new": "Нове робоче дерево"
   },
   "vi": {
     "adopt.live.fork": "Tách nhánh",
@@ -18985,6 +19093,7 @@
     "newTabPage.tool.terminal": "Terminal",
     "newTabPage.tools": "Công cụ",
     "newtab.addHarness": "Tích hợp harness",
+    "newtab.noAgent": "Không có tác tử nào để hỏi.",
     "pane.renderFailed": "Không thể hiển thị khung tác tử.",
     "pane.renderRetry": "Thử lại",
     "pastChat.label": "Từ cuộc trò chuyện gốc (chỉ đọc)",
@@ -19104,6 +19213,7 @@
     "project.noFolder": "Không có thư mục",
     "project.noProject": "Không làm việc trong dự án",
     "project.none": "Không có dự án phù hợp",
+    "project.noneYet": "Không có dự án gần đây",
     "project.openFinder": "Mở trong Finder",
     "project.otherSources": "Nguồn khác",
     "project.path": "Đường dẫn thư mục",
@@ -19320,7 +19430,11 @@
     "turn.retryWith": "Thử lại với mô hình khác",
     "turn.signInAgain": "Đăng nhập lại",
     "turn.stopped": "Bạn đã dừng sau {time}",
-    "turn.worked": "Đã làm việc trong {time}"
+    "turn.worked": "Đã làm việc trong {time}",
+    "worktree.dismiss": "Đóng",
+    "worktree.failed": "Máy chủ không tạo worktree nào.",
+    "worktree.failedBecause": "Không thể tạo worktree: {reason}",
+    "worktree.new": "Worktree mới"
   },
   "zh-Hans": {
     "adopt.live.fork": "分叉",
@@ -20002,6 +20116,7 @@
     "newTabPage.tool.terminal": "终端",
     "newTabPage.tools": "工具",
     "newtab.addHarness": "集成 harness",
+    "newtab.noAgent": "没有可询问的智能体。",
     "pane.renderFailed": "无法显示代理窗格。",
     "pane.renderRetry": "重试",
     "pastChat.label": "来自原聊天（只读）",
@@ -20121,6 +20236,7 @@
     "project.noFolder": "无文件夹",
     "project.noProject": "不在项目中工作",
     "project.none": "没有匹配的项目",
+    "project.noneYet": "没有最近的项目",
     "project.openFinder": "在 Finder 中打开",
     "project.otherSources": "其他来源",
     "project.path": "文件夹路径",
@@ -20337,7 +20453,11 @@
     "turn.retryWith": "使用其他模型重试",
     "turn.signInAgain": "重新登录",
     "turn.stopped": "你在 {time} 后停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "worktree.dismiss": "关闭",
+    "worktree.failed": "主机未创建工作树。",
+    "worktree.failedBecause": "无法创建工作树：{reason}",
+    "worktree.new": "新建工作树"
   },
   "zh-Hant": {
     "adopt.live.fork": "分叉",
@@ -21019,6 +21139,7 @@
     "newTabPage.tool.terminal": "終端",
     "newTabPage.tools": "工具",
     "newtab.addHarness": "整合 harness",
+    "newtab.noAgent": "沒有可詢問的智慧體。",
     "pane.renderFailed": "無法顯示代理窗格。",
     "pane.renderRetry": "重試",
     "pastChat.label": "來自原聊天（唯讀）",
@@ -21138,6 +21259,7 @@
     "project.noFolder": "無檔案夾",
     "project.noProject": "不在專案中工作",
     "project.none": "沒有相符的專案",
+    "project.noneYet": "沒有最近的專案",
     "project.openFinder": "在 Finder 中開啟",
     "project.otherSources": "其他來源",
     "project.path": "資料夾路徑",
@@ -21354,6 +21476,10 @@
     "turn.retryWith": "使用其他模型重試",
     "turn.signInAgain": "重新登入",
     "turn.stopped": "你在 {time} 後停止了",
-    "turn.worked": "已工作 {time}"
+    "turn.worked": "已工作 {time}",
+    "worktree.dismiss": "關閉",
+    "worktree.failed": "主機未建立工作樹。",
+    "worktree.failedBecause": "無法建立工作樹：{reason}",
+    "worktree.new": "新增工作樹"
   }
 }
