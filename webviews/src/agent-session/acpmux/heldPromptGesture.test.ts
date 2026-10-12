@@ -7,15 +7,21 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
-const saved = { window: scope.window, document: scope.document };
+const saved = {
+  window: "window" in scope,
+  document: "document" in scope,
+  values: { window: scope.window, document: scope.document },
+};
 
 beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
 afterAll(() => {
-  scope.window = saved.window;
-  scope.document = saved.document;
+  // Put back exactly what was there: a global that was absent stays absent for later files.
+  for (const key of ["window", "document"] as const)
+    if (saved[key]) scope[key] = saved.values[key];
+    else delete scope[key];
 });
 
 test("a prompt refused for want of a gesture says to send it again", async () => {
@@ -44,12 +50,15 @@ test("a prompt refused for want of a gesture says to send it again", async () =>
     undefined,
     () => new RefusingHost() as unknown as WebSocket,
   );
-  let accepted = false;
-  // The composer's send: it holds the prompt until acpmux takes it (`accepted`).
-  await client.send("ship it", [], undefined, () => (accepted = true)).catch(() => undefined);
-  const notes = rows.filter((row) => row.kind === "notice").map((row) => row.text);
-  expect(accepted).toBe(false);
-  expect(rows.some((row) => row.kind === "user" && row.text === "ship it")).toBe(false);
-  expect(notes).toEqual(["Not sent. Send it again."]);
-  client.close?.();
+  try {
+    let accepted = false;
+    // The composer's send: it holds the prompt until acpmux takes it (`accepted`).
+    await client.send("ship it", [], undefined, () => (accepted = true)).catch(() => undefined);
+    const notes = rows.filter((row) => row.kind === "notice").map((row) => row.text);
+    expect(accepted).toBe(false);
+    expect(rows.some((row) => row.kind === "user" && row.text === "ship it")).toBe(false);
+    expect(notes).toEqual(["Not sent. Send it again."]);
+  } finally {
+    client.close?.();
+  }
 });
