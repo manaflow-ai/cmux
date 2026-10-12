@@ -94,4 +94,42 @@ import Testing
         #expect(abs(ConversationReplyMotion.easeInOut(1) - 1) < 0.0001)
         #expect(ConversationReplyMotion.easeInOut(0.25) < 0.25)
     }
+
+    /// A slow swipe on a group row, laid out as on a 402 pt phone: avatar
+    /// 32 pt at the 16 pt margin, bubble 7 pt past it, arrow parked at the
+    /// bubble's resting leading edge. Messages moves only the balloon and
+    /// its tapbacks (`swipeToReplyLayoutOffset` reaches the message display
+    /// view and the associated tapback cells); the avatar, sender name and
+    /// quoted message are separate transcript items that stay put, so the
+    /// arrow grows in the gap the bubble leaves and nothing covers it.
+    @Test func slowSwipeArrowIsNeverCoveredByTheRow() {
+        let balloon = CGRect(x: 55, y: 20, width: 140, height: 36)
+        let avatar = CGRect(x: 16, y: balloon.maxY - 32, width: 32, height: 32)
+        let center = CGPoint(x: balloon.minX + ConversationReplyMotion.indicatorSize / 2, y: balloon.midY)
+        for step in 0...160 {
+            let translation = CGFloat(step) / 2
+            let offset = ConversationReplyMotion.bubbleOffset(forTranslation: translation)
+            guard let arrow = ConversationReplyMotion.indicatorFrame(restingCenter: center, isOutgoing: false, offset: offset) else { continue }
+            let movedAvatar = avatar.offsetBy(dx: ConversationReplyMotion.followsSwipe(.avatar) ? offset : 0, dy: 0)
+            #expect(!movedAvatar.intersects(arrow), "avatar covers the arrow at \(offset) pt")
+            #expect(!balloon.offsetBy(dx: offset, dy: 0).intersects(arrow), "bubble covers the arrow at \(offset) pt")
+        }
+        #expect(ConversationReplyMotion.followsSwipe(.balloon))
+        #expect(ConversationReplyMotion.followsSwipe(.tapback))
+        #expect(!ConversationReplyMotion.followsSwipe(.avatar))
+        #expect(!ConversationReplyMotion.followsSwipe(.senderName))
+        #expect(!ConversationReplyMotion.followsSwipe(.replyQuote))
+    }
+
+    @Test func outgoingArrowStaysInTheGapItsBubbleLeaves() {
+        let balloon = CGRect(x: 200, y: 0, width: 186, height: 36)
+        let center = CGPoint(x: balloon.minX + ConversationReplyMotion.indicatorSize / 2, y: balloon.midY)
+        for step in 0...160 {
+            let offset = ConversationReplyMotion.bubbleOffset(forTranslation: CGFloat(step) / 2)
+            guard let arrow = ConversationReplyMotion.indicatorFrame(restingCenter: center, isOutgoing: true, offset: offset) else { continue }
+            #expect(!balloon.offsetBy(dx: offset, dy: 0).intersects(arrow), "bubble covers the arrow at \(offset) pt")
+        }
+        // Full size and drifted 12 pt left at the threshold.
+        #expect(ConversationReplyMotion.indicatorFrame(restingCenter: center, isOutgoing: true, offset: 40) == CGRect(x: 188, y: 5, width: 26, height: 26))
+    }
 }
