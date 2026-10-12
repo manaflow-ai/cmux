@@ -2889,7 +2889,20 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The text of the workspace's newest unread notification.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array>
+				<string>notification</string>
 				<string>directory</string>
 				<string>branch</string>
 				<string>process</string>
@@ -2908,6 +2921,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3022,6 +3036,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.terminal.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -3030,6 +3052,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3144,6 +3167,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.agent.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -3152,6 +3183,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3266,6 +3298,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.browser.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -3274,6 +3314,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3388,6 +3429,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.mixed.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -3396,6 +3445,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -4103,6 +4153,18 @@
 			<string>notifications.attention.showOnSidebar</string>
 			<key>pfm_title</key>
 			<string>Mark the Sidebar Row</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.moveToTop</string>
+			<key>pfm_title</key>
+			<string>Move the Workspace to the Top</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
