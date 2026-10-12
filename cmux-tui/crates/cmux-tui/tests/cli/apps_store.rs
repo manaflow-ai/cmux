@@ -412,6 +412,82 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
     (reply, hub)
 }
 
+/// cx-rtipa S2: a link that `cmux link ensure` starts after an app server
+/// read "no link" reaches that server at once: the app sends
+/// `apps-link-changed`, and the server gets `cmux.host.link.changed` with the
+/// new link's socket. `cmux link stop` and another `apps-link-changed` take
+/// it away again.
+#[test]
+fn apps_link_changed_tells_servers_the_link_that_ensure_started() {
+    let apps = Apps::new("ensured");
+    let out = apps.dir.join("link.jsonl");
+    write_script(
+        &apps.dir.join("servers").join("host-probe"),
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+    );
+    let app = apps.dir.join("first-party").join("linked");
+    std::fs::create_dir_all(&app).unwrap();
+    let catalog = json!({ "family": "linked", "operations": [{
+        "name": "linked.ping", "owner": "app:cmux/linked", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": "linked/1"
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    write_app(
+        &apps.dir.join("first-party"),
+        "cmux",
+        "linked",
+        json!({
+            "catalog": "catalog.json", "files": ["catalog.json"],
+            "scopes": { "linked:read": "Read." },
+            "server": {
+                "kind": "native",
+                "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+                "args": [out.to_string_lossy()],
+                "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" },
+                "scopes": { "op:cmux.host.link.get": "Read where the link helper lives." }
+            }
+        }),
+    );
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let first = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(first["value"]["hub_socket"], Value::Null, "no link runs yet: {first}");
+
+    let state = apps.dir.join("state");
+    let link = |args: &[&str]| -> Value {
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("link")
+            .args(args)
+            .arg("--state-dir")
+            .arg(state.join("link"))
+            .env("CMUX_TUI_STATE_DIR", &state)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "link {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        serde_json::from_str(text.lines().last().unwrap_or_default()).unwrap()
+    };
+    let started = link(&["ensure", "--install", "inst_apps_store_link", "--port", "0"]);
+    assert_eq!(started["status"], "started", "{started}");
+    let told = apps.agent().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(ok(&told)["servers"], 1, "{told}");
+    let changed = apps.lines("link.jsonl", 2).swap_remove(1);
+    assert_eq!(
+        (changed["t"].clone(), changed["op"].clone(), changed["data"]["hub_socket"].clone()),
+        (json!("host.event"), json!("cmux.host.link.changed"), started["socket"].clone()),
+        "{changed}"
+    );
+
+    assert_eq!(link(&["stop"])["stopped"], true);
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-link-changed" })));
+    let gone = apps.lines("link.jsonl", 3).swap_remove(2);
+    assert_eq!(gone["data"]["hub_socket"], Value::Null, "the stopped link is gone: {gone}");
+}
+
 /// An app holding the family scope still never reaches an op only a
 /// signed-in person may call (no install principal) or one that moves
 /// money: the supervisor refuses the call before routing it.
