@@ -84,10 +84,13 @@ const listed = (patch: string) => ({
   files: [{ path: "a.txt", status: "modified", additions: 2, deletions: 2, patch }],
 });
 
-async function open(wholeFile?: (scope: string, path: string) => Promise<unknown>) {
+async function open(
+  wholeFile?: (scope: string, path: string) => Promise<unknown>,
+  shown = header + hunk(1, 5) + hunk(22, 28),
+) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  const source = { diff: async () => listed(header + hunk(1, 5) + hunk(22, 28)), wholeFile };
+  const source = { diff: async () => listed(shown), wholeFile };
   await act(async () => root.render(<DiffPanel files={[]} onClose={() => {}} source={source} />));
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-diff-scope")!.click());
   await settle();
@@ -132,6 +135,20 @@ test("a git scope's file is read whole, and the lines between its hunks can be s
 test("a whole read whose changes differ from the shown diff is not used", async () => {
   // The file changed since the scope loaded: line 2 now reads otherwise.
   const view = await open(async () => listed(header + hunk(1, 30).replace("+line two", "+line 2b")));
+  try {
+    expect(view.diff.hasAttribute("data-whole-file")).toBe(false);
+    expect(expanders(view)).toEqual([]);
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
+// A host that ignores or caps `context_lines` answers with the hunk's own context: a read that does
+// not start at the file's first line is not the whole file (review, #19780).
+test("a read that does not start at the first line is not used", async () => {
+  // Shown: only line 25 changed (the fixture's line 2 change is left out of both).
+  const lateOnly = (from: number, to: number) => hunk(from, to).replace("-line 2\n+line two", " line 2");
+  const view = await open(async () => listed(header + lateOnly(20, 30)), header + lateOnly(22, 28));
   try {
     expect(view.diff.hasAttribute("data-whole-file")).toBe(false);
     expect(expanders(view)).toEqual([]);
