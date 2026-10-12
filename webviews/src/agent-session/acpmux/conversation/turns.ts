@@ -344,7 +344,8 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
 /// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
-const staysOut = (row: AcpmuxRow) => isSubagentGroup(row) || (row.kind === "plan" && row.plan !== undefined);
+const staysOut = (row: AcpmuxRow) =>
+  isSubagentGroup(row) || (row.kind === "plan" && row.plan !== undefined) || row.kind === "backgroundTask";
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any

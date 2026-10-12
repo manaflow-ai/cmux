@@ -1,9 +1,10 @@
 #!/bin/sh
 # Builds the React agent pane (webviews/src/agent-session/acpmux) into the page
 # that CmuxNextAgentPane ships as a module resource: index.html (markup and
-# styles), pane.js (the app) and locales/ (strings and the loader that picks
-# them). The page runs no inline script (CSP script-src 'self'), so markup an
-# agent gets rendered cannot run script. The output is build output (gitignored;
+# styles), pane.js (the app), chunks/ (code it loads when used) and locales/
+# (strings and the loader that picks them). The page runs no inline script
+# (CSP script-src 'self'), so markup an agent gets rendered cannot run
+# script. The output is build output (gitignored;
 # scripts/cmux-next/build-web-bundles.sh runs this before every app build).
 #
 #   scripts/cmux-next/build-agent-pane-web.sh          # rebuild the resource
@@ -47,7 +48,8 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
+# Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
@@ -90,7 +92,6 @@ CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src d
   cat "$WORK/styles.css"
   printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
-cp "$WORK/app.js" "$WORK/pane.js"
 
 if [ "$MODE" = "--check" ]; then
   echo "agent pane web bundle builds"
@@ -99,8 +100,10 @@ fi
 
 mkdir -p "$OUT"
 cp "$WORK/index.html" "$OUT/index.html"
-cp "$WORK/pane.js" "$OUT/pane.js"
+cp "$WORK/pane/pane.js" "$OUT/pane.js"
+rm -rf "$OUT/chunks"
+cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
-echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) and pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes)"
+echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

@@ -1079,6 +1079,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_version.py
 
+      - name: Validate nightly-next ships as cmux NEXT beside classic NIGHTLY
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_identity.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |

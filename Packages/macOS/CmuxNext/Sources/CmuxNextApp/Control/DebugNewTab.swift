@@ -47,6 +47,9 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "frame_strip":
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugFrameStrip.run(params, controller, services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }

@@ -30,7 +30,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -63,7 +63,7 @@ final class ChromeIconButton: NSButton {
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
     }
 

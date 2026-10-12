@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// Variant `list`: one chronological list. Open requests are pinned on top
 /// with inline answer controls; notices and closed requests follow, newest
@@ -54,7 +55,7 @@ struct FeedHeader: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(colors.secondary)
-            .help(FeedStrings.markAllRead)
+            .themedHelp(FeedStrings.markAllRead)
             .disabled(counts.unreadNotices == 0)
         }
         .padding(.horizontal, 14)

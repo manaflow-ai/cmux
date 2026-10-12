@@ -1544,6 +1544,22 @@ body[data-loading="true"] #status::before {
   flex-direction: column;
   min-width: 0;
 }
+/* Beside a chat (the ± opens the viewer about 400 px wide) Commit and Push leave the toolbar
+   for a row of their own, so the scope chip keeps its label (cx-ku7r1). */
+.diff-git-tools-row {
+  display: none;
+}
+@media (max-width: 600px) {
+  #toolbar .diff-git-tools {
+    display: none;
+  }
+  .diff-git-tools-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--cmux-diff-border);
+  }
+}
 .diff-files-changed {
   display: flex;
   align-items: center;
