@@ -23,6 +23,7 @@ public final class TerminalHostView: NSView {
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
+    private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
@@ -107,19 +108,25 @@ public final class TerminalHostView: NSView {
 
     /// The link status label over the terminal (hidden while connected).
     var statusText: String? {
-        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause)
+        banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
     }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
-        banner.show(status, hostLoss: hostLoss, cause: hostLossCause)
+        banner.show(status, hostLoss: hostLoss, cause: hostLossCause, stall: shellStall)
         restartButton.show(status)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
-        banner.show(shownStatus, hostLoss: loss, cause: cause)
+        banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
+    }
+
+    /// A shell the daemon cannot reach is labeled even while the view's link is up.
+    func showShellStall(_ stall: TerminalShellStall?) {
+        shellStall = stall
+        banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.

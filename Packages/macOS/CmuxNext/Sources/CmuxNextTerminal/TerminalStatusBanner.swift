@@ -53,8 +53,8 @@ final class TerminalStatusBanner: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
-              cause: TerminalHostLossCause? = nil) {
-        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause) else {
+              cause: TerminalHostLossCause? = nil, stall: TerminalShellStall? = nil) {
+        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
             isHidden = true
             return
         }
@@ -65,14 +65,18 @@ final class TerminalStatusBanner: NSView {
 
     /// The banner text, or nil while connected. An exited terminal whose
     /// host was lost (`hostLoss`) says so, followed by the owner's recorded
-    /// `cause` when there is one. `strings` defaults to this module's table
-    /// and falls back to English if the bundle is gone.
+    /// `cause` when there is one. A shell the daemon cannot reach (`stall`)
+    /// is named whatever the view's own link says, unless it exited.
+    /// `strings` defaults to this module's table and falls back to English
+    /// if the bundle is gone.
     static func text(
         for status: TerminalConnectionStatus,
         hostLoss: TerminalHostLoss? = nil,
         cause: TerminalHostLossCause? = nil,
+        stall: TerminalShellStall? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
+        if status != .exited, let stall { return stallText(stall, strings: strings) }
         if case .exited = status, hostLoss != nil, let cause,
            let detail = causeText(cause, strings: strings),
            let lost = text(for: status, hostLoss: hostLoss, strings: strings) {
@@ -115,6 +119,21 @@ final class TerminalStatusBanner: NSView {
             }
             let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
+        }
+    }
+
+    /// The label of a shell the daemon cannot reach.
+    static func stallText(_ stall: TerminalShellStall, strings: ModuleResourceBundle) -> String {
+        let close = strings.text("terminal.link.stall.closeHint", defaultValue: "Close the tab to end it")
+        switch stall {
+        case .reconnecting:
+            return strings.text("terminal.link.stall.reconnecting", defaultValue: "Reconnecting to the shell…")
+        case .linkLost:
+            let reason = strings.text("terminal.link.stall.linkLost", defaultValue: "Terminal stopped: cmux lost its link to the shell")
+            return "\(reason) · \(close)"
+        case .otherBuild:
+            let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
+            return "\(reason) · \(close)"
         }
     }
 

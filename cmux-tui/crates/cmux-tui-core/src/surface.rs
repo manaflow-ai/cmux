@@ -72,7 +72,8 @@ use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
 #[cfg(any(unix, windows))]
 use reconnect_backoff::{
     TERMINAL_HOST_HEALTHY_CONNECTION, TERMINAL_HOST_RECONNECT_MAX_DELAY,
-    TerminalHostReconnectBackoff, wait_for_reconnect_after_geometry_failure,
+    TerminalHostReconnectBackoff, publish_host_link_state,
+    wait_for_reconnect_after_geometry_failure,
 };
 #[cfg(test)]
 use render_tap::FrameProducerTestHook;

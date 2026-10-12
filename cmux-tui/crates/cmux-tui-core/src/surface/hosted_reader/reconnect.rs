@@ -272,9 +272,13 @@ impl HostedReader {
             self.sequence_boundary = replacement_snapshot.sequence_boundary;
             self.protocol_version = replacement_protocol_version;
             self.smart_renderer = replacement_smart_renderer;
-            pty.host_connection_state
-                .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
+            let was = pty
+                .host_connection_state
+                .swap(TerminalHostConnectionState::Connected as u8, Ordering::AcqRel);
             self.connected_at = Some(Instant::now());
+            if was != TerminalHostConnectionState::Connected as u8 {
+                publish_host_link_state(pty);
+            }
             return Some(replacement_reader);
         }
     }
