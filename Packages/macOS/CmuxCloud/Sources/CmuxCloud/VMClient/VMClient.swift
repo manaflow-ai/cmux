@@ -504,7 +504,7 @@ public struct VMListPage: Sendable {
     /// provisioning ones. Paused machines are listed but free their slot, so
     /// `vms.count` overstates usage.
     public var activeMachineCount: Int {
-        vms.count
+        limits?.activeVmCount ?? vms.count(where: { CloudVMResourcePool.usesResourcePool(forStatus: $0.status) })
     }
 }
 
