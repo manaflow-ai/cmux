@@ -146,6 +146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cost (a launcher panel opens in one frame), without
         // delaying that frame.
         launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
+        // A launch that shows terminals first lets the agent pages' warm-up page go too.
+        launchSettle.whenSettled { AgentPaneWarmup.finish() }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.

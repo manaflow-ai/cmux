@@ -5,7 +5,7 @@ import WebKit
 /// first-use setup and the shared pool's first web content process then run
 /// while the windows build, so the first agent page loads sooner (live
 /// about 65 ms earlier on a cold launch). The empty page goes once an agent
-/// page has loaded.
+/// page has loaded or the launch settled on its first terminal frame.
 public enum AgentPaneWarmup {
     private static var view: WKWebView?
 
@@ -19,7 +19,7 @@ public enum AgentPaneWarmup {
         self.view = view
     }
 
-    static func finish() {
+    public static func finish() {
         view = nil
     }
 }
