@@ -99,7 +99,7 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   const calls: [string, unknown][] = [];
   await renderNewTab(calls);
   expect(mic()).not.toBeNull();
-  expect(mic()!.closest(".acpmux-mic-menu")!.nextElementSibling?.classList.contains("nt-enter")).toBe(true);
+  expect(mic()!.closest(".acpmux-mic-menu")!.nextElementSibling?.classList.contains("nt-send")).toBe(true);
   await act(async () => mic()!.click());
   expect(calls.map(([method]) => method)).toContain("dictation.toggle");
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
