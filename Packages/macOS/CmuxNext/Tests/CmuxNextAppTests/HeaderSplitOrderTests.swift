@@ -160,6 +160,12 @@ struct HeaderSplitOrderTests {
             toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: actions)
             #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == (inherits ? row.cwd : nil), "inherits \(inherits)")
         }
+        // A chat of another machine keeps its folder: the key is this Mac's (NewTerminalStart).
+        var remote = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        remote.splitInherits = { false }
+        remote.local = { false }
+        toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: remote)
+        #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == row.cwd)
         // Browser names no folder either way.
         var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
         actions.splitInherits = { false }

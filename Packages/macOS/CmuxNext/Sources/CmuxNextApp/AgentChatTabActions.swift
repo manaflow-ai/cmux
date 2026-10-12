@@ -16,6 +16,8 @@ struct AgentChatTabActions {
     var hidden: @MainActor () -> Set<ActionID> = { [] }
     /// Ghostty's `split-inherit-working-directory` (NewTerminalStart, cx-zld.1).
     var splitInherits: @MainActor () -> Bool = { NewTerminalStart.inherits(.split) }
+    /// The chat's folder is on this Mac: the inherit keys apply only here (NewTerminalStart).
+    var local: @MainActor () -> Bool = { true }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
