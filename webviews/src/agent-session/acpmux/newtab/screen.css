@@ -242,6 +242,7 @@
 .nt-tool-host-with-menu{display:flex;align-items:center;gap:2px}
 .nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-no-agent{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 4px 0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .nt-tool-icon{display:inline-grid;place-items:center;width:16px}
 .nt-tool-menu{display:flex;align-items:center}
 .nt-tool-menu-button{width:28px;height:30px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font-size:var(--text-title);cursor:pointer}
