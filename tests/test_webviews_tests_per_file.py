@@ -24,14 +24,28 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 FAKE_BUN = """#!/usr/bin/env bash
 [ "$1" = test ] || exit 9
 printf '%s\\n' "$2" >> "$BUN_CALLS"
-# A file that starts a Vite dev server holds the shared optimizer cache while it runs.
-if grep -q -e '"dev",' -e 'vite.config.gallery-dev.ts' "$2"; then
-  if mkdir "$DEV_SERVER_LOCK" 2> /dev/null; then
+# A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
+# at once on one cache lose each other's files, and a cold cache is the slow first bundle.
+if grep -q -e '"dev",' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$2"; then
+  config=default
+  grep -q 'vite.config.settings-page.mjs' "$2" && config=settings
+  grep -q 'vite.config.gallery-dev.ts' "$2" && config=gallery
+  grep -q 'vite.config.acpmux-pane.mjs' "$2" && config=pane
+  cache="${CMUX_VITE_CACHE_DIR:-$SHARED_VITE_CACHE}"
+  warm=cold
+  [ -e "$cache/warm-$config" ] && warm=warm
+  printf '%s %s %s\\n' "$2" "$cache" "$warm" >> "$BUN_DEV"
+  mkdir "$DEV_RUNNING/$$"
+  ls "$DEV_RUNNING" | wc -l >> "$BUN_PEAK"
+  if mkdir "$cache.lock" 2> /dev/null; then
     sleep 0.5
-    rmdir "$DEV_SERVER_LOCK"
+    mkdir -p "$cache"
+    touch "$cache/warm-$config"
+    rmdir "$cache.lock"
   else
     printf 'overlap %s\\n' "$2" >> "$BUN_OVERLAPS"
   fi
+  rmdir "$DEV_RUNNING/$$"
 fi
 case "$2" in
   *hang*) sleep 60 ;;
@@ -77,9 +91,16 @@ class PerFileRunner(unittest.TestCase):
         calls.write_text("", encoding="utf-8")
         self.overlaps = temp / "overlaps"
         self.overlaps.write_text("", encoding="utf-8")
+        self.dev, self.peak, running = temp / "dev", temp / "peak", temp / "running"
+        self.dev.write_text("", encoding="utf-8")
+        self.peak.write_text("", encoding="utf-8")
+        running.mkdir()
+        (web / "node_modules").mkdir()
+        self.shared_cache = web / "node_modules" / ".vite"
         system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
         env = {**os.environ, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
-               "BUN_OVERLAPS": str(self.overlaps), "DEV_SERVER_LOCK": str(temp / "dev-server.lock"),
+               "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
+               "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "4"}
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
@@ -113,19 +134,25 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
 
-    def test_files_that_start_a_dev_server_never_run_at_once(self):
-        # editor-page, ui-a11y and text-field-focus start `vp dev` with the default config. Run at
-        # once on a fresh checkout, they optimize dependencies into one node_modules/.vite and the
-        # loser's page never loads: editor-page timed out on react-apps-check for #19746.
+    def test_dev_server_files_run_at_once_each_on_its_own_warm_vite_cache(self):
+        # Every file that starts a dev server once ran one at a time after the rest (#19812): on
+        # one node_modules/.vite two at once lost each other's optimized files, and editor-page
+        # timed out beside ui-a11y and text-field-focus (#19746). That lane added 2.5 minutes. Each
+        # file now has its own cache, copied from one warmed per config, so several run at once.
         default_server = 'spawn(vp, ["dev", "--port", String(port), "--strictPort"]);\n'
         settings_server = 'spawn(vp, [\n  "dev",\n  "--config",\n  "vite.config.settings-page.mjs",\n]);\n'
         gallery_server = 'import config from "../vite.config.gallery-dev.ts";\n'
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
         contents = {
             "test/editor-page.test.ts": default_server,
             "test/ui-a11y.test.ts": default_server,
             "test/text-field-focus.test.ts": default_server,
             "test/settings-scroll.test.ts": settings_server,
             "test/composer-mention.test.ts": gallery_server,
+            "test/composer-send-stop.test.ts": gallery_server,
+            "test/chat-find.test.ts": pane_server,
+            "test/agent-history.test.ts": pane_server,
+            "test/agent-pane-peer-chat.test.ts": pane_server,
         }
         files = [*contents, "test/a.test.ts", "src/b.test.tsx"]
         result, _, calls = self.run_runner(files, contents=contents)
@@ -133,7 +160,14 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertEqual(calls, sorted(f"./{name}" for name in files))
         self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
-        self.assertIn("(5 dev server files one at a time after)", output)
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(sorted(name for name, _, _ in runs), sorted(f"./{name}" for name in contents))
+        caches = [cache for _, cache, _ in runs]
+        self.assertEqual(len(set(caches)), len(caches), "each dev server file has its own Vite cache")
+        self.assertNotIn(str(self.shared_cache), caches)
+        # One file per config warms its cache first; every other file starts from a copy of it.
+        self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
+        self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])
