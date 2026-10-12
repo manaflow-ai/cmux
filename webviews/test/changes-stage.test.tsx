@@ -124,6 +124,28 @@ test("Staged unstages instead, and a refusal shows inline", async () => {
   }
 });
 
+/// A refusal stayed up after later actions worked (dogfood run, hq #1893): a Stage refusal still
+/// showed after a commit and a push from the same view. It has a Dismiss button now, as git's
+/// own errors in the view do.
+test("a refusal can be dismissed", async () => {
+  const view = await open("Unstaged", async () => {
+    throw new Error("That folder is outside this chat's folders.");
+  });
+  try {
+    await act(async () => view.more()!.click());
+    await settle();
+    await act(async () => menuItem("Stage")!.click());
+    await settle();
+    const notice = () => view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const dismiss = notice()?.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]');
+    expect(dismiss).toBeTruthy();
+    await act(async () => dismiss!.click());
+    expect(notice()).toBeNull();
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
 /// A rename is two paths in the index: unstaging only the new name would leave the old name's
 /// deletion staged.
 test("a rename unstages both of its paths", async () => {
