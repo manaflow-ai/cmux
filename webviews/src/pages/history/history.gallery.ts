@@ -92,11 +92,34 @@ export default historyPageEntry({
   area: "Pages",
   height: 640,
   widths: { narrow: 560, normal: 1000, wide: 1400 },
-  covers: ["page:cmux.history", "pages/history/HistoryPage.tsx#HistoryPage", "pages/history/KindIcon.tsx#KindIcon"],
+  checks: {
+    longFrameFailMs: {
+      value: 33,
+      reason:
+        "History menu actions should settle without a long frame on the gallery host.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason:
+        "A history mutation refusal should announce its result within a quarter second.",
+    },
+  },
+  covers: [
+    "page:cmux.history",
+    "pages/history/HistoryPage.tsx#HistoryPage",
+    "pages/history/KindIcon.tsx#KindIcon",
+  ],
   variants: {
     empty: { note: "No history entries have been recorded.", entries: [] },
-    loading: { note: "The history owner is still loading the timeline.", loading: true, entries },
-    normal: { note: "All five history kinds, including a running agent and an unavailable row.", entries },
+    loading: {
+      note: "The history owner is still loading the timeline.",
+      loading: true,
+      entries,
+    },
+    normal: {
+      note: "All five history kinds, including a running agent and an unavailable row.",
+      entries,
+    },
     "many-entries": {
       note: "A long command timeline that scrolls and wraps long names.",
       entries: [...many, ...entries],
@@ -111,24 +134,36 @@ export default historyPageEntry({
       entries,
       query: { menuIndex: 1 },
     },
-    "network-error": { note: "The history owner is disconnected.", entries, error: "network" },
+    "network-error": {
+      note: "The history owner is disconnected.",
+      entries,
+      error: "network",
+    },
     "permission-error": {
       note: "A refused remove announces the host error and leaves the timeline intact.",
       entries,
       error: "permission",
       query: { menuIndex: 1 },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".page-menu-item.destructive"),
+        );
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
-            "history cannot be changed",
+            ctx.document.querySelector<HTMLElement>(
+              '[role="alert"].history-error',
+            )?.textContent === "history cannot be changed",
         );
-        if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
+        if (!ctx.document.querySelector(".history-row"))
+          throw new Error("history rows disappeared after refusal");
       },
     },
-    "not-found-error": { note: "The history owner reports a missing source.", entries, error: "not-found" },
+    "not-found-error": {
+      note: "The history owner reports a missing source.",
+      entries,
+      error: "not-found",
+    },
   },
 });
