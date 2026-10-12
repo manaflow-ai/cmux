@@ -54,8 +54,13 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "project.list":
       case "file.search":
         return answer(state.native?.[message.method] ?? []);
-      default:
-        return answer(state.native?.[message.method ?? ""] ?? null);
+      default: {
+        const value = state.native?.[message.method ?? ""] ?? null;
+        // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
+        if (value && typeof value === "object" && "nativeError" in value)
+          return { ok: false, error: (value as { nativeError: unknown }).nativeError };
+        return answer(value);
+      }
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {

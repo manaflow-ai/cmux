@@ -28,6 +28,7 @@ import {
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
+import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
@@ -79,6 +80,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
@@ -111,12 +113,11 @@ import {
   clearFindHighlights,
   FindReveal,
   findRowIndex,
-  isFindRow,
   paintFindHighlights,
-  useChatFind,
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
+import { ChatFindScope } from "./conversation/ChatFindScope";
 import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
@@ -169,6 +170,7 @@ import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
+import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
@@ -1788,6 +1790,27 @@ function AcpmuxPane() {
     error?: string;
   }>();
   const [importError, setImportError] = useState<string | undefined>();
+  // Edit CLAUDE.md the app refused (a link out of the folder, not a file): the notice above the
+  // composer says why, with Retry; opening it clears the notice.
+  const [instructionsFailure, setInstructionsFailure] = useState<
+    { cwd: string; failure: InstructionsFailure } | undefined
+  >();
+  // The shown chat's folder: an answer for a folder the pane has left changes nothing.
+  const instructionsFolder = useRef<string | undefined>(undefined);
+  const openInstructions = useCallback((cwd: string, name: string) => {
+    void callNative("project.instructions", { cwd, name }).then(
+      () => {
+        if (instructionsFolder.current === cwd) setInstructionsFailure(undefined);
+      },
+      (error: unknown) => {
+        if (instructionsFolder.current !== cwd) return;
+        setInstructionsFailure({
+          cwd,
+          failure: { file: name, code: error instanceof NativeError ? error.code : undefined },
+        });
+      },
+    );
+  }, []);
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -2087,25 +2110,14 @@ function AcpmuxPane() {
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
-  // Find in Chat over the transcript; the page actions read it through `findRef`.
-  const findRows = childRows ?? sourceRows;
-  const find = useChatFind(findRows);
-  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row.
-  const findTarget = find.open ? find.matches[find.active] : undefined;
-  // Before paint, so the transcript scrolls to the match in the same frame.
-  useLayoutEffect(() => {
-    if (!findTarget || childRows || transcriptRows.some((row) => isFindRow(row, findTarget.rowId))) return;
-    const user = findRows
-      .slice(0, findTarget.rowIndex + 1)
-      .reverse()
-      .find((row) => row.kind === "user");
-    if (!user) return;
-    const fold = `${WORKED}-${user.id}`;
-    setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
-  }, [findTarget?.rowId, findTarget?.occurrence]);
-  const findRef = useRef(find);
-  findRef.current = find;
+  // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
+  // through `findRef`.
+  const findRef = useRef<ChatFind | undefined>(undefined);
+  const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
+  const openFold = useCallback(
+    (fold: string) => setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold))),
+    [],
+  );
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
@@ -2714,10 +2726,13 @@ function AcpmuxPane() {
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
-        if (name === "find") findRef.current.show();
-        if (name === "findNext") findRef.current.next();
-        if (name === "findPrevious") findRef.current.previous();
-        if (name === "hideFind") findRef.current.hide();
+        // With the keyboard in the changes view (or the view covering the transcript) they find there.
+        const diff = diffFindRef.current;
+        const target = diff?.owns() ? diff.find : findRef.current;
+        if (name === "find") target?.show();
+        if (name === "findNext") target?.next();
+        if (name === "findPrevious") target?.previous();
+        if (name === "hideFind") target?.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -3206,10 +3221,10 @@ function AcpmuxPane() {
           },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
-          "chat.find": async ({ text }) => findRef.current.show(typeof text === "string" ? text : undefined),
-          "chat.findNext": async () => findRef.current.next(),
-          "chat.findPrevious": async () => findRef.current.previous(),
-          "chat.hideFind": async () => findRef.current.hide(),
+          "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),
+          "chat.findNext": async () => findRef.current?.next(),
+          "chat.findPrevious": async () => findRef.current?.previous(),
+          "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
           "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
@@ -3452,6 +3467,9 @@ function AcpmuxPane() {
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
+  instructionsFolder.current = localCwd;
+  // Another chat or folder: an instructions notice was about the one before.
+  useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
@@ -3567,9 +3585,7 @@ function AcpmuxPane() {
     // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
     const instructions = quick
       ? undefined
-      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
-          ignoreFailure(callNative("project.instructions", { cwd, name })),
-        );
+      : instructionsRow({ cwd: localCwd, family: summary?.family || summary?.harness }, openInstructions);
     // Files every chat in the folder reads: copied into it and named in that file (cx-ncc.67).
     const projectFiles = quick
       ? undefined
@@ -3823,32 +3839,41 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <VirtualTranscript
-                      rows={transcriptRows}
-                      working={snapshot.isWorking}
-                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                      jumpButton={!quick}
-                      focusComposer={() => composerHandle.current?.focus()}
-                      find={quick ? undefined : find}
-                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                      canLoadOlder={!childRows && snapshot.canLoadOlder}
-                      openAt={
-                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                          ? scrollAnchor
-                          : undefined
-                      }
-                      onAnchor={
-                        quick || childRows || !shownSessionId
-                          ? undefined
-                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                      }
-                      expanded={expanded}
-                      registry={registry}
-                      githubRepository={githubRepository}
-                      // The Quick Composer has no room for the changes view; its file rows stay plain.
-                      onOpenDiff={quick ? undefined : openDiff}
-                      onToggleActivity={toggleActivity}
-                    />
+                    <ChatFindScope
+                      rows={childRows ?? sourceRows}
+                      shown={childRows ? undefined : transcriptRows}
+                      openFold={openFold}
+                      findRef={findRef}
+                    >
+                      {(find) => (
+                        <VirtualTranscript
+                          rows={transcriptRows}
+                          working={snapshot.isWorking}
+                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                          jumpButton={!quick}
+                          focusComposer={() => composerHandle.current?.focus()}
+                          find={quick ? undefined : find}
+                          sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                          canLoadOlder={!childRows && snapshot.canLoadOlder}
+                          openAt={
+                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                              ? scrollAnchor
+                              : undefined
+                          }
+                          onAnchor={
+                            quick || childRows || !shownSessionId
+                              ? undefined
+                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                          }
+                          expanded={expanded}
+                          registry={registry}
+                          githubRepository={githubRepository}
+                          // The Quick Composer has no room for the changes view; its file rows stay plain.
+                          onOpenDiff={quick ? undefined : openDiff}
+                          onToggleActivity={toggleActivity}
+                        />
+                      )}
+                    </ChatFindScope>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>
@@ -3930,6 +3955,13 @@ function AcpmuxPane() {
           {importError}
         </p>
       )}
+      <InstructionsNotice
+        failure={instructionsFailure?.failure}
+        onRetry={() =>
+          instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+        }
+        onDismiss={() => setInstructionsFailure(undefined)}
+      />
       {harnessCard ?? (
         <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       )}
@@ -4560,6 +4592,7 @@ function AcpmuxPane() {
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
                     onAddressThread={addressThread}
+                    findHandle={diffFindRef}
                   />
                 )}
               </div>
