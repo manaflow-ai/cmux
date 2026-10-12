@@ -64,6 +64,10 @@ public final class AgentPaneStartFolders {
         // The store's rules when the daemon has them (cx-9aps): it names the folder or why not.
         if let resolve, let answer = await resolve(path) {
             if answer.kind == .seed, let cwd = answer.cwd { return AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
+            // An agent-home folder picked itself (cx-djoj7): the store names it as the chat's.
+            if answer.kind == .agentHome, answer.skipped == nil, let home = answer.agentHome {
+                return AgentPaneReply.success(["status": "ok", "cwd": home])
+            }
             switch answer.skipped?.reason {
             case .home:
                 // Granted only when the pick is this Mac's own home folder, checked here again:
