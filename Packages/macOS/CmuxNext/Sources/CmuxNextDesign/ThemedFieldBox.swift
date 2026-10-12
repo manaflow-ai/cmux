@@ -43,9 +43,11 @@ public final class ThemedFieldBox: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") } // crash-allow: never decoded from a nib
 
-    /// A click in the padding focuses the field, as a click on a bezeled field's edge does.
+    /// A click in the padding focuses the field, as a click on a bezeled field's edge does. While
+    /// the field is already editing it keeps its edit (no restart, no select-all).
     public override func mouseDown(with event: NSEvent) {
         guard field.isEditable, field.isEnabled, let window else { return super.mouseDown(with: event) }
+        guard field.currentEditor() == nil else { return }
         window.makeFirstResponder(field)
     }
 
