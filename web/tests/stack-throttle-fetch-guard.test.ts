@@ -15,13 +15,13 @@ const originalFetch = globalThis.fetch;
 
 type Recorded = { url: string };
 
-function throttlingFetch(recorded: Recorded[], retryAfter = "1"): typeof fetch {
+function throttlingFetch(recorded: Recorded[], retryAfter = "1", requestId: string | null = null): typeof fetch {
   return (async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
     recorded.push({ url });
     return new Response(JSON.stringify({ error: "rate limited" }), {
       status: 429,
-      headers: { "retry-after": retryAfter, "x-hexclave-request-id": "req-1" },
+      headers: { "retry-after": retryAfter, ...(requestId ? { "x-hexclave-request-id": requestId } : {}) },
     });
   }) as typeof fetch;
 }
@@ -61,9 +61,14 @@ describe("Stack throttle fetch guard", () => {
     const other = await fetch("https://example.com/limited");
     expect(other.status).toBe(429);
     const stackTeapot = await fetch("https://api.hexclave.com/api/v1/teapot", {
-      headers: { "x-hexclave-project-id": PROJECT_ID },
+      headers: { "x-hexclave-project-id": PROJECT_ID, "x-hexclave-random-nonce": "n" },
     });
     expect(stackTeapot.status).toBe(418);
+    // Our own server-key REST helpers send no SDK nonce and read the 429 themselves.
+    const ownHelper = await fetch("https://api.hexclave.com/api/v1/contact-channels", {
+      headers: { "x-hexclave-project-id": PROJECT_ID },
+    });
+    expect(ownHelper.status).toBe(429);
   });
 
   test("installing twice wraps fetch once", async () => {

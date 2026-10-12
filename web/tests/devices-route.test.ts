@@ -128,7 +128,7 @@ beforeEach(async () => {
 });
 
 describe("device registry route", () => {
-  dbTest("withdraws one owned tag, preserves siblings, and rejects other owners/teams", async () => {
+  dbTest("withdraws one owned tag, preserves siblings, and leaves other owners/teams untouched", async () => {
     if (!sql) throw new Error("test database not initialized");
     await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }));
     await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "nightly", routes: [legacyTailscaleRoute] }));
@@ -146,8 +146,8 @@ describe("device registry route", () => {
     expect(missingInstance.status).toBe(200);
     expect(await missingInstance.json()).toEqual({ ok: true, withdrawn: false });
     const missingDevice = await PATCH(withdrawRequest({ deviceId: DEVICE_B, tag: "default" }));
-    expect(missingDevice.status).toBe(403);
-    expect(await missingDevice.json()).toEqual({ error: "device_not_owned" });
+    expect(missingDevice.status).toBe(200);
+    expect(await missingDevice.json()).toEqual({ ok: true, withdrawn: false });
     const [counts] = await sql<{ devices: number; instances: number }[]>`
       select (select count(*)::int from devices) as devices,
              (select count(*)::int from device_app_instances) as instances
@@ -156,11 +156,11 @@ describe("device registry route", () => {
 
     currentUserId = "registry-user-2";
     const otherOwner = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "nightly" }));
-    expect(otherOwner.status).toBe(403);
-    expect(await otherOwner.json()).toEqual({ error: "device_not_owned" });
+    expect(otherOwner.status).toBe(200);
+    expect(await otherOwner.json()).toEqual({ ok: true, withdrawn: false });
     const otherTeam = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "nightly" }, "team-b"));
-    expect(otherTeam.status).toBe(403);
-    expect(await otherTeam.json()).toEqual({ error: "device_not_owned" });
+    expect(otherTeam.status).toBe(200);
+    expect(await otherTeam.json()).toEqual({ ok: true, withdrawn: false });
     currentUserId = "registry-user-1";
     const unchanged = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
     const after = await unchanged.json() as { devices: Array<{ instances: Array<{ tag: string; routes: unknown[] }> }> };

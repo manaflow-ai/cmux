@@ -1,5 +1,7 @@
 import { Effect } from "effect";
+import { env } from "../../app/env";
 import { getStackServerApp } from "../../app/lib/stack";
+import { stackApiBaseURL } from "../auth/stackApiBaseURL";
 import { TeamGoneError, TeamServiceUnavailableError } from "./errors";
 
 /**
@@ -69,6 +71,8 @@ export type TeamStackApp = {
     options?: { recursive?: boolean },
   ): Promise<readonly { readonly userId: string; readonly permissionId: string }[]>;
   getAuthJson(options: { tokenStore: StackTokenStore }): Promise<{ accessToken: string | null }>;
+  /** One server read of a user's contact channels, without first reading the user. */
+  listUserContactChannels(userId: string): Promise<readonly StackContactChannel[]>;
 };
 
 /** Adapt the SDK app; the adapter picks `getUser`'s by-id overload explicitly. */
@@ -80,7 +84,53 @@ export function defaultTeamStackApp(): TeamStackApp {
     createTeam: (options) => app.createTeam(options),
     listTeamMemberPermissions: (teamId, options) => app.listTeamMemberPermissions(teamId, options),
     getAuthJson: (options) => app.getAuthJson(options),
+    listUserContactChannels: (userId) => listStackUserContactChannels(userId),
   };
+}
+
+/**
+ * `GET /contact-channels?user_id=` with the server key, the same request the
+ * SDK's `ServerUser.listContactChannels()` sends. The SDK only offers it on a
+ * user object, which costs a `GET /users/{id}` first; the invitation poll needs
+ * nothing else from that user. Stack lists the primary email as a channel.
+ */
+async function listStackUserContactChannels(userId: string): Promise<readonly StackContactChannel[]> {
+  const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  const secretServerKey = env.STACK_SECRET_SERVER_KEY;
+  if (!projectId || !secretServerKey) throw new Error("Stack Auth is not configured");
+  const base = stackApiBaseURL();
+  const url = new URL(`${/\/api\/v1$/u.test(base) ? base : `${base}/api/v1`}/contact-channels`);
+  url.searchParams.set("user_id", userId);
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      "x-hexclave-access-type": "server",
+      "x-hexclave-project-id": projectId,
+      "x-hexclave-secret-server-key": secretServerKey,
+      "x-stack-access-type": "server",
+      "x-stack-project-id": projectId,
+      "x-stack-secret-server-key": secretServerKey,
+    },
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    // No body in the error: Stack can echo account data. The status keeps a
+    // throttle recognizable to the auth error mapping.
+    throw Object.assign(new Error(`Stack contact-channel read failed: ${response.status}`), { status: response.status });
+  }
+  return parseContactChannels(await response.json());
+}
+
+function parseContactChannels(body: unknown): readonly StackContactChannel[] {
+  const items = (body as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items)) throw new Error("Stack contact-channel read returned an unexpected shape");
+  return items.flatMap((item: unknown) => {
+    const channel = item as { type?: unknown; value?: unknown; is_verified?: unknown } | null;
+    if (typeof channel?.type !== "string" || typeof channel.value !== "string") return [];
+    return [{ type: channel.type, value: channel.value, isVerified: channel.is_verified === true }];
+  });
 }
 
 const STACK_TIMEOUT = "10 seconds";
