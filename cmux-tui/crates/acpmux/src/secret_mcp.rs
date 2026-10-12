@@ -1,0 +1,150 @@
+//! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
+//! tools (cx-ncc.42), an MCP stdio server for one agent session that
+//! `agent_tools.rs` registers. Each call is one daemon request
+//! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
+//! passes through here, only the ref.
+
+use crate::client::Client;
+use crate::rpc::method;
+use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::sync::mpsc;
+
+pub const SERVER_NAME: &str = "cmux-secrets";
+/// The session the tools ask for, set in this server's own env.
+pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
+
+fn tools() -> Value {
+    json!([
+        {
+            "name": "request_secret",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. Returns a one-use secretRef for this project: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The environment variable the secret goes in, e.g. STRIPE_API_KEY."},
+                    "reason": {"type": "string", "description": "One sentence the card shows: what you will use it for."}
+                },
+                "required": ["name", "reason"]
+            }
+        },
+        {
+            "name": "run_with_secret",
+            "description": "Run one command in the project folder with a secret from request_secret in an environment variable. The secretRef is spent by this call. The secret's value is masked in the output.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "secretRef": {"type": "string"},
+                    "env": {"type": "string", "description": "The environment variable to set, e.g. STRIPE_API_KEY."},
+                    "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, e.g. [\"sh\", \"-c\", \"curl -u \\\"$STRIPE_API_KEY:\\\" https://api.stripe.com/v1/balance\"]."}
+                },
+                "required": ["secretRef", "env", "argv"]
+            }
+        }
+    ])
+}
+
+/// Runs the server on stdin and stdout.
+pub async fn run() -> Result<()> {
+    let session = std::env::var(SESSION_ENV).map_err(|_| anyhow!("{SESSION_ENV} is not set"))?;
+    let (tx, mut rx) = mpsc::channel::<Value>(64);
+    let writer = tokio::spawn(async move {
+        let mut out = tokio::io::stdout();
+        while let Some(message) = rx.recv().await {
+            let mut line = message.to_string();
+            line.push('\n');
+            if out.write_all(line.as_bytes()).await.is_err() || out.flush().await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut client: Option<Arc<Client>> = None;
+    while let Some(line) = lines.next_line().await? {
+        let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+        let Some(id) = message.get("id").cloned() else { continue }; // a notification
+        let verb = message["method"].as_str().unwrap_or_default().to_owned();
+        let reply = match verb.as_str() {
+            "initialize" => json!({
+                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
+            }),
+            "ping" => json!({}),
+            "tools/list" => json!({"tools": tools()}),
+            "tools/call" => {
+                if client.is_none() {
+                    client = crate::daemon::connect(false).await.ok();
+                }
+                let Some(daemon) = client.clone() else {
+                    let _ = tx
+                        .send(response(
+                            &id,
+                            error_result("the acpmux daemon is not running".into()),
+                        ))
+                        .await;
+                    continue;
+                };
+                // A card waits on the person: the next request is read meanwhile.
+                let (tx, session, params) =
+                    (tx.clone(), session.clone(), message["params"].clone());
+                tokio::spawn(async move {
+                    let result = call(&daemon, &session, &params).await;
+                    let _ = tx.send(response(&id, result)).await;
+                });
+                continue;
+            }
+            other => {
+                let error =
+                    json!({"code": -32601, "message": format!("method not found: {other}")});
+                let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
+                continue;
+            }
+        };
+        let _ = tx.send(response(&id, reply)).await;
+    }
+    drop(tx);
+    let _ = writer.await;
+    Ok(())
+}
+
+fn response(id: &Value, result: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+fn error_result(text: String) -> Value {
+    json!({"content": [{"type": "text", "text": text}], "isError": true})
+}
+
+async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
+    let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let (m, mut request) = match params["name"].as_str() {
+        Some("request_secret") => (
+            method::MUX_SECRET_REQUEST,
+            json!({
+                "name": arguments["name"], "reason": arguments["reason"],
+            }),
+        ),
+        Some("run_with_secret") => (
+            method::MUX_SECRET_RUN,
+            json!({
+                "secretRef": arguments["secretRef"], "env": arguments["env"], "argv": arguments["argv"],
+            }),
+        ),
+        other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
+    };
+    request["sessionId"] = Value::String(session.to_owned());
+    match daemon.request(m, request).await {
+        Ok(result) => {
+            let text = if result["declined"] == true {
+                "The user declined to give this secret.".to_owned()
+            } else {
+                result.to_string()
+            };
+            json!({"content": [{"type": "text", "text": text}], "structuredContent": result, "isError": false})
+        }
+        Err(e) => error_result(format!("{e:#}")),
+    }
+}

@@ -975,6 +975,7 @@ mod peer_forward;
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;
+mod secrets;
 mod routes;
 pub(crate) mod trust_gate;
 mod view;

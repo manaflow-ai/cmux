@@ -27,6 +27,7 @@ pub mod clock;
 pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
+pub mod secret_mcp;
 pub mod daemon;
 pub mod deliver;
 pub mod harness_admin;
