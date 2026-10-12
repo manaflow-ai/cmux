@@ -3307,8 +3307,12 @@ function AcpmuxPane() {
           "chat.harness.retry": async () => harnessSwitch.retry(),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
           "models.refresh": async () => {
-            await client.refreshModels();
-            await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+            try {
+              await client.refreshModels();
+            } finally {
+              // A refused or failed probe still re-reads what acpmux has.
+              await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+            }
           },
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation

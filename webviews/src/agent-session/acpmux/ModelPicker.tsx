@@ -819,7 +819,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   <div className={emptyNote}>
                     {starredView && !query
                       ? t("picker.starredEmpty")
-                      : !query && !selected?.models.length
+                      : !query && selected && selected.models.length === 0
                         ? t("picker.noModels")
                         : noMatchesText}
                   </div>
