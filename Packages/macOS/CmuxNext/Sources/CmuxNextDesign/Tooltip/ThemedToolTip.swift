@@ -4,36 +4,50 @@ extension NSView {
     /// The view's tooltip, drawn by `TooltipPresenter` in the view's theme (never AppKit's `toolTip`).
     /// It is also the view's accessibility help. Nil or empty: no tooltip.
     public var themedToolTip: String? {
-        get { TooltipTracker.existing(for: self)?.text }
-        set { TooltipTracker.set(newValue, shortcut: themedToolTipShortcut, on: self) }
+        get { TooltipTracker.whole(of: self)?.text }
+        set { TooltipTracker.setWhole(newValue, shortcut: themedToolTipShortcut, on: self) }
     }
 
     /// The keyboard shortcut shown after the tooltip's text, in the secondary ink ("⌘T").
     public var themedToolTipShortcut: String? {
-        get { TooltipTracker.existing(for: self)?.shortcut }
-        set { TooltipTracker.set(themedToolTip, shortcut: newValue, on: self) }
+        get { TooltipTracker.whole(of: self)?.shortcut }
+        set { TooltipTracker.setWhole(themedToolTip, shortcut: newValue, on: self) }
+    }
+
+    /// Tooltips for parts of the view (AppKit's `addToolTip(_:owner:userData:)`), in its coordinates;
+    /// replaces the previous ones. A region wins over the view's own tooltip.
+    public func setThemedToolTipRegions(_ regions: [(rect: NSRect, text: String)]) {
+        TooltipTracker.setRegions(regions, on: self)
     }
 }
 
-/// One view's tooltip: its text and the tracking area whose enter and exit reach the presenter.
+/// One tooltip of a view, the whole view or a region of it, with the tracking area whose enter and
+/// exit reach the presenter.
 @MainActor
 final class TooltipTracker: NSResponder {
-    private static let trackers = NSMapTable<NSView, TooltipTracker>.weakToStrongObjects()
+    private static let trackers = NSMapTable<NSView, TrackerSet>.weakToStrongObjects()
 
     private(set) weak var view: NSView?
+    /// The region in the view's coordinates; nil: the whole view.
+    let region: NSRect?
     private(set) var text: String?
     private(set) var shortcut: String?
     private var area: NSTrackingArea?
 
-    static func existing(for view: NSView) -> TooltipTracker? { trackers.object(forKey: view) }
+    static func whole(of view: NSView) -> TooltipTracker? { trackers.object(forKey: view)?.whole }
 
-    static func set(_ text: String?, shortcut: String?, on view: NSView) {
+    /// The trackers of `view` (tests).
+    static func all(of view: NSView) -> [TooltipTracker] {
+        guard let set = trackers.object(forKey: view) else { return [] }
+        return (set.whole.map { [$0] } ?? []) + set.regions
+    }
+
+    static func setWhole(_ text: String?, shortcut: String?, on view: NSView) {
         let text = text?.isEmpty == false ? text : nil
-        let tracker = existing(for: view) ?? {
-            let made = TooltipTracker(view)
-            trackers.setObject(made, forKey: view)
-            return made
-        }()
+        let existing = whole(of: view)
+        guard existing != nil || text != nil else { return }
+        let tracker = existing ?? TooltipTracker(view, region: nil)
+        if existing == nil { set(of: view).whole = tracker }
         tracker.text = text
         tracker.shortcut = shortcut?.isEmpty == false ? shortcut : nil
         view.setAccessibilityHelp(text)
@@ -41,20 +55,60 @@ final class TooltipTracker: NSResponder {
         TooltipPresenter.shared.changed(tracker)
     }
 
-    private init(_ view: NSView) {
+    static func setRegions(_ regions: [(rect: NSRect, text: String)], on view: NSView) {
+        let set = set(of: view)
+        for old in set.regions { old.track(false) }
+        set.regions = regions.filter { !$0.text.isEmpty }.map { region in
+            let tracker = TooltipTracker(view, region: region.rect)
+            tracker.text = region.text
+            tracker.track(true)
+            return tracker
+        }
+    }
+
+    private static func set(of view: NSView) -> TrackerSet {
+        if let set = trackers.object(forKey: view) { return set }
+        let made = TrackerSet()
+        trackers.setObject(made, forKey: view)
+        return made
+    }
+
+    private init(_ view: NSView, region: NSRect?) {
         self.view = view
+        self.region = region
         super.init()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// How deep the tooltip sits: the view's ancestors, one more for a region. The deepest one
+    /// under the pointer shows, as AppKit picks the innermost view.
+    var depth: Int {
+        var count = region == nil ? 0 : 1
+        var current = view?.superview
+        while let next = current {
+            count += 1
+            current = next.superview
+        }
+        return count
+    }
+
+    /// The tooltip's anchor in screen coordinates: the visible part of the view or region.
+    var screenRect: NSRect? {
+        guard let view, let window = view.window else { return nil }
+        let local = (region ?? view.bounds).intersection(view.visibleRect)
+        guard !local.isEmpty else { return nil }
+        return window.convertToScreen(view.convert(local, to: nil))
+    }
+
     /// Adds the tracking area while there is text, removes it without.
     private func track(_ on: Bool) {
         guard let view else { return }
         if on, area == nil {
-            let made = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                                      owner: self, userInfo: nil)
+            var options: NSTrackingArea.Options = [.mouseEnteredAndExited, WindowPlacement.noActivate ? .activeAlways : .activeInActiveApp]
+            if region == nil { options.insert(.inVisibleRect) }
+            let made = NSTrackingArea(rect: region ?? .zero, options: options, owner: self, userInfo: nil)
             view.addTrackingArea(made)
             area = made
         } else if !on, let area {
@@ -66,4 +120,11 @@ final class TooltipTracker: NSResponder {
 
     override func mouseEntered(with event: NSEvent) { TooltipPresenter.shared.enter(self) }
     override func mouseExited(with event: NSEvent) { TooltipPresenter.shared.exit(self) }
+}
+
+/// A view's tooltips: its own and its regions'.
+@MainActor
+final class TrackerSet {
+    var whole: TooltipTracker?
+    var regions: [TooltipTracker] = []
 }

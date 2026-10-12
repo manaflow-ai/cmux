@@ -1,10 +1,15 @@
 public import SwiftUI
 
 extension View {
-    /// The app's themed tooltip for a SwiftUI view (instead of `.help`, which draws AppKit's).
-    /// An empty `text` shows none.
+    /// The app's themed tooltip for a SwiftUI view (instead of `.help`, which draws AppKit's), and
+    /// its accessibility hint, as `.help` gives. An empty `text` adds nothing.
+    @ViewBuilder
     public func themedHelp(_ text: String, shortcut: String? = nil) -> some View {
-        background(ThemedHelpAnchor(text: text, shortcut: shortcut))
+        if text.isEmpty {
+            self
+        } else {
+            background(ThemedHelpAnchor(text: text, shortcut: shortcut)).accessibilityHint(Text(text))
+        }
     }
 }
 

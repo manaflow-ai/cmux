@@ -19,9 +19,16 @@ public final class TooltipPresenter {
     static let edge: CGFloat = 6
     static let gap: CGFloat = 6
 
+    /// How often a shown tooltip checks that its view is still under the pointer and on screen (a view
+    /// removed, hidden or scrolled away sends no exit). Only while one is on screen.
+    static let recheck: Duration = .milliseconds(500)
+
     private let timer: DemandTimer
+    private let checker: DemandTimer
     private(set) lazy var panel = TooltipPanel()
-    private weak var hovered: TooltipTracker?
+    /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
+    private var inside: [TooltipTracker] = []
+    private weak var current: TooltipTracker?
     private var hiddenAt: ContinuousClock.Instant?
     private var monitor: Any?
 
@@ -30,36 +37,34 @@ public final class TooltipPresenter {
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "tooltip", clock: clock)
+        checker = DemandTimer(owner: "tooltip-check", clock: clock)
     }
 
-    /// The pointer entered a view with a tooltip.
+    /// The pointer entered a tooltip's view or region.
     func enter(_ tracker: TooltipTracker) {
-        guard tracker !== hovered else { return }
-        let warm = shown != nil || hiddenAt.map { $0.duration(to: .now) < Self.warm } ?? false
-        hide()
-        hovered = tracker
-        watch()
-        if warm {
+        if !inside.contains(where: { $0 === tracker }) { inside.append(tracker) }
+        resolve()
+    }
+
+    /// The pointer left it.
+    func exit(_ tracker: TooltipTracker) {
+        inside.removeAll { $0 === tracker }
+        resolve()
+    }
+
+    /// A tooltip's text changed: the shown one shows the new text, or hides when it has none.
+    func changed(_ tracker: TooltipTracker) {
+        guard tracker === current else { return }
+        if tracker.text == nil {
+            exit(tracker)
+        } else if shown != nil {
             show()
-        } else {
-            timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.show() }
         }
     }
 
-    /// The pointer left the view.
-    func exit(_ tracker: TooltipTracker) {
-        guard tracker === hovered else { return }
-        hide()
-    }
-
-    /// The hovered view's tooltip changed: show the new text, or hide when it has none.
-    func changed(_ tracker: TooltipTracker) {
-        guard tracker === hovered, shown != nil else { return }
-        if tracker.text?.isEmpty == false { show() } else { hide() }
-    }
-
-    /// Puts the tooltip away; the next one waits the full delay.
+    /// Puts the tooltip away; nothing shows again until the pointer enters another view.
     public func dismiss() {
+        inside.removeAll()
         hide()
         hiddenAt = nil
     }
@@ -70,27 +75,62 @@ public final class TooltipPresenter {
         show()
     }
 
+    /// Picks the deepest tooltip under the pointer and shows it: after the delay, or at once when one
+    /// was just on screen (moving along a rail or a toolbar).
+    private func resolve() {
+        inside.removeAll { $0.view == nil || $0.text == nil }
+        let target = inside.max { $0.depth < $1.depth }
+        guard target !== current else { return }
+        let warm = shown != nil || hiddenAt.map { $0.duration(to: .now) < Self.warm } ?? false
+        hide()
+        current = target
+        guard target != nil else { return }
+        watch()
+        if warm {
+            show()
+        } else {
+            timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.show() }
+        }
+    }
+
     private func show() {
-        guard let tracker = hovered, let view = tracker.view, let window = view.window,
-              let text = tracker.text, !text.isEmpty else { return }
+        guard let tracker = current, let view = tracker.view, let window = view.window,
+              let text = tracker.text, let anchor = tracker.screenRect else { return }
         let style = view.performWithTheme { TooltipStyle.current() }
         panel.show(text: text, shortcut: tracker.shortcut, style: style, appearance: view.effectiveAppearance)
-        let anchor = window.convertToScreen(view.convert(view.bounds, to: nil))
-        let screen = (window.screen ?? NSScreen.main)?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000)
-        panel.setFrameOrigin(Self.origin(for: panel.frame.size, below: anchor, on: screen))
+        let center = NSPoint(x: anchor.midX, y: anchor.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
+        panel.setFrameOrigin(Self.origin(for: panel.frame.size, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000)))
         panel.orderFrontRegardless()
         shown = (text, tracker.shortcut)
+        scheduleCheck()
     }
 
     private func hide() {
         timer.cancel()
+        checker.cancel()
         if shown != nil {
             hiddenAt = .now
             panel.orderOut(nil)
         }
         shown = nil
-        hovered = nil
-        unwatch()
+        current = nil
+        if inside.isEmpty { unwatch() }
+    }
+
+    /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
+    /// pointer over it; else it goes, as if the pointer left.
+    private func scheduleCheck() {
+        checker.schedule(after: Self.recheck) { @MainActor [weak self] in
+            guard let self, let tracker = current, shown != nil else { return }
+            if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
+        }
+    }
+
+    static func stillShows(_ tracker: TooltipTracker) -> Bool {
+        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
+              WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect else { return false }
+        return anchor.insetBy(dx: -1, dy: -1).contains(NSEvent.mouseLocation)
     }
 
     /// Below the view and centered, above it when there is no room below, shifted to stay on screen

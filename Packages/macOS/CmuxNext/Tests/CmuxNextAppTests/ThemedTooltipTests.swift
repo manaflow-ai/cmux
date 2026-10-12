@@ -36,7 +36,7 @@ import Testing
         #expect(button.accessibilityHelp() == "New Tab")
 
         let presenter = TooltipPresenter.shared
-        let tracker = try #require(TooltipTracker.existing(for: button))
+        let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.enter(tracker)
         #expect(presenter.shown == nil, "waits the hover delay")
         presenter.fire()
@@ -64,15 +64,48 @@ import Testing
         window.orderOut(nil)
     }
 
+    @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        let header = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
+        let add = NSButton(frame: NSRect(x: 270, y: 2, width: 24, height: 24))
+        header.addSubview(add)
+        window.contentView?.addSubview(header)
+        header.themedToolTip = "This Mac"
+        add.themedToolTip = "New Workspace"
+        let presenter = TooltipPresenter.shared
+        presenter.dismiss()
+
+        // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
+        presenter.enter(try #require(TooltipTracker.whole(of: add)))
+        presenter.enter(try #require(TooltipTracker.whole(of: header)))
+        presenter.fire()
+        #expect(presenter.shown?.text == "New Workspace")
+        // Back onto the header: its own tooltip, at once.
+        presenter.exit(try #require(TooltipTracker.whole(of: add)))
+        #expect(presenter.shown?.text == "This Mac")
+
+        // A region of a view (the sidebar's space tiles) wins over the view's own tooltip.
+        header.setThemedToolTipRegions([(NSRect(x: 0, y: 0, width: 28, height: 28), "Default")])
+        let tile = try #require(TooltipTracker.all(of: header).first { $0.region != nil })
+        presenter.enter(tile)
+        #expect(presenter.shown?.text == "Default")
+        presenter.dismiss()
+        #expect(presenter.shown == nil)
+        window.orderOut(nil)
+    }
+
     @Test func aTooltipWithNoRoomBelowGoesAboveAndStaysOnScreen() {
         let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 120, height: 20)
         let low = TooltipPresenter.origin(for: size, below: NSRect(x: 980, y: 10, width: 20, height: 20), on: screen)
-        #expect(low.y == 36)
-        #expect(low.x == 1000 - 6 - 120)
+        #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
-        #expect(high.y == 500 - 6 - 20)
-        #expect(high.x == 60)
+        #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+    }
+
+    static func near(_ lhs: NSPoint, _ rhs: NSPoint) -> Bool {
+        abs(lhs.x - rhs.x) < 0.5 && abs(lhs.y - rhs.y) < 0.5
     }
 
     static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {

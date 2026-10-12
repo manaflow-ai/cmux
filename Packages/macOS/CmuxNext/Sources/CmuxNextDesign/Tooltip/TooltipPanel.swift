@@ -33,7 +33,7 @@ final class TooltipPanel: NSPanel {
         hasShadow = true
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
-        hidesOnDeactivate = true
+        hidesOnDeactivate = !WindowPlacement.noActivate
         animationBehavior = .none
         isExcludedFromWindowsMenu = true
         level = .popUpMenu
