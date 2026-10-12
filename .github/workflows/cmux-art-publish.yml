@@ -44,6 +44,13 @@ jobs:
           import hashlib, json, pathlib, re, sys
           works = json.loads(pathlib.Path("art/manifest.json").read_text())["works"]
           bad = []
+          for work in works:
+              if not re.fullmatch(r"[a-z0-9-]+", work["id"]) or not re.fullmatch(r"[0-9a-f]{64}", work["sha256"]):
+                  bad.append(f"{work['id']}: malformed id or sha256")
+                  continue
+              data = pathlib.Path(f"art/full/{work['id']}.avif").read_bytes()
+              if hashlib.sha256(data).hexdigest() != work["sha256"]:
+                  bad.append(f"{work['id']}: art/full does not match the manifest's sha256")
           thumbs = pathlib.Path("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt")
           public = json.loads(pathlib.Path("art/manifest.json").read_text())
           base = public["remote"]
@@ -54,14 +61,8 @@ jobs:
                   work["thumbnail"] = f"{base}{hashlib.sha256(thumb.read_bytes()).hexdigest()}.avif"
               else:
                   bad.append(f"{work['id']}: no thumbnail")
-          pathlib.Path("public-manifest.json").write_text(json.dumps(public, ensure_ascii=False, indent=1) + "\n")
-          for work in works:
-              if not re.fullmatch(r"[a-z0-9-]+", work["id"]) or not re.fullmatch(r"[0-9a-f]{64}", work["sha256"]):
-                  bad.append(f"{work['id']}: malformed id or sha256")
-                  continue
-              data = pathlib.Path(f"art/full/{work['id']}.avif").read_bytes()
-              if hashlib.sha256(data).hexdigest() != work["sha256"]:
-                  bad.append(f"{work['id']}: art/full does not match the manifest's sha256")
+          if not bad:
+              pathlib.Path("public-manifest.json").write_text(json.dumps(public, ensure_ascii=False, indent=1) + "\n")
           print("\n".join(bad) or f"{len(works)} images match the manifest")
           sys.exit(1 if bad else 0)
           EOF
@@ -98,6 +99,8 @@ jobs:
               got="$(curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-art/$sha.avif?verify=$GITHUB_RUN_ID" | sha256sum | cut -d' ' -f1)"
               [[ "$got" == "$sha" ]] || { echo "::error::cmux-art/$sha.avif served $got"; exit 1; }
             done
+          thumb="$(python3 -I -c 'import json; print(json.load(open("public-manifest.json"))["works"][0]["thumbnail"])')"
+          curl -fsS --retry 3 --max-time 60 -o /dev/null "$thumb?verify=$GITHUB_RUN_ID"
           served="$(curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-art/manifest.json?verify=$GITHUB_RUN_ID" | sha256sum | cut -d' ' -f1)"
           [[ "$served" == "$(sha256sum public-manifest.json | cut -d' ' -f1)" ]] || { echo "::error::cmux-art/manifest.json is not this run's"; exit 1; }
           echo "published https://files.cmux.com/cmux-art/" | tee -a "$GITHUB_STEP_SUMMARY"
