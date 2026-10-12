@@ -13692,6 +13692,23 @@
             },
             "description": "With all: delete only groups closed at or after this Unix time in milliseconds."
           },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "With all: delete only groups closed before this Unix time in milliseconds (retention by age)."
+          },
+          "keep_newest": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "With all: delete every group but the newest N (retention by count). With before_ms, one pass deletes both sets. Not with since_ms."
+          },
           "expected_revision": {
             "required": false,
             "type": {

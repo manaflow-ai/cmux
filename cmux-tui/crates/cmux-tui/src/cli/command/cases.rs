@@ -857,6 +857,7 @@ fn state_resource_cases<'a>(
         (vec!["closed", "list", "--window", "i/w", "--limit", "5"], "closed.list"),
         (vec!["closed", "c1", "reopen", "--window", "i/w", "--members", "0,2"], "closed.reopen"),
         (vec!["closed", "clear", "--since-ms", "5"], "closed.delete"),
+        (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
         (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
         (
             // With the loading fields of a status entry (status-indicators.md section 5).

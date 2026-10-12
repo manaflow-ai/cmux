@@ -5155,6 +5155,125 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.aliases.help",
+        "text" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.aliases",
+      "keywords" : [
+        "palette",
+        "alias",
+        "shortcut",
+        "command"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : true,
+      "path" : [
+        "palette",
+        "aliases"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.palette.aliases",
+        "text" : "Command Aliases"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.pins.help",
+        "text" : "Commands shown first when the command palette opens, in this order, by action id."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.pins",
+      "keywords" : [
+        "palette",
+        "pin",
+        "favorite",
+        "command"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "palette",
+        "pins"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.palette.pins",
+        "text" : "Pinned Commands"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -22396,7 +22515,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5269e4eb3bc1af7a643a7960017016c5439d1d26a97533402874b1860cce41ea",
+  "schema_hash" : "b76af01b0c129afec6406a271ac8e2d336de1f8a51e68ce971538d331d49e53d",
   "sections" : [
     {
       "id" : "general",
