@@ -416,7 +416,7 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
 /// read "no link" reaches that server at once: the app sends
 /// `apps-link-changed`, and the server gets `cmux.host.link.changed` with the
 /// new link's socket. `cmux link stop` and another `apps-link-changed` take
-/// it away again.
+/// it away again. A connection that is not the verified app is refused.
 #[test]
 fn apps_link_changed_tells_servers_the_link_that_ensure_started() {
     let apps = Apps::new("ensured");
@@ -473,7 +473,11 @@ fn apps_link_changed_tells_servers_the_link_that_ensure_started() {
     };
     let started = link(&["ensure", "--install", "inst_apps_store_link", "--port", "0"]);
     assert_eq!(started["status"], "started", "{started}");
-    let told = apps.agent().rpc(json!({ "cmd": "apps-link-changed" }));
+    // Only the verified cmux app reports a link change: an agent
+    // connection is refused and tells no server.
+    let refused = apps.agent().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+    let told = apps.app().rpc(json!({ "cmd": "apps-link-changed" }));
     assert_eq!(ok(&told)["servers"], 1, "{told}");
     let changed = apps.lines("link.jsonl", 2).swap_remove(1);
     assert_eq!(
@@ -483,7 +487,7 @@ fn apps_link_changed_tells_servers_the_link_that_ensure_started() {
     );
 
     assert_eq!(link(&["stop"])["stopped"], true);
-    ok(&apps.agent().rpc(json!({ "cmd": "apps-link-changed" })));
+    ok(&apps.app().rpc(json!({ "cmd": "apps-link-changed" })));
     let gone = apps.lines("link.jsonl", 3).swap_remove(2);
     assert_eq!(gone["data"]["hub_socket"], Value::Null, "the stopped link is gone: {gone}");
 }

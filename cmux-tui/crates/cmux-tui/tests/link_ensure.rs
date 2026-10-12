@@ -168,23 +168,203 @@ fn link_ensure_refuses_another_install_or_port() {
 
 /// The app owns its link (`--handoff`): after a sign-out and a new sign-in
 /// (a new install), ensure stops the old link and starts one as the new
-/// install with a new WireGuard key.
+/// install, with a new WireGuard key and no paired peers. Nothing is
+/// deleted: when the old install comes back, it gets its own key and peers.
 #[test]
-fn link_ensure_with_handoff_replaces_the_link_of_another_install() {
+fn link_ensure_with_handoff_switches_installs_and_keeps_each_ones_key_and_peers() {
     let base = Scratch::new("reinst");
     let app = base.app("a");
     let dir = app.state_dir();
     let dir = dir.to_str().unwrap();
+    let key = |app: &App| app.json(&["link", "show", "--state-dir", dir])["public_key"].clone();
+    let peers =
+        |app: &App| app.json(&["link", "peer", "list", "--state-dir", dir])["peers"].clone();
     let old = app.ensure(&["--install", "inst_old", "--port", "0", "--handoff"]);
-    let old_key = app.json(&["link", "show", "--state-dir", dir])["public_key"].clone();
+    app.json(&[
+        "link",
+        "peer",
+        "add",
+        "--state-dir",
+        dir,
+        "--install",
+        "inst_peer",
+        "--user",
+        "u_old",
+        "--team",
+        "t_old",
+        "--public-key",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    ]);
+    let old_key = key(&app);
+    let old_peers = peers(&app);
+    assert_eq!(old_peers.as_array().map(Vec::len), Some(1), "{old_peers}");
+
     let new = app.ensure(&["--install", "inst_new", "--handoff"]);
     assert_eq!(new["status"], "restarted", "{new}");
     assert_ne!(pid(&new), pid(&old));
-    assert!(!alive(pid(&old)) || app.status()["pid"] != old["pid"], "the old link still serves");
+    assert!(!alive(pid(&old)), "the old link still runs");
     assert_eq!(app.status()["install"], "inst_new");
-    let new_key = app.json(&["link", "show", "--state-dir", dir])["public_key"].clone();
-    assert_ne!(new_key, old_key, "a new install got the old install's key");
     assert_eq!(app.status()["port"], 0, "the port stays");
+    assert_ne!(key(&app), old_key, "a new install got the old install's key");
+    assert_eq!(peers(&app), serde_json::json!([]), "the old install's peers carried over");
+
+    let back = app.ensure(&["--install", "inst_old", "--handoff"]);
+    assert_eq!(back["status"], "restarted", "{back}");
+    assert_eq!(key(&app), old_key, "the old install did not get its key back");
+    assert_eq!(peers(&app), old_peers, "the old install did not get its peers back");
+}
+
+/// Without `--handoff` (a CLI), a running link that serves another session
+/// socket is refused, never reported as the link that was asked for; with
+/// it (the app), the link restarts with the asked-for session socket.
+#[test]
+fn link_ensure_refuses_or_restarts_a_link_that_serves_another_session_socket() {
+    let base = Scratch::new("served");
+    let app = base.app("a");
+    let first = app.ensure(&[
+        "--install",
+        "inst_app_a",
+        "--port",
+        "0",
+        "--session-socket",
+        "/tmp/one.sock",
+    ]);
+    assert_eq!(app.status()["session_socket"], "/tmp/one.sock");
+    let dir = app.state_dir();
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--session-socket",
+        "/tmp/two.sock",
+    ]);
+    assert!(!out.status.success(), "a mismatched link was reported as running");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("config_mismatch"));
+    assert_eq!(pid(&app.status()), pid(&first), "the refused ensure touched the link");
+    let again = app.ensure(&["--session-socket", "/tmp/two.sock", "--handoff"]);
+    assert_eq!(again["status"], "restarted", "{again}");
+    assert_eq!(app.status()["session_socket"], "/tmp/two.sock");
+    // The server config is compared by its bytes too.
+    let config = base.root.join("server.json");
+    std::fs::write(&config, "{}").unwrap();
+    let config = config.to_str().unwrap();
+    app.ensure(&["--session-socket", "/tmp/two.sock", "--server-config", config, "--handoff"]);
+    std::fs::write(config, "{ }").unwrap();
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--session-socket",
+        "/tmp/two.sock",
+        "--server-config",
+        config,
+    ]);
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("config_mismatch"),
+        "a changed server.json passed"
+    );
+}
+
+/// A link of another state folder that shares the registration folder is
+/// never reported or stopped (the registration names its socket).
+#[test]
+fn link_status_and_stop_ignore_a_link_of_another_state_folder() {
+    let base = Scratch::new("other");
+    let app = base.app("a");
+    let first = app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    let other = app.state_root.join("other");
+    let other = other.to_str().unwrap();
+    let status = app.json(&["link", "status", "--state-dir", other]);
+    assert_eq!(status["running"], false, "{status}");
+    let stopped = app.json(&["link", "stop", "--state-dir", other]);
+    assert_eq!(stopped["stopped"], false, "{stopped}");
+    assert!(alive(pid(&first)), "stop of another state folder ended this link");
+    assert_eq!(pid(&app.status()), pid(&first));
+}
+
+/// Two ensures at once start one link; a second `serve` of the same state
+/// directory refuses at its lock.
+#[test]
+fn link_ensure_at_once_starts_one_link_and_a_second_serve_refuses() {
+    let base = Scratch::new("race");
+    let app = base.app("a");
+    app.json(&[
+        "link",
+        "init",
+        "--state-dir",
+        app.state_dir().to_str().unwrap(),
+        "--install",
+        "inst_app_a",
+        "--port",
+        "0",
+    ]);
+    let answers: Vec<Value> = std::thread::scope(|scope| {
+        let runs: Vec<_> = (0..4).map(|_| scope.spawn(|| app.ensure(&[]))).collect();
+        runs.into_iter().map(|run| run.join().unwrap()).collect()
+    });
+    let pids: std::collections::BTreeSet<u32> = answers.iter().map(pid).collect();
+    assert_eq!(pids.len(), 1, "two links started: {answers:?}");
+    assert_eq!(answers.iter().filter(|a| a["status"] == "started").count(), 1, "{answers:?}");
+    let out = app.cmux(&["link", "serve", "--state-dir", app.state_dir().to_str().unwrap()]);
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("already runs"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// `stop` reports a link stopped only after its process is gone, and a link
+/// that does not end is an error, not a stopped link.
+#[test]
+fn link_stop_waits_for_the_process_and_fails_for_a_link_that_does_not_end() {
+    let base = Scratch::new("hang");
+    let app = base.app("a");
+    let first = app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    let link = pid(&first);
+    // SAFETY: the pid of the link this test started, read from its answer.
+    assert_eq!(unsafe { libc::kill(link as libc::pid_t, libc::SIGSTOP) }, 0);
+    let dir = app.state_dir();
+    let out = app.cmux(&["link", "stop", "--state-dir", dir.to_str().unwrap()]);
+    assert!(!out.status.success(), "a link that did not end was reported stopped");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("stop_timeout"));
+    // SAFETY: as above.
+    assert_eq!(unsafe { libc::kill(link as libc::pid_t, libc::SIGCONT) }, 0);
+    // The SIGTERM is still pending; a fresh link answers to `ensure` after
+    // a real stop of whatever runs now.
+    let _ = app.cmux(&["link", "stop", "--state-dir", dir.to_str().unwrap()]);
+    let second = app.ensure(&[]);
+    let stopped = app.stop();
+    assert_eq!(stopped["stopped"], true, "{stopped}");
+    assert!(!alive(pid(&second)), "stop answered before the process was gone");
+}
+
+/// The link never binds its socket in a folder that other users may open.
+#[test]
+fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = Scratch::new("perm");
+    let app = base.app("a");
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let folder = base.root.join("run").join(format!("cmux-tui-{uid}"));
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = app.state_dir();
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--install",
+        "inst_app_a",
+        "--port",
+        "0",
+    ]);
+    assert!(!out.status.success(), "the link bound in an open folder");
+    assert!(!app.registration().exists());
 }
 
 #[test]
