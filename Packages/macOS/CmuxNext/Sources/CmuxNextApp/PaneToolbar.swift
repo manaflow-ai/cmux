@@ -133,7 +133,8 @@ final class PaneToolbar {
             return PaneToolbarItem(id: id, title: title, symbol: lit ? Self.unzoomSymbol : Self.symbols[id] ?? descriptor.symbol,
                                    shortcut: registry.shortcutDisplay(for: id), lit: lit)
         }
-        view.show(shown.compactMap(item), more: !more.isEmpty, hidden: ids.filter { hidden.contains($0.rawValue) }.compactMap(item))
+        // A pinned zoom button shows though hidden: no Show for it.
+        view.show(shown.compactMap(item), more: !more.isEmpty, hidden: ids.filter { hidden.contains($0.rawValue) && !shown.contains($0) }.compactMap(item))
     }
 
     private func perform(_ id: ActionID) {
