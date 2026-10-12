@@ -45,6 +45,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    // A window freed with the view still inside never moves the view out, so the occlusion token
+    // goes here. cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an
+    // action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { // main-proof: the guard above returns off the main thread
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        }
+    }
+
     public override var wantsUpdateLayer: Bool { true }
 
     /// Show `state`, drawn in `style` (nil: the configured style).

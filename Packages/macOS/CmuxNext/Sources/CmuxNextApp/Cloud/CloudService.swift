@@ -52,6 +52,9 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries()
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    /// Agents' asks to move their chats, and the cards they raise in chats.
+    @ObservationIgnored let moveAsks = CloudMoveAsks()
+    @ObservationIgnored let toolCards = AgentToolCards()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -94,6 +97,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        moveAsks.defaults = { [weak self] in self?.move.ledger }
         CloudMovedChats.app = movedChats
     }
 

@@ -10,6 +10,10 @@ final class CloudMoveRetries {
         case move(machineID: String)
         /// The chat moved: only open its tab on the machine.
         case show(Shown)
+        /// Bring Back Local only: this Mac's guard refused the machine's chat for a policy or mode
+        /// that doesn't ask. Run the move again on this machine, narrowing the chat there to an
+        /// asking policy and mode first ("Ask first, then bring back", cx-rppd.10).
+        case askFirst(machineID: String)
     }
 
     /// A moved chat whose tab on the machine didn't open yet.

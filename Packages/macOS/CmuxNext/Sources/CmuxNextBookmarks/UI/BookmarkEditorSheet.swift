@@ -33,24 +33,19 @@ struct BookmarkEditorSheet: View {
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
                     Text(BookmarkStrings.name)
-                    TextField("", text: $state.title).textFieldStyle(.roundedBorder).focusEffectDisabled()
-                        .accessibilityIdentifier("cmux.bookmarks.editor.name")
+                    ThemedField(text: $state.title, identifier: "cmux.bookmarks.editor.name")
                 }
                 if !state.isFolder {
                     GridRow {
                         Text(BookmarkStrings.url)
-                        TextField("", text: $state.url).textFieldStyle(.roundedBorder).focusEffectDisabled()
-                            .accessibilityIdentifier("cmux.bookmarks.editor.url")
+                        ThemedField(text: $state.url, identifier: "cmux.bookmarks.editor.url")
                     }
                 }
                 GridRow {
                     Text(BookmarkStrings.folder)
-                    Picker("", selection: $state.folder) {
-                        ForEach(choices) { choice in
-                            Text(String(repeating: "    ", count: choice.depth) + choice.title).tag(choice.id)
-                        }
-                    }
-                    .labelsHidden()
+                    ThemedPicker(selection: $state.folder, choices: choices.map {
+                        ThemedPicker.Choice(id: $0.id, title: String(repeating: "    ", count: $0.depth) + $0.title)
+                    })
                 }
             }
             if let error = model.errorMessage {

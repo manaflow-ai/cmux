@@ -103,8 +103,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
     /// The App's side of reply chips, images and the preview card's browsers.
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
-    /// The last handshake's connection, until the page opens it: used once, so the LocalApp
-    /// token is never kept beyond one handshake.
+    /// The last handshake's connection, until the page opens it: used once, so the LocalApp token is never kept beyond one handshake.
     @ObservationIgnored var pendingConnection: AcpmuxConnection?
     /// The folders of this pane's workspace the App knows (its local tabs' folders). With the
     /// handshake's cwd and the new tab page's folders they are the roots every `cwd` or `path`
@@ -136,6 +135,9 @@ public final class AgentPaneModel {
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
+    /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id and the button's.
+    @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
+    @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String) -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -178,12 +180,10 @@ public final class AgentPaneModel {
     /// Asks the user to enable a folder harness profile (the view's native Enable harness sheet).
     @ObservationIgnored public var onConfirmHarness: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
-    /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
-    /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
-    /// already became a chat keeps its chat.
-    /// User input reached the page, or it ran any op beyond boot (the
-    /// handshake, frame pacing, render rate, capabilities). A touched page is
-    /// never recycled into the prewarm pool (coordinator: strictly untouched).
+    /// Cmd-T adopted this prewarmed new tab page: `page` is the context of the tab it became
+    /// (plans/cmux-next/new-tab.md section 2.2). A page that already became a chat keeps its chat.
+    /// User input reached the page, or it ran any op beyond boot (the handshake, frame pacing, render
+    /// rate, capabilities). A touched page is never recycled into the prewarm pool (coordinator: strictly untouched).
     public private(set) var userTouched = false
     /// The request that first touched the page, its case name only (diagnostics).
     public private(set) var touchedBy: String?
@@ -272,7 +272,7 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": cwd])
-        case .harnessHealth(let id, let refresh): return await harnessHealthReply(id, refresh: refresh)
+        case .harnessHealth(let id, let refresh, let rescan): return await harnessHealthReply(id, refresh: refresh, rescan: rescan)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
@@ -306,6 +306,7 @@ public final class AgentPaneModel {
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
+        case .toolCard(let card, let action): return AgentPaneToolCard.respond(card: card, action: action, in: self)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

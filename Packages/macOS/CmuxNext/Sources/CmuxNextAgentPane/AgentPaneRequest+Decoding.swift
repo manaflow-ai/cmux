@@ -175,7 +175,8 @@ extension AgentPaneRequest {
             }
         case "harness.health":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
-                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true)
+                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true,
+                                      rescan: params?["rescan"] as? Bool == true)
             } else {
                 self = .unsupported(method)
             }
@@ -211,6 +212,8 @@ extension AgentPaneRequest {
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "chat.markUnread":
             self = .markUnread
+        case "chat.toolCard.respond":
+            if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

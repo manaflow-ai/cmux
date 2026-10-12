@@ -57,32 +57,47 @@ export interface PopupHost {
   listen(listener: (event: PopupEvent) => void): () => void;
 }
 
-/** A host over a native call (`popup.show/update/hide`) and the window event `cmux-popup`. */
-export function nativePopupHost(
-  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+/**
+ * A host over the native calls (`post("show" | "update" | "hide", model)`) and the host's events
+ * (`listen`, which returns its unsubscribe).
+ */
+export function createPopupHost(
+  post: (call: "show" | "update" | "hide", params: Record<string, unknown>) => Promise<unknown>,
+  listen: (listener: (event: PopupEvent) => void) => () => void,
 ): PopupHost {
-  const quiet = (method: string, params: Record<string, unknown> = {}) => post(method, params).catch(() => undefined);
+  const quiet = (call: "show" | "update" | "hide", params: Record<string, unknown> = {}) =>
+    post(call, params).catch(() => undefined);
   let current: object | null = null;
   return {
     show(model, owner) {
       current = owner;
-      return quiet("popup.show", { ...model });
+      return quiet("show", { ...model });
     },
     update(model, owner) {
-      if (owner === current) void quiet("popup.update", { ...model });
+      if (owner === current) void quiet("update", { ...model });
     },
     hide(owner) {
       if (owner !== current) return;
       current = null;
-      void quiet("popup.hide");
+      void quiet("hide");
     },
     owner: () => current,
-    listen(listener) {
+    listen,
+  };
+}
+
+/** The agent pane's legacy bridge: `popup.show/update/hide` and the window event `cmux-popup`. */
+export function nativePopupHost(
+  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): PopupHost {
+  return createPopupHost(
+    (call, params) => post(`popup.${call}`, params),
+    (listener) => {
       const receive = (event: Event) => listener((event as CustomEvent<PopupEvent>).detail);
       window.addEventListener("cmux-popup", receive);
       return () => window.removeEventListener("cmux-popup", receive);
     },
-  };
+  );
 }
 
 const ROWS = '[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="separator"],hr';
@@ -120,7 +135,9 @@ export function popupItems(
     if (lit) highlighted = id;
     if (kind === "menu" && !active && row === row.ownerDocument.activeElement) focused = id;
     const copy = row.cloneNode(true) as Element;
-    copy.querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"]').forEach((node) => node.remove());
+    copy
+      .querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"],[data-popup-skip]')
+      .forEach((node) => node.remove());
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
     return {
       id,
@@ -203,6 +220,11 @@ export interface EscapeOptions {
   active?: string;
   /** How a list's row picks: on mouse-down (a list beside a field it keeps focused) or a click. */
   pick?: "mousedown" | "click";
+  /**
+   * The host closed the rows (another app, a resize, a click elsewhere). By default the surface
+   * gets an Escape; a field whose Escape clears its text hides its rows here instead.
+   */
+  onDismiss?: () => void;
 }
 
 /**
@@ -213,10 +235,12 @@ export function useEscapingPopup(
   host: PopupHost | null,
   element: HTMLElement | null,
   anchor: () => AnchorBox | null,
-  { side, align, gap, kind = "menu", flip = true, shell: hide, active, pick = "mousedown" }: EscapeOptions,
+  { side, align, gap, kind = "menu", flip = true, shell: hide, active, pick = "mousedown", onDismiss }: EscapeOptions,
 ) {
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
     if (!host || !element) return;
     const me = {};
@@ -324,6 +348,8 @@ export function useEscapingPopup(
           target?.dispatchEvent(new PointerEvent("pointermove", moved));
           target?.dispatchEvent(new MouseEvent("mousemove", moved));
           if (kind === "menu") target?.focus({ preventScroll: true });
+        } else if (dismissRef.current) {
+          dismissRef.current();
         } else if (kind !== "tooltip") {
           // A list's field takes Escape where the focus is; a menu, itself. A tooltip closes with
           // its pointer leaving, so it sends nothing.
@@ -352,7 +378,11 @@ export function useEscapingPopup(
  * the ref for it. With no room on that side, its rows go past the window's edge. Undefined on a
  * page without a host.
  */
-export function useEscapingList(side: "top" | "bottom", gap: number): ((list: HTMLElement | null) => void) | undefined {
+export function useEscapingList(
+  side: "top" | "bottom",
+  gap: number,
+  onDismiss?: () => void,
+): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
   useEscapingPopup(host, list, () => list?.offsetParent ?? null, {
@@ -361,6 +391,7 @@ export function useEscapingList(side: "top" | "bottom", gap: number): ((list: HT
     gap,
     kind: "list",
     flip: false,
+    onDismiss,
   });
   return host ? setList : undefined;
 }

@@ -742,8 +742,9 @@
   margin-top: 0;
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet),
   *::before,
   *::after {
     animation: none !important;

@@ -15,6 +15,7 @@ import { PAGE_COMMAND } from "./ops";
 import { CloudStore } from "./store";
 import "./styles.css";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountCloudPage(root: HTMLElement, client: PageClient | null = defaultClient()): CloudStore {
   const params = new URLSearchParams(location.search);
@@ -27,7 +28,7 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
   document.documentElement.lang = strings.language;
   document.title = strings.t("page.title");
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <CloudPage store={store} strings={strings} />
     </UiProvider>,
   );

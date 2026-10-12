@@ -77,9 +77,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// `harness.health {id, refresh?}` (cx-ny85): this Mac's acpmux health row for the chat's
-    /// agent CLI; `refresh` checks again (after its Log In or Update).
-    case harnessHealth(String, refresh: Bool)
+    /// `harness.health {id, refresh?, rescan?}` (cx-ny85): this Mac's acpmux health row for the
+    /// chat's agent CLI; `refresh` checks again (after its Log In or Update); `rescan` has acpmux
+    /// look for harnesses first (cx-apoko: after an install from the Harnesses page).
+    case harnessHealth(String, refresh: Bool, rescan: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -199,6 +200,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
+    /// `chat.toolCard.respond {id, action}`: a click on a button of a tool card (``AgentPaneToolCard``).
+    case toolCard(card: String, action: String)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).

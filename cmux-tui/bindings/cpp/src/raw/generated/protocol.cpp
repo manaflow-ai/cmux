@@ -14959,6 +14959,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.reason.is_absent()) {
+        auto encoded = encode_value(value.reason);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reason", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -15028,6 +15033,16 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             auto decoded = decode_value<std::string>(*field_origin);
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_reason = value.find("reason");
+    if (field_reason) {
+        if (field_reason->is_null()) {
+            result.reason = Field<CloseReason>::null();
+        } else {
+            auto decoded = decode_value<CloseReason>(*field_reason);
+            if (!decoded) return std::move(decoded).error();
+            result.reason = Field<CloseReason>(std::move(decoded).value());
         }
     }
     const Json* field_workspace = value.find("workspace");
@@ -31735,6 +31750,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.reply) {
+        auto encoded = encode_value(*value.reply);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reply", std::move(encoded).value());
+    }
     if (value.source) {
         auto encoded = encode_value(*value.source);
         if (!encoded) return std::move(encoded).error();
@@ -31789,6 +31809,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_notification);
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
+    }
+    const Json* field_reply = value.find("reply");
+    if (field_reply) {
+        auto decoded = decode_value<bool>(*field_reply);
+        if (!decoded) return std::move(decoded).error();
+        result.reply = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (field_source) {
@@ -36559,13 +36585,14 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand30FieldRequirements{{
     {"reason", 0U, "close-reason-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 6> kCommand32FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand32FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
+    {"reason", 0U, "close-reason-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand68FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},

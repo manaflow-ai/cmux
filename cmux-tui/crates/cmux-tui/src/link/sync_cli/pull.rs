@@ -98,6 +98,18 @@ struct Planned {
 }
 
 pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Pulled> {
+    pull_kept(socket, local, remote_root, &|_| true)
+}
+
+/// A pull that also leaves on the machine (and counts as skipped) every new
+/// file of the machine `keep_new` refuses, by its path relative to the
+/// folder: `cmux link access` never takes secret files back.
+pub(super) fn pull_kept(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep_new: &dyn Fn(&str) -> bool,
+) -> anyhow::Result<Pulled> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     if !std::fs::metadata(&local)?.is_dir() {
@@ -161,7 +173,7 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
             unchanged += 1;
             continue;
         }
-        if base.is_none() && is_new_and_kept_out(relative, &machine) {
+        if base.is_none() && (is_new_and_kept_out(relative, &machine) || !keep_new(relative)) {
             skipped += 1;
             continue;
         }

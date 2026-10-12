@@ -13050,6 +13050,17 @@
       "since": 12,
       "capability": "batch-close-v1"
      },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "CloseReason"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -23437,6 +23448,16 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-desktop-v1"
+     },
+     "reply": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-reply-v1"
      }
     },
     "additional_properties": false

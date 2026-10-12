@@ -5,7 +5,9 @@ import CmuxNextSettings
 /// `debug.notifications`: unread tabs with their source, the attention marks
 /// each window draws, banners asked for, the arrival and dismissal log, and
 /// the live preferences. `{"action": "click", "surface": <handle>}` runs the
-/// banner click path (`DesktopNotifier.open`), for windows no one can click.
+/// banner click path (`DesktopNotifier.open`), for windows no one can click;
+/// `{"action": "reply", "surface": <handle>, "id": <banner id>, "text": <text>}` runs a reply
+/// banner's Send (`DesktopNotifier.reply`).
 /// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
 /// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
@@ -14,7 +16,11 @@ enum DebugNotifications {
         let center = services.notifications
         if params["action"]?.stringValue == "click" {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.open(id: params["id"]?.stringValue ?? "debug", surface: surface)
+            center.desktop.open(id: params["id"]?.stringValue ?? "", surface: surface)
+        }
+        if params["action"]?.stringValue == "reply", let text = params["text"]?.stringValue {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
         }
         let store = services.daemon.store
         // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
@@ -73,6 +79,7 @@ enum DebugNotifications {
             "id": .string(banner.id), "title": .string(banner.title),
             "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
             "surface": banner.surface.map { .number(Double($0)) } ?? .null,
+            "reply": .bool(banner.reply),
             "attachment": banner.attachment.map { data in
                 ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
             } ?? .null,
