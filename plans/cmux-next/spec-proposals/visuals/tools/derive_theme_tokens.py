@@ -1,5 +1,8 @@
 """Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift) and ChromeEmphasis.emphasized.
 
+The neutral accent only (appearance.accent = neutral, the default): an accent comes from AppTheme,
+which this port does not compute. The reference themes name no cursor-color, so caret = textPrimary.
+
 Hex output rounds each channel half away from zero, as Swift's .rounded() does in
 ThemeRGB.description (0.30 * 255 = 76.5 -> 77 = 0x4D). Do not use Python round(),
 which rounds half to even.
@@ -48,7 +51,8 @@ def derive(bg,fg,pal,sel=None,opacity=1.0):
     bg,fg=C.hex(bg),C.hex(fg); pal=[C.hex(p) for p in (pal if len(pal)>=8 else GHOSTTY_DEFAULT_PAL)]
     dark=bg.lum()<fg.lum()
     hover=fg.wa(0.06 if dark else 0.05); selection=fg.wa(0.10 if dark else 0.08); pressed=fg.wa(0.14 if dark else 0.11)
-    worst=pressed.comp(bg)
+    # Swift: the lower-contrast of pressedFill and selectionFill over bg (pressed, with the neutral accent).
+    worst=min([pressed.comp(bg),selection.comp(bg)],key=lambda c: fg.contrast(c))
     primary=readable(fg,worst,4.5); secondary=muted(primary,bg,0.38,worst,4.5); tertiary=muted(primary,bg,0.55,worst,3.0)
     status=lambda i: readable(pal[i],bg,3.0)
     hl=status(4)
@@ -56,16 +60,19 @@ def derive(bg,fg,pal,sel=None,opacity=1.0):
     themed=best([bg.wa(1),primary.wa(1)])
     hlt=themed if themed.contrast(hl)>=4.5 else best([C.hex(0),C.hex(0xFFFFFF)])
     surf=bg.wa(opacity)
+    # The config's selection-background only when textPrimary reads on it (not an inverse-video selection).
+    csel=C.hex(sel) if sel is not None and primary.contrast(C.hex(sel).comp(bg))>=3.0 else None
     t=dict(windowBackground=surf,sidebarBackground=surf,contentBackground=surf,
       chromeBackground=bg.mixed(fg,0.05 if dark else 0.035),elevatedBackground=bg.mixed(fg,0.07 if dark else 0.02),
-      stripBackground=bg.mixed(BLACK,0.22 if dark else 0.05).wa(opacity),
+      stripBackground=surf,
       sidebarStep=fg.wa(0.04),stripStep=BLACK.wa(0.22 if dark else 0.05),
       textPrimary=primary,textSecondary=secondary,textTertiary=tertiary,hoverFill=hover,selectionFill=selection,
       secondarySelectionFill=fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
       separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=fg.wa(0.40),
       glassTint=bg.wa(0.40 if dark else 0.30),shadow=bg.mixed(BLACK,0.85),
-      textSelection=C.hex(sel) if sel is not None else bg.mixed(fg,0.22),
-      attention=status(3),danger=status(1),success=status(2),highlight=hl,highlightText=hlt)
+      textSelection=csel if csel is not None else bg.mixed(fg,0.22),
+      attention=status(3),danger=status(1),success=status(2),highlight=hl,highlightText=hlt,
+      accent=primary,onAccent=bg.wa(1))
     return dark,t,pal
 def emphasized(t,style,s):
     t=dict(t); page=t['contentBackground'].wa(1)

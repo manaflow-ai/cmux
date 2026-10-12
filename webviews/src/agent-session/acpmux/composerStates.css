@@ -190,6 +190,22 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
 }
+/* Focus in the composer: its rounded edge takes one tonal step, as the New Tab box does
+   (newtab/screen.css). The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+.acpmux-composer-box:focus-within {
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 28%, var(--acpmux-composer-edge));
+}
+.acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
+}
+/* Under Increase Contrast the edge is already the text color, so the step above would not show:
+   the box takes the shared focus ring, following its rounded corners. */
+@media (prefers-contrast: more) {
+  .acpmux-composer-box:focus-within,
+  .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+    box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}
 .acpmux-composer[data-shell] .acpmux-composer-box {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }

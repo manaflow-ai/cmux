@@ -245,6 +245,20 @@ extension WindowManager {
         return true
     }
 
+    /// Reopens closed window `id` (Reopen Closed of its `window` group).
+    /// False when it is not a closed window of this app.
+    @discardableResult
+    func reopenClosedWindow(id: String) -> Bool {
+        var reopened = false
+        transition { registry in
+            reopened = registry.reopen(id: id)
+            return WindowRegistry.Changes()
+        }
+        guard reopened, let controller = controller(for: id) else { return false }
+        bringToFront(controller)
+        return true
+    }
+
     /// Closes a window the registry removed, at once and in the same turn
     /// as the transition (like a standard window close). A fade would keep
     /// the window on screen after its workspace left: either empty or

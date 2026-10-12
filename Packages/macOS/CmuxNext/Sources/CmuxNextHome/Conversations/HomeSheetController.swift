@@ -137,6 +137,7 @@ public class HomeSheetController: NSViewController {
     static func field(placeholder: String, identifier: String) -> NSTextField {
         let field = NSTextField()
         field.placeholderString = placeholder
+        field.focusRingType = .none
         field.setAccessibilityLabel(placeholder)
         field.setAccessibilityIdentifier(identifier)
         field.translatesAutoresizingMaskIntoConstraints = false

@@ -103,6 +103,7 @@ public final class RemoteBrowserNativeUI: NSObject {
             alert.addButton(withTitle: cancel)
             let input = NSTextField(string: dialog.defaultText ?? "")
             input.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+            input.focusRingType = .none
             alert.accessoryView = input
             field = input
         case "beforeunload":
