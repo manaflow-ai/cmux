@@ -145,11 +145,15 @@ struct ComposerBar: View {
 
     @ViewBuilder
     private var primaryButton: some View {
-        if model.canSend {
-            circleButton(systemImage: "arrow.up", prominent: true, label: String(localized: "Send")) {
-                Task { await model.send(to: session, services: services) }
+        if model.isSending {
+            circleButton(systemImage: "xmark", prominent: false, label: String(localized: "Cancel upload")) {
+                model.cancelSend()
             }
-            .disabled(model.isSending)
+            .accessibilityIdentifier("composer.cancel")
+        } else if model.canSend {
+            circleButton(systemImage: "arrow.up", prominent: true, label: String(localized: "Send")) {
+                model.startSend(to: session, services: services)
+            }
             .accessibilityIdentifier("composer.send")
         } else if agentWorking {
             circleButton(systemImage: "stop.fill", prominent: true, label: String(localized: "Interrupt")) {

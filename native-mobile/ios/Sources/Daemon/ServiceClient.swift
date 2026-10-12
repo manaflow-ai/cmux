@@ -97,6 +97,8 @@ extension ServiceClient {
         var mime: String?
         let chunk = 512 << 10
         while true {
+            // Leaving the preview cancels the rest of a large download.
+            try Task.checkCancellation()
             let reply = try await call("fs.read", ["path": .string(path), "offset": .number(Double(offset)), "length": .number(Double(chunk))])
             mime = mime ?? reply["mime"]?.string
             let piece = Data(base64Encoded: reply["data"]?.string ?? "") ?? Data()
@@ -119,21 +121,33 @@ extension ServiceClient {
     func gitStatus(cwd: String) async throws -> JSONValue { try await call("git.status", ["cwd": .string(cwd)]) }
 
     /// Uploads an attachment and returns its path on the Mac.
-    func upload(name: String, data: Data) async throws -> String {
+    /// `progress` gets the bytes sent so far; cancelling the task stops
+    /// between chunks.
+    func upload(name: String, data: Data, progress: (@Sendable (Int) -> Void)? = nil) async throws -> String {
         let chunk = 384 << 10
         if data.count <= chunk {
             let reply = try await call("upload.put", ["name": .string(name), "data_b64": .string(data.base64EncodedString())])
-            return reply["path"]?.string ?? ""
+            progress?(data.count)
+            return try Self.uploadedPath(reply)
         }
         let begin = try await call("upload.begin", ["name": .string(name), "size": .number(Double(data.count))])
         let uploadID = begin["upload_id"]?.string ?? begin["id"]?.string ?? ""
         var offset = 0
         while offset < data.count {
+            try Task.checkCancellation()
             let end = min(offset + chunk, data.count)
             _ = try await call("upload.chunk", ["upload_id": .string(uploadID), "offset": .number(Double(offset)), "data_b64": .string(data[offset..<end].base64EncodedString())])
             offset = end
+            progress?(offset)
         }
-        return try await call("upload.end", ["upload_id": .string(uploadID)])["path"]?.string ?? ""
+        return try Self.uploadedPath(try await call("upload.end", ["upload_id": .string(uploadID)]))
+    }
+
+    private static func uploadedPath(_ reply: JSONValue) throws -> String {
+        guard let path = reply["path"]?.string, !path.isEmpty else {
+            throw DaemonClient.Failure(message: "Your Mac didn't say where it saved the file.")
+        }
+        return path
     }
 
     func refs(cwd: String?, text: String) async throws -> [HostFileRef] {

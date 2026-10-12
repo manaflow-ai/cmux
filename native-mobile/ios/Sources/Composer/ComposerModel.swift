@@ -41,10 +41,33 @@ final class ComposerModel {
         attachments.removeAll { $0.id == attachment.id }
     }
 
+    @ObservationIgnored private var sendTask: Task<Void, Never>?
+
+    /// Starts a send the user can cancel while attachments upload.
+    func startSend(to session: TerminalSession, services: ServiceClient?) {
+        guard canSend, sendTask == nil else { return }
+        sendTask = Task {
+            await send(to: session, services: services)
+            sendTask = nil
+        }
+    }
+
+    /// Stops an upload in progress; the draft and attachments stay.
+    func cancelSend() {
+        sendTask?.cancel()
+        Haptics.selection()
+    }
+
     /// Uploads, types and submits. Returns false (keeping the draft) on failure.
     @discardableResult
     func send(to session: TerminalSession, services: ServiceClient?) async -> Bool {
         guard canSend else { return false }
+        // Input sent while the terminal (re)attaches is dropped; keep the
+        // draft instead of clearing it as if it went through.
+        guard session.phase == .live else {
+            error = String(localized: "This terminal isn't connected yet. Your message is still here; try again in a moment.")
+            return false
+        }
         isSending = true
         defer { isSending = false; uploadProgress = nil }
         var paths: [String] = []
@@ -53,11 +76,23 @@ final class ComposerModel {
                 error = String(localized: "Attachments need a connection to your Mac.")
                 return false
             }
-            for (index, attachment) in attachments.enumerated() {
-                uploadProgress = Double(index) / Double(attachments.count)
+            // Progress by bytes across every attachment (a video dominates).
+            let total = max(1, attachments.reduce(0) { $0 + $1.data.count })
+            var done = 0
+            uploadProgress = 0
+            for attachment in attachments {
                 do {
-                    paths.append(try await services.upload(name: attachment.name, data: attachment.data))
+                    let base = done
+                    let path = try await services.upload(name: attachment.name, data: attachment.data) { [weak self] sent in
+                        Task { @MainActor in self?.uploadProgress = Double(base + sent) / Double(total) }
+                    }
+                    try Task.checkCancellation()
+                    paths.append(path)
+                    done += attachment.data.count
+                } catch is CancellationError {
+                    return false
                 } catch {
+                    if Task.isCancelled { return false }
                     self.error = String(localized: "Couldn't upload \(attachment.name): \(error.localizedDescription)")
                     return false
                 }
@@ -65,7 +100,7 @@ final class ComposerModel {
         }
         var message = Self.plainPunctuation(text.trimmingCharacters(in: .newlines))
         if !paths.isEmpty {
-            let quoted = paths.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
+            let quoted = paths.map(Self.shellQuoted).joined(separator: " ")
             message = message.isEmpty ? quoted : message + " " + quoted
         }
         if message.contains("\n") {
@@ -78,6 +113,14 @@ final class ComposerModel {
         attachments = []
         Haptics.tap()
         return true
+    }
+
+    /// A host path as one shell word: bare when it only has safe characters,
+    /// otherwise single-quoted (an embedded `'` becomes `'\''`).
+    nonisolated static func shellQuoted(_ path: String) -> String {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-~")
+        if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }), !path.hasPrefix("~") { return path }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// iOS smart punctuation turns `--` into an em dash and quotes into

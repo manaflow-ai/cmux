@@ -143,8 +143,16 @@ final class AppModel {
             configuration: .init(apiBase: APIClient.configuredBase, hostID: host.id, token: { [tokenStore] in tokenStore.value ?? "" })
         )
         let connection = HostConnection(host: host, link: link)
-        connection.onNotification = { [weak self] notification in self?.feed.ingest(notification, from: connection) }
-        connection.onAgentChange = { [weak self] agent, previous in self?.feed.ingest(agent, previous: previous, from: connection) }
+        // Weak: the connection owns these closures; a strong capture kept every
+        // replaced connection (and its terminal surfaces) alive.
+        connection.onNotification = { [weak self, weak connection] notification in
+            guard let connection else { return }
+            self?.feed.ingest(notification, from: connection)
+        }
+        connection.onAgentChange = { [weak self, weak connection] agent, previous in
+            guard let connection else { return }
+            self?.feed.ingest(agent, previous: previous, from: connection)
+        }
         connection.onConnected = { [weak self] in Task { await self?.feed.backfill() } }
         self.connection = connection
         feed.attach(connection)

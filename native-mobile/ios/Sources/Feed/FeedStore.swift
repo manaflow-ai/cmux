@@ -161,8 +161,13 @@ final class FeedStore {
         if let surface = item.surface { Task { await connection?.acknowledge(surface: surface) } }
     }
 
+    /// Marks every post read here and on the Mac (each terminal once), so
+    /// the next backfill doesn't bring them back unread.
     func markAllRead() {
+        let surfaces = Set(items.filter { !$0.read }.compactMap(\.surface))
         for index in items.indices { items[index].read = true }
+        guard let connection, !surfaces.isEmpty else { return }
+        Task { for surface in surfaces { await connection.acknowledge(surface: surface) } }
     }
 
     /// Types a reply into the agent's terminal and presses Return.
