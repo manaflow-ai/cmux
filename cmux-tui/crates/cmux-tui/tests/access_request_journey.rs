@@ -89,9 +89,14 @@ fn pending(vm: &Machine) -> Vec<Value> {
     listed["data"]["requests"].as_array().cloned().unwrap_or_default()
 }
 
+/// The pending request of this Mac's chat for `path` (the other chat asks
+/// for one of the same files).
 fn id_for(requests: &[Value], path: &Path) -> String {
     let path = path.to_str().unwrap();
-    requests.iter().find(|r| r["path"] == path).unwrap()["request_id"].as_str().unwrap().to_owned()
+    requests.iter().find(|r| r["path"] == path && r["session"] == CHAT).unwrap()["request_id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 #[test]
