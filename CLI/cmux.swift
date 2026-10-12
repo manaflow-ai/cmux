@@ -18647,10 +18647,9 @@ struct CMUXCLI {
             let remainder = Array(subArgs.dropFirst())
             switch dialogVerb {
             case "accept":
-                let text = remainder.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 var params: [String: Any] = ["surface_id": sid]
-                if !text.isEmpty {
-                    params["text"] = text
+                if !remainder.isEmpty {
+                    params["text"] = remainder.joined(separator: " ")
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.dialog.accept", params: params)
                 output(payload, fallback: "OK")

@@ -245,6 +245,7 @@ describe("claude proxy auth", () => {
 
   test("answers a team with no Claude upstream with a terminal 403", async () => {
     upstream = null;
+    authResult = ok(null);
     const { response, outcome } = await routed(messagesRequest());
     // Claude Code retries 408/409/429/5xx; a 403 permission_error surfaces once.
     expect(response.status).toBe(403);
@@ -260,6 +261,13 @@ describe("claude proxy auth", () => {
       outcome: "no_usable_account",
       failureStage: "provider_config",
     });
+  });
+
+  test("tells a Cloud machine that private Claude accounts must be shared with its team", async () => {
+    upstream = null;
+    const { response } = await routed(messagesRequest());
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team).");
   });
 });
 

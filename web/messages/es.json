@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
     "assets": "Recursos",
+    "art": "Arte",
     "openSource": "Open source",
     "guides": "Guías",
     "compare": "Comparar"
@@ -1132,7 +1133,7 @@
       "transferUnavailableError": "Las transferencias no están disponibles temporalmente o la cuenta se está actualizando. Inténtalo de nuevo en un momento.",
       "shareWithTeam": "Compartir con el equipo",
       "makePrivate": "Hacer privado",
-      "privateImportHint": "Las cuentas nuevas son privadas. Comparte una cuenta para que esté disponible en las VM Cloud de este equipo.",
+      "privateImportHint": "En una organización, las cuentas nuevas se comparten con el equipo y sus VM de Cloud. En tu equipo personal siguen siendo privadas. Usa Hacer privado o Compartir con el equipo para cambiar una cuenta.",
       "description": "Las cuentas compartidas están disponibles para las VM Cloud de este equipo. Las cuentas privadas solo están disponibles para quien las añadió.",
       "cancelAction": "Cancelar",
       "apiKeysTitle": "Claves API",
@@ -3211,8 +3212,8 @@
       "cloudLink": "Cómo se configuran los agentes en las máquinas de Cloud",
       "teamsTitle": "Equipos y uso compartido",
       "teamsScope": "Las cuentas pertenecen al equipo en el que has iniciado sesión. cr org list muestra tus equipos, y cr org switch cambia el equipo que usa cr. Los comandos cmux coderouter aceptan --team '<id>'.",
-      "teamsPrivate": "Una cuenta nueva es privada para la persona que la añadió. En el panel, \"Compartir con el equipo\" la pone a disposición de todos los miembros y de las máquinas de Cloud del equipo, y \"Hacer privado\" lo revierte.",
-      "teamsPersonal": "En tu equipo personal, tus cuentas privadas también atienden a tus propias máquinas de Cloud. Las máquinas de Cloud de una organización solo usan cuentas compartidas, así que comparte una cuenta antes de esperar que una máquina la use.",
+      "teamsPrivate": "Una cuenta añadida a una organización se comparte con el equipo, así que todos los miembros y las máquinas de Cloud del equipo pueden usarla. En el panel, Hacer privado la limita a la persona que la añadió, y Compartir con el equipo lo revierte.",
+      "teamsPersonal": "En tu equipo personal, las cuentas nuevas son privadas y tus cuentas privadas también sirven a tus propias máquinas de Cloud. Las máquinas de Cloud de una organización solo usan cuentas compartidas, así que una cuenta privada debe compartirse antes de que una máquina pueda usarla.",
       "teamsManage": "Cualquier miembro del equipo puede añadir, renombrar, desactivar, transferir y eliminar las cuentas compartidas del equipo. cr transfer mueve una cuenta a otro equipo después de que confirmes.",
       "usageTitle": "Uso y límites",
       "usageLimits": "Cada proveedor mide el consumo de la cuenta que atendió una solicitud, según el plan y los límites de esa cuenta. CodeRouter reparte el trabajo entre cuentas, pero no aumenta el límite de ninguna cuenta.",
@@ -3331,6 +3332,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Lo que la gente dice sobre cmux."
+  },
+  "art": {
+    "metaTitle": "Arte para los fondos de cmux",
+    "metaDescription": "Explora las pinturas de dominio público que cmux ofrece como fondos de ventana: Van Gogh, Friedrich, Goya, Doré y más, con fuentes y licencias.",
+    "title": "Arte",
+    "description": "Pinturas y grabados famosos de dominio público que puedes poner detrás de tus terminales. Los artistas de todas las obras murieron hace más de 70 años y cada obra se publicó antes de 1931.",
+    "howToUse": "Muy pronto en cmux: usa cualquiera de estas obras como fondo detrás de tus terminales.",
+    "loading": "Cargando la colección…",
+    "unavailable": "No se pudo cargar la colección. Inténtalo de nuevo en unos minutos.",
+    "collectionsLabel": "Colecciones",
+    "source": "Dominio público · Fuente",
+    "collections": {
+      "darkArt": "Arte oscuro",
+      "museumIcons": "Iconos de museo",
+      "calm": "Calma",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Otro proyecto basado en libghostty, esta vez un terminal macOS con pestanas verticales, mejor organizacion/notificaciones, navegador integrado/scriptable, dirigido especificamente a personas que usan muchos flujos de trabajo de agentes basados en terminal.",
