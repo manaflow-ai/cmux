@@ -2,7 +2,7 @@
 //! machine daemon's socket (spec/commands.md, "fs-v1").
 
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, BufReader, Read, Write as _};
+use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
@@ -18,6 +18,24 @@ pub(super) const PART_BYTES: usize = 8 * 1024 * 1024;
 const READ_BYTES: u64 = 8 * 1024 * 1024;
 /// Entries per `fs.list` page (the daemon's maximum).
 const LIST_LIMIT: u64 = 1000;
+/// Most bytes [`Remote::read`] holds in memory (a manifest, an index, a ref).
+const READ_CAP: u64 = 1 << 30;
+
+/// A listing named something other than one plain component.
+#[derive(Debug)]
+pub(super) struct UnsafeName(pub String);
+
+impl std::fmt::Display for UnsafeName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the machine listed an unsafe name {:?}; nothing was brought back",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnsafeName {}
 
 /// What a listing says about one entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +118,11 @@ impl Remote {
         loop {
             for entry in page["entries"].as_array().into_iter().flatten() {
                 let name = entry["name"].as_str().unwrap_or_default().to_string();
+                // The machine is not trusted: a listed name is one plain
+                // component, or the whole listing is refused.
+                if !super::names::plain_name(&name) {
+                    return Err(UnsafeName(name).into());
+                }
                 let kind = entry["kind"].as_str().unwrap_or_default().to_string();
                 let revision = entry["size"]
                     .as_u64()
@@ -137,8 +160,13 @@ impl Remote {
     /// The kind of the entry at `path` (`file`, `dir`, `symlink`, `other`);
     /// None when nothing is there.
     pub(super) fn kind(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.stat(path)?.and_then(|stat| stat["kind"].as_str().map(str::to_string)))
+    }
+
+    /// The `fs.stat` answer for `path`; None when nothing is there.
+    pub(super) fn stat(&mut self, path: &str) -> anyhow::Result<Option<Value>> {
         match self.call("fs.stat", json!({ "path": path })) {
-            Ok(stat) => Ok(stat["kind"].as_str().map(str::to_string)),
+            Ok(stat) => Ok(Some(stat)),
             Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(None),
             Err(error) => Err(error),
         }
@@ -186,29 +214,51 @@ impl Remote {
         Ok(entry["entry"]["revision"].as_str().map_or(revision, str::to_string))
     }
 
-    /// Reads the whole file at `path`; None when it is not there.
+    /// Reads the whole file at `path` into memory, up to [`READ_CAP`]
+    /// bytes; None when it is not there.
     pub(super) fn read(&mut self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
         let mut bytes = Vec::new();
+        Ok(self.read_into(path, &mut bytes, READ_CAP)?.map(|_| bytes))
+    }
+
+    /// Streams the file at `path` into `out`, refusing one over `cap` bytes.
+    /// Returns its size; None when it is not there.
+    pub(super) fn read_into(
+        &mut self,
+        path: &str,
+        out: &mut dyn Write,
+        cap: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        let mut size = 0u64;
         loop {
-            let answer = match self.call(
-                "fs.read",
-                json!({ "path": path, "offset": bytes.len(), "max_bytes": READ_BYTES }),
-            ) {
+            let answer = match self
+                .call("fs.read", json!({ "path": path, "offset": size, "max_bytes": READ_BYTES }))
+            {
                 Ok(answer) => answer,
                 Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
                 Err(error) => return Err(error),
             };
-            match (answer["text"].as_str(), answer["bytes_base64"].as_str()) {
-                (Some(text), _) => bytes.extend_from_slice(text.as_bytes()),
-                (None, Some(encoded)) => bytes.extend(
-                    base64::engine::general_purpose::STANDARD
+            let decoded;
+            let part: &[u8] = match (answer["text"].as_str(), answer["bytes_base64"].as_str()) {
+                (Some(text), _) => text.as_bytes(),
+                (None, Some(encoded)) => {
+                    decoded = base64::engine::general_purpose::STANDARD
                         .decode(encoded)
-                        .context("bad base64")?,
-                ),
+                        .context("bad base64")?;
+                    &decoded
+                }
                 (None, None) => bail!("fs.read answered no bytes"),
+            };
+            size += part.len() as u64;
+            if size > cap {
+                bail!("the machine's {path} is over {cap} bytes");
             }
+            out.write_all(part)?;
             if answer["truncated"] != json!(true) {
-                return Ok(Some(bytes));
+                return Ok(Some(size));
+            }
+            if part.is_empty() {
+                bail!("fs.read of {path} made no progress");
             }
         }
     }
@@ -254,4 +304,86 @@ pub(super) fn split(path: &str) -> anyhow::Result<(&str, &str)> {
     let (parent, name) =
         trimmed.rsplit_once('/').ok_or_else(|| anyhow!("not an absolute path: {path}"))?;
     Ok((if parent.is_empty() { "/" } else { parent }, name))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use super::Remote;
+
+    /// A [`Remote`] whose machine is `serve`: it gets each request and the
+    /// connection to answer on, then the connection stays open (a machine
+    /// that hangs) until the test ends.
+    fn hostile(
+        serve: impl FnOnce(&mut dyn Iterator<Item = Value>, &mut UnixStream) + Send + 'static,
+    ) -> Remote {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(server.try_clone().unwrap());
+            let mut requests = reader
+                .lines()
+                .map_while(Result::ok)
+                .map(|line| serde_json::from_str(&line).unwrap());
+            serve(&mut requests, &mut server);
+            std::thread::sleep(Duration::from_secs(30));
+        });
+        Remote { reader: BufReader::new(client), next_id: 1 }
+    }
+
+    /// An answer line that never ends is refused, not held in memory.
+    #[test]
+    fn an_answer_line_over_the_limit_is_refused() {
+        let mut remote = hostile(|requests, server| {
+            requests.next();
+            let chunk = vec![b'x'; 1 << 20];
+            for _ in 0..20 {
+                if server.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
+        assert!(format!("{error:#}").contains("too long"), "{error:#}");
+    }
+
+    /// Answers that never carry the request's id are refused.
+    #[test]
+    fn answers_for_other_requests_are_refused() {
+        let mut remote = hostile(|requests, server| {
+            requests.next();
+            for _ in 0..2000 {
+                let line = format!("{}\n", json!({"id": 999, "ok": true, "data": {}}));
+                if server.write_all(line.as_bytes()).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
+        assert!(format!("{error:#}").contains("other requests"), "{error:#}");
+    }
+
+    /// A listing whose pages never end is refused.
+    #[test]
+    fn a_listing_that_never_ends_is_refused() {
+        let mut remote = hostile(|requests, server| {
+            for (page, request) in requests.enumerate().take(5000) {
+                let answer = json!({"id": request["id"], "ok": true, "data": {
+                    "entries": [{"name": format!("n{page}"), "kind": "file", "size": 1, "mtime": 1}],
+                    "cursor": format!("c{page}"),
+                    "listing": "l",
+                }});
+                if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.list("/x").unwrap_err();
+        assert!(format!("{error:#}").contains("never ends"), "{error:#}");
+    }
 }
