@@ -30,7 +30,7 @@ export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {
             </span>
             <span className="cv-plan__text">{entry.content}</span>
             {/* The marks and strike-through are drawn only; a screen reader hears the state. */}
-            <span className="ui-sr-only">{t(STATUS[entry.status])}</span>
+            <span className="cv-plan__state">{t(STATUS[entry.status])}</span>
           </li>
         ))}
       </ul>

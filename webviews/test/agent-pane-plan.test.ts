@@ -74,6 +74,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
   const liveSteps: Step[] = [
     ["mux", "user_message", { text: "Add retry and cover it" }],
     ["mux", "turn_started", {}],
+    ["in", "agent_message_chunk", say("I'll track this.")],
     ["in", "plan", plan(todo("Add retry to the uploader", "in_progress"), todo("Cover it with a test", "pending"))],
     ...todoWrite("todo-live"),
     ["in", "agent_message_chunk", say("Adding retry now.")],
@@ -175,10 +176,16 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
           item.querySelector(".cv-plan__text")?.textContent,
           item.getAttribute("data-status"),
           // What a screen reader hears for the item's state (the marks are drawn only).
-          item.querySelector(".ui-sr-only")?.textContent,
+          item.querySelector(".cv-plan__state")?.textContent,
         ]),
       })),
     );
+    // Heard, not drawn: the state word takes no room beside the item.
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll(".cv-plan__state")].every((node) => node.getBoundingClientRect().width <= 1),
+      ),
+    ).toBe(true);
     expect(lists).toEqual([
       {
         heading: "2 of 3 tasks done",
@@ -198,6 +205,11 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     await page.getByText("Adding retry now.").waitFor();
     expect(await page.locator(".cv-plan__item").count()).toBe(2);
     expect(await page.getByText("TodoWrite").count()).toBe(0);
+    // The checklist keeps its place between the text before it and the text after it.
+    const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
+    const list = await page.locator(".cv-plan").evaluate((node) => node.getBoundingClientRect().top);
+    expect(await top("I'll track this.")).toBeLessThan(list);
+    expect(list).toBeLessThan(await top("Adding retry now."));
     await page.close();
   });
 });

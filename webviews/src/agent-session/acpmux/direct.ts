@@ -765,6 +765,7 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.toolRows.clear();
     this.planCalls.clear();
+    this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
@@ -1486,7 +1487,8 @@ export class AcpmuxDirectClient {
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
-      if (event.kind === "tool_call" && update.title === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      const tool = update._meta?.claude?.tool ?? update.title;
+      if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
       if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
@@ -1517,6 +1519,11 @@ export class AcpmuxDirectClient {
         if (existing) this.rows.delete(existing.id);
         this.planRow = undefined;
         return;
+      }
+      // A new checklist ends the text and tool fold before it, as the call it stands for would.
+      if (!existing) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
       }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
