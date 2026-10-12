@@ -44,7 +44,8 @@ import Testing
         window.isReleasedWhenClosed = false
         defer { window.close() }
         scope.adopt(window)
-        let tabs = try #require(Self.all(NSSegmentedControl.self, in: try #require(window.contentView)).first)
+        let content = try #require(window.contentView)
+        let tabs = try #require(Self.all(NSSegmentedControl.self, in: content).first)
         let bezel = try #require(tabs.selectedSegmentBezelColor, "the selected segment has a theme color, not the system's")
         #expect(ThemedOverlayColorsTests.same(bezel, scope.perform { Palette.selectionFill }), "\(bezel)")
         // Still the stock control (its keys and VoiceOver): two segments, the first selected.
