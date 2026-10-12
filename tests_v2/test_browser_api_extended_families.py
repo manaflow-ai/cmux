@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
+from browser_dialog_test_support import run_with_dialogs
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
@@ -298,10 +299,11 @@ def main() -> int:
             _must(int(frame_clicks.get("value") or 0) >= 1, f"Expected frame click count >= 1: {frame_clicks}")
 
             c._call("browser.console.list", {"surface_id": sid})
-            c._call("browser.addscript", {"surface_id": sid, "script": "window.triggerDialogs(); true;"})
-            d1 = c._call("browser.dialog.accept", {"surface_id": sid, "text": "agent-text"}) or {}
-            d2 = c._call("browser.dialog.dismiss", {"surface_id": sid}) or {}
-            d3 = c._call("browser.dialog.accept", {"surface_id": sid}) or {}
+            _, (d1, d2, d3) = run_with_dialogs(
+                SOCKET_PATH, "browser.eval",
+                {"surface_id": sid, "script": "window.triggerDialogs(); true;"},
+                [(True, "agent-text"), (False, None), (True, None)],
+            )
             _must(bool(d1.get("accepted")) is True, f"Expected first dialog accepted: {d1}")
             _must(bool(d2.get("accepted")) is False, f"Expected second dialog dismissed: {d2}")
             _must(bool(d3.get("accepted")) is True, f"Expected third dialog accepted: {d3}")

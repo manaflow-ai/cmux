@@ -452,13 +452,6 @@ class TerminalController {
     let controlCommandCoordinator = ControlCommandCoordinator()
     nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
-    private struct V2BrowserPendingDialog {
-        let type: String
-        let message: String
-        let defaultText: String?
-        let responder: (_ accept: Bool, _ text: String?) -> Void
-    }
-
     private final class V2BrowserUndefinedSentinel: Sendable {}
 
     private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
@@ -467,7 +460,6 @@ class TerminalController {
     private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
     private var v2BrowserDocumentState = BrowserAutomationDocumentState()
-    private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
@@ -504,7 +496,6 @@ class TerminalController {
         for surfaceId in uniqueSurfaceIds {
             removeLocalSizingHost(surfaceID: surfaceId)
             v2BrowserDocumentState.removeSurface(surfaceId)
-            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
@@ -1760,6 +1751,15 @@ class TerminalController {
             )
         case "browser.download.list", "browser.download.wait":
             return v2Result(id: request.id, request.method == "browser.download.list" ? v2BrowserDownloadListOnSocketWorker(params: request.params) : v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+        case "browser.dialog.accept", "browser.dialog.dismiss":
+            // The socket bridge waits off-main; native completions need only
+            // one async actor turn and never enter the blocked page's JavaScript.
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                await self.v2BrowserDialogRespond(
+                    params: request.params,
+                    accept: request.method == "browser.dialog.accept"
+                )
+            }
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
              "browser.design_mode.set", "browser.design_mode.status",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
@@ -1775,7 +1775,6 @@ class TerminalController {
              "browser.find.testid", "browser.find.first", "browser.find.last", "browser.find.nth",
              "browser.highlight",
              "browser.frame.select",
-             "browser.dialog.accept", "browser.dialog.dismiss",
              "browser.cookies.get", "browser.cookies.set", "browser.cookies.clear",
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
@@ -7081,42 +7080,6 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserPendingDialogs(surfaceId: UUID) -> [[String: Any]] {
-        let queue = v2MainSync { v2BrowserDialogQueueBySurface[surfaceId] ?? [] }
-        return queue.enumerated().map { index, d in
-            [
-                "index": index,
-                "type": d.type,
-                "message": d.message,
-                "default_text": v2OrNull(d.defaultText)
-            ]
-        }
-    }
-
-    func enqueueBrowserDialog(
-        surfaceId: UUID,
-        type: String,
-        message: String,
-        defaultText: String?,
-        responder: @escaping (_ accept: Bool, _ text: String?) -> Void
-    ) {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, responder: responder))
-        if queue.count > 16 {
-            // Keep bounded memory while preserving FIFO semantics for newest entries.
-            queue.removeFirst(queue.count - 16)
-        }
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
-    }
-
-    private func v2BrowserPopDialog(surfaceId: UUID) -> V2BrowserPendingDialog? {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        guard !queue.isEmpty else { return nil }
-        let first = queue.removeFirst()
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
-        return first
-    }
-
     nonisolated func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
@@ -7538,6 +7501,7 @@ class TerminalController {
             }
 
             let browserPanelId = placement.panel.id
+            placement.panel.takeBrowserDialogOwnership(.automation)
             let targetPaneUUID = container.paneID(
                 forPanelID: browserPanelId
             )?.id
@@ -9174,11 +9138,11 @@ class TerminalController {
                   context.surfaceId == surfaceId else { return }
             switch action {
             case "back":
-                context.browserPanel.goBack()
+                context.browserPanel.goBack(dialogOwner: .automation)
             case "forward":
-                context.browserPanel.goForward()
+                context.browserPanel.goForward(dialogOwner: .automation)
             case "reload":
-                context.browserPanel.reload()
+                context.browserPanel.reload(dialogOwner: .automation)
             default:
                 break
             }
@@ -10083,73 +10047,40 @@ class TerminalController {
         )
     }
 
-    private nonisolated func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
-        let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
-        _ = v2RunBrowserJavaScript(
-            webView,
-            browserPanel: browserPanel,
-            surfaceId: surfaceId,
-            script: source,
-            timeout: 5.0,
-            useEval: false,
-            requiresPageWorld: true
-        )
-    }
-
-    private nonisolated func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            v2BrowserEnsureTelemetryHooks(browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, webView: ctx.webView)
-            v2BrowserEnsureDialogHooks(browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, webView: ctx.webView)
-            let text = v2String(params, "text") ?? v2String(params, "prompt_text")
-            let acceptLiteral = accept ? "true" : "false"
-            let textLiteral = text.map(v2JSONLiteral) ?? "null"
-            let script = """
-            (() => {
-              const q = window.__cmuxDialogQueue || [];
-              if (!q.length) return { ok: false, error: 'not_found' };
-              const entry = q.shift();
-              if (entry.type === 'confirm') {
-                window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-                window.__cmuxDialogDefaults.confirm = \(acceptLiteral);
-              }
-              if (entry.type === 'prompt') {
-                window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-                if (\(acceptLiteral)) {
-                  window.__cmuxDialogDefaults.prompt = \(textLiteral);
-                } else {
-                  window.__cmuxDialogDefaults.prompt = null;
-                }
-              }
-              return { ok: true, dialog: entry, remaining: q.length };
-            })()
-            """
-
-            switch v2RunBrowserJavaScript(
-                ctx.webView,
-                browserPanel: ctx.browserPanel,
-                surfaceId: ctx.surfaceId,
-                script: script,
-                timeout: 5.0,
-                useEval: false,
-                requiresPageWorld: true
-            ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                guard let dict = value as? [String: Any],
-                      let ok = dict["ok"] as? Bool,
-                      ok else {
-                    let pending = v2BrowserPendingDialogs(surfaceId: ctx.surfaceId)
-                    return .err(code: "not_found", message: "No pending dialog", data: ["pending": pending])
-                }
-
-                return .ok(v2BrowserPanelFields(ctx, adding: [
-                    "accepted": accept,
-                    "dialog": v2NormalizeJSValue(dict["dialog"]),
-                    "remaining": v2OrNull(dict["remaining"])
-                ]))
-            }
+    /// Answers native pending state in one main-actor turn without a synchronous queue hop.
+    private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
+        guard !Task.isCancelled else {
+            return .err(code: "timeout", message: String(localized: "cli.socket.error.commandTimedOut", defaultValue: "Command timed out"), data: nil)
         }
+        v2RefreshKnownRefs()
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: String(localized: "cli.browser.error.tabManagerUnavailable", defaultValue: "Browser controls are unavailable"), data: nil)
+        }
+        let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+        if let error = resolved.error { return error }
+        guard let ctx = resolved.context else {
+            return .err(code: "internal_error", message: String(localized: "cli.browser.error.operationFailed", defaultValue: "Browser operation failed"), data: nil)
+        }
+        // Empty and whitespace-only prompt answers are meaningful.
+        let text = (params["text"] as? String) ?? (params["prompt_text"] as? String)
+        guard let dialog = ctx.browserPanel.respondToJavaScriptDialog(accept: accept, text: text) else {
+            return .err(code: "not_found", message: String(localized: "cli.browser.dialog.error.noPending", defaultValue: "No pending dialog"), data: ["pending": []])
+        }
+        let type: String
+        switch dialog.kind {
+        case .javaScriptConfirm: type = "confirm"
+        case .javaScriptPrompt: type = "prompt"
+        default: type = "alert"
+        }
+        return .ok(v2BrowserPanelFields(ctx, adding: [
+            "accepted": accept,
+            "dialog": [
+                "type": type,
+                "message": dialog.message ?? "",
+                "default_text": v2OrNull(dialog.textField?.initial)
+            ],
+            "remaining": ctx.browserPanel.pendingJavaScriptDialogs.count
+        ]))
     }
 
     private struct V2BrowserDownloadWaitSnapshot {
@@ -10218,8 +10149,6 @@ class TerminalController {
         case "browser.find.nth": return v2BrowserFindNth(params: params)
         case "browser.highlight": return v2BrowserHighlight(params: params)
         case "browser.frame.select": return v2BrowserFrameSelect(params: params)
-        case "browser.dialog.accept": return v2BrowserDialogRespond(params: params, accept: true)
-        case "browser.dialog.dismiss": return v2BrowserDialogRespond(params: params, accept: false)
         case "browser.cookies.get": return v2BrowserCookiesGet(params: params)
         case "browser.cookies.set": return v2BrowserCookiesSet(params: params)
         case "browser.cookies.clear": return v2BrowserCookiesClear(params: params)
