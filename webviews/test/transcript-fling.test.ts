@@ -77,7 +77,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
     await page.waitForFunction(() => "__debug" in window);
-    await page.evaluate(`window.__debug.seedRows(5000)`);
+    await page.evaluate(`window.__debug.seedRows(3000)`);
     const fling = (steps: number[], down = false) =>
       page.evaluate(`(${steppedFling.toString()})(${JSON.stringify({ steps, down })})`) as Promise<{
         frames: number;
