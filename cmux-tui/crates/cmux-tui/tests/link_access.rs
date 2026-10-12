@@ -223,7 +223,7 @@ fn a_read_only_grant_syncs_changes_one_way_and_stops_when_revoked() {
 }
 
 #[test]
-fn a_folder_that_may_not_be_shared_is_refused_and_nothing_reaches_the_machine() {
+fn a_grant_of_a_folder_that_may_not_be_shared_is_refused_and_sends_nothing() {
     let world = World::new();
     let home = &world.home;
     for dir in [".ssh", "Library/Keychains", ".config/tool", "projects"] {

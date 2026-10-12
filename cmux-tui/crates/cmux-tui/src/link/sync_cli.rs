@@ -65,12 +65,24 @@ struct Pushed {
 }
 
 #[derive(Default)]
-struct Summary {
-    written: u64,
-    unchanged: u64,
-    deleted: u64,
-    skipped: u64,
-    bytes: u64,
+pub(super) struct Summary {
+    pub(super) written: u64,
+    pub(super) unchanged: u64,
+    pub(super) deleted: u64,
+    pub(super) skipped: u64,
+    pub(super) bytes: u64,
+}
+
+impl Summary {
+    pub(super) fn json(&self) -> serde_json::Value {
+        json!({
+            "written": self.written,
+            "unchanged": self.unchanged,
+            "deleted": self.deleted,
+            "skipped": self.skipped,
+            "bytes": self.bytes,
+        })
+    }
 }
 
 pub(super) fn run(args: &[String]) -> i32 {
@@ -87,17 +99,9 @@ pub(super) fn run(args: &[String]) -> i32 {
     }
     match push(&socket, &local, &remote) {
         Ok(summary) => {
-            println!(
-                "{}",
-                json!({
-                    "ok": true,
-                    "written": summary.written,
-                    "unchanged": summary.unchanged,
-                    "deleted": summary.deleted,
-                    "skipped": summary.skipped,
-                    "bytes": summary.bytes,
-                })
-            );
+            let mut line = summary.json();
+            line["ok"] = json!(true);
+            println!("{line}");
             0
         }
         Err(error) => {
@@ -109,6 +113,41 @@ pub(super) fn run(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// What a pull for `cmux link access` did ([`pull_back`]).
+pub(super) enum Back {
+    /// Its summary line.
+    Done(serde_json::Value),
+    /// The conflicting paths, and why for the git leg's; nothing changed.
+    Conflict(Vec<String>, Vec<String>),
+    Failed {
+        code: String,
+        error: String,
+    },
+}
+
+/// A pull of `remote_root` back into `local` ([`pull`]), for `cmux link
+/// access`.
+pub(super) fn pull_back(socket: &Path, local: &Path, remote_root: &str) -> Back {
+    match pull::pull(socket, local, remote_root) {
+        Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
+        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Err(error) => {
+            Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
+        }
+    }
+}
+
+/// The error code of a failed push.
+pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
+    remote::refusal_code(error).unwrap_or("sync_failed").to_string()
+}
+
+/// Deletes the folder at `path` on the machine whose daemon `socket`
+/// reaches; one already gone is fine.
+pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {
+    Remote::connect(socket)?.delete(&[path.to_string()])
 }
 
 /// Prints a pull's answer line and returns its exit code.
@@ -167,9 +206,24 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
 }
 
 fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
+    push_kept(socket, local, remote_root, &|_| true)
+}
+
+/// A push that leaves out (and counts as skipped) every file `keep` refuses,
+/// by its path relative to the folder: `cmux link access` keeps secret files
+/// of a shared folder here ([`super::access_cli`]).
+pub(super) fn push_kept(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep: &dyn Fn(&str) -> bool,
+) -> anyhow::Result<Summary> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let mut set = local::collect(&local)?;
+    let before = set.files.len();
+    set.files.retain(|relative, _| keep(relative));
+    set.skipped += (before - set.files.len()) as u64;
     let manifest_name = if set.git { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     // The manifest's own name is never pushed over it.
     if set.files.remove(manifest_name).is_some() {
