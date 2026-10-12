@@ -139,11 +139,31 @@ impl Hub {
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }
+        // Another Codex still writing the thread (classic cmux's terminal, a bare `codex` the
+        // live check cannot tie to it) refuses the load: say so, not "could not resume" (cx-l7g6k).
+        let held = self.load_error(session).is_some_and(|e| e.contains("active writer"));
         let _ = self.kill(session, true).await;
+        if held {
+            return Err(RpcError::invalid_params(format!(
+                "{agent} session {} is still open in another app, such as classic cmux: \
+                 quit it there, then open it again",
+                adopt.agent_session_id
+            )));
+        }
         Err(RpcError::internal(format!(
             "{agent} could not resume session {}",
             adopt.agent_session_id
         )))
+    }
+
+    /// Why `session`'s agent refused its `session/load`, if it did.
+    fn load_error(&self, session: &Session) -> Option<String> {
+        let events = self.events(&session.id, 0, 1_000).ok()?;
+        events
+            .iter()
+            .rev()
+            .find(|e| e.dir == "mux" && e.kind == "resume_failed")
+            .and_then(|e| e.msg.get("error").and_then(Value::as_str).map(str::to_owned))
     }
 }
 
