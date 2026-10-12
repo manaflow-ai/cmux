@@ -23,6 +23,12 @@ extension AppControl {
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
+            // Starts this Mac's cmux link the way a connect does and reports
+            // the ensure and the apps-link-changed answer (cx-rtipa S3).
+            .async("cloud.link.ensure") { [weak services] _ in
+                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
+                return await cloud.ensureLinkReport()
+            },
             .mainActor("cloud.machines") { _ in
                 if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { session in

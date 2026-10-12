@@ -389,13 +389,22 @@ final class CloudService {
     /// signed-in install, and tells the daemon when it started, so the Cloud
     /// server sees it before the connect (cx-rtipa S3). A failure is logged;
     /// the connect then answers that the helper is not running.
-    func ensureLink() async {
-        guard let linkLauncher, let install = await installIdentity.installID() else { return }
+    func ensureLink() async { _ = await ensureLinkReport() }
+
+    /// ``ensureLink()`` with what happened, for `cloud.link.ensure` on the
+    /// debug socket: the ensure status and pid, and when the link started,
+    /// how many app servers `apps-link-changed` told (or its refusal).
+    func ensureLinkReport() async -> JSONValue {
+        guard let linkLauncher else { return .object(["error": .string("not the app server link path")]) }
+        guard let install = await installIdentity.installID() else { return .object(["error": .string("no install")]) }
         do {
             let ensured = try await linkLauncher.ensure(install: install)
-            if ensured.status != "running" { await notifyLinkChanged() }
+            var report: [String: JSONValue] = ["status": .string(ensured.status), "pid": ensured.pid.map { .number(Double($0)) } ?? .null]
+            if ensured.status != "running" { report["link_changed"] = await notifyLinkChanged() }
+            return .object(report)
         } catch {
             logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
+            return .object(["error": .string(String(describing: error))])
         }
     }
 
@@ -406,12 +415,18 @@ final class CloudService {
         await notifyLinkChanged()
     }
 
-    private func notifyLinkChanged() async {
-        guard let connection = machines.local.connection else { return }
+    /// Sends `apps-link-changed` on the app's verified daemon connection;
+    /// the daemon's answer (`{servers}`) or the refusal.
+    @discardableResult
+    private func notifyLinkChanged() async -> JSONValue {
+        guard let connection = machines.local.connection else { return .object(["error": .string("not connected")]) }
         do {
-            _ = try await connection.request(AppsLinkChangedRequest())
+            let answer = try await connection.request(AppsLinkChangedRequest())
+            logger.info("apps-link-changed: \(String(describing: answer), privacy: .public)")
+            return answer
         } catch {
             logger.error("apps-link-changed failed: \(String(describing: error), privacy: .public)")
+            return .object(["error": .string(String(describing: error))])
         }
     }
 

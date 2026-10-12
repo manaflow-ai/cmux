@@ -12,7 +12,10 @@ Checks (each a PASS/FAIL line, all in $NX_ARTIFACTS/link.json):
    directory says running, as an install (`inst_...`), on a UDP port that is not 4101;
 3. the release registration (`~/Library/Application Support/cmux-tui/sessions/link.json`) is
    the same before and after;
-4. the link outlives the app (quit by exact pid), then `link stop` ends it and removes
+4. with the Cloud app server running, a link stopped behind the app is started again by the
+   app's own ensure (`cloud.link.ensure` on the debug socket), and the app's `apps-link-changed`
+   passes on its verified connection and tells at least one app server;
+5. the link outlives the app (quit by exact pid), then `link stop` ends it and removes
    `link.json`.
 The app is started by its executable from this job and ended by exact pid; it never touches
 the user's cmux. The tag's daemons end through TagTeardown.
@@ -153,6 +156,23 @@ try:
     release_after = fingerprint(RELEASE)
     record("the release link registration did not change", release_after == release_before,
            f"exists before {release_before['exists']} after {release_after['exists']}")
+    # The app's real apps-link-changed call (round 2 item 7): the Cloud app
+    # server runs (a machine list starts it), the link stops behind the
+    # app's back, and the app's own ensure starts it again and tells the
+    # daemon on its verified connection. The daemon answers how many app
+    # servers it told: the Cloud server must be one of them.
+    listed = rpc("cloud.machines")
+    record("the Cloud app server answers the machine list", isinstance(listed, dict) and "error" not in listed,
+           json.dumps(listed)[:200])
+    record("the link stops behind the app (CLI link stop)", link("stop").get("stopped") is True, "")
+    report = rpc("cloud.link.ensure", timeout=60) or {}
+    changed = report.get("link_changed") or {}
+    record("the app's ensure starts the link and its apps-link-changed passes on the verified connection",
+           report.get("status") == "started" and "error" not in changed and (changed.get("servers") or 0) >= 1,
+           json.dumps(report)[:400])
+    status = link("status")
+    record("the restarted link runs", status.get("running") is True and status.get("pid") == report.get("pid"),
+           json.dumps({k: status.get(k) for k in ("running", "pid")}))
     pid = status.get("pid")
 finally:
     app.terminate()
