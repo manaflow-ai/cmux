@@ -10,9 +10,13 @@ import Darwin
 enum DebugPaletteCapture {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let path = params["path"]?.stringValue, !path.isEmpty else { return .object(["error": .string("path is required")]) }
-        guard let panel = services.palette.visiblePanel, let view = panel.contentView, let layer = view.layer else {
-            return .object(["error": .string("the palette is not open")])
-        }
+        guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+        return capture(panel, to: path)
+    }
+
+    /// Writes `panel` to `path`; `windowImage` is the window server's image of a window, if any.
+    static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) -> CGImage? = windowImage) -> JSONValue {
+        guard let view = panel.contentView, let layer = view.layer else { return .object(["error": .string("the palette is not open")]) }
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         // The composited window (glass included). A process may capture its
@@ -38,7 +42,7 @@ enum DebugPaletteCapture {
     /// The window-list capture, resolved at run time: the SDK marks it
     /// unavailable in favor of ScreenCaptureKit, which needs a Screen
     /// Recording grant even for the app's own windows. DEBUG evidence only.
-    private static func windowImage(_ id: CGWindowID) -> CGImage? {
+    nonisolated static func windowImage(_ id: CGWindowID) -> CGImage? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(symbol, to: Capture.self)
