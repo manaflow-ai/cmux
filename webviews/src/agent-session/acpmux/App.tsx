@@ -60,6 +60,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle } from "./Composer";
@@ -1424,7 +1425,10 @@ export function VirtualTranscript({
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
-        if (Math.abs(step) > 0.5) node.scrollTop = latest;
+        if (Math.abs(step) > 0.5) {
+          node.scrollTop = latest;
+          followTrace.set(latest);
+        }
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
@@ -1457,6 +1461,7 @@ export function VirtualTranscript({
     previousRows.current = rows;
     previousViewport.current = { height, width };
     if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1585,7 +1590,17 @@ export function VirtualTranscript({
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
+    const was = scrolledTo.current;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
+    if (was.atLatest && !scrolledTo.current.atLatest)
+      followTrace.stopped({
+        top: next,
+        previous: was.top,
+        latest: layout.totalHeight - event.currentTarget.clientHeight,
+        scrollHeight: event.currentTarget.scrollHeight,
+        clientHeight: event.currentTarget.clientHeight,
+      });
+    followTrace.update(event.currentTarget, layout.totalHeight, scrolledTo.current.atLatest);
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
@@ -1618,6 +1633,7 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     const reader = () => {
+      followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
     };
