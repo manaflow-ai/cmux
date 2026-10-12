@@ -48,7 +48,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var handedOffAttemptID: UInt64?
     /// Time since the active popup started, for telling a browser's instant
     /// cancel from the person's.
-    @ObservationIgnored private var popupAge: (attemptID: UInt64, elapsed: @Sendable () -> Duration)?
+    @ObservationIgnored private var popupAge: (attemptID: UInt64, isFresh: @Sendable () -> Bool)?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var activeAttemptSelectsAccount = false
     @ObservationIgnored private var pendingManualCallbackState: String?
@@ -368,7 +368,7 @@ public final class HostBrowserSignInFlow {
                 return
             }
             activeSession = session
-            popupAge = (attemptID, Self.stopwatch(clock))
+            popupAge = (attemptID, Self.until(clock: clock, after: .seconds(instantCancelWindow)))
         }
     }
 
@@ -408,12 +408,14 @@ public final class HostBrowserSignInFlow {
     /// Whether `attemptID`'s popup ended within `instantCancelWindow` of starting.
     private func endedAtOnce(_ attemptID: UInt64) -> Bool {
         guard let popupAge, popupAge.attemptID == attemptID else { return false }
-        return popupAge.elapsed() < .seconds(instantCancelWindow)
+        return popupAge.isFresh()
     }
 
-    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
-        let start = clock.now
-        return { start.duration(to: clock.now) }
+    /// True until `window` has passed on `clock`.
+    private static func until<C: Clock>(clock: C, after window: Duration) -> @Sendable () -> Bool
+        where C.Duration == Duration {
+        let deadline = clock.now.advanced(by: window)
+        return { clock.now < deadline }
     }
 
     private func finishAttempt(_ attemptID: UInt64) {
