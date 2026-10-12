@@ -145,6 +145,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
    *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
   afterCall?: Record<string, AcpmuxSnapshot>;
+  /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
+   *  in progress (New Worktree's "Creating worktree…"). */
+  nativeDelayMs?: Record<string, number>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
