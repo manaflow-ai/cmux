@@ -38,7 +38,7 @@ struct FeedInboxHeader: View {
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
                 TextField(FeedStrings.filterInbox, text: $filter.query)
-                    .textFieldStyle(.plain).font(.system(size: 12))
+                    .textFieldStyle(.plain).font(.system(size: 12)).focusEffectDisabled()
                     .foregroundStyle(colors.primary)
                 Menu {
                     Picker(FeedStrings.filterInbox, selection: $filter.category) {

@@ -58,6 +58,11 @@ impl Translator {
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
+                    Some("message_start") if parent.is_none() => {
+                        if let Some(m) = ev.pointer("/message/model").and_then(Value::as_str) {
+                            *self.loop_model.lock().await = m.to_owned();
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -81,8 +86,13 @@ impl Translator {
                                     .and_then(Value::as_u64)
                                     .unwrap_or(0)
                                 + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // A subagent's usage is its own context, not the chat's.
+                            if parent.is_none() {
+                                self.context_used.store(used, Ordering::SeqCst);
+                            }
+                            let size = self.context_window.load(Ordering::SeqCst);
                             out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": 0}),
+                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
                             ));
                         }
                     }
@@ -106,7 +116,14 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, &input).await));
                         }
-                        out.push(upd(json!({
+                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
+                        // draw it as a checklist.
+                        if name == "TodoWrite"
+                            && let Some(plan) = todo_plan(&input)
+                        {
+                            out.push(upd(plan));
+                        }
+                        let mut call = json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
                             "title": tool_title(name, &input),
@@ -114,7 +131,14 @@ impl Translator {
                             "status": "in_progress",
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
-                        })));
+                        });
+                        with_edit(&mut call, name, &input);
+                        if let (Some(diffs), Some(id)) =
+                            (call.get("content"), c.get("id").and_then(Value::as_str))
+                        {
+                            self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        out.push(upd(call));
                     }
                 }
             }
@@ -163,13 +187,21 @@ impl Translator {
                             _ => String::new(),
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // ACP content replaces the call's content: a finished edit
+                        // keeps its diff, and a failed one says why.
+                        let content = match self.edits.lock().await.remove(tool) {
+                            Some(diffs) if !is_err => diffs,
+                            _ => {
+                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                            }
+                        };
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call_update",
                             "toolCallId": c.get("tool_use_id"),
                             "status": if is_err { "failed" } else { "completed" },
-                            "content": [{"type": "content", "content": {"type": "text", "text": text}}],
+                            "content": content,
                         })));
-                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                         // A background subagent's result is only its launch.
                         if self.background_subagents.lock().await.contains(tool) {
                             continue;
@@ -206,18 +238,24 @@ impl Translator {
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
-                        out.push(Message::request(acp_id, method::SESSION_REQUEST_PERMISSION, json!({
-                            "sessionId": sid,
-                            "toolCall": {
-                                "toolCallId": req.get("tool_use_id"),
-                                "title": tool_title(name, &input),
-                                "kind": tool_kind(name),
-                                "status": "pending",
-                                "rawInput": input,
-                                "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
-                            },
-                            "options": options,
-                        })));
+                        let mut call = json!({
+                            "toolCallId": req.get("tool_use_id"),
+                            "title": tool_title(name, &input),
+                            "kind": tool_kind(name),
+                            "status": "pending",
+                            "rawInput": input,
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
+                        });
+                        with_edit(&mut call, name, &input);
+                        out.push(Message::request(
+                            acp_id,
+                            method::SESSION_REQUEST_PERMISSION,
+                            json!({
+                                "sessionId": sid,
+                                "toolCall": call,
+                                "options": options,
+                            }),
+                        ));
                     }
                     other => {
                         // Anything else (hook_callback, mcp_message) is declined
@@ -315,6 +353,17 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // The window Claude Code reports for the chat's model: the pane's
+                // context ring fills by used over it (cx-ncc.79).
+                if let Some(window) = self.result_context_window(line).await {
+                    self.context_window.store(window, Ordering::SeqCst);
+                    let used = self.context_used.load(Ordering::SeqCst);
+                    if used > 0 && parent.is_none() {
+                        out.push(upd(
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
+                        ));
+                    }
+                }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
                 // echoes come at all; without them the steer fails below).
@@ -388,6 +437,12 @@ impl Translator {
                     }
                 }
             }
+            // A compaction left the context smaller than the last message held:
+            // the ring waits for the next message rather than refill (cx-ncc.79).
+            "system" if sub == "compact_boundary" && parent.is_none() => {
+                let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
+                self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -396,6 +451,19 @@ impl Translator {
             _ => {}
         }
         out
+    }
+
+    /// A result's context window for the chat's model (`modelUsage`, keyed by
+    /// model id and cumulative over the session): the entry of the model the
+    /// main loop last ran, else of the configured one. None keeps the last
+    /// window: another entry may be a subagent's or an earlier model's.
+    async fn result_context_window(&self, line: &Value) -> Option<u64> {
+        let usage = line.get("modelUsage")?.as_object()?;
+        let window =
+            |entry: &Value| entry.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0);
+        let looped = self.loop_model.lock().await.clone();
+        let configured = self.model.lock().await.clone();
+        usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
@@ -460,4 +528,35 @@ impl Translator {
             "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
         })
     }
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
+    }
+}
+
+/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
+/// (pending, in_progress or completed, as ACP names them). Nil for input
+/// that is not a todo list.
+fn todo_plan(input: &Value) -> Option<Value> {
+    let entries: Vec<Value> = input
+        .get("todos")?
+        .as_array()?
+        .iter()
+        .filter_map(|todo| {
+            let content = todo.get("content").and_then(Value::as_str)?;
+            let status = todo
+                .get("status")
+                .and_then(Value::as_str)
+                .filter(|status| matches!(*status, "in_progress" | "completed"))
+                .unwrap_or("pending");
+            Some(json!({"content": content, "status": status, "priority": "medium"}))
+        })
+        .collect();
+    Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }

@@ -150,17 +150,24 @@ final class FieldTextView: NSTextView {
         if reset || wasHidden || caretLayer.animation(forKey: "blink") == nil { startBlink() }
     }
 
-    /// Caret geometry against the line rect AppKit reports (fitted on swipe-partial and
-    /// field-focus-type: Messages' caret 62.5-63.5 x 1007-1024 pt in the one-line field).
-    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 1.75
+    /// Caret geometry against the line rect AppKit reports: Messages' caret is 62.5-63.5 x
+    /// 1006-1023 pt in the 31 pt one-line field (field-focus-type, deactivate-activate, every
+    /// send take while typing), 7 pt under the field top; 1007-1024 in the 30 pt field after a send
+    /// (the first fit, 1007-1024, was of that field: ours sat 1 pt low while typing).
+    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 0.75
 
     /// Solid time after a reset (references: 0.55 s in reply-menu-send, 0.58 s in field-focus-type).
     static let caretSolid: CFTimeInterval = 0.56
+
+    /// `--still-grab` (still scenes, test only): the caret stays solid, its state in the grab does
+    /// not depend on the blink's phase at the grab (Messages' still references show it solid).
+    static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
 
     private func startBlink() {
         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
         caretLayer.removeAnimation(forKey: "blink")
         caretLayer.opacity = 1
+        if Self.solidCaret { return }
         let a = CAKeyframeAnimation(keyPath: "opacity")
         a.calculationMode = .discrete
         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
@@ -220,18 +227,18 @@ final class FieldTextView: NSTextView {
         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
         return ok
     }
-    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
-    // a selector into this main-actor view trapped on a post off main (crash program).
+    // Block observers on queue: .main (inline for AppKit's post on main), not selectors: a selector
+    // into this main-actor view traps on a post off main (cmux-next's objc_observer rule).
     private var keyObservers: [NSObjectProtocol] = []
     deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
         let nc = NotificationCenter.default
-        keyObservers.forEach { nc.removeObserver($0) }  // cmux
+        keyObservers.forEach { nc.removeObserver($0) }
         keyObservers = []
         guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
         }
     }
@@ -396,6 +403,12 @@ final class ComposeTextView {
         if rewrap, let tlm = view.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
         view.sizeToFit()
         view.keepCaretInView()
+        // The caret view is the clip's sibling: a move of the clip alone (a window height change)
+        // does not reach the text view's frame or scroll, so the caret follows here. Without it the caret stayed where the clip was when the field took
+        // focus (still gate 2026-10-11, --caret-log: the launch placed the clip at y 907, the
+        // window's resize to 1041 pt moved it to 999, the caret stayed at 915, 92 pt above the
+        // field, in the transcript; or hidden, when the focus came before the first layout).
+        view.updateCaret(reset: false)
     }
 }
 
@@ -436,6 +449,9 @@ final class ComposeView: UIView {
     private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
     private(set) var chips: [Attachment] = []
     private(set) var text = ""
+    /// The field is empty because of a send (no character typed and no attachment since): Messages
+    /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
+    private(set) var emptyAfterSend = false
     private var placeholder = Strings.placeholder
     var captureMode = false {
         didSet {
@@ -510,7 +526,8 @@ final class ComposeView: UIView {
     static let maxHeight: CGFloat = 295.5
     /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
     private func height(for text: String, width: CGFloat) -> CGFloat {
-        min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
+        if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
+        return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
     }
     private var linesMemo: (String, CGFloat, Int)?
     private var emptyLinesMemo: (CGFloat, Int)?
@@ -693,13 +710,19 @@ final class ComposeView: UIView {
         for l in [veil, rim, tint] { l.bounds = glass.bounds; l.position = glass.position }
         tint.backgroundColor = Fixture.background.withAlphaComponent(0.2).cgColor
         placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
-        waveLayer.frame = CGRect(x: f.maxX - 30, y: f.maxY - 30, width: 24, height: 30)
+        waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
         chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
         strip.update(chips, width: f.width, scale: DisplayScale.current)
         textSnapshot.frame = textFrame(height: h)
         CATransaction.commit()
         textView.place(textFrame(height: h))
     }
+
+    /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
+    /// centre 1014.5 pt in the 31 pt field, 1015.0 in the 30 pt field after a send, macOS 27 and 26).
+    /// It is placed at once on a send, not animated with the field: in send-2line-take2 Messages'
+    /// glyph shows from +0.2 s at 1014.4-1015.0 pt while the field still shrinks.
+    static func waveY(_ f: CGRect) -> CGFloat { f.midY - 14.5 }
 
     /// Glass field image: top and bottom rims are fixed, the middle stretches.
     private func renderGlass() {
@@ -797,6 +820,7 @@ final class ComposeView: UIView {
     /// transaction (catalyst's `ComposeView.update`).
     func update(state: AppState, send: Bool, begin: CFTimeInterval) {
         let d = state.ui.draft
+        let hadDraft = !text.isEmpty || !chips.isEmpty
         let tv = textView.view
         if tv.string != d.text {
             // Never replace text that holds marked (IME) text: the input
@@ -815,6 +839,10 @@ final class ComposeView: UIView {
         let attachmentsChanged = d.attachments != chips
         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
+        // Only a send that took a draft: Return on an empty field is rejected by the engine but
+        // still commits as a send (the flag stays as it was, as Messages' field).
+        if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
+        else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph
         // (compose-attach-image stills).
@@ -925,7 +953,8 @@ final class ComposeView: UIView {
         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)
         let base = f.minY + (strip.height) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        caret.frame = CGRect(x: cx.px, y: base - 12.5 + row * 16, width: 1, height: 16.5)
+        // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
+        caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
         caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()

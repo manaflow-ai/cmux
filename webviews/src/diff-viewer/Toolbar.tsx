@@ -200,13 +200,13 @@ function ViewOptionsMenuRows({
       <ViewMenuButton
         checked={state.options.showBackgrounds}
         icon="background"
-        label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")}
+        label={label("showBackgrounds")}
         onClick={() => onSetOption("showBackgrounds", !state.options.showBackgrounds)}
       />
       <ViewMenuButton
         checked={state.options.lineNumbers}
         icon="numbers"
-        label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")}
+        label={label("showLineNumbers")}
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
       <div className="menu-item menu-segment">

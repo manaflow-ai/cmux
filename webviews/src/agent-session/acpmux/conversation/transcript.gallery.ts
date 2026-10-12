@@ -398,6 +398,23 @@ export default agentPaneEntry({
         );
       },
     },
+    "mark-unread-menu": {
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: {
+        longFrameFailMs: {
+          value: 140,
+          reason:
+            "Opening Chat actions costs one 64-122 ms frame in dev React, on base too (agent-pane.inspector chat-menu); cx-ncc.87 owns that cost.",
+        },
+      },
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+      },
+    },
     "thought-row": {
       note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
       snapshot: chat(
@@ -432,9 +449,9 @@ export default agentPaneEntry({
       note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
         longFrameFailMs: {
-          value: 120,
+          value: 80,
           reason:
-            "Typing the query opens the turn's closed Worked for fold, which lays out the whole transcript (72-91 ms measured); its cost is tracked as a Find follow-up, not this row.",
+            "The key that opens the closed Worked for fold re-renders the whole pane (Find state lives in AcpmuxPane) in dev React: 19-35 ms to two frames alone, 56-64 ms on a loaded runner; moving Find state down is cx-ncc.86.",
         },
         layoutShiftMax: {
           value: 0.01,
@@ -462,7 +479,9 @@ export default agentPaneEntry({
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         page.cmuxAcpmuxBridge?.command?.("find");
         await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
-        await ctx.type("thought");
+        // A key at a time, as a person types: the play's type inserts its whole text in one task,
+        // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
+        for (const key of "thought") await ctx.type(key);
         const active = () => {
           const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
             .CSS.highlights;

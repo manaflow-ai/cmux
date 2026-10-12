@@ -1,8 +1,13 @@
-//! `ThemeTokens::derive`: every chrome color from the terminal theme. A
-//! line-by-line port of cmux-next `ThemeTokens.swift` (CmuxTheme package on
-//! `feat-cmux-next`); keep the numbers in sync with it.
+//! `ThemeTokens::derive`: every chrome color from the terminal theme, as
+//! cmux-next `ThemeTokens.swift` (CmuxTheme package on `feat-cmux-next`)
+//! derives them with the neutral accent (`appearance.accent` = neutral, the
+//! default). The plain color formulas and the contrast minimums come from the
+//! spec's `design-tokens.json` (`crate::spec`); the contrast searches
+//! (`readable`, `muted`) and the status, highlight and selection rules are
+//! here, as the json writes them in prose.
 
 use crate::Rgb;
+use crate::spec::{Inputs, spec};
 
 /// The colors of the terminal theme (port of `ThemeInput`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -113,9 +118,14 @@ pub struct ThemeTokens {
     pub chrome_background: Rgb,
     /// Floating cards (palette, hover card) under or instead of glass.
     pub elevated_background: Rgb,
-    /// Swift's pane strip tint (a shade darker than the window). Kept for
-    /// parity; cmux2 draws strips flat on `window_background`.
+    /// Every pane's tab strip: the same ground as the window.
     pub strip_background: Rgb,
+    /// The sidebar's tonal step: a translucent layer over the window's
+    /// backdrop (the foreground at 4%).
+    pub sidebar_step: Rgb,
+    /// Reserved for the sidebar rules (space marks soften toward it); tab
+    /// strips do not add a tonal step.
+    pub strip_step: Rgb,
 
     // Text
     /// Titles and body text: the foreground, pushed to 4.5:1 when needed.
@@ -151,6 +161,11 @@ pub struct ThemeTokens {
     /// fills: there is no accent.
     pub highlight: Rgb,
     pub highlight_text: Rgb,
+    /// Selected and active marks (unread dots, the user's messages, Send in
+    /// the agent pane): the primary text (no hue) with the neutral accent.
+    pub accent: Rgb,
+    /// Glyphs and labels on `accent`: the opaque background.
+    pub on_accent: Rgb,
     /// ANSI 0...15.
     pub ansi: [Rgb; 16],
 
@@ -158,9 +173,11 @@ pub struct ThemeTokens {
     pub background_blur: i32,
 }
 
-/// Minimum contrast for primary and secondary chrome text.
+/// Minimum contrast for primary and secondary chrome text (the spec's
+/// `theme.constants.minimumTextContrast`; derive reads the json).
 pub const MINIMUM_TEXT_CONTRAST: f64 = 4.5;
-/// Minimum contrast for tertiary text and status marks.
+/// Minimum contrast for tertiary text and status marks (the spec's
+/// `theme.constants.minimumMarkContrast`; derive reads the json).
 pub const MINIMUM_MARK_CONTRAST: f64 = 3.0;
 
 impl ThemeTokens {
@@ -174,22 +191,32 @@ impl ThemeTokens {
         let bg = input.background.with_alpha(1.0);
         let fg = input.foreground.with_alpha(1.0);
         let is_dark = bg.relative_luminance() < fg.relative_luminance();
-        let pick = |dark: f64, light: f64| if is_dark { dark } else { light };
+        let opacity = input.background_opacity.clamp(0.0, 1.0);
+        let spec = spec();
+        let inputs = Inputs { bg, fg, opacity, is_dark };
+        let color = |token: &str| spec.color(token, &inputs);
+        let (text_minimum, mark_minimum) = (spec.minimum_text_contrast, spec.minimum_mark_contrast);
 
-        let hover = fg.with_alpha(pick(0.06, 0.05));
-        let selection = fg.with_alpha(pick(0.10, 0.08));
-        let pressed = fg.with_alpha(pick(0.14, 0.11));
+        let hover = color("hoverFill");
+        let selection = color("selectionFill");
+        let pressed = color("pressedFill");
         // Text must hold its contrast on the strongest fill it can sit on.
-        let worst_surface = pressed.composited(bg);
-        let primary = readable(fg, worst_surface, MINIMUM_TEXT_CONTRAST);
-        let secondary = muted(primary, bg, 0.38, worst_surface, MINIMUM_TEXT_CONTRAST);
-        let tertiary = muted(primary, bg, 0.55, worst_surface, MINIMUM_MARK_CONTRAST);
+        let worst_surface = [pressed.composited(bg), selection.composited(bg)]
+            .into_iter()
+            .min_by(|a, b| fg.contrast(*a).total_cmp(&fg.contrast(*b)))
+            .unwrap_or(bg);
+        let primary = readable(fg, worst_surface, text_minimum);
+        let secondary = muted(primary, bg, 0.38, worst_surface, text_minimum);
+        let tertiary = muted(primary, bg, 0.55, worst_surface, mark_minimum);
+        // The config's selection fill, when text reads on it (an
+        // inverse-video selection keeps the derived one).
+        let config_selection = input
+            .selection_background
+            .filter(|s| primary.contrast(s.composited(bg)) >= mark_minimum);
 
         let palette = input.palette;
-        let status = |i: usize| readable(palette[i], bg, MINIMUM_MARK_CONTRAST);
+        let status = |i: usize| readable(palette[i], bg, mark_minimum);
 
-        let opacity = input.background_opacity.clamp(0.0, 1.0);
-        let surface = bg.with_alpha(opacity);
         let highlight = status(4);
         let best = |candidates: [Rgb; 2]| {
             if candidates[1].contrast(highlight) > candidates[0].contrast(highlight) {
@@ -199,38 +226,42 @@ impl ThemeTokens {
             }
         };
         let themed = best([bg.with_alpha(1.0), primary.with_alpha(1.0)]);
-        let highlight_text = if themed.contrast(highlight) >= MINIMUM_TEXT_CONTRAST {
+        let highlight_text = if themed.contrast(highlight) >= text_minimum {
             themed
         } else {
             best([Rgb::hex(0x000000), Rgb::hex(0xFFFFFF)])
         };
         ThemeTokens {
             is_dark,
-            window_background: surface,
-            sidebar_background: surface,
-            content_background: surface,
-            chrome_background: bg.mixed(fg, pick(0.05, 0.035)),
-            elevated_background: bg.mixed(fg, pick(0.07, 0.02)),
-            strip_background: bg.mixed(Rgb::BLACK, pick(0.22, 0.05)).with_alpha(opacity),
+            window_background: color("windowBackground"),
+            sidebar_background: color("sidebarBackground"),
+            content_background: color("contentBackground"),
+            chrome_background: color("chromeBackground"),
+            elevated_background: color("elevatedBackground"),
+            strip_background: color("stripBackground"),
+            sidebar_step: color("sidebarStep"),
+            strip_step: color("stripStep"),
             text_primary: primary,
             text_secondary: secondary,
             text_tertiary: tertiary,
             hover_fill: hover,
             selection_fill: selection,
-            secondary_selection_fill: fg.with_alpha(pick(0.07, 0.055)),
+            secondary_selection_fill: color("secondarySelectionFill"),
             pressed_fill: pressed,
-            badge_fill: fg.with_alpha(pick(0.14, 0.10)),
-            separator: fg.with_alpha(pick(0.08, 0.07)),
-            pane_border: fg.with_alpha(pick(0.07, 0.09)),
-            focus_ring: fg.with_alpha(0.40),
-            glass_tint: bg.with_alpha(pick(0.40, 0.30)),
-            shadow: bg.mixed(Rgb::BLACK, 0.85),
-            text_selection: input.selection_background.unwrap_or_else(|| bg.mixed(fg, 0.22)),
+            badge_fill: color("badgeFill"),
+            separator: color("separator"),
+            pane_border: color("paneBorder"),
+            focus_ring: color("focusRing"),
+            glass_tint: color("glassTint"),
+            shadow: color("shadow"),
+            text_selection: config_selection.unwrap_or_else(|| bg.mixed(fg, 0.22)),
             attention: status(3),
             danger: status(1),
             success: status(2),
             highlight,
             highlight_text,
+            accent: primary,
+            on_accent: bg.with_alpha(1.0),
             ansi: palette,
             background_opacity: opacity,
             background_blur: input.background_blur,

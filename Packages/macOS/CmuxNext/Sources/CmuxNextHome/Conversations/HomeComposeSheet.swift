@@ -33,6 +33,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
 
     override func addContent(to stack: NSStackView) {
         search.placeholderString = HomeConversationStrings.composeSearch
+        search.focusRingType = .none
         search.setAccessibilityLabel(HomeConversationStrings.composeSearch)
         search.setAccessibilityIdentifier("cmux.home.compose.search")
         search.delegate = self

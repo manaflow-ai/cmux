@@ -81,7 +81,7 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-fh-name:active,.acpmux-fh-name:active .acpmux-fh-dir{color:var(--agent-muted)}
 .acpmux-fh-dir{transition:color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 /* Why a file did not open, under the changes header until the next open. */
-.acpmux-diff-notice{padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
+.acpmux-diff-notice{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
 /* Hunk review: each hunk's Reject and Accept under its last changed line, and the bar that sends the rejected ones back. */
 .acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px system-ui,-apple-system,sans-serif;color:var(--agent-muted)}
 .acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
@@ -135,7 +135,8 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 .acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
 .acpmux-git-status-text{flex:1;min-width:0}
-.acpmux-git-status .acpmux-git-secondary{height:24px;padding:0 10px}
+.acpmux-git-status .acpmux-git-secondary,.acpmux-diff-notice .acpmux-git-secondary{height:24px;padding:0 10px}
+.acpmux-diff-notice-text{flex:1;min-width:0}
 .acpmux-git-output{flex-basis:100%}
 .acpmux-git-output summary{color:var(--agent-muted);cursor:default}
 .acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-caption);white-space:pre-wrap}
@@ -151,17 +152,21 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-body)}
 .acpmux-review-unplaced .acpmux-review-thread{margin:0}
 .acpmux-review-thread[data-resolved]{color:var(--agent-muted)}
-.acpmux-review-thread summary{cursor:default;font-size:var(--text-detail)}
+.acpmux-review-thread summary{overflow:hidden;cursor:default;font-size:var(--text-detail);white-space:nowrap;text-overflow:ellipsis}
+.acpmux-review-summary-text::before{content:"\00B7";margin:0 6px}
 .acpmux-review-outdated{margin-bottom:4px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-review-comments{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none}
 .acpmux-review-thread details .acpmux-review-comments{margin-top:6px}
 .acpmux-review-author{font-weight:600;font-size:var(--text-detail)}
 .acpmux-review-author a{color:inherit;text-decoration:none}
 .acpmux-review-author a:hover{text-decoration:underline}
-.acpmux-review-body{margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.acpmux-review-author a:focus-visible,.acpmux-review-thread summary:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px;border-radius:4px}
+/* Comment bodies are Markdown at the thread's size, with paragraph gaps to match. */
+.acpmux-review-body .cv-h{font-size:inherit;line-height:inherit}
+.acpmux-review-body.cv-md{margin-top:2px;color:inherit;--cv-font-size:var(--text-body);--cv-line-height:18px;--cv-para-after:6px;overflow-wrap:anywhere;user-select:text}
 .acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
 .acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-review-address:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-review-address:active{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-review-address:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}

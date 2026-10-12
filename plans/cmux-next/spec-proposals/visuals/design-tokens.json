@@ -4,8 +4,8 @@
   "repo": "manaflow-ai/cmux",
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
-  "sourceRefsSha": "d445a44555633407583588cacdb7cd8848c3d3dc",
-  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme; the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
+  "sourceRefsSha": "82209ab8050ffe693991fc3c0beec0ed992930cd",
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
@@ -80,8 +80,8 @@
  },
  "theme": {
   "input": {
-   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files.",
-   "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift:7-49 (ThemeInput)",
+   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key.",
+   "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift (ThemeInput); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)",
    "defaultTheme": {
     "value": "light:Apple System Colors Light,dark:Apple System Colors",
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultTheme.swift:11-16 (GhosttyRuntime.defaultThemeSpec)"
@@ -90,62 +90,62 @@
     "value": "Ghostty default: background #282C34, foreground #FFFFFF",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift:52-59 (ThemeInput.ghosttyDefault)"
    },
-   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:111 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
+   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
   },
   "constants": {
    "minimumTextContrast": {
     "value": 4.5,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:94 (ThemeTokens.minimumTextContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:128 (ThemeTokens.minimumTextContrast)"
    },
    "minimumMarkContrast": {
     "value": 3.0,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:96 (ThemeTokens.minimumMarkContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:130 (ThemeTokens.minimumMarkContrast)"
    }
   },
   "formulas": {
    "windowBackground": {
     "value": "alpha(bg, background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:126,138 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:169,181 (ThemeTokens.derive)"
    },
    "sidebarBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:139 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:182 (ThemeTokens.derive)"
    },
    "contentBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:183 (ThemeTokens.derive)"
    },
    "chromeBackground": {
     "value": "mix(bg, fg, dark ? 0.05 : 0.035)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:141 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:184 (ThemeTokens.derive)"
    },
    "elevatedBackground": {
     "value": "mix(bg, fg, dark ? 0.07 : 0.02)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:185 (ThemeTokens.derive)"
    },
    "stripBackground": {
-    "value": "alpha(mix(bg, black, dark ? 0.22 : 0.05), background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:143 (ThemeTokens.derive)"
+    "value": "= windowBackground: every pane's tab strip is the window ground (appearance.tabBarBackground is retired); focus and selection fills give the hierarchy",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:186 (ThemeTokens.derive)"
    },
    "sidebarStep": {
-    "value": "alpha(fg, 0.04): the sidebar's tonal step over the window backdrop",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:144 (ThemeTokens.derive)"
+    "value": "alpha(fg, 0.04): the sidebar's tonal step (the Home Chief sidebar fill and the workspace row placeholder bar draw it)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:187 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeChiefSidebar.swift:152; Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:265"
    },
    "stripStep": {
-    "value": "alpha(black, dark ? 0.22 : 0.05): the darker tab strip's step over the window backdrop; over the opaque background it composites to stripBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:145 (ThemeTokens.derive)"
+    "value": "alpha(black, dark ? 0.22 : 0.05): no strip paints it (tab strips have no tonal step since appearance.tabBarBackground retired); the sidebar's space marks soften toward it (ProfileBarView.markColor)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:190 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Marks.swift:72-80 (ProfileBarView.markColor)"
    },
    "textPrimary": {
-    "value": "readable(fg, over(pressedFill,bg), 4.5): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:119,173-183 (ThemeTokens.derive)"
+    "value": "readable(fg, worst, 4.5), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over over(pressedFill,bg)); steps of 0.01",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:120,187-195 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over worst (see textPrimary)); steps of 0.01",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
    },
    "textTertiary": {
-    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over worst (see textPrimary))",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "textPlaceholder": {
     "value": "alpha(dark ? #FFFFFF : #000000, dark ? 0.549 : 0.498)",
@@ -153,71 +153,83 @@
    },
    "hoverFill": {
     "value": "alpha(fg, dark ? 0.06 : 0.05)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:148 (ThemeTokens.derive)"
    },
    "selectionFill": {
-    "value": "alpha(fg, dark ? 0.10 : 0.08)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:115 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.10 : 0.08); with appearance.accent: alpha(accent, dark ? 0.26 : 0.16)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:150 (ThemeTokens.derive)"
    },
    "secondarySelectionFill": {
     "value": "alpha(fg, dark ? 0.07 : 0.055)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:196 (ThemeTokens.derive)"
    },
    "pressedFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.11)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:116 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
    },
    "badgeFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.10)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:198 (ThemeTokens.derive)"
    },
    "separator": {
     "value": "alpha(fg, dark ? 0.08 : 0.07); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:154 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:66 (Palette.separator)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:199 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:66 (Palette.separator)"
    },
    "paneBorder": {
     "value": "alpha(fg, dark ? 0.07 : 0.09); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:155 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:68 (Palette.paneBorder)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:200 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:68 (Palette.paneBorder)"
    },
    "focusRing": {
-    "value": "alpha(fg, 0.40). The pane ring replaces the alpha with focusRing.contrast (see components.panes.focusRing)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156 (ThemeTokens.derive)"
+    "value": "alpha(fg, 0.40); with appearance.accent: the opaque app accent. The pane ring replaces the alpha with focusRing.contrast (see components.panes.focusRing)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:201 (ThemeTokens.derive)"
    },
    "glassTint": {
     "value": "alpha(bg, dark ? 0.40 : 0.30)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:202 (ThemeTokens.derive)"
    },
    "shadow": {
     "value": "mix(bg, black, 0.85)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:158 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:203 (ThemeTokens.derive)"
    },
    "textSelection": {
-    "value": "selection-background if set, else mix(bg, fg, 0.22)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:159 (ThemeTokens.derive)"
+    "value": "terminalSelection if set, else mix(bg, fg, 0.22)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162-164,204 (ThemeTokens.derive)"
+   },
+   "terminalSelection": {
+    "value": "selection-background when the config names one and textPrimary reaches 3:1 on over(selection-background, bg); else none (an inverse-video selection keeps the derived textSelection)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162-164,205 (ThemeTokens.derive)"
+   },
+   "caret": {
+    "value": "readable(cursor-color, bg, 3.0) when the config names one, else textPrimary",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:206 (ThemeTokens.derive)"
    },
    "attention": {
     "value": "readable(ANSI 3, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:160 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:207 (ThemeTokens.derive)"
    },
    "danger": {
     "value": "readable(ANSI 1, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:161 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:208 (ThemeTokens.derive)"
    },
    "success": {
     "value": "readable(ANSI 2, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:209 (ThemeTokens.derive)"
    },
    "highlight": {
-    "value": "readable(ANSI 4, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:127,163 (ThemeTokens.derive)"
+    "value": "readable(ANSI 4, bg, 3.0); with appearance.accent: the app accent",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:170,210 (ThemeTokens.derive)"
    },
    "highlightText": {
     "value": "bg or textPrimary (opaque), whichever contrasts more with highlight, if >= 4.5; else black or white",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:128-135,164 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:171-178,211 (ThemeTokens.derive)"
    },
    "accent": {
-    "value": "= focusRing (neutral)",
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:85 (Palette.accent)"
+    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:146,212 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.accentSeed, derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:116 (Palette.accent)"
+   },
+   "onAccent": {
+    "value": "opaque bg with appearance.accent = neutral; else the app theme onAccent (dark: the window color, light: white, else black or white, at least 4.5:1 on accent)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:213 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.derive)"
    },
    "textOnPrimary": {
     "value": "opaque contentBackground",
@@ -233,8 +245,8 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeScope.swift:1-60; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:3-15"
   },
   "windowBackdrop": {
-   "description": "One backdrop per window. opaque when background-opacity is 1 and background-blur is not a glass style, or when Reduce Transparency is on. Otherwise: translucent (tint only) when background-blur is 0, frosted (NSVisualEffectView .underWindowBackground, behindWindow, active) when it is a radius, Liquid Glass regular (-1) or clear (-2). appearance.backgroundBlur (frosted, glass, glass-clear, none) overrides the material. The theme background lies over the material at background-opacity. Panes paint nothing over a material; the sidebar and the darker strip add their steps through ChromeStepView, never a second blur. The CGS radius blur is never applied on top of a material.",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift (WindowBackdrop.init); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift (WindowMaterialView.apply, makeMaterialView); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeStepView.swift (ChromeStepView)"
+   "description": "One backdrop per window. opaque when background-opacity is 1 and background-blur is not a glass style, or when Reduce Transparency is on. Otherwise: translucent (tint only) when background-blur is 0, frosted (NSVisualEffectView .underWindowBackground, behindWindow, active) when it is a radius, Liquid Glass regular (-1) or clear (-2). appearance.backgroundBlur (frosted, glass, glass-clear, none) overrides the material. The theme background lies over the material at background-opacity. Panes, tab strips and the sidebar paint nothing over a material (one background; ChromeStepView and appearance.tabBarBackground are retired), never a second blur. The CGS radius blur is never applied on top of a material.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift (WindowBackdrop.init); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift (WindowMaterialView.apply, makeMaterialView); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice)"
   },
   "groupColors": {
    "description": "The nine group colors shared by tab groups and workspace groups. User content, so this is the one fixed palette in chrome and the one place blue may appear outside the theme. Each is one hue at low saturation so groups stay calm next to the gray chrome. New groups never get blue automatically (TabGroupOrdering.nextColor skips it).",
@@ -318,7 +330,7 @@
     "contentBackground": "#1E1E1E",
     "chromeBackground": "#292929",
     "elevatedBackground": "#2E2E2E",
-    "stripBackground": "#171717",
+    "stripBackground": "#1E1E1E",
     "sidebarStep": "#FFFFFF0A",
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
@@ -339,7 +351,9 @@
     "danger": "#CC372E",
     "success": "#26A439",
     "highlight": "#0869CB",
-    "highlightText": "#FFFFFF"
+    "highlightText": "#FFFFFF",
+    "accent": "#FFFFFF",
+    "onAccent": "#1E1E1E"
    },
    "composited": {
     "sidebarStep": "#272727",
@@ -415,7 +429,7 @@
     "contentBackground": "#FEFFFF",
     "chromeBackground": "#F5F6F6",
     "elevatedBackground": "#F9FAFA",
-    "stripBackground": "#F1F2F2",
+    "stripBackground": "#FEFFFF",
     "sidebarStep": "#0000000A",
     "stripStep": "#0000000D",
     "textPrimary": "#000000",
@@ -436,7 +450,9 @@
     "danger": "#CC372E",
     "success": "#26A439",
     "highlight": "#0869CB",
-    "highlightText": "#FEFFFF"
+    "highlightText": "#FEFFFF",
+    "accent": "#000000",
+    "onAccent": "#FEFFFF"
    },
    "composited": {
     "sidebarStep": "#F4F5F5",
@@ -512,7 +528,7 @@
     "contentBackground": "#282C34",
     "chromeBackground": "#33373E",
     "elevatedBackground": "#373B42",
-    "stripBackground": "#1F2229",
+    "stripBackground": "#282C34",
     "sidebarStep": "#FFFFFF0A",
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
@@ -533,7 +549,9 @@
     "danger": "#CC6666",
     "success": "#B5BD68",
     "highlight": "#81A2BE",
-    "highlightText": "#282C34"
+    "highlightText": "#282C34",
+    "accent": "#FFFFFF",
+    "onAccent": "#282C34"
    },
    "composited": {
     "sidebarStep": "#31343C",
@@ -609,7 +627,7 @@
     "contentBackground": "#272822",
     "chromeBackground": "#32332C",
     "elevatedBackground": "#363730",
-    "stripBackground": "#1E1F1B",
+    "stripBackground": "#272822",
     "sidebarStep": "#FDFFF10A",
     "stripStep": "#00000038",
     "textPrimary": "#FDFFF1",
@@ -630,7 +648,9 @@
     "danger": "#F92672",
     "success": "#A6E22E",
     "highlight": "#FD971F",
-    "highlightText": "#272822"
+    "highlightText": "#272822",
+    "accent": "#FDFFF1",
+    "onAccent": "#272822"
    },
    "composited": {
     "sidebarStep": "#30312A",
@@ -706,7 +726,7 @@
     "contentBackground": "#FFFFFF",
     "chromeBackground": "#F7F7F7",
     "elevatedBackground": "#FBFBFB",
-    "stripBackground": "#F2F2F2",
+    "stripBackground": "#FFFFFF",
     "sidebarStep": "#1F23280A",
     "stripStep": "#0000000D",
     "textPrimary": "#1F2328",
@@ -727,7 +747,9 @@
     "danger": "#CF222E",
     "success": "#116329",
     "highlight": "#0969DA",
-    "highlightText": "#FFFFFF"
+    "highlightText": "#FFFFFF",
+    "accent": "#1F2328",
+    "onAccent": "#FFFFFF"
    },
    "composited": {
     "sidebarStep": "#F6F6F6",
@@ -981,7 +1003,7 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:60-61 (MetricTunables.tabMinWidth)"
   },
   "paletteRowHeight": {
-   "compact": 32,
+   "compact": 28,
    "comfortable": 40,
    "unit": "pt",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:65-66 (MetricTunables.paletteRowHeight)"
@@ -1381,13 +1403,26 @@
   },
   "appearance.tabBarBackground": {
    "value": {
-    "values": [
-     "window",
-     "darker"
-    ],
-    "default": "window"
+    "retired": "every surface draws the one window background; the key is ignored"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift:8-10 (PaneFocusSettings.tabBarBackgroundPath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicator.swift:33-53 (TabBarBackground)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Retired.swift:9"
+  },
+  "appearance.accent": {
+   "value": {
+    "values": [
+     "neutral",
+     "theme",
+     "red",
+     "green",
+     "yellow",
+     "blue",
+     "magenta",
+     "cyan"
+    ],
+    "default": "neutral",
+    "effect": "neutral: no hue (selection, focus ring and highlight are the foreground). Else selectionFill, focusRing, highlight, accent and onAccent take the app accent (see theme.formulas.accent)."
+   },
+   "source": "schemas/settings/settings-schema.json (appearance.accent); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)"
   },
   "focusRing.contrast": {
    "value": {
@@ -1832,8 +1867,7 @@
    "description": "Every pane has a tab strip. Strip edges are the content border edges.",
    "sources": [
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripMetrics.swift:103-144 (TabStripMetrics.init)",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58,183 (PaneContentView.stripStep)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)"
    ],
    "metrics": {
     "height": "tabStripHeight (28/36); resolved = pillTop + tabHeight + tabGap with pane padding",
@@ -1848,23 +1882,11 @@
    "states": {
     "default": {
      "background": {
-      "value": "token:windowBackground (tabBarBackground window)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
-     }
-    },
-    "darker": {
-     "background": {
-      "value": "token:stripBackground",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
+      "value": "token:stripBackground (= windowBackground)",
+      "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:186 (ThemeTokens.derive)"
      }
     },
     "hover": "trailing buttons reveal while the pointer is in the strip (TabStripButtonReveal)"
-   },
-   "variants": {
-    "appearance.tabBarBackground": {
-     "window": "strip = window background, no fill layer",
-     "darker": "strip painted token:stripBackground"
-    }
    }
   },
   "tabs.tab": {

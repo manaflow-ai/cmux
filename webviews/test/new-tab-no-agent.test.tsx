@@ -1,0 +1,82 @@
+// Return on a prompt with no agent to ask (dogfood run, hq #1893): the New Tab page did nothing,
+// with no word of why. It now says there is no agent to ask, under the field, with the Integrate a
+// harness button that adds one.
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act } from "react";
+import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
+
+const scope = globalThis as Record<string, unknown>;
+const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let root: Root | undefined;
+let host: HTMLElement;
+
+beforeAll(() => {
+  const { window } = new JSDOM("<!doctype html><div id=root></div>");
+  Object.assign(window, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+  Object.assign(scope, {
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterAll(() => {
+  act(() => root?.unmount());
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+const noop = () => {};
+
+test("Return on a prompt with no agent says so and offers to add one", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  let added = 0;
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={{ ...noChat(), catalog: [] }}
+        cwd="/Users/you/src/app"
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+        onAddHarness={() => added++}
+      />,
+    ),
+  );
+  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "fix the flaky upload test");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  expect(host.querySelector(".nt-no-agent")).toBeNull();
+  await act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+
+  const note = host.querySelector<HTMLElement>(".nt-no-agent");
+  expect(note?.getAttribute("role")).toBe("status");
+  expect(note?.textContent).toContain("No agent to ask");
+  await act(async () => note!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(added).toBe(1);
+});

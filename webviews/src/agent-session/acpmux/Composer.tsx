@@ -161,12 +161,15 @@ type Props = {
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | undefined>;
+  /// or a window, attached as an image; an error for one too large to attach (shown as the
+  /// composer's note); undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
+  onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
@@ -223,6 +226,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   onBrowseFolder,
   onConnect,
   localName,
@@ -839,6 +843,7 @@ export function Composer({
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
+      onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       summary={snapshot.summary}
@@ -1085,9 +1090,18 @@ export function Composer({
                       : id === "attach"
                         ? chooser.current?.click()
                         : id === "screenshot" || id === "window"
-                          ? void capture?.(id === "window" ? "window" : "screen").then(
-                              (file) => file && attach.current([file]),
-                            )
+                          ? // Back to the prompt either way (the + menu doesn't take focus back),
+                            // unless the person moved focus out of the composer while the capture ran.
+                            void capture?.(id === "window" ? "window" : "screen")
+                              .then(async (shot) => {
+                                if (shot instanceof File) await attach.current([shot]);
+                                else if (shot) setAttachError(attachmentErrorText(shot, t));
+                              })
+                              .finally(() => {
+                                const focused = document.activeElement;
+                                if (!focused || focused === document.body || form.current?.contains(focused))
+                                  field.current?.focus();
+                              })
                           : id === "mention"
                             ? mention()
                             : id === "files"

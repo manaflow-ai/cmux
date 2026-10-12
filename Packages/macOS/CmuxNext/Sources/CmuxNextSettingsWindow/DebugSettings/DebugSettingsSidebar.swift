@@ -15,6 +15,7 @@ struct DebugSettingsSidebar: View {
                     Icon(.search, size: 13).foregroundStyle(SettingsStyle.tertiary)
                     TextField(DebugSettingsStrings.searchPlaceholder, text: $model.query)
                         .textFieldStyle(.plain)
+                        .focusEffectDisabled()
                         .focused($searchFocused)
                         .accessibilityIdentifier("cmux.debugSettings.search")
                     if !model.query.isEmpty {

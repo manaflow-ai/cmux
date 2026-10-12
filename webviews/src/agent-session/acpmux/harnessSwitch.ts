@@ -279,7 +279,13 @@ export class HarnessSwitch {
 
   /// A prompt sent from the composer. Returns undefined when no switch holds it (the caller sends
   /// it as usual), else a promise that settles as the send would.
-  send(text: string, attachments: ComposerAttachment[] = [], written?: () => void): Promise<unknown> | undefined {
+  /// `promptId`: a seeded prompt's own id (its host ticket is bound to it, cx-k21v gap 4).
+  send(
+    text: string,
+    attachments: ComposerAttachment[] = [],
+    written?: () => void,
+    promptId?: string,
+  ): Promise<unknown> | undefined {
     let intent = this.intent;
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
@@ -296,7 +302,7 @@ export class HarnessSwitch {
       });
       return { promise, resolve, reject };
     })();
-    const id = crypto.randomUUID();
+    const id = promptId ?? crypto.randomUUID();
     intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).

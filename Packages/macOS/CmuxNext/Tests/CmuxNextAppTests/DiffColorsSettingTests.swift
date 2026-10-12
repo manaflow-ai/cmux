@@ -1,5 +1,8 @@
+import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextSettings
+import CmuxNextDesign
+@testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// Diff Colors (cx-wqn5): the diff page's add/remove colors follow the theme unless a person picks
@@ -19,5 +22,32 @@ struct DiffColorsSettingTests {
         #expect(!DiffPrefKey.accepts("colors", .string("neon")))
         let prefs = DiffPrefKey.sanitized(.object(["colors": .string("standard"), "layout": .string("split")]))
         #expect(prefs["colors"] == .string("standard"))
+    }
+
+    /// A change in Settings reaches every agent page (the Changes view's colors) and every open diff
+    /// tab (the `cmux.diff.prefs` stream) at once, without a reload.
+    @MainActor @Test func aChangeReachesTheAgentPagesAndTheOpenDiffTabs() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-diff-colors-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"diff":{"colors":"muted"}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+
+        let pages = AgentPanePageSettings()
+        pages.follow(settings) {}
+        let prefs = SettingsDiffPrefs { settings }
+        var streamed: [JSONValue] = []
+        let stop = prefs.listen { streamed.append($0["colors"] ?? .null) }
+        defer { stop() }
+        for _ in 0..<200 where pages.diffColors != "muted" { await Task.yield() }
+        #expect(pages.diffColors == "muted")
+
+        try await settings.set(.string("standard"), at: ["diff", "colors"])
+        for _ in 0..<200 where pages.diffColors != "standard" || streamed.last != .string("standard") { await Task.yield() }
+        #expect(pages.diffColors == "standard")
+        #expect(streamed.last == .string("standard"))
     }
 }

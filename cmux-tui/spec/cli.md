@@ -463,6 +463,8 @@ git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+git worktree create [TARGET] [--name <name>] [--base <revision>]
+git worktree apply [TARGET]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -555,6 +557,11 @@ status and line counts, adds patches only with `--patch` (each cut at
 `--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
+one `git worktree create` recorded for the current branch
+(`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
+default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
+linked worktree `git status` adds `worktree.main_root`, its main checkout.
 `git files` (`git.files.search`) lists the files under the target folder whose
 path holds the query's characters in order, case-insensitively and ignoring
 spaces, best first: tracked files still in the working tree and untracked
@@ -656,6 +663,39 @@ refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_
 `rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
 `hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
 commit the remote has succeeds with `up_to_date`.
+
+`git worktree create` (`git.worktree.create`, capability `git-worktree-v1`)
+makes a chat's own worktree, in the user's environment like `commit`, and
+only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`
+(`<project>` is the main checkout's folder name) on a new branch
+`cmux/<name>` from `--base` (default: the current branch, else HEAD's
+commit), and the base is recorded as `branch.cmux/<name>.cmuxBase` (a branch by
+name, any other revision as its commit). The name
+is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
+`chat-` and six random hex digits; a name taken by a folder or a branch gets
+the next free suffix (`-2` to `-99`). The user's checkout, its index and its
+uncommitted changes are untouched. The result is the worktree's `root`,
+`branch`, `base`, `base_commit` and, unless the repository is bare,
+`main_root`. It refuses with `base_not_found`, `name_taken`, `path_exists`,
+`no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
+worktree the first attempt made. A failing post-checkout hook does not undo
+the worktree, so it is reported as made.
+
+`git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
+run in a worktree whose branch `git worktree create` recorded a base for, brings
+its work back to the main checkout, in the user's environment and only on this
+machine. Everything the worktree changed since the merge base with that base
+(its commits, its uncommitted edits and the new files it never added) lands in
+the main checkout's files as uncommitted changes; submodules are left out. HEAD
+and the index of both checkouts stay as they are, and the user's diff and apply
+settings change nothing. The result is `main_root` and the `files` it changed.
+It refuses, changing nothing, with `not_a_worktree`, `no_base`, `unmerged`
+(mid-merge or mid-rebase), `no_merge_base`, `nothing_to_apply`,
+`main_checkout_changed` (the main checkout has a change of its own, or a file git
+does not track, at those paths, listed in `extra.files`), `does_not_apply` or
+`git_failed`. A retry after a lost reply or a timeout finds the work applied
+instead of applying it twice; one stopped while git wrote the files is refused
+as `interrupted`, as the main checkout may hold part of it.
 
 ## Local sidebar plugins
 

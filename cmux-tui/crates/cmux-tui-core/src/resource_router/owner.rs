@@ -132,6 +132,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitFilesList
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitPush
+        | ResourceOperation::GitWorktreeCreate
+        | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
