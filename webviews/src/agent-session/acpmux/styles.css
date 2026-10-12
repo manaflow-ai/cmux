@@ -312,8 +312,8 @@
 :root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}
 /* Diff Colors (diffColors.ts): Muted mixes them toward the page, Standard uses the diff tabs' fixed colors (appearance.ts). */
 :root[data-diff-colors=muted]{--acpmux-add:color-mix(in srgb,var(--agent-ansi-2,#90b345) 60%,var(--agent-page-bg,#272823));--acpmux-del:color-mix(in srgb,var(--agent-ansi-1,#b4365e) 60%,var(--agent-page-bg,#272823))}
-:root[data-diff-colors=standard]{--acpmux-add:#8fd88f;--acpmux-del:#ff8a80}
-:root[data-diff-colors=standard][data-theme=light]{--acpmux-add:#257a3e;--acpmux-del:#b42318}
+:root[data-diff-colors=standard]{--acpmux-add:#8fd88f;--acpmux-del:#ff8a80} /* theme-fixed: Standard is the diff tabs' fixed palette (appearance.ts) */
+:root[data-diff-colors=standard][data-theme=light]{--acpmux-add:#257a3e;--acpmux-del:#b42318} /* theme-fixed: Standard is the diff tabs' fixed palette (appearance.ts) */
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-diff-header{display:flex;align-items:center;gap:8px;height:48px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:pointer}
