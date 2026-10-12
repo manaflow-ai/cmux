@@ -44,6 +44,13 @@ impl Surface {
         records.to_json(running)
     }
 
+    /// The status this terminal's tab shows (`ShownProgramStatus`).
+    pub fn shown_program_status(&self) -> Option<crate::program_status::ShownProgramStatus> {
+        let records = self.as_pty()?.program_status_records();
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.shown(!self.is_dead())
+    }
+
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
     /// program status as a terminal upsert, then post the notifications the records asked for
     /// (after the upsert, so a client that opens the notification finds the
@@ -67,6 +74,10 @@ impl Surface {
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
         if let Err(error) = mux.publish_terminal_progress(self, mutation) {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // The tab's shown status (TUI tab indicator) may have changed.
+        if status_changed {
+            mux.emit(crate::mux::MuxEvent::ProgramStatusChanged(self.id));
         }
         if !alerts.is_empty() {
             let notifications = pty

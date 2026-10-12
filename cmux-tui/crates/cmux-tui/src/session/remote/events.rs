@@ -454,6 +454,13 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            // OSC 7501: the tab's shown status lives in the tree.
+            Some("program-status-changed") => {
+                if let Some(id) = surface_id() {
+                    self.tree_stale.store(true, Ordering::Release);
+                    self.emit(MuxEvent::ProgramStatusChanged(id));
+                }
+            }
             Some("notification") => {
                 let Some(notification) = value.get("notification").and_then(Value::as_u64) else {
                     return;

@@ -257,6 +257,19 @@ impl ProgramStatusRecords {
         (!records.is_empty()).then_some(Value::Array(records))
     }
 
+    /// What a tab shows for these records: the strongest one that is not
+    /// idle, picked as the app's `ProgramStatusRecord.strongest` does
+    /// (blocked, error, working, done; the newest of equals). `running`
+    /// false hides the records that end with the process.
+    pub(crate) fn shown(&self, running: bool) -> Option<ShownProgramStatus> {
+        self.records
+            .values()
+            .filter(|record| record.state != ProgramStatusState::Idle)
+            .filter(|record| running || !record.is_transient())
+            .max_by_key(|record| (strength(record.state), record.updated_seq))
+            .map(|record| ShownProgramStatus { state: record.state, progress: record.progress })
+    }
+
     /// True once per visible change, marking it published.
     pub(crate) fn take_change(&mut self) -> bool {
         let changed = self.revision != self.published;
@@ -305,6 +318,48 @@ impl ProgramStatusRecords {
             self.records = records;
             self.revision += 1;
         }
+    }
+}
+
+/// The one status a terminal's tab shows (`program_status` on a tab in the
+/// tree): its strongest record's state and progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShownProgramStatus {
+    pub state: ProgramStatusState,
+    /// 0 through 100, only while working or blocked.
+    pub progress: Option<u8>,
+}
+
+impl ShownProgramStatus {
+    pub fn wire(&self) -> Value {
+        json!({"state": self.state.as_str(), "progress": self.progress})
+    }
+
+    /// The tree's `program_status` value of a tab, as `wire` writes it.
+    pub fn from_wire(value: &Value) -> Option<Self> {
+        let state = match value.get("state")?.as_str()? {
+            "working" => ProgramStatusState::Working,
+            "blocked" => ProgramStatusState::Blocked,
+            "error" => ProgramStatusState::Error,
+            "done" => ProgramStatusState::Done,
+            _ => return None,
+        };
+        let progress = value
+            .get("progress")
+            .and_then(Value::as_u64)
+            .and_then(|value| u8::try_from(value).ok())
+            .filter(|value| *value <= 100);
+        Some(Self { state, progress })
+    }
+}
+
+fn strength(state: ProgramStatusState) -> u8 {
+    match state {
+        ProgramStatusState::Blocked => 4,
+        ProgramStatusState::Error => 3,
+        ProgramStatusState::Working => 2,
+        ProgramStatusState::Done => 1,
+        ProgramStatusState::Idle | ProgramStatusState::Clear => 0,
     }
 }
 

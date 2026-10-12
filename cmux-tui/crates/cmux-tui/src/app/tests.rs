@@ -9,10 +9,10 @@ mod host_input;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;
+mod program_status_tabs;
 mod projection_actions;
 mod provider_switch;
 mod provider_workspaces;
-mod program_status_tabs;
 mod pty_mouse;
 mod remote_pointer;
 mod selection_clicks;
@@ -192,6 +192,7 @@ fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId
         browser_frames_stalled: false,
         supports_clear_history_key_fallback: false,
         notification: None,
+        program_status: None,
     };
     let mut tabs = vec![tab(created_surface)];
     if active_surface != created_surface {
@@ -775,6 +776,7 @@ fn notify_tree(surface: u64, unread: bool) -> TreeView {
                         supports_clear_history_key_fallback: false,
                         notification: unread
                             .then_some(TabNotificationView { unread: true, level: "warning" }),
+                        program_status: None,
                     }],
                 }],
             }],

@@ -176,6 +176,10 @@ pub(super) fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": dead,
+                // OSC 7501: the status the tab shows (TUI tab indicator).
+                "program_status": surface
+                    .and_then(|surface| surface.shown_program_status())
+                    .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });

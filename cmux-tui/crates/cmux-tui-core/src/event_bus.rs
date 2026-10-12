@@ -241,6 +241,7 @@ impl SurfaceSessionScope {
         match event {
             MuxEvent::SurfaceOutput(surface)
             | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::ProgramStatusChanged(surface)
             | MuxEvent::Bell(surface) => *surface == self.surface,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
