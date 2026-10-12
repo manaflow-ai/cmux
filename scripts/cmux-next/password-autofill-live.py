@@ -104,6 +104,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 ORIGIN = f"http://127.0.0.1:{server.server_port}"
+TYPED_ORIGIN = f"http://localhost:{server.server_port}"
 PASSWORDS_CSV = "name,url,username,password,note\n" \
                 f"127.0.0.1,{ORIGIN}/login,{USERNAME},not-a-real-password-{RUN},\n"
 CHANGED_CSV = PASSWORDS_CSV.replace("not-a-real-password", "a-new-throwaway-password")
@@ -287,18 +288,16 @@ try:
           f"the new password is the saved one: importing it again is already saved ({again})")
 
     # A person types a new sign-in and submits it: cmux's prompt bar asks, not Chromium's bubble.
-    reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{ORIGIN}/login?tab=typed"}})
+    # Another origin (localhost, same server) with no saved sign-in, so no fill lands in the fields.
+    reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{TYPED_ORIGIN}/login?tab=typed"}})
     check(reply.get("performed") is True, f"a person opens the login page to sign in ({reply.get('performed')})")
     wait_for(lambda: "typed" in reports, "the sign-in page reports", 30)
-    time.sleep(1)  # Chromium's fill of the saved sign-in lands first; the person types over it
-    key("a", ["command"], target="page")
     type_text(TYPED_USER, target="page")
     key("tab", target="page")
-    key("a", ["command"], target="page")
     type_text(TYPED_PASSWORD, target="page")
     key("return", target="page")
     prompt = wait_for(save_prompt, "the save prompt", 30)
-    check(prompt is not None and TYPED_USER in prompt.get("kind", "") and "update: false" in prompt.get("kind", ""),
+    check(prompt is not None and f'username: "{TYPED_USER}", update: false' in prompt.get("kind", ""),
           f"the prompt bar asks to save the typed sign-in ({prompt})")
     reply = rpc("debug.browser.prompts", {"respond": "accept"})
     check(reply.get("responded") is True, f"a person presses Save ({reply.get('responded')})")
@@ -307,7 +306,7 @@ try:
     # The earlier import's toast goes first, so the next one read is this import's.
     wait_for(lambda: not any("Imported:" in t or "Replaced:" in t for t in toasts()), "the earlier import toast goes", 40)
     write(os.path.join(EXPORTS, "typed.csv"), "name,url,username,password,note\n"
-          f"127.0.0.1,{ORIGIN}/login,{TYPED_USER},{TYPED_PASSWORD},\n")
+          f"localhost,{TYPED_ORIGIN}/login,{TYPED_USER},{TYPED_PASSWORD},\n")
     import_through("chrome", "typed.csv")
     typed = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None),
                      "the typed sign-in's import toast", 60)
