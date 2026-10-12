@@ -26,7 +26,7 @@ FAKE_BUN = """#!/usr/bin/env bash
 printf '%s\\n' "$2" >> "$BUN_CALLS"
 # A file that starts a Vite dev server optimizes dependencies into its Vite cache while it runs: two
 # at once on one cache lose each other's files, and a cold cache is the slow first bundle.
-if grep -q -e '"dev",' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$2"; then
+if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vite.config.acpmux-pane.mjs' "$2"; then
   config=default
   grep -q 'vite.config.settings-page.mjs' "$2" && config=settings
   grep -q 'vite.config.gallery-dev.ts' "$2" && config=gallery
@@ -143,10 +143,12 @@ class PerFileRunner(unittest.TestCase):
         settings_server = 'spawn(vp, [\n  "dev",\n  "--config",\n  "vite.config.settings-page.mjs",\n]);\n'
         gallery_server = 'import config from "../vite.config.gallery-dev.ts";\n'
         pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        created_server = 'vite = await createServer({\n  configFile: path.join(webviews, "vite.config.ts"),\n'
         contents = {
             "test/editor-page.test.ts": default_server,
             "test/ui-a11y.test.ts": default_server,
             "test/text-field-focus.test.ts": default_server,
+            "test/new-tab-typing.test.ts": created_server,
             "test/settings-scroll.test.ts": settings_server,
             "test/composer-mention.test.ts": gallery_server,
             "test/composer-send-stop.test.ts": gallery_server,
