@@ -88,6 +88,32 @@ struct AgentPaneProjectFilesTests {
             == "Use tabs.\n\n@.cmux/context/spec.md\n@.cmux/context/style-guide.txt\n@.cmux/context/spec-2.md\n")
     }
 
+    /// A CLAUDE.md that links to the folder's AGENTS.md (one file for every harness) gets the files
+    /// named in AGENTS.md, in the words every harness follows, as Edit CLAUDE.md opens it.
+    @Test func namesThemInTheAgentsMdAClaudeMdLinksTo() async throws {
+        let rig = try Rig()
+        try "Use tabs.\n".write(toFile: rig.folder + "/AGENTS.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/CLAUDE.md", withDestinationPath: "AGENTS.md")
+        rig.picks = [try rig.file("spec.md", "# Spec")]
+        let reply = await rig.add()
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(rig.read("AGENTS.md") == "Use tabs.\nRead `.cmux/context/spec.md` for project context.\n")
+        #expect(rig.opened == ["AGENTS.md"])
+    }
+
+    /// The other way round: an AGENTS.md that links to CLAUDE.md gets lines Codex follows, not the
+    /// imports only Claude reads.
+    @Test func namesThemWithReadLinesInTheClaudeMdAnAgentsMdLinksTo() async throws {
+        let rig = try Rig()
+        try "Use tabs.\n".write(toFile: rig.folder + "/CLAUDE.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/AGENTS.md", withDestinationPath: "CLAUDE.md")
+        rig.picks = [try rig.file("spec.md", "# Spec")]
+        let reply = await rig.add(name: "AGENTS.md")
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(rig.read("CLAUDE.md") == "Use tabs.\nRead `.cmux/context/spec.md` for project context.\n")
+        #expect(rig.opened == ["CLAUDE.md"])
+    }
+
     /// A Codex chat's AGENTS.md names the files to read (it has no imports).
     @Test func namesThemInAgentsMd() async throws {
         let rig = try Rig()
