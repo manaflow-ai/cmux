@@ -145,7 +145,8 @@ final class HistoryService {
             }
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
-                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.page == nil ? tab?.url : nil)
+                                                    machine: entry.daemon.machineID, cwd: tab?.cwd,
+                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil)
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
@@ -165,6 +166,12 @@ final class HistoryService {
     /// A closed chat with no title yet or a remote terminal looks the same otherwise, and reopens.
     static func isBlank(_ tab: CmuxNextDaemon.ClosedItem.Tab) -> Bool { tab.empty }
 
+    /// A closed name or address worth showing: a chat or New Tab page is kept as a browser tab on
+    /// `about:blank` (a tab item carries that as its name too), never a name or an address.
+    static func realText(_ text: String?) -> String? {
+        text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 }
+    }
+
     /// The tab an item is named by: its first real one, past any New Tab page beside it.
     static func shownTab(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextDaemon.ClosedItem.Tab? {
         item.tabs.first { !isBlank($0) } ?? item.tabs.first
@@ -176,11 +183,9 @@ final class HistoryService {
     static func daemonClosedText(_ item: CmuxNextDaemon.ClosedItem, pages: InternalPageTabStore) -> (title: String, detail: String?) {
         let tab = shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
-        // A chat or New Tab page is kept as a browser tab on `about:blank`: never a name or address.
-        let real = { (text: String?) in text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 } }
-        let url = real(tab?.url)
+        let url = realText(tab?.url)
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? item.name ?? real(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 
