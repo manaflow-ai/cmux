@@ -936,6 +936,14 @@ mark {
   flex: 1;
 }
 
+.art-browser output:empty {
+  display: none;
+}
+
+.art-browser output {
+  display: block;
+}
+
 .backdrop-title {
   overflow: hidden;
   font-size: 12px;

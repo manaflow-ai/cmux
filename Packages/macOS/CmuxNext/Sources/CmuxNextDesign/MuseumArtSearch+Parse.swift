@@ -63,13 +63,32 @@ nonisolated extension MuseumArtSearch {
                 let metadata = (info["extmetadata"] as? [String: Any]) ?? [:]
                 func field(_ key: String) -> String? { text((metadata[key] as? [String: Any])?["value"]) }
                 guard field("LicenseShortName")?.localizedCaseInsensitiveContains("public domain") == true else { return nil }
-                // A Commons thumbnail URL names its width: ask for a small one for the grid.
-                let thumbnail = URL(string: full.absoluteString.replacingOccurrences(of: "/2400px-", with: "/400px-")) ?? full
+                let thumbnail = commonsThumbnail(of: full) ?? full
                 let fileTitle = URL(fileURLWithPath: String(name.dropFirst("File:".count))).deletingPathExtension().lastPathComponent
                 return MuseumArtResult(key: "\(MuseumArtSource.commons.rawValue):\(id)", source: .commons,
                                        title: field("ObjectName") ?? fileTitle, artist: field("Artist") ?? "",
                                        date: field("DateTimeOriginal") ?? "", thumbnail: thumbnail, image: full, page: described)
             }
+    }
+
+    /// A 500-pixel Commons thumbnail of `url`. Commons answers the nearest standard width
+    /// (".../thumb/a/ab/Name/3840px-Name") or, for a smaller file, the original
+    /// (".../commons/a/ab/Name"), and serves only standard widths.
+    static func commonsThumbnail(of url: URL) -> URL? {
+        let text = url.absoluteString
+        if text.contains("/thumb/") {
+            return URL(string: text.replacingOccurrences(of: "/[0-9]+px-", with: "/500px-", options: .regularExpression))
+        }
+        let parts = url.path.split(separator: "/").map(String.init)
+        guard parts.count >= 4, let name = parts.last,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        components.query = nil
+        var path: [String] = Array(parts.dropLast(3))
+        path.append("thumb")
+        path.append(contentsOf: parts.suffix(3))
+        path.append("500px-\(name)")
+        components.path = "/" + path.joined(separator: "/")
+        return components.url
     }
 
     /// Plain text from an API value: Commons metadata is HTML (links, hidden date markup), so tags
@@ -78,7 +97,8 @@ nonisolated extension MuseumArtSearch {
         guard var text = value as? String else { return nil }
         if let hidden = text.range(of: "<div style=\"display: none;\">") { text = String(text[..<hidden.lowerBound]) }
         text = text.replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression)
-        for (entity, character) in [("&amp;", "&"), ("&quot;", "\""), ("&#039;", "'"), ("&#39;", "'"), ("&nbsp;", " ")] {
+        text = text.replacingOccurrences(of: "&#0*39;", with: "'", options: .regularExpression)
+        for (entity, character) in [("&amp;", "&"), ("&quot;", "\""), ("&nbsp;", " ")] {
             text = text.replacingOccurrences(of: entity, with: character)
         }
         text = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")

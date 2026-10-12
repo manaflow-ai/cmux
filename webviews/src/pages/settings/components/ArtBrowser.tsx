@@ -57,9 +57,13 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
         </button>
       </form>
       <p className="row-help">{t("settingsWindow.artBrowser.help")}</p>
-      {status === "searching" && <p className="row-help">{t("settingsWindow.artBrowser.searching")}</p>}
-      {status === "done" && results.length === 0 && <p className="row-help">{t("settingsWindow.artBrowser.none")}</p>}
-      {status === "failed" && <p className="row-help">{t("settingsWindow.artBrowser.none")}</p>}
+      <output className="row-help">
+        {status === "searching"
+          ? t("settingsWindow.artBrowser.searching")
+          : status === "failed" || (status === "done" && results.length === 0)
+            ? t("settingsWindow.artBrowser.none")
+            : null}
+      </output>
       {results.length > 0 && (
         <div className="backdrop-grid">
           {results.map((result) => (
@@ -69,7 +73,6 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
               className="backdrop-tile"
               aria-busy={using === result.key}
               disabled={using !== null}
-              aria-label={`${result.title} — ${result.artist}`}
               onClick={() => void use(result.key)}
             >
               <img className="backdrop-thumb" alt="" src={`museum/${encodeURIComponent(result.key)}`} />
