@@ -199,6 +199,11 @@ func cmuxReadableForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
 }
 
+/// Contrast an explicit status or log color needs against the selected row
+/// fill to keep its own hue: the WCAG 3:1 floor for color that carries
+/// meaning, so a status color the user chose survives selection.
+let sidebarStatusMinimumContrast: CGFloat = 3
+
 /// Keeps explicit status colors when readable on selection, otherwise uses
 /// the caller's selected-foreground fallback.
 func sidebarStatusPresentationNSColor(
@@ -213,11 +218,11 @@ func sidebarStatusPresentationNSColor(
     let foregroundForComparison = explicit.alphaComponent < 1
         ? cmuxCompositedNSColor(explicit, over: selectedBackground)
         : explicit
-    return cmuxContrastRatio(foreground: foregroundForComparison, background: selectedBackground) >= 4.5
+    return cmuxContrastRatio(foreground: foregroundForComparison, background: selectedBackground)
+        >= sidebarStatusMinimumContrast
         ? explicit
         : fallback()
 }
-
 
 func sidebarLogPresentationNSColor(
     level: SidebarLogLevel,
