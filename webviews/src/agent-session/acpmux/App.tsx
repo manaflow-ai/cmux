@@ -39,7 +39,7 @@ import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
-import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
+import { useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
 import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
@@ -2484,6 +2484,7 @@ function AcpmuxPane() {
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
+  useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {

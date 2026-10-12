@@ -125,7 +125,11 @@ enum NewTabPage {
         }
     }
 
-    /// The open tabs, other workspaces and folders the bar suggests.
+    /// The open tabs, other workspaces and folders the bar suggests: only places a jump lands
+    /// somewhere real on (Leo 2026-10-11: "about:blank Home", a bare "~ ~" folder, each
+    /// workspace twice). A New Tab page, a page tab and a blank browser tab are no place; a chat
+    /// is one; the home folder is not a project. Another workspace with one place lists once, as
+    /// the workspace (a jump to either shows the same tab), named by that tab.
     static func places(_ workspaces: [PlaceSource], current: String?, excluding selectedID: String?, home: String,
                        icon: (TabModel) -> String? = { _ in nil })
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
@@ -133,24 +137,47 @@ enum NewTabPage {
         var others: [AgentPaneOmnibar.Workspace] = []
         var folders: [String] = []
         for workspace in workspaces {
-            for tab in workspace.tabs {
-                if let folder = tab.cwd, !folders.contains(folder) { folders.append(folder) }
-                guard tab.id != selectedID else { continue }
-                let browser = tab.kind == .browser
-                tabs.append(AgentPaneOmnibar.Tab(
-                    id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
-                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map { abbreviated($0, home: home) }, workspace: workspace.name,
-                    icon: browser ? icon(tab) : nil
-                ))
+            for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
+            let rows = workspace.tabs.filter { $0.id != selectedID }.compactMap { tab in
+                place(tab, home: home).map { place in
+                    AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail,
+                                         workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
+                }
             }
-            if workspace.id != current {
-                others.append(AgentPaneOmnibar.Workspace(
-                    id: workspace.id, name: workspace.name,
-                    detail: workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
-                ))
+            guard workspace.id != current else {
+                tabs += rows
+                continue
             }
+            if rows.count > 1 { tabs += rows }
+            let named = rows.count == 1 ? rows[0].detail ?? rows[0].title : nil
+            let detail = named ?? workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
+            others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: detail))
         }
         return (tabs, others, folders)
+    }
+
+    /// A tab as a bar row: its kind, a title of its own and the line under it; nil for no place.
+    static func place(_ tab: TabModel, home: String) -> (kind: AgentPaneTabKind, title: String, detail: String?)? {
+        let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = !title.isEmpty && title != blankPage
+        switch tab.kind {
+        case .browser:
+            let url = tab.url.flatMap { $0 == blankPage || $0.isEmpty ? nil : $0 }
+            guard let shown = named ? title : url.map(displayURL) else { return nil }
+            return (.browser, shown, url.map(displayURL).flatMap { $0 == shown ? nil : $0 })
+        case .pty, .remoteTerminal:
+            let folder = tab.cwd.map { abbreviated($0, home: home) }
+            // A shell titled with its folder alone is named by that folder.
+            let shown = named && title != tab.cwd && title != folder ? title : folder ?? (named ? title : nil)
+            guard let shown else { return nil }
+            return (.terminal, shown, folder == shown ? nil : folder)
+        case .conversation:
+            // A chat (an agent session) is a place; a New Tab page (no session yet) and a page tab are not.
+            guard tab.agentSession?.session != nil, named else { return nil }
+            return (.agent, title, tab.cwd.map { abbreviated($0, home: home) })
+        case .other:
+            return nil
+        }
     }
 
     /// The address of a page with nothing on it, the title a New Tab page starts with.
