@@ -125,7 +125,7 @@ extension AgentNotificationRegressionTests {
     func openCodeTurnWithAToolStepPostsOnce() async throws {
         // A fake OpenCode server: one prompt is a tool step and an answer, each a finished
         // assistant message, then the session goes idle.
-        let agent = try FakeClaudeExecutable(script: #"exec /usr/bin/env python3 "$(dirname "$0")/fake_opencode.py""#)
+        let agent = try FakeClaudeExecutable(script: #"exec /usr/bin/python3 "$(dirname "$0")/fake_opencode.py""#)
         defer { agent.restore() }
         try Self.fakeOpenCode.write(
             to: agent.project.appendingPathComponent("fake_opencode.py", isDirectory: false), atomically: true, encoding: .utf8
@@ -134,12 +134,14 @@ extension AgentNotificationRegressionTests {
         defer { store.closeAll() }
         var notices: [AgentSessionTurnNotifier.Notice] = []
         var started = false
+        var seen: [String] = []
         let notifier = AgentSessionTurnNotifier(
             surfaceID: UUID(), workspaceID: { UUID() }, workingDirectory: { nil },
             deliver: { notices.append($0) }
         )
         store.eventSink = { event in
             notifier.observe(event)
+            seen.append(["type", "stream", "text", "status"].compactMap { key in event[key].map { value in "\(value)" } }.joined(separator: " "))
             if event["type"] as? String == "provider.started" { started = true }
         }
         let session = try await store.start(
@@ -153,13 +155,13 @@ extension AgentNotificationRegressionTests {
         )
         let deadline = ContinuousClock.now + .seconds(20)
         while !started, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
-        #expect(started, "the fake OpenCode session started")
+        #expect(started, "the fake OpenCode session started: \(seen)")
         try await store.writeLine(sessionId: session.sessionId, text: "Read the file")
         // The turn's notice carries the final answer; a per-step notice comes before it.
         while !notices.contains(where: { $0.body.contains("All done.") }), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(20))
         }
-        #expect(notices.count == 1, "one notification per OpenCode turn: \(notices.map(\.body))")
+        #expect(notices.count == 1, "one notification per OpenCode turn: \(notices.map(\.body)), events: \(seen)")
         #expect(notices.first?.body.contains("All done.") == true)
     }
 
