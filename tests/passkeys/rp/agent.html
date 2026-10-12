@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cmux passkey agent RP</title>
+<meta name="viewport" content="width=device-width">
+<style>
+  body { font: 13px ui-monospace, monospace; margin: 16px; background: #1e1e1e; color: #ddd; }
+  button { font: inherit; display: block; margin: 4px 0; width: 260px; height: 32px; }
+  pre { white-space: pre-wrap; }
+</style>
+<!--
+  Agent refusal page (plans/cmux-next/passkeys.md 3.5, cx-d0d.48). An agent's
+  click on a button runs a WebAuthn request; a tab under an agent lease must
+  reject every one with NotAllowedError before any system UI. The username
+  field starts a conditional (autofill) request on load. Each outcome lands
+  in window.__agent[name] as {error, ms}; a popup (?popup) creates on load and
+  posts its outcome to the opener as "popup".
+-->
+<h1>Agent passkey RP</h1>
+<input id="username" autocomplete="username webauthn" placeholder="username">
+<button id="create">Create a passkey</button>
+<button id="signin">Sign in with a passkey</button>
+<button id="popup">Open a popup</button>
+<pre id="out"></pre>
+<script src="scenarios.js"></script>
+<script>
+  window.__agent = {};
+  const { create, get, errName } = window.passkeyHelpers;
+  const record = (name, outcome) => {
+    window.__agent[name] = outcome;
+    document.getElementById("out").textContent += `${name} ${JSON.stringify(outcome)}\n`;
+    if (window.opener && name === "popup-create") window.opener.postMessage({ agentPopup: outcome }, "*");
+  };
+  const attempt = async (name, run) => {
+    const started = performance.now();
+    try {
+      await run();
+      record(name, { error: null, ms: Math.round(performance.now() - started) });
+    } catch (e) {
+      record(name, { error: errName(e), message: e && e.message, ms: Math.round(performance.now() - started) });
+    }
+  };
+  // A modal request first aborts the page's autofill request, as sites do.
+  const autofill = new AbortController();
+  const modal = (run) => () => { autofill.abort(); return run(); };
+  document.getElementById("create").onclick = () => attempt("create", modal(() => create()));
+  document.getElementById("signin").onclick = () => attempt("signin", modal(() => get()));
+  document.getElementById("popup").onclick = () => window.open(location.pathname + "?popup", "agentPopup", "width=420,height=320");
+  addEventListener("message", (e) => { if (e.data && e.data.agentPopup) record("popup", e.data.agentPopup); });
+  if (location.search === "?popup") {
+    attempt("popup-create", () => create());
+  } else if (PublicKeyCredential.isConditionalMediationAvailable) {
+    attempt("conditional", () => get({ mediation: "conditional", signal: autofill.signal }));
+  }
+</script>
