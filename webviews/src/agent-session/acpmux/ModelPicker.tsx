@@ -345,7 +345,11 @@ export function ModelPicker(props: ModelPickerProps) {
   useEffect(() => {
     if (open || !restoreFocus.current) return;
     restoreFocus.current = false;
-    trigger.current?.focus({ preventScroll: true });
+    // A pointerup can still apply its default focus after React closes the popup. Defer the
+    // restoration until that browser action has finished, matching the popup's final focus
+    // contract for press-drag-release selection.
+    const frame = requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
   }, [open]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
