@@ -359,6 +359,30 @@ final class FlowTests: XCTestCase {
         snap(app, "94-plan-after")
     }
 
+    /// Ask Chief to start an agent; it appears in the drawer.
+    func testChiefSpawnsAgent() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["home.compose"].tap()
+        let field = app.textFields["conversation.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        field.tap()
+        field.typeText("Start a claude agent in /Users/cmux/cnm-projects/demo-app to add a one-line docstring to greet(). Don't wait for it.")
+        app.buttons["conversation.send"].tap()
+        pause(40)
+        snap(app, "95-chief-spawn-reply")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        pause(1)
+        app.buttons["shell.menu"].tap()
+        pause(1.5)
+        snap(app, "96-drawer-new-agent")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'docstring'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "spawned agent should be listed")
+        row.tap()
+        pause(20)
+        snap(app, "97-spawned-agent")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
