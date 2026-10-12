@@ -164,7 +164,14 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     await page.locator(".acpmux-access-trigger").click();
     await menu.waitFor();
     await page.keyboard.press("7");
+    // The current mode's number closes the menu without sending it again.
+    await page.waitForTimeout(200);
     expect(await menu.isVisible()).toBe(true);
+    await page.keyboard.press("3");
+    await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {
+      timeout: 5_000,
+    });
+    expect(calls.filter((call) => call.method === "session/set_mode")).toHaveLength(1);
     await page.close();
   });
 });

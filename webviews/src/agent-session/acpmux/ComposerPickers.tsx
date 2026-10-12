@@ -515,7 +515,8 @@ function AccessMenu({
             const choice = modes[Number(event.key) - 1];
             if (!choice) return;
             event.preventDefault();
-            pick(choice.id);
+            if (choice.id === value) setOpen(false);
+            else pick(choice.id);
           }}
         >
           <MenuRadioGroup value={value} onValueChange={pick}>
