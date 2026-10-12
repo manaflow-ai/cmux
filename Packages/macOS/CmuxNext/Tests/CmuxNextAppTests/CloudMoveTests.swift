@@ -90,6 +90,19 @@ struct CloudMoveTests {
         }
     }
 
+    /// A sync that throws instead of answering (the CLI timed out, or didn't launch) keeps this
+    /// Mac's tab and the move retryable on the same machine; it never clears that Retry (cx-rppd.8).
+    @Test func aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            let error = await move.run()
+            #expect(error != nil, "the move did not report that it stopped")
+            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though nothing moved")
+            #expect(move.calls().count == 1, "the chat moved after a failed sync: \(move.calls())")
+            let retry = move.services.cloud.moveRetries[move.key]
+            #expect(retry == .move(machineID: "vm-move"), "Retry does not run the move again on its machine: \(String(describing: retry))")
+        }
+    }
+
     // MARK: The harness
 
     /// One move's world: this Mac's daemon with a live chat tab, a Cloud machine on a second
@@ -258,7 +271,8 @@ struct CloudMoveTests {
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated). Like the real sync,
     /// `link sync push` creates the synced folder (not in `tabFailed`, so the machine's terminal
-    /// can't start there); `link agent move` answers as `mode` says.
+    /// can't start there; in `syncTimeout` it outlives the CLI timeout); `link agent move`
+    /// answers as `mode` says.
     private static func standInCLI(in root: URL, log: URL, mode: String) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -268,6 +282,7 @@ struct CloudMoveTests {
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
             "link sync push")
+                [ '\(mode)' = syncTimeout ] && exec sleep 30
                 for target in "$@"; do :; done
                 [ '\(mode)' = tabFailed ] || mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
