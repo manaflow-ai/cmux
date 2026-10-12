@@ -122,7 +122,8 @@ pub(crate) fn closed_items_in(
 
 /// The group Reopen Closed takes when the caller names none: the newest
 /// group of `window`, else the newest group no live window owns. Without a
-/// window: the newest group.
+/// window: the newest group that is not a closed window (only an app can
+/// show a window again, and it names its window).
 pub(crate) fn newest_for_window(
     connection: &Connection,
     window: Option<&str>,
@@ -143,8 +144,13 @@ pub(crate) fn newest_for_window(
     Ok(connection
         .query_row(
             &format!(
-                "SELECT closed_id FROM closed_groups WHERE {} ORDER BY seq DESC LIMIT 1",
-                in_scope(window)
+                "SELECT closed_id FROM closed_groups WHERE {} {} ORDER BY seq DESC LIMIT 1",
+                in_scope(window),
+                if window.is_none() {
+                    "AND IFNULL(json_extract(record_json, '$.kind'), '') != 'window'"
+                } else {
+                    ""
+                }
             ),
             params![window],
             |row| row.get::<_, String>(0),

@@ -79,12 +79,14 @@ extension StateResourceClient {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
     }
 
-    /// Reopens the newest closed group of window record `window`
-    /// (`install/window`), else the newest group no live window owns
-    /// (Cmd-Shift-T, decision 1). `resource.not_found` when there is none.
-    @discardableResult
-    public func reopenNewestClosed(window: String) async throws -> ReopenedItem {
-        try await stateMutation("closed.reopen", ["window": .string(window)], as: ReopenedItem.self)
+    /// The window ids of install `installID`'s window records (`window_record.list`).
+    public func windowRecordIDs(installID: String) async throws -> [String] {
+        let list = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "window_record.list", params: [:], idempotencyKey: nil)
+        }, as: JSONValue.self)
+        return (list.arrayValue ?? []).compactMap { record in
+            record["install_id"]?.stringValue == installID ? record["window_id"]?.stringValue : nil
+        }
     }
 
     /// Puts this install's record of window `windowID` (`window_record.put`,
