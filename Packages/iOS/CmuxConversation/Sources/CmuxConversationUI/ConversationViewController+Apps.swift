@@ -91,16 +91,19 @@ final class AppsMenuOverlay: UIView {
         icon.frame = CGRect(x: G.iconLeading, y: (G.rowHeight - iconSize) / 2, width: iconSize, height: iconSize)
         row.addSubview(icon)
         let labelX = G.iconLeading + iconSize + G.iconToLabel
-        let label = UILabel(frame: CGRect(x: labelX, y: (G.rowHeight - G.labelHeight) / 2, width: G.maximumWidth - labelX - 16, height: G.labelHeight))
+        // Centered in the row less 6 pt above and below, room for the larger
+        // text sizes (Messages: a 54 pt label at AX3).
+        let label = UILabel(frame: CGRect(x: labelX, y: 6, width: G.maximumWidth - labelX - 16, height: G.rowHeight - 12))
         label.text = item.title
-        label.font = .systemFont(ofSize: G.labelFontSize)
+        let title2 = UIFontMetrics(forTextStyle: .title2).scaledValue(for: G.labelFontSize)
+        label.font = .systemFont(ofSize: G.labelPointSize(title2Scaled: title2))
         // `sendMenuListItemTextColor`, as measured on screen.
         let lightWhite = G.labelWhite(iOS27: SendMenuIcons.isIOS27)
         // Dark: ChatKit draws 70% white composited plus-lighter, which reads
         // 209 on the 30 gray panel (MobileSMS 26.5); a plain blend needs 80%.
         label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: lightWhite, alpha: 1) }
-        label.adjustsFontSizeToFitWidth = true
-        label.minimumScaleFactor = 0.6
+        // Messages truncates a long title ("Apple C..." at AX3).
+        label.lineBreakMode = .byTruncatingTail
         row.addSubview(label)
         row.heightAnchor.constraint(equalToConstant: G.rowHeight).isActive = true
         row.accessibilityLabel = item.title

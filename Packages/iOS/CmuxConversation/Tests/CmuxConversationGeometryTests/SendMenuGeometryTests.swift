@@ -8,6 +8,15 @@ import Testing
     let screen = CGRect(x: 0, y: 0, width: 402, height: 874)
     let safe: (top: CGFloat, left: CGFloat, bottom: CGFloat, right: CGFloat) = (62, 0, 34, 0)
 
+    @Test func labelsFollowDynamicType() {
+        // CKUIBehavior.sendMenuListItemFont, iOS 27.0: 24 pt at Large, 29 at
+        // XXXL, 45 at AX3, 57 at AX5 (title 2 metrics scale 24 to 29, 44.67, 56.67).
+        #expect(SendMenuGeometry.labelPointSize(title2Scaled: 24) == 24)
+        #expect(SendMenuGeometry.labelPointSize(title2Scaled: 29) == 29)
+        #expect(SendMenuGeometry.labelPointSize(title2Scaled: 44.67) == 45)
+        #expect(SendMenuGeometry.labelPointSize(title2Scaled: 56.67) == 57)
+    }
+
     @Test func longMenuShowsSixAndAHalfRows() {
         #expect(abs(SendMenuGeometry.height(itemCount: 9) - 456.6) < 0.001)
     }

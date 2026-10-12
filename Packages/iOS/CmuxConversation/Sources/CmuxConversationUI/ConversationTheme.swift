@@ -166,8 +166,10 @@ enum ConversationTheme {
     /// A lone emoji shows at 72 pt, two or three at 48 pt.
     static let singleEmojiFontSize: CGFloat = 72
     static let emojiOnlyFontSize: CGFloat = 48
-    /// ChatKit's sizes at Large, scaled with Dynamic Type like body text.
-    static func emojiOnlyFontSize(count: Int) -> CGFloat { scaled(count == 1 ? singleEmojiFontSize : emojiOnlyFontSize) }
+    /// ChatKit's big-emoji sizes ignore Dynamic Type: Messages draws 72 and
+    /// 48 pt at every text size (iOS 26.5 and 27.0, Large through AX3),
+    /// while body bubbles grow around them.
+    static func emojiOnlyFontSize(count: Int) -> CGFloat { count == 1 ? singleEmojiFontSize : emojiOnlyFontSize }
     static let maxImageWidthFraction: CGFloat = 0.63
     /// Measured: a 9:16 photo in Messages (iPhone 17 Pro) stops at 337 pt.
     static let maxImageHeight: CGFloat = 337
@@ -206,6 +208,15 @@ enum ConversationTheme {
         return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
 
+    /// The composer's dictation microphone: lighter than the secondary
+    /// label. Messages draws it (180,184,191) on its white field and
+    /// (99,100,102) on the dark one (iOS 26.5).
+    static let composerMicTint = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: 0.36)
+            : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: 0.37)
+    }
+
     /// Captions straight over a conversation background (timestamps, status,
     /// system lines): ChatKit overrides their gray (`overrideTextColor`) so
     /// they stay legible on any color; near-white or near-black by the
@@ -223,6 +234,9 @@ enum ConversationTheme {
     static let composerFieldGap: CGFloat = ComposerBarGeometry.plusToFieldGap
     /// One line plus `composerTextPadding` above and below (40.3 pt at Large).
     static var composerMinHeight: CGFloat { lineHeight + 2 * composerTextPadding }
+    /// The field's corner radius at every text size (ChatKit's entry clip
+    /// view: 20 pt, continuous), half the 40.33 pt one-line field at Large.
+    static let composerFieldCornerRadius: CGFloat = 20
 
     // MARK: Colors
 

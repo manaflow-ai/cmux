@@ -191,6 +191,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         backGlass.frame = CGRect(x: margin, y: top, width: ConversationHeaderGeometry.buttonSize, height: ConversationHeaderGeometry.buttonSize)
         backButton.frame = CGRect(x: 2, y: ConversationHeaderGeometry.backChevronDrop, width: 40, height: 44)
         let rest = ConversationDetailsHeaderGeometry.layout(width: bounds.width, safeTop: top, offset: 0, showsTabs: tabBar != nil, isGroup: isGroup)
+        infoPage.setSideMargin(margin)
         infoPage.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
         backgroundsPage?.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
         layoutHeader()

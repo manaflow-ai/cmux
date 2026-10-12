@@ -45,7 +45,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     let plusButton = ComposerPlusButton(type: .system)
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
-    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerMinHeight / 2, interactive: false)
+    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
     /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
     /// bypasses Swift's stored-property initialization in subclasses.)
@@ -249,7 +249,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         addSubview(sendButton)
 
         micButton.setImage(UIImage(systemName: "mic", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
-        micButton.tintColor = .secondaryLabel
+        micButton.tintColor = ConversationTheme.composerMicTint
+        // Pin the 17 pt symbol (Messages' microphone ink is 11.3 x 17.3 pt at
+        // every text size); left alone the button drew it 1.3x larger.
+        micButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17, weight: .regular, scale: .medium), forImageIn: .normal)
         micButton.isUserInteractionEnabled = false
         micButton.isAccessibilityElement = false
         fieldGlass.contentView.addSubview(micButton)
@@ -318,8 +321,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
         sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
-        micButton.frame = CGRect(x: field.width - 40, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
-        fieldGlass.layer.cornerRadius = min(fieldHeight, t.composerMinHeight) / 2
+        // Messages centers the microphone 21 pt in from the field's end.
+        micButton.frame = CGRect(x: field.width - 38, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
+        // A fixed 20 pt continuous corner, not a capsule: the field keeps it
+        // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
+        fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
         // A draft measured at another width (keyboard insets, reply mode,
         // the Photos drawer, rotation, a first pass before layout) wraps
         // differently here: measure it again.
