@@ -38,6 +38,10 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
                                "moveWorkspaceToGroup", "More", "—", "closeWorkspace"])
+        // Move to Group > Frontend names the group as a target, as the handler needs.
+        let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
+        let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
+        #expect(frontend?.arguments["group"] == .target(ActionTargetRef(kind: .workspaceGroup, id: "g1")))
         // The rest moved, not gone.
         #expect(allActions(menu).contains("palette.copyWorkspaceID"))
         #expect(allActions(menu).contains("workspace.duplicate"))

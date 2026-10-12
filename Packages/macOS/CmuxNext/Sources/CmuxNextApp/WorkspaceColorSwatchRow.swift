@@ -36,13 +36,18 @@ final class WorkspaceColorSwatchView: NSView {
 
     init(title: String, choices: [NSMenuItem]) {
         self.choices = choices
-        let width = Metrics.space3 * 2 + 64 + CGFloat(choices.count) * (Self.diameter + Self.gap)
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         label.stringValue = title
         label.font = .menuFont(ofSize: 0)
         label.textColor = .labelColor
+        // The title, a gap, then the swatches; the menu widens the row to its own width.
+        let width = Metrics.space3 * 2 + 8 + label.fittingSize.width + 16 + CGFloat(choices.count) * (Self.diameter + Self.gap)
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
+        autoresizingMask = .width
         addSubview(label)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(title)
     }
 
     @available(*, unavailable)
@@ -91,8 +96,41 @@ final class WorkspaceColorSwatchView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         guard let index = swatch(at: event) else { return }
+        run(index)
+    }
+
+    fileprivate func run(_ index: Int) {
         let choice = choices[index]
         enclosingMenuItem?.menu?.cancelTracking()
         if let action = choice.action { NSApp.sendAction(action, to: choice.target, from: choice) }
+    }
+
+    /// VoiceOver reaches each swatch as a button named by its color.
+    override func accessibilityChildren() -> [Any]? {
+        choices.indices.map { index in
+            let element = SwatchElement(row: self, index: index)
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityLabel(choices[index].title)
+            element.setAccessibilityParent(self)
+            element.setAccessibilityFrameInParentSpace(index < swatches.count ? swatches[index] : .zero)
+            return element
+        }
+    }
+}
+
+private final class SwatchElement: NSAccessibilityElement {
+    private weak var row: WorkspaceColorSwatchView?
+    private let index: Int
+
+    init(row: WorkspaceColorSwatchView, index: Int) {
+        self.row = row
+        self.index = index
+        super.init()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let row else { return false }
+        row.run(index)
+        return true
     }
 }
