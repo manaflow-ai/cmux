@@ -11,7 +11,7 @@ final class SiteSettingsWindow: PageInfoWindow {
     private let send: (PageInfoCommand) -> Void
     private let usage = PageInfoStyle.label("", font: PageInfoStyle.bodyFont, color: PageInfoStyle.secondaryText)
     private var menus: [SitePermissionKind: NSPopUpButton] = [:]
-    private let reset = NSButton()
+    private let reset = ThemedBezelButton()
     private var observation: ObservationLoop?
 
     init(origin: String, site: PageInfoSite, store: SitePermissionStore, provider: any PageInfoProviding,
@@ -23,7 +23,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         super.init(title: PageInfoStrings.siteSettingsTitle(site.displayName), size: CGSize(width: 460, height: 520))
         setAccessibilityIdentifier("cmux.pageInfo.siteSettings")
         usage.stringValue = PageInfoStrings.loading
-        let deleteData = NSButton(title: PageInfoStrings.deleteData, target: self, action: #selector(deleteSiteData))
+        let deleteData = ThemedBezelButton(title: PageInfoStrings.deleteData, target: self, action: #selector(deleteSiteData))
         reset.title = PageInfoStrings.resetPermissions
         reset.target = self
         reset.action = #selector(resetPermissions)
@@ -35,7 +35,7 @@ final class SiteSettingsWindow: PageInfoWindow {
             let icon = ThemedImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
             icon.themeTint = { PageInfoStyle.text }
             let name = PageInfoStyle.label(PageInfoStrings.name(kind), font: PageInfoStyle.bodyFont, color: PageInfoStyle.text)
-            let menu = NSPopUpButton()
+            let menu = ThemedPopUpButton(frame: .zero, pullsDown: false)
             for choice in kind.choices {
                 menu.addItem(withTitle: PageInfoModel.choiceTitle(choice, kind: kind))
                 menu.lastItem?.representedObject = choice.rawValue

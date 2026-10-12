@@ -1048,7 +1048,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     margin: 0;
     padding: 0;
     border: 0;
-    background: color-mix(in srgb, #000 38%, transparent);
+    background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
     -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
     cursor: default;
