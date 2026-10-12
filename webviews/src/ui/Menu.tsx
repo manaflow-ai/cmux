@@ -13,7 +13,7 @@ import {
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
-import { useEscapingMenu, type AnchorBox } from "./popupHost";
+import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -215,7 +215,7 @@ export function MenuPopup({
   const host = usePopupHost();
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
-  useEscapingMenu(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
+  useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
     side: side === "top" ? "top" : "bottom",
     align: align === "end" ? "end" : "start",
     gap: UI_ANCHOR_GAP,

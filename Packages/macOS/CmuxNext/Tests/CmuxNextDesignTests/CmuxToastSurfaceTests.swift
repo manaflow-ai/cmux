@@ -72,11 +72,88 @@ struct CmuxToastSurfaceTests {
         #expect(handle.isDismissed)
         #expect(center.toasts(in: window).isEmpty)
     }
+
+    /// A repeated toast (the same refusal again) takes the shown one's place in one frame: it
+    /// neither blinks out and fades back in from nothing nor rises again (motion pass, 2026-10-12).
+    @Test func aSameIdToastReplacesTheShownOneInPlace() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let first = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        let shown = try #require(Self.toastViews(in: window).first)
+        #expect(shown.layer?.animation(forKey: "opacity") != nil, "a new toast fades in")
+
+        let second = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        #expect(first.isDismissed)
+        let views = Self.toastViews(in: window)
+        #expect(views.count == 1)
+        let replacement = try #require(views.first)
+        #expect(replacement !== shown)
+        #expect(replacement.layer?.animation(forKey: "opacity") == nil, "the replacement faded in from nothing")
+        #expect(replacement.layer?.animation(forKey: "transform.translation.y") == nil, "the replacement rose again")
+        second.dismiss()
+    }
+
+    /// Toasts stay clear of the Home composer; when it grows, a shown toast slides up with it
+    /// instead of jumping there in one frame (motion pass, 2026-10-12).
+    @Test func aToastSlidesClearOfAGrowingAvoidedView() throws {
+        // Synchronous from here to the reset: the override is process-wide.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let host = CmuxToastOverlayHost()
+        let center = CmuxToastCenter(host: host)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
+        try #require(window.contentView).addSubview(composer)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved"), in: window)
+        let toast = try #require(Self.toastViews(in: window).first)
+        toast.layer?.removeAllAnimations() // its arrival is done
+        let before = toast.convert(toast.bounds, to: nil).minY
+
+        composer.frame.size.height = 160
+        // What `cmuxToastAvoidanceDidChange` runs, read in the same turn: in this offscreen
+        // window the slide is gone by the next run loop pass.
+        host.reanchor(in: window)
+        #expect(toast.convert(toast.bounds, to: nil).minY >= before + 99, "the toast moved clear of the composer")
+        #expect(toast.layer?.animation(forKey: "transform.translation.y") != nil, "the toast jumped there in one frame")
+        handle.dismiss()
+    }
+
+    /// A fourth toast pushes the oldest out: it fades above the stack, clear of the toast that
+    /// moves up into its old slot, instead of the two overlapping while it fades (motion pass).
+    @Test func aToastPushedOutFadesClearOfTheOneTakingItsSlot() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let handles = (1...3).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
+        let oldest = try #require(Self.toastViews(in: window).first { $0.toast.id == "t1" })
+        let fourth = center.show(CmuxToast(id: "t4", message: "Toast 4"), in: window)
+        #expect(handles[0].isDismissed)
+        let leaving = oldest.convert(oldest.bounds, to: nil)
+        for view in Self.toastViews(in: window) where view !== oldest {
+            #expect(!view.convert(view.bounds, to: nil).intersects(leaving), "\(view.toast.id) overlaps the leaving toast")
+        }
+        (handles + [fourth]).forEach { $0.dismiss() }
+    }
+
+    /// The toasts shown over `window`: they live in its overlay panel, a child window.
+    private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
+        func walk(_ view: NSView) -> [CmuxToastView] {
+            (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
+        }
+        return WindowOverlayHost.host(for: window).panel.contentView.map(walk) ?? []
+    }
+}
+
+@MainActor
+private final class AvoidedView: NSView, CmuxToastAvoiding {
+    var toastAvoidanceRect: NSRect { bounds }
 }
 
 @MainActor
 private final class HeadlessToastHost: CmuxToastHosting {
-    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, windowGone: @escaping () -> Void) {}
+    func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {}
     func move(_ toast: CmuxToastView, to slot: Int) {}
     func hide(_ toast: CmuxToastView, animated: Bool) {}
 }

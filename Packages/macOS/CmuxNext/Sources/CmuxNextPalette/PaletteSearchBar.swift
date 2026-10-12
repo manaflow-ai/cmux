@@ -21,7 +21,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let breadcrumb = PaletteClickView()
     private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keywordHint = PaletteKeywordHintView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
@@ -43,9 +43,6 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             guard let self, self.depth > 1 else { return }
             self.onPopTo?(self.depth - 2)
         }
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
         [magnifier, chips, breadcrumb, field, keywordHint, spinner].forEach(addSubview)
     }
 
@@ -78,7 +75,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         keywordHint.update(title: hint)
         field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
         field.font = Typography.search
-        if isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(isLoading)
         needsLayout = true
     }
 

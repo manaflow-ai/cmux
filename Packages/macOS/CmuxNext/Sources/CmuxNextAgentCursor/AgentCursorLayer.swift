@@ -79,9 +79,14 @@ public final class AgentCursorLayer {
 
     /// Click feedback: the ripple grows and fades (`MotionFade.clickPulse`,
     /// 0.25 s at the fast speed, cmux-cua timing). Reduce Motion keeps only
-    /// the fade; speed "off" shows no ripple.
+    /// the fade, at the ring's full size; speed "off" shows no ripple.
     func pulse() {
-        Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4)
+        if Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            ripple.transform = CATransform3DMakeScale(1.6, 1.6, 1)
+            CATransaction.commit()
+        }
         Motion.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
     }
 }
