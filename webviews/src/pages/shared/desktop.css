@@ -182,10 +182,10 @@ input[type="submit"] {
   outline: none;
 }
 
-/* Reduce Motion stops every page animation, except the popup surfaces' fades: a menu, tooltip or
-   sheet that appeared in one frame flashed (POLISH; ui/popupSurface.css keeps them fade-only). */
+/* Reduce Motion stops every page animation, except the popup surfaces' fades: a menu, tooltip,
+   sheet or dialog that appeared in one frame flashed (POLISH; ui/popupSurface.css keeps them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ui-popup, .ui-tooltip, .ui-sheet),
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
