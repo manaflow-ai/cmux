@@ -22,7 +22,7 @@ Use the regular v2 browser target parameters (`workspace_id`, `surface_id`,
   selections are preserved. Concurrent waiters can observe the same new pick;
   reading or waiting never consumes it. `timeout_ms` defaults to 30000 and is
   bounded to 1–300000 milliseconds. Timeout returns `timeout`; navigation,
-  workspace transfer, WebView replacement, surface closure, or explicit clear
+  workspace transfer, WebView replacement, WebContent process termination, surface closure, or explicit clear
   returns `cancelled`.
 
 A successful response includes normal workspace/surface references plus:
