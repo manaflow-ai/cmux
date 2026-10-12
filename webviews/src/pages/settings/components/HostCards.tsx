@@ -5,7 +5,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
-import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
@@ -19,6 +18,13 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKG
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
  * previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
+
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
+ * the saved background, so nothing changes. */
+function revealTile(tile: HTMLElement | null): void {
+  tile?.scrollIntoView?.({ block: "center" });
+  tile?.focus();
+}
 
 /** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
 export function useBackdropsShown(): boolean {
@@ -77,6 +83,7 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
       className="backdrop-tile"
       aria-pressed={current === id}
       aria-label={title}
+      ref={focus === BACKGROUND_KEY && current === id && state.readable ? revealTile : undefined}
       onClick={() => void choose(id)}
       onPointerEnter={() => preview(id, PREVIEW_DWELL_MS)}
       onPointerLeave={endPreview}
@@ -103,12 +110,7 @@ export function Backdrops({ focus = null }: { focus?: string | null }) {
     else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
   }
   return (
-    <section
-      className="group"
-      data-card="backdrop"
-      data-row-key={BACKGROUND_KEY}
-      ref={focus === BACKGROUND_KEY && state.readable ? revealRow : undefined}
-    >
+    <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
       {opacity && (
         <div className="rows">

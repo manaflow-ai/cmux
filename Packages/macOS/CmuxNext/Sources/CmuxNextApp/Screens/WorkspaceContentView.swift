@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextTabs
 import Observation
 
@@ -74,7 +75,21 @@ final class WorkspaceContentView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        backgroundMenu?() ?? super.menu(for: event)
+        guard let backgroundMenu, isBackground(at: event) else { return super.menu(for: event) }
+        return backgroundMenu()
+    }
+
+    /// Whether the right-click is on the background itself. A view that showed its own menu or
+    /// editor and returned nil (a tab strip's + button) passes the click up to here too.
+    private func isBackground(at event: NSEvent) -> Bool {
+        guard let point = superview?.convert(event.locationInWindow, from: nil), var view = hitTest(point) else { return false }
+        let layout = layoutView as? LayoutRootView
+        while view !== self {
+            guard view === layoutView || view === emptyView || layout?.isBackground(view) == true,
+                  let parent = view.superview else { return false }
+            view = parent
+        }
+        return true
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
