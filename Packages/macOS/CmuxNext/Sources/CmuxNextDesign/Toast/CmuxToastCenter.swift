@@ -46,15 +46,19 @@ public final class CmuxToastCenter {
         }
         let key = ObjectIdentifier(window)
         var stack = stacks[key] ?? CmuxToastStack()
+        let newest = stack.serials.last
         let replaced = stack.push(serial: serial, id: toast.id, undo: toast.action?.isUndo == true)
         stacks[key] = stack
         entries[serial] = Entry(handle: handle, view: view, window: window, timer: DemandTimer(owner: "toast", clock: clock))
         // A same-id toast goes at once (its successor takes the slot, and two
         // different toasts never crossfade); one pushed over the limit fades.
+        // A successor of the newest toast shows in its slot at once, so a
+        // repeated toast never blinks out and fades back in.
+        let inPlace = newest.map { replaced.contains($0) && entries[$0]?.handle.toast.id == toast.id } ?? false
         for old in replaced {
             end(old, .replaced, relayout: false, animated: entries[old]?.handle.toast.id != toast.id)
         }
-        host.show(view, in: window, slot: 0) { [weak self] in self?.windowClosed(key) }
+        host.show(view, in: window, slot: 0, appearing: !inPlace) { [weak self] in self?.windowClosed(key) }
         relayout(key)
         startTimer(serial)
         // A toast that appears under a still pointer holds at once.
