@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { verifyAppleIdentityToken } from "../src/apple";
+import { resetAppleKeyCache, verifyAppleIdentityToken } from "../src/apple";
 import { base64UrlEncode, sha256Hex, utf8 } from "../src/crypto";
 
 async function setup() {
@@ -9,16 +9,21 @@ async function setup() {
     ["sign", "verify"],
   )) as CryptoKeyPair;
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
-  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ keys: [{ ...jwk, kid: "k1", alg: "RS256", use: "sig" }] }))));
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ keys: [{ ...jwk, kid: "k1", alg: "RS256", use: "sig" }] })));
+  vi.stubGlobal("fetch", fetchMock);
+  resetAppleKeyCache();
   const sign = async (payload: Record<string, unknown>, kid = "k1") => {
     const input = `${base64UrlEncode(utf8(JSON.stringify({ alg: "RS256", kid })))}.${base64UrlEncode(utf8(JSON.stringify(payload)))}`;
     const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, utf8(input));
     return `${input}.${base64UrlEncode(new Uint8Array(sig))}`;
   };
-  return { sign };
+  return { sign, fetchMock };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("apple identity tokens", () => {
   it("verifies a valid token and enforces aud, nonce and exp", async () => {
@@ -42,5 +47,21 @@ describe("apple identity tokens", () => {
     await expect(verifyAppleIdentityToken(await sign({ ...base, iss: "evil" }), "raw", ["dev.cmux.next.mobile"], now)).rejects.toThrow("bad issuer");
     const t = await sign(base);
     await expect(verifyAppleIdentityToken(`${t.slice(0, -4)}AAAA`, "raw", ["dev.cmux.next.mobile"], now)).rejects.toThrow();
+  });
+
+  it("refetches the JWKS for an unknown kid at most once per minute", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-12T10:00:00Z"));
+    const { sign, fetchMock } = await setup();
+    const now = Math.floor(Date.now() / 1000);
+    const token = await sign({ iss: "https://appleid.apple.com", aud: "a", sub: "s", exp: now + 600 }, "unknown");
+    for (let i = 0; i < 5; i++) await expect(verifyAppleIdentityToken(token, "raw", ["a"], now)).rejects.toThrow("unknown key");
+    // The initial fetch is fresh, so no forced refetch happens within the minute.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(new Date("2026-10-12T10:01:01Z"));
+    await expect(verifyAppleIdentityToken(token, "raw", ["a"], now)).rejects.toThrow("unknown key");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (let i = 0; i < 5; i++) await expect(verifyAppleIdentityToken(token, "raw", ["a"], now)).rejects.toThrow("unknown key");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

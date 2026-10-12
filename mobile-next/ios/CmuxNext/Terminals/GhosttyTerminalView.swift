@@ -12,7 +12,12 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let outputQueue = DispatchQueue(label: "cnm.ghostty.output", qos: .userInteractive)
     private var lastGrid: (Int, Int) = (0, 0)
-    private var freed = false
+    private let freedLock = NSLock()
+    nonisolated(unsafe) private var _freed = false
+    private var freed: Bool {
+        get { freedLock.withLock { _freed } }
+        set { freedLock.withLock { _freed = newValue } }
+    }
     /// Set by the key bar: the next typed letter is sent as a control code.
     var controlArmed = false { didSet { onControlChanged?(controlArmed) } }
     var onControlChanged: ((Bool) -> Void)?
@@ -30,7 +35,11 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     required init?(coder: NSCoder) { fatalError() }
 
     deinit {
-        if let surface { ghostty_surface_free(surface) }
+        // free() normally ran when the screen closed; this is the backstop.
+        guard let surface else { return }
+        freedLock.withLock { _freed = true }
+        outputQueue.sync {}
+        ghostty_surface_free(surface)
     }
 
     override func didMoveToWindow() {
@@ -41,6 +50,7 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
 
     private func createSurface() {
         guard let app = GhosttyRuntime.shared.app else { return }
+        freed = false
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_IOS
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque()))
@@ -64,7 +74,7 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     func feed(_ data: Data) {
         guard let surface else { return }
         outputQueue.async { [weak self] in
-            guard self?.freed == false else { return }
+            guard let self, !self.freed else { return }
             data.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress else { return }
                 ghostty_surface_process_output(surface, base.assumingMemoryBound(to: CChar.self), UInt(raw.count))

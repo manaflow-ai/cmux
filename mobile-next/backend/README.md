@@ -62,12 +62,14 @@ Set with `bunx wrangler@4 secret put NAME` (value on stdin). Never commit values
 | `DATABASE_HOST` | yes | PlanetScale host. |
 | `DATABASE_USERNAME` | yes | `readwriter` password for the Worker. |
 | `DATABASE_PASSWORD` | yes | |
-| `TEST_LOGIN_CODE` | for test accounts | Code for `@test.cmux.dev` addresses. A local copy lives in `~/.secrets/cmux-next-mobile-native-test-login`. |
+| `TEST_LOGIN_CODE` | for test accounts | Code for the addresses in `TEST_LOGIN_EMAILS`. A local copy lives in `~/.secrets/cmux-next-mobile-native-test-login`. |
 | `TURN_KEY_ID` | optional | Cloudflare Realtime TURN key. Without it `/v1/ice` returns STUN only. |
 | `TURN_KEY_API_TOKEN` | optional | Picked up on the next request after it is set. |
 
 Plain vars in `wrangler.jsonc`: `APPLE_AUDIENCE` (comma list of bundle ids),
-`EMAIL_FROM`, `TEST_EMAIL_DOMAIN`.
+`EMAIL_FROM`, `TEST_EMAIL_DOMAIN`, `TEST_LOGIN_EMAILS` (comma list of exact test
+addresses allowed to use `TEST_LOGIN_CODE`; other test-domain addresses get
+`503 email_unavailable`).
 
 ## Email
 
@@ -85,7 +87,9 @@ bun scripts/smoke.ts                     # default URL above
 bun scripts/smoke.ts http://localhost:8787
 ```
 
-It signs in with a fresh `@test.cmux.dev` address, exercises `/v1/me`, refresh
-rotation, pairing start, claim and poll, `/v1/hosts` (offline and online),
+It signs in as `smoke-native@test.cmux.dev` (must be in `TEST_LOGIN_EMAILS`),
+exercises `/v1/me`, refresh rotation and reuse detection, pairing start, claim,
+Mac approval and rejection, one-time token delivery, `/v1/hosts` (offline and online),
 `/v1/hosts/register`, `/v1/ice`, a two-peer WebSocket relay with presence,
-`peer_offline` and ping, then deletes the host and the account.
+`peer_offline` and ping, then deletes the host and the account (and checks the
+deleted account cannot connect to signaling).

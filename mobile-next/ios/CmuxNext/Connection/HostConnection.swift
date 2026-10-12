@@ -37,8 +37,22 @@ final class HostConnection: Identifiable {
 
     var terminals: [TerminalInfo] = []
 
+    @ObservationIgnored private var transcriptCache: [String: (count: Int, builder: TranscriptBuilder)] = [:]
+
+    /// The folded transcript, rebuilt only when the session's log grew.
+    func transcript(for session: String) -> TranscriptBuilder {
+        let events = agentEvents[session] ?? []
+        if let cached = transcriptCache[session], cached.count == events.count { return cached.builder }
+        let builder = TranscriptBuilder(events: events)
+        transcriptCache[session] = (events.count, builder)
+        return builder
+    }
+
     @ObservationIgnored private var peer: RPCPeer?
     @ObservationIgnored private var terminalSinks: [UInt32: (BulkFrame) -> Void] = [:]
+    @ObservationIgnored private var terminalSizes: [UInt32: (cols: Int, rows: Int)] = [:]
+    /// Agent events that arrived while an attach was in flight.
+    @ObservationIgnored private var attaching: [String: [AgentEvent]] = [:]
     @ObservationIgnored private var dialTask: Task<Void, Never>?
     @ObservationIgnored private var online = false
     @ObservationIgnored private var retry = 0
@@ -69,6 +83,12 @@ final class HostConnection: Identifiable {
             guard let self else { return }
             do {
                 let link = try await dialer.dial(peerID: peerID)
+                // Disconnected or removed while dialing: drop the link.
+                guard !Task.isCancelled, self.online else {
+                    link.close()
+                    self.dialTask = nil
+                    return
+                }
                 await self.attach(link)
             } catch {
                 self.status = self.online ? .failed(error.localizedDescription) : .offline
@@ -114,6 +134,11 @@ final class HostConnection: Identifiable {
         retry = 0
         dialTask = nil
         await refreshAll()
+        // The Mac forgot this phone's viewers when the old link dropped.
+        for (id, size) in terminalSizes where terminalSinks[id] != nil {
+            _ = try? await peer.request(.terminalAttach, params: try .encode(TerminalSizeParams(id: id, cols: size.cols, rows: size.rows)))
+        }
+        for session in agentEvents.keys { await attachAgent(session) }
     }
 
     private func dropped(_ reason: String?) {
@@ -182,10 +207,19 @@ final class HostConnection: Identifiable {
             guard let info = try? params.decode(AgentSessionInfo.self) else { return }
             if let index = agents.firstIndex(where: { $0.id == info.id }) { agents[index] = info } else { agents.append(info) }
         case .agentEvent:
-            guard let event = try? params.decode(AgentEvent.self), agentEvents[event.session] != nil else { return }
-            var events = agentEvents[event.session] ?? []
-            if event.seq >= events.count { events.append(event) }
-            agentEvents[event.session] = events
+            guard let event = try? params.decode(AgentEvent.self) else { return }
+            if attaching[event.session] != nil {
+                attaching[event.session]?.append(event)
+                return
+            }
+            guard var events = agentEvents[event.session] else { return }
+            if event.seq == events.count {
+                events.append(event)
+                agentEvents[event.session] = events
+            } else if event.seq > events.count {
+                // A gap (a dropped notification): reload the log.
+                Task { await attachAgent(event.session) }
+            }
         case .terminalChanged:
             guard let info = try? params.decode(TerminalInfo.self) else { return }
             if let index = terminals.firstIndex(where: { $0.id == info.id }) { terminals[index] = info } else { terminals.append(info) }
@@ -203,11 +237,16 @@ final class HostConnection: Identifiable {
 
     func loadMessages(_ conversation: String) async {
         guard let peer else { return }
-        if let list = try? await peer.request(
+        guard let list = try? await peer.request(
             .conversationMessages, ConversationIDParams(conversation: conversation), as: [ConversationMessage].self
-        ) {
-            messages[conversation] = list
+        ) else { return }
+        // Keep what arrived meanwhile: notifications and unconfirmed sends.
+        let known = Set(list.map(\.id))
+        let clientIDs = Set(list.compactMap(\.clientID))
+        let extra = (messages[conversation] ?? []).filter {
+            !known.contains($0.id) && !($0.clientID.map(clientIDs.contains) ?? false)
         }
+        messages[conversation] = (list + extra).sorted { $0.sentAt < $1.sentAt }
     }
 
     @discardableResult
@@ -265,11 +304,18 @@ final class HostConnection: Identifiable {
     // Agents
 
     func attachAgent(_ session: String) async {
-        guard let peer else { return }
-        if let result = try? await peer.request(.agentAttach, AgentSessionParams(session: session), as: AgentAttachResult.self) {
-            agentEvents[session] = result.events
-            if let index = agents.firstIndex(where: { $0.id == session }) { agents[index] = result.info }
+        guard let peer, attaching[session] == nil else { return }
+        attaching[session] = []
+        defer { attaching[session] = nil }
+        guard let result = try? await peer.request(.agentAttach, AgentSessionParams(session: session), as: AgentAttachResult.self) else {
+            return
         }
+        var events = result.events
+        for event in (attaching[session] ?? []).sorted(by: { $0.seq < $1.seq }) where event.seq == events.count {
+            events.append(event)
+        }
+        agentEvents[session] = events
+        if let index = agents.firstIndex(where: { $0.id == session }) { agents[index] = result.info }
     }
 
     func createAgent(harness: String, cwd: String, prompt: [JSONValue]?) async throws -> AgentSessionInfo {
@@ -320,15 +366,18 @@ final class HostConnection: Identifiable {
 
     func attachTerminal(_ id: UInt32, cols: Int, rows: Int, sink: @escaping (BulkFrame) -> Void) async throws {
         terminalSinks[id] = sink
+        terminalSizes[id] = (cols, rows)
         _ = try await requirePeer().request(.terminalAttach, params: try .encode(TerminalSizeParams(id: id, cols: cols, rows: rows)))
     }
 
     func detachTerminal(_ id: UInt32) {
         terminalSinks.removeValue(forKey: id)
+        terminalSizes.removeValue(forKey: id)
         Task { _ = try? await requirePeer().request(.terminalDetach, params: try .encode(TerminalIDParams(id: id))) }
     }
 
     func resizeTerminal(_ id: UInt32, cols: Int, rows: Int) {
+        if terminalSinks[id] != nil { terminalSizes[id] = (cols, rows) }
         Task { _ = try? await requirePeer().request(.terminalResize, params: try .encode(TerminalSizeParams(id: id, cols: cols, rows: rows))) }
     }
 

@@ -21,6 +21,9 @@ final class PTYTerminal: @unchecked Sendable {
     private var history = Data()
     private let historyLimit = 2 * 1024 * 1024
     private var readSource: DispatchSourceRead?
+    private var writeSource: DispatchSourceWrite?
+    /// Input not yet accepted by the pty (it is non-blocking).
+    private var pendingInput = Data()
     private var processSource: DispatchSourceProcess?
     private let queue: DispatchQueue
 
@@ -30,8 +33,8 @@ final class PTYTerminal: @unchecked Sendable {
     init(id: UInt32, cwd: String, cols: Int, rows: Int, command: String?, environment: [String: String]) throws {
         self.id = id
         self.cwd = cwd
-        self.cols = max(cols, 2)
-        self.rows = max(rows, 2)
+        self.cols = min(max(cols, 2), 1000)
+        self.rows = min(max(rows, 2), 1000)
         self.title = (cwd as NSString).lastPathComponent
         self.queue = DispatchQueue(label: "cnm.pty.\(id)")
         try spawn(command: command, environment: environment)
@@ -126,35 +129,66 @@ final class PTYTerminal: @unchecked Sendable {
         lock.withLock { exitCode = code }
         processSource?.cancel()
         readSource?.cancel()
-        close(masterFD)
+        writeSource?.cancel()
+        writeSource = nil
+        pendingInput.removeAll()
+        let fd = masterFD
+        masterFD = -1
+        close(fd)
         onExit?(code)
     }
 
+    /// Queues input; a write source drains it as the pty accepts bytes, so a
+    /// program that isn't reading never blocks the caller (or spins).
     func write(_ data: Data) {
-        guard running else { return }
-        data.withUnsafeBytes { raw in
-            var offset = 0
-            while offset < raw.count {
-                let written = Darwin.write(masterFD, raw.baseAddress! + offset, raw.count - offset)
-                if written <= 0 {
-                    if errno == EAGAIN || errno == EINTR { continue }
-                    return
-                }
-                offset += written
-            }
+        queue.async { [self] in
+            guard masterFD >= 0, exitCode == nil else { return }
+            pendingInput.append(data)
+            if pendingInput.count > 4 * 1024 * 1024 { pendingInput.removeFirst(pendingInput.count - 4 * 1024 * 1024) }
+            drainInput()
         }
     }
 
+    private func drainInput() {
+        while !pendingInput.isEmpty, masterFD >= 0 {
+            let written = pendingInput.withUnsafeBytes { raw in Darwin.write(masterFD, raw.baseAddress!, raw.count) }
+            if written > 0 {
+                pendingInput.removeFirst(written)
+            } else if written < 0, errno == EINTR {
+                continue
+            } else {
+                break
+            }
+        }
+        if pendingInput.isEmpty {
+            writeSource?.cancel()
+            writeSource = nil
+        } else if writeSource == nil, masterFD >= 0 {
+            let source = DispatchSource.makeWriteSource(fileDescriptor: masterFD, queue: queue)
+            source.setEventHandler { [weak self] in self?.drainInput() }
+            source.resume()
+            writeSource = source
+        }
+    }
+
+    /// Runs `body` on the pty queue with the current history, so a viewer can
+    /// register before the next output is read (no bytes fall in between).
+    func withSnapshot(_ body: (Data) -> Void) {
+        queue.sync { body(lock.withLock { history }) }
+    }
+
     func resize(cols: Int, rows: Int) {
-        let cols = max(cols, 2)
-        let rows = max(rows, 2)
+        let cols = min(max(cols, 2), 1000)
+        let rows = min(max(rows, 2), 1000)
         lock.withLock {
             self.cols = cols
             self.rows = rows
         }
-        guard running else { return }
-        var size = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
-        _ = ioctl(masterFD, TIOCSWINSZ, &size)
+        queue.async { [self] in
+            guard masterFD >= 0, exitCode == nil else { return }
+            var size = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
+            _ = ioctl(masterFD, TIOCSWINSZ, &size)
+        }
     }
 
     func terminate() {

@@ -128,11 +128,62 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
 
     // MARK: PeerLink
 
+    /// Messages above this are split into fragments: data channels reject
+    /// messages larger than the negotiated maximum (256 KiB in libwebrtc).
+    static let fragmentSize = 60_000
+    private static let fragmentMarker: UInt8 = 0xFF
+    private var nextFragmentID: UInt32 = 0
+    private var reassembly: [Lane: (id: UInt32, count: Int, parts: [Data])] = [:]
+
     public func send(_ data: Data, on lane: Lane) throws {
         let channel = lock.withLock { lane == .control ? control : bulk }
         guard let channel, channel.readyState == .open else { throw TransportError("Channel not open") }
-        guard channel.sendData(RTCDataBuffer(data: data, isBinary: lane == .bulk)) else {
-            throw TransportError("Send failed")
+        guard data.count > Self.fragmentSize else {
+            guard channel.sendData(RTCDataBuffer(data: data, isBinary: true)) else { throw TransportError("Send failed") }
+            return
+        }
+        // [0xFF][id u32][index u16][count u16][bytes]; ordered channels keep
+        // fragments contiguous per lane.
+        let id: UInt32 = lock.withLock {
+            defer { nextFragmentID &+= 1 }
+            return nextFragmentID
+        }
+        let chunks = stride(from: 0, to: data.count, by: Self.fragmentSize).map {
+            data.subdata(in: (data.startIndex + $0)..<(data.startIndex + min($0 + Self.fragmentSize, data.count)))
+        }
+        guard chunks.count <= Int(UInt16.max) else { throw TransportError("Message too large") }
+        for (index, chunk) in chunks.enumerated() {
+            var frame = Data([Self.fragmentMarker])
+            withUnsafeBytes(of: id.bigEndian) { frame.append(contentsOf: $0) }
+            withUnsafeBytes(of: UInt16(index).bigEndian) { frame.append(contentsOf: $0) }
+            withUnsafeBytes(of: UInt16(chunks.count).bigEndian) { frame.append(contentsOf: $0) }
+            frame.append(chunk)
+            guard channel.sendData(RTCDataBuffer(data: frame, isBinary: true)) else { throw TransportError("Send failed") }
+        }
+    }
+
+    /// Returns a whole message, or nil while fragments are still arriving.
+    private func reassemble(_ data: Data, lane: Lane) -> Data? {
+        guard data.first == Self.fragmentMarker, data.count >= 9 else { return data }
+        let bytes = [UInt8](data.prefix(9))
+        let id = UInt32(bytes[1]) << 24 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 8 | UInt32(bytes[4])
+        let index = Int(UInt16(bytes[5]) << 8 | UInt16(bytes[6]))
+        let count = Int(UInt16(bytes[7]) << 8 | UInt16(bytes[8]))
+        let chunk = data.subdata(in: (data.startIndex + 9)..<data.endIndex)
+        return lock.withLock { () -> Data? in
+            var state = reassembly[lane] ?? (id, count, [])
+            if state.id != id || index == 0 { state = (id, count, []) }
+            guard index == state.parts.count else {
+                reassembly[lane] = nil
+                return nil
+            }
+            state.parts.append(chunk)
+            if state.parts.count == state.count {
+                reassembly[lane] = nil
+                return state.parts.reduce(into: Data()) { $0.append($1) }
+            }
+            reassembly[lane] = state
+            return nil
         }
     }
 
@@ -204,7 +255,7 @@ public final class WebRTCLink: NSObject, PeerLink, @unchecked Sendable {
             guard let sdp = payload["candidate"]?.stringValue else { return }
             let candidate = RTCIceCandidate(
                 sdp: sdp,
-                sdpMLineIndex: Int32(payload["sdpMLineIndex"]?.intValue ?? 0),
+                sdpMLineIndex: Int32(clamping: payload["sdpMLineIndex"]?.intValue ?? 0),
                 sdpMid: payload["sdpMid"]?.stringValue
             )
             let connection: RTCPeerConnection? = lock.withLock {
@@ -313,7 +364,9 @@ extension WebRTCLink: RTCDataChannelDelegate {
 
     public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
         let lane: Lane = dataChannel.channelId == 0 ? .control : .bulk
-        messageContinuation.yield((lane, buffer.data))
+        if let message = reassemble(buffer.data, lane: lane) {
+            messageContinuation.yield((lane, message))
+        }
     }
 }
 
@@ -392,22 +445,24 @@ public final class WebRTCDialer: PeerDialer, @unchecked Sendable {
             self?.lock.withLock { _ = self?.links.removeValue(forKey: session) }
         }
 
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        let offer: RTCSessionDescription = try await withCheckedThrowingContinuation { continuation in
-            connection.offer(for: constraints) { description, error in
-                if let description { continuation.resume(returning: description) }
-                else { continuation.resume(throwing: error ?? TransportError("No offer")) }
-            }
-        }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.setLocalDescription(offer) { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-            }
-        }
-        try hub.channel.send(to: peerID, session: session, payload: ["kind": "offer", "sdp": .string(offer.sdp)])
         do {
+            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            let offer: RTCSessionDescription = try await withCheckedThrowingContinuation { continuation in
+                connection.offer(for: constraints) { description, error in
+                    if let description { continuation.resume(returning: description) }
+                    else { continuation.resume(throwing: error ?? TransportError("No offer")) }
+                }
+            }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.setLocalDescription(offer) { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                }
+            }
+            try hub.channel.send(to: peerID, session: session, payload: ["kind": "offer", "sdp": .string(offer.sdp)])
             try await link.waitUntilOpen(timeout: options.connectTimeout)
+            try Task.checkCancellation()
         } catch {
+            // Never leave a half-open peer connection gathering candidates.
             link.close()
             throw error
         }

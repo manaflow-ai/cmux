@@ -17,6 +17,10 @@ public final class RPCPeer: @unchecked Sendable {
     private var bulkHandler: BulkHandler?
     private var closed = false
     private var readTask: Task<Void, Never>?
+    private var orderedPrefixes: [String] = []
+    /// Requests matching `orderedPrefixes` run one after another, in arrival
+    /// order (terminal attach/resize must not overtake each other).
+    private var orderedTail: Task<Void, Never>?
 
     public init(link: PeerLink) {
         self.link = link
@@ -26,9 +30,11 @@ public final class RPCPeer: @unchecked Sendable {
     public func start(
         onRequest: RequestHandler? = nil,
         onNotification: NotificationHandler? = nil,
-        onBulk: BulkHandler? = nil
+        onBulk: BulkHandler? = nil,
+        orderedPrefixes: [String] = []
     ) {
         lock.withLock {
+            self.orderedPrefixes = orderedPrefixes
             requestHandler = onRequest
             notificationHandler = onNotification
             bulkHandler = onBulk
@@ -121,7 +127,10 @@ public final class RPCPeer: @unchecked Sendable {
             let handler = lock.withLock { requestHandler }
             let id = envelope.id!
             let method = envelope.method!
-            Task { [link] in
+            let ordered = lock.withLock { orderedPrefixes.contains { method.hasPrefix($0) } }
+            let previous: Task<Void, Never>? = ordered ? lock.withLock { orderedTail } : nil
+            let task = Task { [link] in
+                await previous?.value
                 let reply: Envelope
                 if let handler {
                     do {
@@ -138,6 +147,7 @@ public final class RPCPeer: @unchecked Sendable {
                     try? link.send(data, on: .control)
                 }
             }
+            if ordered { lock.withLock { orderedTail = task } }
         case .invalid:
             break
         }

@@ -5,6 +5,8 @@ import { decodeJwt } from "./jwt";
 const APPLE_ISSUER = "https://appleid.apple.com";
 const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
 const JWKS_TTL_MS = 60 * 60 * 1000;
+/** A token with an unknown `kid` forces at most one JWKS refetch per minute. */
+const FORCED_REFETCH_INTERVAL_MS = 60 * 1000;
 
 interface AppleJwk extends JsonWebKey {
   kid: string;
@@ -12,8 +14,14 @@ interface AppleJwk extends JsonWebKey {
 
 let cachedKeys: { keys: AppleJwk[]; fetchedAt: number } | null = null;
 
+/** Test hook: forget the cached JWKS. */
+export function resetAppleKeyCache(): void {
+  cachedKeys = null;
+}
+
 async function appleKeys(force = false): Promise<AppleJwk[]> {
-  if (!force && cachedKeys && Date.now() - cachedKeys.fetchedAt < JWKS_TTL_MS) return cachedKeys.keys;
+  const age = cachedKeys ? Date.now() - cachedKeys.fetchedAt : Infinity;
+  if (cachedKeys && age < (force ? FORCED_REFETCH_INTERVAL_MS : JWKS_TTL_MS)) return cachedKeys.keys;
   const res = await fetch(APPLE_JWKS_URL);
   if (!res.ok) throw new Error(`apple_jwks_${res.status}`);
   const body = (await res.json()) as { keys: AppleJwk[] };

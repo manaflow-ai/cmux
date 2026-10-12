@@ -87,8 +87,10 @@ final class ACPProcess: @unchecked Sendable {
     }
 
     private func write(_ message: JSONValue) {
-        guard var data = try? JSONEncoder().encode(message) else { return }
+        guard process.isRunning, var data = try? JSONEncoder().encode(message) else { return }
         data.append(0x0A)
+        // SIGPIPE is ignored process-wide (HostEnvironment), so a write racing
+        // the agent's exit fails here instead of killing the host.
         try? stdin.fileHandleForWriting.write(contentsOf: data)
     }
 
@@ -130,7 +132,7 @@ final class ACPProcess: @unchecked Sendable {
             } else {
                 onNotification?(method, params)
             }
-        } else if let id = id?.intValue {
+        } else if let id = id?.doubleValue.flatMap({ Int(exactly: $0) }) {
             if let error = message["error"] {
                 resolve(id, .failure(RPCError(
                     code: error["code"]?.intValue ?? -32603,

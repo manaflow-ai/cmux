@@ -61,12 +61,14 @@ struct AddMacView: View {
     @State private var busy = false
     @State private var error: String?
     @State private var paired: BackendHost?
+    /// Claimed; waiting for the Mac's owner to approve this account.
+    @State private var awaiting: BackendHost?
     @FocusState private var focused: Bool
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 22) {
-                Image(systemName: paired == nil ? "laptopcomputer.and.iphone" : "checkmark.circle.fill")
+                Image(systemName: paired != nil ? "checkmark.circle.fill" : awaiting != nil ? "hand.raised" : "laptopcomputer.and.iphone")
                     .font(.system(size: 52, weight: .light))
                     .foregroundStyle(paired == nil ? Color.primary : CmuxTheme.success)
                     .contentTransition(.symbolEffect(.replace))
@@ -74,14 +76,20 @@ struct AddMacView: View {
                 if let paired {
                     Text("\(paired.name) is paired").font(.title2.weight(.semibold))
                     Text("It connects as soon as it's online.").foregroundStyle(.secondary)
+                } else if let awaiting {
+                    Text("Approve on \(awaiting.name)").font(.title2.weight(.semibold))
+                    Text("Your Mac is asking whether to pair with \(model.user?.email ?? "your account"). Click Pair there.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    ProgressView().padding(.top, 8)
                 } else {
                     VStack(spacing: 8) {
                         Text("Add a Mac").font(.title2.weight(.semibold))
-                        Text("On your Mac, run **cnm-host pair** and enter the code it shows.")
+                        Text("Open **cmux Host** on your Mac (or run **cnm-host pair**) and enter the code it shows.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
-                    TextField("ABC 123", text: $code)
+                    TextField("ABCD-1234", text: $code)
                         .font(.system(size: 30, weight: .semibold, design: .monospaced))
                         .multilineTextAlignment(.center)
                         .textInputAutocapitalization(.characters)
@@ -90,8 +98,8 @@ struct AddMacView: View {
                         .frame(height: 64)
                         .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 16, style: .continuous))
                         .onChange(of: code) { _, value in
-                            let cleaned = String(value.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
-                            let spaced = cleaned.count > 3 ? cleaned.prefix(3) + " " + cleaned.dropFirst(3) : Substring(cleaned)
+                            let cleaned = String(value.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(8))
+                            let spaced = cleaned.count > 4 ? cleaned.prefix(4) + "-" + cleaned.dropFirst(4) : Substring(cleaned)
                             if String(spaced) != value { code = String(spaced) }
                             error = nil
                         }
@@ -103,7 +111,7 @@ struct AddMacView: View {
                 Spacer()
                 PrimaryActionButton(
                     title: paired == nil ? "Pair" : "Done",
-                    enabled: paired != nil || code.filter { $0 != " " }.count == 6,
+                    enabled: paired != nil || (awaiting == nil && code.filter { $0.isLetter || $0.isNumber }.count == 8),
                     busy: busy
                 ) {
                     if paired != nil { dismiss() } else { pair() }
@@ -127,12 +135,28 @@ struct AddMacView: View {
             defer { busy = false }
             do {
                 let host = try await model.pair(code: code)
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { paired = host }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { awaiting = host }
+                // The Mac shows up in the account once its owner approves.
+                for _ in 0..<150 {
+                    await model.reloadHosts()
+                    if model.hosts.contains(where: { $0.id == host.id }) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                            awaiting = nil
+                            paired = host
+                        }
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        return
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                }
+                awaiting = nil
+                error = String(localized: "The Mac didn't approve in time. Try again.")
             } catch {
-                self.error = (error as? BackendError)?.code == "invalid_pairing_code"
-                    ? String(localized: "That code didn't match. Check the Mac and try again.")
-                    : error.localizedDescription
+                switch (error as? BackendError)?.code {
+                case "invalid_pairing_code": self.error = String(localized: "That code didn't match. Check the Mac and try again.")
+                case "rate_limited": self.error = String(localized: "Too many tries. Wait a few minutes and try again.")
+                default: self.error = error.localizedDescription
+                }
             }
         }
     }

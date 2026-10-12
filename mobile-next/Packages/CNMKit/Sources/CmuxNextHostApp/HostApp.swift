@@ -42,12 +42,26 @@ struct HostMenu: View {
                     Text("In cmux on your iPhone, open the menu → Macs → Add a Mac and enter:")
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(code.prefix(3) + " " + code.dropFirst(3))
+                    Text(code.count == 8 ? code.prefix(4) + "-" + code.dropFirst(4) : Substring(code))
                         .font(.system(size: 30, weight: .semibold, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(.quaternary, in: .rect(cornerRadius: 10))
+                }
+            case .approving(_, let email):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pair with \(email)?").font(.headline)
+                    Text("This account will be able to open terminals and run agents on this Mac.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Reject") { runtime.answerApproval(false) }
+                        Spacer()
+                        Button("Pair") { runtime.answerApproval(true) }
+                            .keyboardShortcut(.defaultAction)
+                    }
                 }
             case .failed(let message):
                 Text(message).font(.callout).foregroundStyle(.red)
@@ -76,6 +90,7 @@ struct HostMenu: View {
         switch runtime.phase {
         case .idle: return "Starting…"
         case .pairing: return "Not paired yet"
+        case .approving: return "Waiting for you to approve"
         case .failed: return "Can't reach the cmux service"
         case .serving:
             let account = runtime.identity?.userEmail ?? "your account"

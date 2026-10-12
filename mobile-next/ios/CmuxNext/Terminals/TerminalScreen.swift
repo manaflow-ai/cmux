@@ -216,6 +216,7 @@ final class TerminalController {
 
     func stop() {
         host?.detachTerminal(terminal)
+        view.free()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
     }

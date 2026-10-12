@@ -59,7 +59,10 @@ public enum JSONValue: Sendable, Hashable, Codable {
         return nil
     }
 
-    public var intValue: Int? { doubleValue.map { Int($0) } }
+    public var intValue: Int? {
+        guard let value = doubleValue, value.isFinite, abs(value) < 9e15 else { return nil }
+        return Int(value)
+    }
 
     public var boolValue: Bool? {
         if case .bool(let value) = self { return value }

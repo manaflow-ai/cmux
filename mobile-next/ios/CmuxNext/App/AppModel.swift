@@ -107,8 +107,16 @@ final class AppModel {
         guard let session else { throw BackendError(status: 401, code: "signed_out", message: "Signed out") }
         if session.accessExpiry.timeIntervalSinceNow > 60 { return session.accessToken }
         if let refreshTask, let refreshed = await refreshTask.value { return refreshed.accessToken }
-        let task = Task<BackendSession?, Never> { [backend] in
-            try? await backend.refresh(session.refreshToken)
+        let task = Task<BackendSession?, Never> { [backend, weak self] in
+            do {
+                return try await backend.refresh(session.refreshToken)
+            } catch let error as BackendError where error.status == 401 {
+                // The refresh token was revoked or already rotated: sign out.
+                await MainActor.run { self?.tearDown() }
+                return nil
+            } catch {
+                return nil
+            }
         }
         refreshTask = task
         defer { refreshTask = nil }

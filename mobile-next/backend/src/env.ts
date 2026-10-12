@@ -8,6 +8,8 @@ export interface Env {
   APPLE_AUDIENCE: string;
   EMAIL_FROM: string;
   TEST_EMAIL_DOMAIN: string;
+  /** Comma-separated exact addresses that may sign in with TEST_LOGIN_CODE. */
+  TEST_LOGIN_EMAILS?: string;
 
   JWT_SECRET: string;
   TEST_LOGIN_CODE?: string;

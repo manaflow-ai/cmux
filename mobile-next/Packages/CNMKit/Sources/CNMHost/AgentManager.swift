@@ -127,6 +127,7 @@ final class AgentManager: @unchecked Sendable {
         process.onExit = { [weak self] status, tail in
             guard let self else { return }
             guard let session = self.lock.withLock({ self.sessions[sessionID] }) else { return }
+            self.resumeWaiters(session)
             if session.info.state != .exited {
                 let detail = tail.split(separator: "\n").suffix(3).joined(separator: "\n")
                 self.append(session, .error, ["message": .string("The agent exited (\(status)). \(detail)")])
@@ -245,8 +246,19 @@ final class AgentManager: @unchecked Sendable {
         waiter?.resume(returning: params.optionID)
     }
 
+    /// Open permission requests answer "cancelled" so the agent (and the
+    /// phone's card) never wait forever.
+    private func resumeWaiters(_ session: Session) {
+        let waiters: [CheckedContinuation<String?, Never>] = lock.withLock {
+            defer { session.permissionWaiters.removeAll() }
+            return Array(session.permissionWaiters.values)
+        }
+        for waiter in waiters { waiter.resume(returning: nil) }
+    }
+
     func archive(_ id: String) {
         guard let session = lock.withLock({ sessions[id] }) else { return }
+        resumeWaiters(session)
         lock.withLock { session.info.archived = true }
         session.process?.terminate()
         changed(session)
@@ -278,7 +290,7 @@ final class AgentManager: @unchecked Sendable {
             if let line = params["line"]?.intValue {
                 let lines = text.components(separatedBy: "\n")
                 let start = max(0, line - 1)
-                let limit = params["limit"]?.intValue ?? lines.count
+                let limit = max(0, params["limit"]?.intValue ?? lines.count)
                 text = lines.dropFirst(start).prefix(limit).joined(separator: "\n")
             }
             return ["content": .string(text)]

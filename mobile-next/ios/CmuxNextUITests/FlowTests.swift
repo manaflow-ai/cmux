@@ -50,18 +50,29 @@ final class FlowTests: XCTestCase {
 
         if let pairCode = env["CNM_PAIR_CODE"], !pairCode.isEmpty {
             let add = app.buttons["home.addMac"]
-            XCTAssertTrue(add.waitForExistence(timeout: 10))
-            add.tap()
+            if add.waitForExistence(timeout: 4) {
+                add.tap()
+            } else {
+                app.buttons["shell.menu"].tap()
+                pause(1)
+                app.buttons["sidebar.macs"].tap()
+                let macsAdd = app.buttons["macs.add"]
+                XCTAssertTrue(macsAdd.waitForExistence(timeout: 10))
+                macsAdd.tap()
+            }
             let codeBox = app.textFields["addmac.code"]
             XCTAssertTrue(codeBox.waitForExistence(timeout: 5))
             codeBox.typeText(pairCode)
             pause(0.5)
             snap(app, "05-pair-code")
             app.buttons["addmac.pair"].tap()
-            pause(3)
+            pause(1.5)
+            snap(app, "06a-awaiting-approval")
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'is paired'")).firstMatch.waitForExistence(timeout: 30))
             snap(app, "06-paired")
             app.buttons["addmac.pair"].tap()
         }
+        if env["CNM_PAIR_CODE"]?.isEmpty == false { return }
         // Wait for the Mac to connect and Chief's conversation to appear.
         let chief = app.descendants(matching: .any)["home.pin.cv_chief"]
         XCTAssertTrue(chief.waitForExistence(timeout: 60), "Chief conversation never appeared")
@@ -130,7 +141,7 @@ final class FlowTests: XCTestCase {
         app.buttons["shell.menu"].tap()
         pause(1)
         app.buttons["sidebar.terminals"].tap()
-        let newTerminal = app.buttons["terminals.new"]
+        let newTerminal = app.buttons.matching(identifier: "terminals.new").element(boundBy: 0)
         XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
         pause(1)
         snap(app, "30-terminals")
@@ -284,7 +295,7 @@ final class FlowTests: XCTestCase {
         app.buttons["shell.menu"].tap()
         pause(1)
         app.buttons["sidebar.terminals"].tap()
-        let newTerminal = app.buttons["terminals.new"]
+        let newTerminal = app.buttons.matching(identifier: "terminals.new").element(boundBy: 0)
         XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
         newTerminal.tap()
         pause(4)

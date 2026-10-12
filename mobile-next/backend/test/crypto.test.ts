@@ -5,6 +5,7 @@ import {
   generateEmailCode,
   generatePairingCode,
   generateToken,
+  normalizePairingCode,
   PAIRING_ALPHABET,
   randomInt,
   sha256Hex,
@@ -19,10 +20,14 @@ describe("codes", () => {
   it("pairing codes use the unambiguous alphabet", () => {
     for (let i = 0; i < 500; i++) {
       const c = generatePairingCode();
-      expect(c).toHaveLength(6);
+      expect(c).toHaveLength(8);
       for (const ch of c) expect(PAIRING_ALPHABET).toContain(ch);
       expect(c).not.toMatch(/[01IO]/);
     }
+  });
+  it("pairing codes normalize with or without a dash or spaces", () => {
+    expect(normalizePairingCode("abcd-efgh")).toBe("ABCDEFGH");
+    expect(normalizePairingCode(" ab cd efgh ")).toBe("ABCDEFGH");
   });
   it("randomInt stays in range and covers it", () => {
     const seen = new Set<number>();

@@ -14,6 +14,8 @@ public final class HostRuntime {
     public enum Phase: Equatable {
         case idle
         case pairing(code: String)
+        /// A phone claimed the code; the Mac's owner must approve this account.
+        case approving(code: String, email: String)
         case serving
         case failed(String)
     }
@@ -57,18 +59,54 @@ public final class HostRuntime {
 
     // MARK: Pairing
 
-    /// Shows a code and waits until a phone claims it. `onCode` fires once
-    /// with the code.
-    public func pair(onCode: @escaping @MainActor (String) -> Void = { _ in }) async throws -> Identity {
+    /// Decides whether to give this Mac to the account that claimed the code.
+    /// The CLI asks on the terminal; the menu bar app shows Approve/Reject.
+    public typealias Approver = @MainActor (_ email: String) async -> Bool
+
+    @ObservationIgnored private var approvalContinuation: CheckedContinuation<Bool, Never>?
+
+    /// The menu bar app's buttons answer the pending approval.
+    public func answerApproval(_ approve: Bool) {
+        approvalContinuation?.resume(returning: approve)
+        approvalContinuation = nil
+    }
+
+    /// Waits for `answerApproval`.
+    public func approveFromUI(_ email: String) async -> Bool {
+        await withCheckedContinuation { approvalContinuation = $0 }
+    }
+
+    /// Shows a code and waits until a phone claims it and the Mac's owner
+    /// approves that account. `onCode` fires once with the code.
+    public func pair(
+        onCode: @escaping @MainActor (String) -> Void = { _ in },
+        approve: Approver? = nil
+    ) async throws -> Identity {
         let start = try await backend.startPairing(hostName: name, platform: "macos", appVersion: HostServer.version)
         phase = .pairing(code: start.code)
         onCode(start.code)
+        var answered = false
         while !Task.isCancelled {
             try await Task.sleep(for: .seconds(2))
             let poll = try await backend.pollPairing(start)
             switch poll.status {
             case "pending":
                 continue
+            case "awaiting_approval":
+                guard !answered else { continue }
+                answered = true
+                let email = poll.user?.email ?? "an unknown account"
+                phase = .approving(code: start.code, email: email)
+                let decider = approve ?? { [weak self] email in await self?.approveFromUI(email) ?? false }
+                if await decider(email) {
+                    try await backend.approvePairing(start)
+                    phase = .pairing(code: start.code)
+                } else {
+                    try? await backend.rejectPairing(start)
+                    throw TransportError("Pairing rejected on this Mac.")
+                }
+            case "rejected":
+                throw TransportError("Pairing rejected.")
             case "claimed":
                 guard let hostID = poll.hostID, let token = poll.hostToken else { throw TransportError("Pairing reply is incomplete") }
                 let identity = Identity(hostID: hostID, hostToken: token, userEmail: poll.user?.email, name: name)
@@ -152,7 +190,12 @@ public final class HostRuntime {
                 case .closed(let reason):
                     self?.log("signaling closed: \(reason ?? "")")
                     self?.signalingUp = false
-                    if reason?.contains("4001") == true || reason?.contains("revoked") == true { self?.unpair() }
+                    // A host token never expires: unauthorized means revoked.
+                    if reason == "revoked" || reason == "unauthorized" {
+                        self?.log("this Mac was removed from the account; pairing again")
+                        self?.unpair()
+                        self?.start()
+                    }
                 default:
                     break
                 }

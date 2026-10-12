@@ -1,6 +1,8 @@
 // End-to-end smoke test against a deployed Worker.
 // Usage: bun scripts/smoke.ts [base_url]
 // Reads the test login code from ~/.secrets/cmux-next-mobile-native-test-login.
+// Signs in as smoke-native@<test domain>, which must be listed in the Worker's
+// TEST_LOGIN_EMAILS, and deletes that account at the end.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -50,9 +52,12 @@ class Peer {
   inbox: any[] = [];
   waiters: Array<{ pred: (m: any) => boolean; resolve: (m: any) => void }> = [];
   constructor(readonly id: string) {}
-  open(token: string): Promise<any> {
-    const url = `${BASE.replace(/^http/, "ws")}/v1/signal?token=${encodeURIComponent(token)}&peer=${this.id}`;
-    this.ws = new WebSocket(url);
+  /** Opens with an Authorization header, or with the legacy `?token=` query when `legacyQuery` is set. */
+  open(token: string, legacyQuery = false): Promise<any> {
+    const base = `${BASE.replace(/^http/, "ws")}/v1/signal?peer=${this.id}`;
+    this.ws = legacyQuery
+      ? new WebSocket(`${base}&token=${encodeURIComponent(token)}`)
+      : new WebSocket(base, { headers: { authorization: `Bearer ${token}` } } as any);
     this.ws.onmessage = (ev) => {
       const msg = JSON.parse(String(ev.data));
       const i = this.waiters.findIndex((w) => w.pred(msg));
@@ -81,14 +86,30 @@ class Peer {
   }
 }
 
+/** Status of a WebSocket upgrade attempt that is expected to be refused. */
+async function upgradeStatus(query: string, token: string): Promise<number> {
+  const res = await fetch(`${BASE}/v1/signal?${query}`, {
+    headers: { upgrade: "websocket", connection: "Upgrade", "sec-websocket-version": "13", "sec-websocket-key": btoa("smoke-smoke-smo!"), authorization: `Bearer ${token}` },
+  });
+  await res.body?.cancel();
+  return res.status;
+}
+
 // ---------- run
 console.log(`smoke: ${BASE}`);
-const email = `smoke-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}@${secrets.EMAIL_DOMAIN}`;
+const email = `smoke-native@${secrets.EMAIL_DOMAIN}`;
 
 check("GET /healthz", (await api("GET", "/healthz")).body.ok === true);
 
 const start = await api("POST", "/v1/auth/email/start", { body: { email } });
 check("POST /v1/auth/email/start (test address)", start.status === 200 && start.body.sent === true, start);
+
+const notListed = await api("POST", "/v1/auth/email/start", { body: { email: `not-listed-${Date.now().toString(36)}@${secrets.EMAIL_DOMAIN}` } });
+check(
+  "POST /v1/auth/email/start (test domain, not in TEST_LOGIN_EMAILS) is 503 email_unavailable",
+  notListed.status === 503 && notListed.body.error?.code === "email_unavailable",
+  notListed,
+);
 
 const nonTest = await api("POST", "/v1/auth/email/start", { body: { email: "someone@example.com" } });
 check(
@@ -101,7 +122,7 @@ const wrong = await api("POST", "/v1/auth/email/verify", { body: { email, code: 
 check("POST /v1/auth/email/verify rejects a wrong code", wrong.status === 400 && wrong.body.error.code === "invalid_code", wrong);
 
 const verify = await api("POST", "/v1/auth/email/verify", { body: { email, code: secrets.CODE } });
-check("POST /v1/auth/email/verify", verify.status === 200 && verify.body.access_token && verify.body.is_new_user === true, verify);
+check("POST /v1/auth/email/verify", verify.status === 200 && verify.body.access_token && verify.body.user?.email === email, verify);
 let session = verify.body;
 const userId = session.user.id;
 
@@ -120,32 +141,77 @@ check("POST /v1/auth/refresh", refreshed.status === 200 && refreshed.body.refres
 const replay = await api("POST", "/v1/auth/refresh", { body: { refresh_token: session.refresh_token } });
 check("refresh token rotation rejects the old token", replay.status === 401, replay);
 session = refreshed.body;
+const family = await api("POST", "/v1/auth/refresh", { body: { refresh_token: session.refresh_token } });
+check("refresh token reuse revokes the newer refresh token too", family.status === 401, family);
 const token = session.access_token as string;
 
-// pairing
+// pairing (claim -> Mac approval -> token once)
 const pstart = await api("POST", "/v1/pairing/start", { body: { host_name: "Smoke Mac", platform: "macos", app_version: "0.0.1" } });
 check(
-  "POST /v1/pairing/start",
-  pstart.status === 200 && /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(pstart.body.code) && pstart.body.poll_secret,
+  "POST /v1/pairing/start (8-character code)",
+  pstart.status === 200 && /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/.test(pstart.body.code) && pstart.body.poll_secret,
   pstart,
 );
-const pollPath = `/v1/pairing/${pstart.body.pairing_id}?poll_secret=${encodeURIComponent(pstart.body.poll_secret)}`;
+const pairingId = pstart.body.pairing_id as string;
+const pollSecret = pstart.body.poll_secret as string;
+const pollPath = `/v1/pairing/${pairingId}?poll_secret=${encodeURIComponent(pollSecret)}`;
 const pending = await api("GET", pollPath);
 check("GET /v1/pairing/:id pending", pending.status === 200 && pending.body.status === "pending", pending);
-check("pairing poll rejects a wrong secret", (await api("GET", `/v1/pairing/${pstart.body.pairing_id}?poll_secret=nope`)).status === 404);
+check("pairing poll rejects a wrong secret", (await api("GET", `/v1/pairing/${pairingId}?poll_secret=nope`)).status === 404);
+const early = await api("POST", `/v1/pairing/${pairingId}/approve`, { body: { poll_secret: pollSecret } });
+check("approve before a claim is 409 invalid_pairing_state", early.status === 409 && early.body.error.code === "invalid_pairing_state", early);
 
-const claim = await api("POST", "/v1/pairing/claim", { token, body: { code: pstart.body.code.toLowerCase() } });
-check("POST /v1/pairing/claim", claim.status === 200 && claim.body.host?.name === "Smoke Mac", claim);
+const dashed = `${pstart.body.code.slice(0, 4)}-${pstart.body.code.slice(4)}`.toLowerCase();
+const claim = await api("POST", "/v1/pairing/claim", { token, body: { code: dashed } });
+check(
+  "POST /v1/pairing/claim -> awaiting_approval",
+  claim.status === 200 && claim.body.status === "awaiting_approval" && claim.body.host?.name === "Smoke Mac",
+  claim,
+);
 const hostId = claim.body.host.id;
+const reclaim = await api("POST", "/v1/pairing/claim", { token, body: { code: pstart.body.code } });
+check("an awaiting pairing cannot be claimed again", reclaim.status === 404, reclaim);
+
+const awaiting = await api("GET", pollPath);
+check(
+  "GET /v1/pairing/:id awaiting_approval shows the user's email",
+  awaiting.status === 200 && awaiting.body.status === "awaiting_approval" && awaiting.body.user?.email === email && awaiting.body.user?.id === userId,
+  awaiting,
+);
+check(
+  "host is not listed before approval",
+  !(await api("GET", "/v1/hosts", { token })).body.hosts.some((h: any) => h.id === hostId),
+);
+check(
+  "approve rejects a wrong poll secret",
+  (await api("POST", `/v1/pairing/${pairingId}/approve`, { body: { poll_secret: "cnp_wrong" } })).status === 404,
+);
+const approve = await api("POST", `/v1/pairing/${pairingId}/approve`, { body: { poll_secret: pollSecret } });
+check("POST /v1/pairing/:id/approve", approve.status === 200 && approve.body.status === "approved", approve);
 
 const claimed = await api("GET", pollPath);
 check(
-  "GET /v1/pairing/:id claimed",
+  "GET /v1/pairing/:id claimed (token after approval)",
   claimed.status === 200 && claimed.body.status === "claimed" && claimed.body.host_id === hostId && claimed.body.host_token && claimed.body.user.id === userId,
   claimed,
 );
 const hostToken = claimed.body.host_token as string;
-check("pairing token is delivered once", (await api("GET", pollPath)).status === 410);
+const consumed = await api("GET", pollPath);
+check("pairing token is delivered once", consumed.status === 410 && consumed.body.error.code === "pairing_consumed", consumed);
+
+// pairing (claim -> Mac rejects)
+const rstart = await api("POST", "/v1/pairing/start", { body: { host_name: "Rejected Mac", platform: "macos", app_version: "0.0.1" } });
+const rPoll = `/v1/pairing/${rstart.body.pairing_id}?poll_secret=${encodeURIComponent(rstart.body.poll_secret)}`;
+const rclaim = await api("POST", "/v1/pairing/claim", { token, body: { code: rstart.body.code } });
+check("claim for the rejection flow", rclaim.status === 200 && rclaim.body.status === "awaiting_approval", rclaim);
+const reject = await api("POST", `/v1/pairing/${rstart.body.pairing_id}/reject`, { body: { poll_secret: rstart.body.poll_secret } });
+check("POST /v1/pairing/:id/reject", reject.status === 200 && reject.body.status === "rejected", reject);
+const rpolled = await api("GET", rPoll);
+check("poll after reject is rejected", rpolled.status === 200 && rpolled.body.status === "rejected", rpolled);
+check(
+  "rejected host is never listed",
+  !(await api("GET", "/v1/hosts", { token })).body.hosts.some((h: any) => h.id === rclaim.body.host.id),
+);
 
 const hostMe = await api("GET", "/v1/host/me", { token: hostToken });
 check("GET /v1/host/me", hostMe.status === 200 && hostMe.body.host.id === hostId && hostMe.body.user.id === userId, hostMe);
@@ -169,13 +235,14 @@ check("GET /v1/ice without token is 401", (await api("GET", "/v1/ice")).status =
 
 // signaling
 const phone = new Peer(`phone-${crypto.randomUUID().slice(0, 8)}`);
-const mac = new Peer(`host-${crypto.randomUUID().slice(0, 8)}`);
+const mac = new Peer(`host-${hostId}`);
+check("signal: phone may not use a host peer id", (await upgradeStatus("peer=host-evil", token)) === 400);
 const w1 = await phone.open(token);
 check("signal: phone welcome", w1.peer.id === phone.id && w1.peer.kind === "phone" && Array.isArray(w1.peers), w1);
 
 const presence = phone.next((m) => m.type === "presence" && m.peers.some((p: any) => p.id === mac.id));
-const w2 = await mac.open(hostToken);
-check("signal: host welcome lists the phone", w2.peer.kind === "host" && w2.peer.host_id === hostId && w2.peers.some((p: any) => p.id === phone.id), w2);
+const w2 = await mac.open(hostToken, true);
+check("signal: host welcome lists the phone", w2.peer.id === `host-${hostId}` && w2.peer.kind === "host" && w2.peer.host_id === hostId && w2.peers.some((p: any) => p.id === phone.id), w2);
 const pr = await presence;
 check("signal: phone sees host presence", pr.peers.some((p: any) => p.id === mac.id && p.kind === "host" && p.name === "Smoke Mac 2"), pr);
 
@@ -210,6 +277,7 @@ check("POST /v1/auth/logout", (await api("POST", "/v1/auth/logout", { body: { re
 check("logged-out refresh token is rejected", (await api("POST", "/v1/auth/refresh", { body: { refresh_token: session.refresh_token } })).status === 401);
 check("DELETE /v1/me", (await api("DELETE", "/v1/me", { token })).body.ok === true);
 check("deleted account token is rejected", (await api("GET", "/v1/me", { token })).status === 401);
+check("deleted account cannot connect to signaling", (await upgradeStatus("peer=phone-x", token)) === 401);
 
 console.log(`\nsmoke passed: ${passed} checks`);
 process.exit(0);

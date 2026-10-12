@@ -5,6 +5,8 @@ import {
   generateEmailCode,
   generatePairingCode,
   generateToken,
+  normalizePairingCode,
+  PAIRING_CODE_LENGTH,
   sha256Hex,
   timingSafeEqual,
 } from "./crypto";
@@ -22,6 +24,7 @@ import {
 } from "./http";
 import { iceServers } from "./ice";
 import { signAccessToken, verifyAccessToken } from "./jwt";
+import { consume, isLocked, recordFailure } from "./ratelimit";
 
 const ACCESS_TTL = 60 * 60;
 const REFRESH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -31,6 +34,16 @@ const MAX_CODE_ATTEMPTS = 5;
 const EMAIL_STARTS_PER_EMAIL_10M = 5;
 const EMAIL_STARTS_PER_IP_1H = 30;
 const PAIRING_STARTS_PER_IP_1H = 30;
+const MIN_10 = 10 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const EMAIL_VERIFIES_PER_IP_10M = 30;
+const TEST_CODE_FAILURES_BEFORE_LOCK_1H = 30;
+const CLAIMS_PER_USER_10M = 10;
+const CLAIMS_PER_IP_10M = 30;
+const CLAIM_FAILURES_BEFORE_LOCK_1H = 20;
+const ICE_PER_PRINCIPAL_1H = 60;
+/** After approval the Mac has this long to collect the host token. */
+const APPROVED_TTL_MS = 10 * 60 * 1000;
 const LAST_SEEN_RESOLUTION_MS = 5 * 60 * 1000;
 
 export interface Deps {
@@ -80,8 +93,15 @@ function normalizeEmail(raw: string): string {
   return email;
 }
 
-function isTestEmail(env: Env, email: string): boolean {
+function isTestDomain(env: Env, email: string): boolean {
   return email.endsWith(`@${env.TEST_EMAIL_DOMAIN}`);
+}
+
+/** Exact allowlisted test address that signs in with TEST_LOGIN_CODE. */
+function isTestLogin(env: Env, email: string): boolean {
+  if (!env.TEST_LOGIN_CODE || !isTestDomain(env, email)) return false;
+  const allowed = (env.TEST_LOGIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes(email);
 }
 
 function userJson(u: UserRow) {
@@ -107,7 +127,7 @@ function bearer(request: Request): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-export async function authenticate(env: Env, db: Db, token: string | null): Promise<Principal | null> {
+export async function authenticate(env: Env, db: Db, token: string | null | undefined): Promise<Principal | null> {
   if (!token) return null;
   if (token.startsWith("cnh_")) {
     const hash = await sha256Hex(token);
@@ -197,9 +217,10 @@ async function emailStart(ctx: Ctx) {
   const email = normalizeEmail(requireString(body, "email", { max: 320 }));
   const { db } = ctx.deps;
   const now = Date.now();
-  const test = isTestEmail(ctx.env, email);
-  if (test && !ctx.env.TEST_LOGIN_CODE) throw new HttpError(503, "email_unavailable", "test login is disabled");
-  if (!test && !ctx.env.SEND_EMAIL) throw new HttpError(503, "email_unavailable", "email delivery is not configured");
+  const test = isTestLogin(ctx.env, email);
+  // Non-allowlisted test-domain addresses are treated like any address we cannot deliver to.
+  if (!test && (isTestDomain(ctx.env, email) || !ctx.env.SEND_EMAIL))
+    throw new HttpError(503, "email_unavailable", "email delivery is not configured");
 
   const perEmail = await db.one<{ n: number }>(
     "SELECT COUNT(*) AS n FROM email_codes WHERE email = ? AND created_at > ?",
@@ -229,14 +250,26 @@ async function emailVerify(ctx: Ctx) {
   const code = requireString(body, "code", { max: 16 });
   const { db } = ctx.deps;
   const now = new Date();
-  const row = await db.one<{ id: string; code_hash: string; attempts: number }>(
-    "SELECT id, code_hash, attempts FROM email_codes WHERE email = ? AND consumed_at IS NULL AND expires_at > ? ORDER BY id DESC LIMIT 1",
+  if (ctx.ip) await consume(db, "verify_ip", ctx.ip, EMAIL_VERIFIES_PER_IP_10M, MIN_10, now.getTime());
+  const invalid = () => new HttpError(400, "invalid_code", "code is invalid or expired");
+  const test = isTestLogin(ctx.env, email);
+  if (!test && isTestDomain(ctx.env, email)) throw invalid();
+  if (test && (await isLocked(db, "test_code_fail", "*", HOUR, now.getTime())))
+    throw new HttpError(429, "rate_limited", "test sign-in is temporarily disabled");
+  const row = await db.one<{ id: string; code_hash: string }>(
+    "SELECT id, code_hash FROM email_codes WHERE email = ? AND consumed_at IS NULL AND expires_at > ? ORDER BY id DESC LIMIT 1",
     [email, now],
   );
-  if (!row || Number(row.attempts) >= MAX_CODE_ATTEMPTS) throw new HttpError(400, "invalid_code", "code is invalid or expired");
+  if (!row) throw invalid();
+  // Claim an attempt before comparing so concurrent guesses cannot exceed the limit.
+  const attempt = await db.exec(
+    "UPDATE email_codes SET attempts = attempts + 1 WHERE id = ? AND attempts < ? AND consumed_at IS NULL",
+    [row.id, MAX_CODE_ATTEMPTS],
+  );
+  if (attempt.rowsAffected !== 1) throw invalid();
   if (!timingSafeEqual(row.code_hash, await sha256Hex(`${email}:${code}`))) {
-    await db.exec("UPDATE email_codes SET attempts = attempts + 1 WHERE id = ?", [row.id]);
-    throw new HttpError(400, "invalid_code", "code is invalid or expired");
+    if (test) await recordFailure(db, "test_code_fail", "*", TEST_CODE_FAILURES_BEFORE_LOCK_1H, HOUR, now.getTime());
+    throw invalid();
   }
   const consumed = await db.exec(
     "UPDATE email_codes SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
@@ -277,16 +310,24 @@ async function refresh(ctx: Ctx) {
   const { db } = ctx.deps;
   const now = new Date();
   const hash = await sha256Hex(token);
-  const row = await db.one<{ id: string; user_id: string }>(
-    "SELECT id, user_id FROM refresh_tokens WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
-    [hash, now],
+  const row = await db.one<{ id: string; user_id: string; revoked_at: string | null; expires_at: string }>(
+    "SELECT id, user_id, revoked_at, expires_at FROM refresh_tokens WHERE token_hash = ?",
+    [hash],
   );
   if (!row) throw new HttpError(401, "invalid_refresh_token");
+  // Reuse of a rotated or revoked token means it leaked: revoke the whole family.
+  const revokeAll = async () => {
+    await db.exec("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", [now, row.user_id]);
+    return new HttpError(401, "invalid_refresh_token");
+  };
+  if (row.revoked_at) throw await revokeAll();
+  if (new Date(iso(row.expires_at)!).getTime() <= now.getTime()) throw new HttpError(401, "invalid_refresh_token");
   const revoked = await db.exec(
     "UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
     [now, row.id],
   );
-  if (revoked.rowsAffected !== 1) throw new HttpError(401, "invalid_refresh_token");
+  // Lost a race with another refresh of the same token: also reuse.
+  if (revoked.rowsAffected !== 1) throw await revokeAll();
   const user = await db.one<UserRow>("SELECT * FROM users WHERE id = ?", [row.user_id]);
   if (!user) throw new HttpError(401, "invalid_refresh_token");
   return issueSession(ctx, user, false);
@@ -340,6 +381,32 @@ function hostFields(body: Record<string, unknown>) {
   };
 }
 
+// Pairing states: pending -> awaiting_approval (phone claimed the code) ->
+// approved (Mac approved) -> completed (host token delivered once). The Mac can
+// reject from pending or awaiting_approval -> rejected.
+
+interface PairingRow {
+  id: string;
+  code: string;
+  poll_secret_hash: string;
+  host_name: string;
+  platform: string;
+  app_version: string;
+  status: "pending" | "awaiting_approval" | "approved" | "completed" | "rejected";
+  user_id: string | null;
+  host_id: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+function isExpired(row: { expires_at: string }): boolean {
+  return new Date(iso(row.expires_at)!).getTime() <= Date.now();
+}
+
+function pairingUserJson(u: UserRow) {
+  return { id: u.id, email: u.email, display_name: u.display_name };
+}
+
 async function pairingStart(ctx: Ctx) {
   const body = await readJson(ctx.request);
   const f = hostFields(body);
@@ -356,7 +423,7 @@ async function pairingStart(ctx: Ctx) {
   for (let i = 0; i < 5; i++) {
     code = generatePairingCode();
     const clash = await db.one(
-      "SELECT id FROM pairings WHERE code = ? AND status = 'pending' AND expires_at > ?",
+      "SELECT id FROM pairings WHERE code = ? AND status IN ('pending', 'awaiting_approval', 'approved') AND expires_at > ?",
       [code, new Date(now)],
     );
     if (!clash) break;
@@ -376,55 +443,116 @@ async function pairingStart(ctx: Ctx) {
 async function pairingClaim(ctx: Ctx) {
   const { user } = await requireUser(ctx);
   const body = await readJson(ctx.request);
-  const code = requireString(body, "code", { max: 16 }).toUpperCase().replace(/[\s-]/g, "");
+  const code = normalizePairingCode(requireString(body, "code", { max: 32 }));
   const { db } = ctx.deps;
-  const now = new Date();
-  const pairing = await db.one<{ id: string; host_name: string; platform: string; app_version: string }>(
-    "SELECT id, host_name, platform, app_version FROM pairings WHERE code = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
-    [code, now],
+  const now = Date.now();
+  if (await isLocked(db, "claim_fail_user", user.id, HOUR, now))
+    throw new HttpError(429, "rate_limited", "too many invalid pairing codes; try again later");
+  await consume(db, "claim_user", user.id, CLAIMS_PER_USER_10M, MIN_10, now);
+  if (ctx.ip) await consume(db, "claim_ip", ctx.ip, CLAIMS_PER_IP_10M, MIN_10, now);
+
+  const fail = async () => {
+    await recordFailure(db, "claim_fail_user", user.id, CLAIM_FAILURES_BEFORE_LOCK_1H, HOUR, now);
+    return new HttpError(404, "invalid_pairing_code", "pairing code is invalid or expired");
+  };
+  if (code.length !== PAIRING_CODE_LENGTH) throw await fail();
+  const pairing = await db.one<PairingRow>(
+    "SELECT * FROM pairings WHERE code = ? AND status = 'pending' AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+    [code, new Date(now)],
   );
-  if (!pairing) throw new HttpError(404, "invalid_pairing_code", "pairing code is invalid or expired");
+  if (!pairing) throw await fail();
   const hostId = crypto.randomUUID();
   const claimed = await db.exec(
-    "UPDATE pairings SET status = 'claimed', user_id = ?, host_id = ? WHERE id = ? AND status = 'pending'",
+    "UPDATE pairings SET status = 'awaiting_approval', user_id = ?, host_id = ? WHERE id = ? AND status = 'pending' AND user_id IS NULL",
     [user.id, hostId, pairing.id],
   );
-  if (claimed.rowsAffected !== 1) throw new HttpError(404, "invalid_pairing_code", "pairing code is invalid or expired");
-  await db.exec(
-    "INSERT INTO hosts (id, user_id, name, platform, app_version, token_hash, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
-    [hostId, user.id, pairing.host_name, pairing.platform, pairing.app_version, now],
-  );
-  const host = (await db.one<HostRow>("SELECT * FROM hosts WHERE id = ?", [hostId]))!;
-  return json({ host: hostJson(host, new Set()) });
+  if (claimed.rowsAffected !== 1) throw await fail();
+  return json({
+    host: {
+      id: hostId,
+      name: pairing.host_name,
+      platform: pairing.platform,
+      app_version: pairing.app_version,
+      created_at: null,
+      last_seen_at: null,
+      online: false,
+    },
+    status: "awaiting_approval",
+    expires_at: iso(pairing.expires_at),
+  });
+}
+
+/** Loads a pairing and checks its poll secret in constant time; 404 on any mismatch. */
+async function pairingForSecret(ctx: Ctx, id: string, secret: string | null | undefined): Promise<PairingRow> {
+  if (!secret) throw new HttpError(401, "unauthorized");
+  const pairing = await ctx.deps.db.one<PairingRow>("SELECT * FROM pairings WHERE id = ?", [id]);
+  const hash = await sha256Hex(secret);
+  if (!pairing || !timingSafeEqual(pairing.poll_secret_hash, hash)) throw new HttpError(404, "pairing_not_found");
+  return pairing;
 }
 
 async function pairingPoll(ctx: Ctx, params: Record<string, string>) {
-  const secret = ctx.url.searchParams.get("poll_secret");
-  if (!secret) throw new HttpError(401, "unauthorized");
+  const pairing = await pairingForSecret(ctx, params.id!, ctx.url.searchParams.get("poll_secret"));
   const { db } = ctx.deps;
-  const pairing = await db.one<{ id: string; poll_secret_hash: string; status: string; user_id: string | null; host_id: string | null; expires_at: string }>(
-    "SELECT id, poll_secret_hash, status, user_id, host_id, expires_at FROM pairings WHERE id = ?",
-    [params.id!],
-  );
-  if (!pairing || !timingSafeEqual(pairing.poll_secret_hash, await sha256Hex(secret)))
-    throw new HttpError(404, "pairing_not_found");
-  if (pairing.status === "completed") throw new HttpError(410, "pairing_consumed", "host token was already delivered");
-  if (pairing.status === "pending") {
-    if (new Date(iso(pairing.expires_at)!).getTime() <= Date.now()) throw new HttpError(410, "pairing_expired");
-    return json({ status: "pending" });
+  switch (pairing.status) {
+    case "completed":
+      throw new HttpError(410, "pairing_consumed", "host token was already delivered");
+    case "rejected":
+      return json({ status: "rejected" });
+    case "pending":
+      if (isExpired(pairing)) throw new HttpError(410, "pairing_expired");
+      return json({ status: "pending" });
+    case "awaiting_approval": {
+      if (isExpired(pairing)) throw new HttpError(410, "pairing_expired");
+      const user = await db.one<UserRow>("SELECT * FROM users WHERE id = ?", [pairing.user_id!]);
+      if (!user) throw new HttpError(410, "pairing_expired");
+      return json({ status: "awaiting_approval", user: pairingUserJson(user) });
+    }
+    case "approved": {
+      if (isExpired(pairing)) throw new HttpError(410, "pairing_expired");
+      const user = await db.one<UserRow>("SELECT * FROM users WHERE id = ?", [pairing.user_id!]);
+      if (!user) throw new HttpError(410, "pairing_expired");
+      // Mint the host token exactly once.
+      const won = await db.exec("UPDATE pairings SET status = 'completed' WHERE id = ? AND status = 'approved'", [pairing.id]);
+      if (won.rowsAffected !== 1) throw new HttpError(410, "pairing_consumed", "host token was already delivered");
+      const hostToken = generateToken("cnh");
+      const now = new Date();
+      await db.exec(
+        "INSERT INTO hosts (id, user_id, name, platform, app_version, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [pairing.host_id!, user.id, pairing.host_name, pairing.platform, pairing.app_version, await sha256Hex(hostToken), now, now],
+      );
+      return json({ status: "claimed", host_id: pairing.host_id, host_token: hostToken, user: userJson(user) });
+    }
+    default:
+      throw new HttpError(410, "pairing_expired");
   }
-  // claimed: mint the host token exactly once.
-  const won = await db.exec("UPDATE pairings SET status = 'completed' WHERE id = ? AND status = 'claimed'", [pairing.id]);
-  if (won.rowsAffected !== 1) throw new HttpError(410, "pairing_consumed", "host token was already delivered");
-  const hostToken = generateToken("cnh");
-  await db.exec("UPDATE hosts SET token_hash = ?, last_seen_at = ? WHERE id = ?", [
-    await sha256Hex(hostToken),
-    new Date(),
-    pairing.host_id!,
-  ]);
-  const user = await db.one<UserRow>("SELECT * FROM users WHERE id = ?", [pairing.user_id!]);
-  if (!user) throw new HttpError(410, "pairing_expired");
-  return json({ status: "claimed", host_id: pairing.host_id, host_token: hostToken, user: userJson(user) });
+}
+
+async function pairingApprove(ctx: Ctx, params: Record<string, string>) {
+  const body = await readJson(ctx.request);
+  const pairing = await pairingForSecret(ctx, params.id!, typeof body.poll_secret === "string" ? body.poll_secret : null);
+  if (pairing.status !== "awaiting_approval") throw new HttpError(409, "invalid_pairing_state", `pairing is ${pairing.status}`);
+  if (isExpired(pairing)) throw new HttpError(410, "pairing_expired");
+  const approved = await ctx.deps.db.exec(
+    "UPDATE pairings SET status = 'approved', expires_at = ? WHERE id = ? AND status = 'awaiting_approval'",
+    [new Date(Date.now() + APPROVED_TTL_MS), pairing.id],
+  );
+  if (approved.rowsAffected !== 1) throw new HttpError(409, "invalid_pairing_state");
+  return json({ status: "approved" });
+}
+
+async function pairingReject(ctx: Ctx, params: Record<string, string>) {
+  const body = await readJson(ctx.request);
+  const pairing = await pairingForSecret(ctx, params.id!, typeof body.poll_secret === "string" ? body.poll_secret : null);
+  if (pairing.status === "rejected") return json({ status: "rejected" });
+  if (pairing.status !== "pending" && pairing.status !== "awaiting_approval")
+    throw new HttpError(409, "invalid_pairing_state", `pairing is ${pairing.status}`);
+  const rejected = await ctx.deps.db.exec(
+    "UPDATE pairings SET status = 'rejected' WHERE id = ? AND status IN ('pending', 'awaiting_approval')",
+    [pairing.id],
+  );
+  if (rejected.rowsAffected !== 1) throw new HttpError(409, "invalid_pairing_state");
+  return json({ status: "rejected" });
 }
 
 async function hostsRegister(ctx: Ctx) {
@@ -492,28 +620,51 @@ async function hostMe(ctx: Ctx) {
 // ---------------------------------------------------------------- ice and signaling
 
 async function ice(ctx: Ctx) {
-  await requirePrincipal(ctx, ["user", "host"]);
+  const p = await requirePrincipal(ctx, ["user", "host"]);
+  const key = p.kind === "host" ? `host:${p.hostId}` : `user:${p.userId}`;
+  await consume(ctx.deps.db, "ice", key, ICE_PER_PRINCIPAL_1H, HOUR);
   return json(await iceServers(ctx.env));
 }
 
 const PEER_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
+/** Internal headers the Worker sets for the SignalRoom; never trusted from the client. */
+const INTERNAL_HEADER_RE = /^x-(host|peer|user)-/i;
 
 async function signal(ctx: Ctx) {
   if (ctx.request.headers.get("upgrade")?.toLowerCase() !== "websocket")
     throw new HttpError(426, "upgrade_required", "expected a WebSocket upgrade");
-  const token = ctx.url.searchParams.get("token") ?? bearer(ctx.request);
-  const peer = ctx.url.searchParams.get("peer") ?? "";
-  if (!PEER_ID_RE.test(peer)) throw new HttpError(400, "invalid_peer", "peer must match [A-Za-z0-9_.:-]{1,64}");
+  // Prefer the Authorization header; `?token=` remains for older clients.
+  const token = bearer(ctx.request) ?? ctx.url.searchParams.get("token");
   const p = await authenticate(ctx.env, ctx.deps.db, token);
   if (!p) throw new HttpError(401, "unauthorized");
-  const headers = new Headers(ctx.request.headers);
+  const user = await ctx.deps.db.one<{ id: string }>("SELECT id FROM users WHERE id = ?", [p.userId]);
+  if (!user) throw new HttpError(401, "unauthorized", "account no longer exists");
+
+  let peer: string;
+  if (p.kind === "host") {
+    // Host peer ids are assigned by the server so a phone cannot impersonate a Mac.
+    peer = `host-${p.hostId}`;
+  } else {
+    peer = ctx.url.searchParams.get("peer") ?? "";
+    if (!PEER_ID_RE.test(peer)) throw new HttpError(400, "invalid_peer", "peer must match [A-Za-z0-9_.:-]{1,64}");
+    if (peer.toLowerCase().startsWith("host")) throw new HttpError(400, "invalid_peer", "peer ids starting with host are reserved");
+  }
+
+  const headers = new Headers();
+  for (const [name, value] of ctx.request.headers) {
+    if (INTERNAL_HEADER_RE.test(name) || name.toLowerCase() === "authorization") continue;
+    headers.set(name, value);
+  }
   headers.set("x-peer-id", peer);
   headers.set("x-peer-kind", p.kind === "host" ? "host" : "phone");
   if (p.kind === "host") {
     headers.set("x-host-id", p.hostId);
     headers.set("x-peer-name", encodeURIComponent(p.hostName));
   }
-  return ctx.deps.connectSignal(p.userId, new Request(ctx.request.url, { headers }));
+  // Forward without credentials in the URL.
+  const forward = new URL(ctx.url);
+  forward.searchParams.delete("token");
+  return ctx.deps.connectSignal(p.userId, new Request(forward.toString(), { headers }));
 }
 
 // ---------------------------------------------------------------- routing
@@ -532,6 +683,8 @@ const router = new Router<Ctx>()
   .on("POST", "/v1/pairing/start", pairingStart)
   .on("POST", "/v1/pairing/claim", pairingClaim)
   .on("GET", "/v1/pairing/:id", pairingPoll)
+  .on("POST", "/v1/pairing/:id/approve", pairingApprove)
+  .on("POST", "/v1/pairing/:id/reject", pairingReject)
   .on("POST", "/v1/hosts/register", hostsRegister)
   .on("GET", "/v1/hosts", hostsList)
   .on("PATCH", "/v1/hosts/:id", hostsPatch)

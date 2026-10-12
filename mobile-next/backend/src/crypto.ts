@@ -63,9 +63,16 @@ export function generateEmailCode(): string {
 
 export const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-/** 6-character pairing code from an unambiguous alphabet. */
+export const PAIRING_CODE_LENGTH = 8;
+
+/** 8-character pairing code from an unambiguous alphabet (displayed as `XXXX-XXXX`). */
 export function generatePairingCode(): string {
-  return randomString(PAIRING_ALPHABET, 6);
+  return randomString(PAIRING_ALPHABET, PAIRING_CODE_LENGTH);
+}
+
+/** Normalizes a typed pairing code: uppercase, spaces and dashes removed. */
+export function normalizePairingCode(raw: string): string {
+  return raw.toUpperCase().replace(/[\s-]/g, "");
 }
 
 /** Opaque bearer secret with a type prefix, e.g. `cnr_...` (refresh) or `cnh_...` (host). */

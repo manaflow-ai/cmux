@@ -9,6 +9,9 @@ public final class HostEnvironment: @unchecked Sendable {
     public let homeDirectory: String
 
     public init(supportDirectory: URL? = nil) {
+        // Writing to a pipe whose reader died (an exited agent) must not kill
+        // the host and every terminal with it.
+        signal(SIGPIPE, SIG_IGN)
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         homeDirectory = home
         let directory = supportDirectory ?? URL(fileURLWithPath: home)

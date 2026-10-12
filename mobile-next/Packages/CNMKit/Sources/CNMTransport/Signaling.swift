@@ -73,12 +73,15 @@ public final class WebSocketSignaling: NSObject, SignalingChannel, @unchecked Se
     private func connect() async {
         if lock.withLock({ closed }) { return }
         guard let token = await tokenProvider() else {
-            continuation.yield(.closed("signed out"))
+            // No token right now (offline refresh, say): keep retrying.
+            continuation.yield(.closed("no token"))
+            scheduleRetry()
             return
         }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "token", value: token)]
-        let task = session.webSocketTask(with: components.url!)
+        if lock.withLock({ closed }) { return }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let task = session.webSocketTask(with: request)
         lock.withLock { self.task = task }
         task.resume()
         receive(on: task)
@@ -86,14 +89,18 @@ public final class WebSocketSignaling: NSObject, SignalingChannel, @unchecked Se
     }
 
     private func startPings(on task: URLSessionWebSocketTask) {
-        pingTimer?.cancel()
-        pingTimer = Task { [weak self] in
+        let timer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(20))
                 guard let self, self.lock.withLock({ self.task === task }) else { return }
                 task.send(.string(#"{"type":"ping"}"#)) { _ in }
             }
         }
+        let previous: Task<Void, Never>? = lock.withLock {
+            defer { pingTimer = timer }
+            return pingTimer
+        }
+        previous?.cancel()
     }
 
     private func receive(on task: URLSessionWebSocketTask) {
@@ -115,14 +122,29 @@ public final class WebSocketSignaling: NSObject, SignalingChannel, @unchecked Se
     }
 
     private func reconnect(after reason: String, task: URLSessionWebSocketTask) {
+        let current = lock.withLock { !closed && self.task === task }
+        guard current else { return }
+        lock.withLock { self.task = nil }
+        // Say why: the server closes with 4001 when a Mac is revoked and
+        // answers the upgrade with 401 when a token is no longer valid.
+        let status = (task.response as? HTTPURLResponse)?.statusCode
+        if task.closeCode.rawValue == 4001 {
+            continuation.yield(.closed("revoked"))
+        } else if status == 401 {
+            continuation.yield(.closed("unauthorized"))
+        } else {
+            continuation.yield(.closed(reason))
+        }
+        scheduleRetry()
+    }
+
+    private func scheduleRetry() {
         let delay: Double? = lock.withLock {
-            guard !closed, self.task === task else { return nil }
-            self.task = nil
+            guard !closed else { return nil }
             attempt += 1
             return min(30, pow(2, Double(min(attempt, 5))) * 0.5)
         }
         guard let delay else { return }
-        continuation.yield(.closed(reason))
         Task {
             try? await Task.sleep(for: .seconds(delay))
             await self.connect()
@@ -169,7 +191,7 @@ public final class WebSocketSignaling: NSObject, SignalingChannel, @unchecked Se
             defer { self.task = nil }
             return self.task
         }
-        pingTimer?.cancel()
+        lock.withLock { pingTimer }?.cancel()
         task?.cancel(with: .normalClosure, reason: nil)
         continuation.yield(.closed(nil))
         continuation.finish()

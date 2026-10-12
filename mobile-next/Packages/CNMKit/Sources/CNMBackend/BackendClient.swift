@@ -221,6 +221,14 @@ public struct BackendClient: Sendable {
         return try await send("GET", "v1/pairing/\(start.pairingID)?poll_secret=\(secret)")
     }
 
+    public func approvePairing(_ start: PairingStart) async throws {
+        _ = try await send("POST", "v1/pairing/\(start.pairingID)/approve", body: ["poll_secret": start.pollSecret]) as EmptyReply
+    }
+
+    public func rejectPairing(_ start: PairingStart) async throws {
+        _ = try await send("POST", "v1/pairing/\(start.pairingID)/reject", body: ["poll_secret": start.pollSecret]) as EmptyReply
+    }
+
     public func iceServers(token: String) async throws -> [BackendICEServer] {
         struct Reply: Decodable {
             var iceServers: [BackendICEServer]

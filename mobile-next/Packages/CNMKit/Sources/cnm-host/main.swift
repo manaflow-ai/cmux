@@ -10,7 +10,7 @@ import Foundation
 //   cnm-host status          print the saved host identity
 //   cnm-host unpair          forget the saved host identity
 //
-// Options: --backend URL, --name NAME, --state DIR, --relay-only
+// Options: --backend URL, --name NAME, --state DIR, --relay-only, --approve EMAIL
 
 struct Options {
     var command = "serve"
@@ -18,6 +18,9 @@ struct Options {
     var name = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     var state: URL?
     var relayOnly = false
+    /// Approve a claim without asking when it comes from exactly this
+    /// account (automated runs only).
+    var autoApprove: String?
 
     init(_ arguments: [String]) {
         var iterator = arguments.dropFirst().makeIterator()
@@ -28,6 +31,7 @@ struct Options {
             case "--name": if let value = iterator.next() { name = value }
             case "--state": if let value = iterator.next() { state = URL(fileURLWithPath: value) }
             case "--relay-only": relayOnly = true
+            case "--approve": autoApprove = iterator.next()?.lowercased()
             default: positional.append(argument)
             }
         }
@@ -40,8 +44,23 @@ func log(_ message: String) {
     FileHandle.standardError.write(Data("[\(stamp)] \(message)\n".utf8))
 }
 
+/// Asks on the terminal before giving this Mac to the account that claimed
+/// the code (or approves the one account named by --approve).
+@MainActor func approve(_ email: String) async -> Bool {
+    if let expected = options.autoApprove {
+        let ok = expected == email.lowercased()
+        print(ok ? "Approved \(email) (--approve)." : "Rejected \(email): --approve names \(expected).")
+        return ok
+    }
+    print("\n  \(email) wants to pair with this Mac. It will be able to open shells and run agents here.")
+    print("  Allow? [y/N] ", terminator: "")
+    fflush(stdout)
+    let answer = await Task.detached { readLine() }.value
+    return answer?.lowercased().hasPrefix("y") == true
+}
+
 func printCode(_ code: String, name: String) {
-    let spaced = code.enumerated().map { $0.offset == 3 ? " \($0.element)" : "\($0.element)" }.joined()
+    let spaced = code.count == 8 ? code.prefix(4) + "-" + code.dropFirst(4) : Substring(code)
     print("""
 
       Pair \(name) with cmux on your iPhone:
@@ -68,11 +87,11 @@ await MainActor.run { runtime.relayOnly = options.relayOnly }
 
 switch options.command {
 case "pair":
-    let identity = try await runtime.pair { printCode($0, name: options.name) }
+    let identity = try await runtime.pair(onCode: { printCode($0, name: options.name) }, approve: approve)
     print("Paired with \(identity.userEmail ?? "your account").")
 case "serve":
     if await runtime.identity == nil {
-        let identity = try await runtime.pair { printCode($0, name: options.name) }
+        let identity = try await runtime.pair(onCode: { printCode($0, name: options.name) }, approve: approve)
         print("Paired with \(identity.userEmail ?? "your account").")
     }
     await runtime.start()
@@ -87,6 +106,6 @@ case "unpair":
     await runtime.unpair()
     print("Forgot this Mac's pairing.")
 default:
-    print("usage: cnm-host [pair|serve|status|unpair] [--backend URL] [--name NAME] [--state DIR] [--relay-only]")
+    print("usage: cnm-host [pair|serve|status|unpair] [--backend URL] [--name NAME] [--state DIR] [--relay-only] [--approve EMAIL]")
     exit(2)
 }

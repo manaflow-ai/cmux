@@ -49,7 +49,7 @@ struct AgentChatView: View {
     }
 
     private var info: AgentSessionInfo? { host.agents.first { $0.id == sessionID } }
-    private var transcript: TranscriptBuilder { TranscriptBuilder(events: host.agentEvents[sessionID] ?? []) }
+    private var transcript: TranscriptBuilder { host.transcript(for: sessionID) }
     private var working: Bool { info?.state == .working || info?.state == .starting }
 
     var body: some View {

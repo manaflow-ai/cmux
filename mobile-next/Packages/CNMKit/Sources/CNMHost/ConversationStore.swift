@@ -59,7 +59,7 @@ final class ConversationStore: @unchecked Sendable {
             guard let stored = conversations[params.conversation] else { throw RPCError(code: -32040, message: "No such conversation") }
             var messages = stored.messages
             if let before = params.before { messages = messages.filter { $0.sentAt < before } }
-            if let limit = params.limit { messages = Array(messages.suffix(limit)) }
+            if let limit = params.limit { messages = Array(messages.suffix(max(0, limit))) }
             return messages
         }
     }
@@ -109,10 +109,6 @@ final class ConversationStore: @unchecked Sendable {
         lock.withLock {
             guard var stored = conversations[id] else { return }
             stored.info.unreadCount = 0
-            let now = Date()
-            for index in stored.messages.indices where stored.messages[index].sender == Self.me.id && stored.messages[index].readAt == nil {
-                stored.messages[index].readAt = now
-            }
             conversations[id] = stored
         }
         save()
@@ -183,6 +179,7 @@ final class ConversationStore: @unchecked Sendable {
                 return joined
             }
             guard let next else { return }
+            markReadByChief(conversation)
             setTyping(conversation, true)
             let reply = await answer(conversation, brain, next)
             setTyping(conversation, false)
@@ -243,12 +240,19 @@ final class ConversationStore: @unchecked Sendable {
             }
             throw RPCError.methodNotFound
         }
-        _ = try await process.request("initialize", [
-            "protocolVersion": 1,
-            "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false],
-        ], timeout: .seconds(90))
-        let result = try await process.request("session/new", ["cwd": .string(chiefDirectory.path), "mcpServers": []], timeout: .seconds(90))
-        guard let id = result["sessionId"]?.stringValue else { throw RPCError(code: -32042, message: "Chief did not start") }
+        let id: String
+        do {
+            _ = try await process.request("initialize", [
+                "protocolVersion": 1,
+                "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false],
+            ], timeout: .seconds(90))
+            let result = try await process.request("session/new", ["cwd": .string(chiefDirectory.path), "mcpServers": []], timeout: .seconds(90))
+            guard let sessionID = result["sessionId"]?.stringValue else { throw RPCError(code: -32042, message: "Chief did not start") }
+            id = sessionID
+        } catch {
+            process.terminate()
+            throw error
+        }
         lock.withLock {
             brain.process = process
             brain.acpSessionID = id
@@ -345,6 +349,26 @@ final class ConversationStore: @unchecked Sendable {
         save()
         if let value = try? JSONValue.encode(message) { emit?(.conversationMessage, value) }
         emitChanged(message.conversation)
+    }
+
+    /// Chief has read the user's messages: they show "Read <time>".
+    private func markReadByChief(_ conversation: String) {
+        let now = Date()
+        let updated: [ConversationMessage] = lock.withLock {
+            guard var stored = conversations[conversation] else { return [] }
+            var changed: [ConversationMessage] = []
+            for index in stored.messages.indices where stored.messages[index].sender == Self.me.id && stored.messages[index].readAt == nil {
+                stored.messages[index].readAt = now
+                changed.append(stored.messages[index])
+            }
+            conversations[conversation] = stored
+            return changed
+        }
+        guard !updated.isEmpty else { return }
+        save()
+        for message in updated {
+            if let value = try? JSONValue.encode(message) { emit?(.conversationMessage, value) }
+        }
     }
 
     private func setTyping(_ conversation: String, _ typing: Bool) {

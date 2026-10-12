@@ -48,7 +48,8 @@ public final class HostServer: @unchecked Sendable {
                 guard let self else { throw RPCError.internalError }
                 return try await self.handle(method, params, from: key)
             },
-            onBulk: { [weak self] frame in self?.handleBulk(frame) }
+            onBulk: { [weak self] frame in self?.handleBulk(frame) },
+            orderedPrefixes: ["terminal."]
         )
         Task { [weak self] in
             for await state in link.states {
@@ -197,14 +198,23 @@ public final class HostServer: @unchecked Sendable {
         guard let terminal = terminal(request.id), let peer = lock.withLock({ peers[key] }) else {
             throw RPCError(code: -32050, message: "No such terminal")
         }
-        let snapshot = terminal.snapshot()
         let size = try JSONEncoder().encode(["cols": terminal.info.cols, "rows": terminal.info.rows])
-        try peer.send(BulkFrame(kind: .replayBegin, terminal: request.id, payload: size))
-        for chunk in Self.chunks(snapshot) {
-            try peer.send(BulkFrame(kind: .output, terminal: request.id, payload: chunk))
+        var sendError: Error?
+        // Replay and registration happen on the pty queue, so output read
+        // after the snapshot goes to this viewer live and nothing is lost.
+        terminal.withSnapshot { [self] snapshot in
+            do {
+                try peer.send(BulkFrame(kind: .replayBegin, terminal: request.id, payload: size))
+                for chunk in Self.chunks(snapshot) {
+                    try peer.send(BulkFrame(kind: .output, terminal: request.id, payload: chunk))
+                }
+                try peer.send(BulkFrame(kind: .replayEnd, terminal: request.id))
+                _ = lock.withLock { viewers[request.id, default: []].insert(key) }
+            } catch {
+                sendError = error
+            }
         }
-        try peer.send(BulkFrame(kind: .replayEnd, terminal: request.id))
-        lock.withLock { viewers[request.id, default: []].insert(key) }
+        if let sendError { throw sendError }
         if request.cols != terminal.info.cols || request.rows != terminal.info.rows {
             terminal.resize(cols: request.cols, rows: request.rows)
         }

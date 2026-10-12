@@ -23,7 +23,11 @@
   "vars": {
     "APPLE_AUDIENCE": "dev.cmux.next.native",
     "EMAIL_FROM": "cmux <no-reply@cmux.dev>",
-    "TEST_EMAIL_DOMAIN": "test.cmux.dev"
+    "TEST_EMAIL_DOMAIN": "test.cmux.dev",
+    // Exact addresses (comma separated) that sign in with TEST_LOGIN_CODE. Other
+    // @test.cmux.dev addresses get 503 email_unavailable. smoke-native is used
+    // only by scripts/smoke.ts, which deletes that account at the end of a run.
+    "TEST_LOGIN_EMAILS": "aziz-native@test.cmux.dev,smoke-native@test.cmux.dev"
   }
   // Secrets (wrangler secret put): JWT_SECRET, TEST_LOGIN_CODE, DATABASE_HOST,
   // DATABASE_USERNAME, DATABASE_PASSWORD, and optionally TURN_KEY_ID, TURN_KEY_API_TOKEN.
