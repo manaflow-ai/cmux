@@ -463,6 +463,7 @@ git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+git worktree create [TARGET] [--name <name>] [--base <revision>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -656,6 +657,23 @@ refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_
 `rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
 `hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
 commit the remote has succeeds with `up_to_date`.
+
+`git worktree create` (`git.worktree.create`, capability `git-worktree-v1`)
+makes a chat's own worktree, in the user's environment like `commit`, and
+only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`
+(`<project>` is the main checkout's folder name) on a new branch
+`cmux/<name>` from `--base` (default: the current branch, else HEAD's
+commit), and the base is recorded as `branch.cmux/<name>.cmuxBase` (a branch by
+name, any other revision as its commit). The name
+is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
+`chat-` and six random hex digits; a name taken by a folder or a branch gets
+the next free suffix (`-2` to `-99`). The user's checkout, its index and its
+uncommitted changes are untouched. The result is the worktree's `root`,
+`branch`, `base`, `base_commit` and, unless the repository is bare,
+`main_root`. It refuses with `base_not_found`, `name_taken`, `path_exists`,
+`no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
+worktree the first attempt made. A failing post-checkout hook does not undo
+the worktree, so it is reported as made.
 
 ## Local sidebar plugins
 
