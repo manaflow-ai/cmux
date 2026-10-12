@@ -16,10 +16,13 @@ pub(crate) const MIN_ZOOM: f64 = 0.25;
 pub(crate) const MAX_ZOOM: f64 = 5.0;
 
 /// Store a tab placement's pinned flag. Returns whether it changed.
+/// `url`: the page a browser tab is pinned on (Back to Pinned Page); a pin
+/// already stored keeps its page, and an unpin forgets it with the row.
 pub(crate) fn set_tab_pinned(
     transaction: &Transaction<'_>,
     tab_id: &str,
     pinned: bool,
+    url: Option<&str>,
 ) -> anyhow::Result<bool> {
     let current = transaction
         .query_row("SELECT pinned FROM tab_presentation WHERE tab_id = ?1", [tab_id], |row| {
@@ -29,14 +32,30 @@ pub(crate) fn set_tab_pinned(
         .is_some_and(|value| value != 0);
     if pinned {
         transaction.execute(
-            "INSERT INTO tab_presentation(tab_id, pinned) VALUES(?1, 1)
-             ON CONFLICT(tab_id) DO UPDATE SET pinned = 1",
-            [tab_id],
+            "INSERT INTO tab_presentation(tab_id, pinned, url) VALUES(?1, 1, ?2)
+             ON CONFLICT(tab_id) DO UPDATE SET pinned = 1, url = COALESCE(url, excluded.url)",
+            params![tab_id, url],
         )?;
     } else {
         transaction.execute("DELETE FROM tab_presentation WHERE tab_id = ?1", [tab_id])?;
     }
     Ok(current != pinned)
+}
+
+/// Additive: the page a pinned browser tab was pinned on (cx-lle.6). Older
+/// builds name their columns, so they keep reading and writing the table; a
+/// pin they write has no page (Back to Pinned Page is unavailable for it).
+pub(crate) fn add_tab_pinned_url_column(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_url = transaction
+        .prepare("PRAGMA table_info(tab_presentation)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "url");
+    if !has_url {
+        transaction.execute_batch("ALTER TABLE tab_presentation ADD COLUMN url TEXT;")?;
+    }
+    Ok(())
 }
 
 /// Additive: a `tab_state` table an older build created has no icon

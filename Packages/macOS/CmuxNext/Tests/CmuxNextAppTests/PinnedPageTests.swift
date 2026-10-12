@@ -17,7 +17,7 @@ struct PinnedPageTests {
 
     @Test func backToPinnedPageReturnsAPinnedTabToThePageItWasPinnedOn() async throws {
         try await Self.withApp { services, connection in
-            let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.id)
+            let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.handle)
             // A browser tab in the background: its page has not loaded here, so the daemon's record is the page.
             let surface = try await connection.newFrontendBrowserTab(url: Self.pinnedPage, engine: .webkit, in: pane, activate: false).surface
             try await Self.until { services.daemon.store.tab(surface: surface) != nil }

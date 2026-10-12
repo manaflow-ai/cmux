@@ -65,8 +65,8 @@ pub(crate) enum StripResult {
 /// State rows a strip change writes besides the topology.
 pub(crate) struct StripEdit {
     pub(crate) groups: TabGroupState,
-    /// Public tab id to its new pinned flag.
-    pub(crate) pins: Vec<(String, bool)>,
+    /// Public tab id to its new pinned flag, and the page a browser tab is pinned on.
+    pub(crate) pins: Vec<(String, bool, Option<String>)>,
     pub(crate) tab_state: Vec<(String, TabStateUpdate)>,
     pub(crate) saved: Option<SavedTabGroupRecord>,
     pub(crate) result: StripResult,
@@ -201,7 +201,7 @@ fn strip_state_write(
             touched_tabs.insert(tab.clone());
         }
     }
-    for (tab, pinned) in &pins {
+    for (tab, pinned, _) in &pins {
         if before.pinned_tabs.contains(tab) != *pinned {
             touched_tabs.insert(tab.clone());
         }
@@ -226,8 +226,8 @@ fn strip_state_write(
     let touched_tabs = touched_tabs.into_iter().collect::<Vec<_>>();
     Box::new(move |transaction, result, changes| {
         write_tab_groups(transaction, &groups)?;
-        for (tab, pinned) in &pins {
-            set_tab_pinned(transaction, tab, *pinned)?;
+        for (tab, pinned, url) in &pins {
+            set_tab_pinned(transaction, tab, *pinned, url.as_deref())?;
         }
         for (tab, update) in &tab_state {
             update_tab_state(transaction, tab, update)?;
