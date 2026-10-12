@@ -64,6 +64,14 @@ extension CMUXCLI {
         }
     }
 
+    private static func unknownWorkspaceStatusSubcommandMessage(_ sub: String) -> String {
+        "Unknown workspace status subcommand: \(sub). Try: cmux workspace status [set <lane|auto> | cycle]"
+    }
+
+    private static func unknownTodoSubcommandMessage(_ sub: String) -> String {
+        "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, edit, rm, move, clear, set, open"
+    }
+
     /// Parses a checklist item selector: a UUID id, or a 1-based index as
     /// printed by `cmux todo list` (sent as the wire's 0-based `index`).
     private func workspaceTodoItemSelectorParams(_ raw: String) throws -> [String: Any] {
@@ -95,21 +103,20 @@ extension CMUXCLI {
         let (_, withoutWorkspace) = parseOption(commandArgs, name: "--workspace")
         let (_, withoutTarget) = parseOption(withoutWorkspace, name: "--window")
         let requested = workspaceTodoPositionals(withoutTarget).first?.lowercased()
-        let maxPositionals: Int? = switch requested {
-        case nil: 0
-        case "set": 2
-        case "cycle": 1
-        default: nil
+        let maxPositionals: Int
+        switch requested {
+        case nil: maxPositionals = 0
+        case "set": maxPositionals = 2
+        case "cycle": maxPositionals = 1
+        case .some(let sub): throw CLIError(message: Self.unknownWorkspaceStatusSubcommandMessage(sub))
         }
-        if let maxPositionals {
-            try rejectUnexpectedArguments(
-                commandArgs,
-                commandName: requested.map { "workspace status \($0)" } ?? "workspace status",
-                valueOptions: Self.workspaceTodoTargetOptions,
-                maxPositionals: maxPositionals,
-                singleDashWordsArePositionals: true
-            )
-        }
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: requested.map { "workspace status \($0)" } ?? "workspace status",
+            valueOptions: Self.workspaceTodoTargetOptions,
+            maxPositionals: maxPositionals,
+            singleDashWordsArePositionals: true
+        )
         let (params, remaining) = try workspaceTodoTarget(
             commandArgs, client: client, windowOverride: windowOverride
         )
@@ -130,7 +137,7 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "workspace.status.cycle", params: params)
             printWorkspaceStatusPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         case .some(let sub):
-            throw CLIError(message: "Unknown workspace status subcommand: \(sub). Try: cmux workspace status [set <lane|auto> | cycle]")
+            throw CLIError(message: Self.unknownWorkspaceStatusSubcommandMessage(sub))
         }
     }
 
@@ -174,16 +181,18 @@ extension CMUXCLI {
             throw CLIError(message: "todo requires a subcommand. Try: add, list, check, uncheck, start, edit, rm, move, clear, set, open")
         }
         let subcommandArgs = Array(commandArgs.dropFirst())
-        // Check arguments before resolving the target, which contacts the app.
-        if let rules = todoArgumentRules(sub) {
-            try rejectUnexpectedArguments(
-                subcommandArgs,
-                commandName: "todo \(sub)",
-                valueOptions: Self.workspaceTodoTargetOptions.union(rules.valueOptions),
-                maxPositionals: rules.maxPositionals,
-                singleDashWordsArePositionals: true
-            )
+        // Check the subcommand and its arguments before resolving the target,
+        // which contacts the app.
+        guard let rules = todoArgumentRules(sub) else {
+            throw CLIError(message: Self.unknownTodoSubcommandMessage(sub))
         }
+        try rejectUnexpectedArguments(
+            subcommandArgs,
+            commandName: "todo \(sub)",
+            valueOptions: Self.workspaceTodoTargetOptions.union(rules.valueOptions),
+            maxPositionals: rules.maxPositionals,
+            singleDashWordsArePositionals: true
+        )
         let (params, rest) = try workspaceTodoTarget(
             subcommandArgs, client: client, windowOverride: windowOverride
         )
@@ -261,7 +270,7 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "workspace.todo.open", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         default:
-            throw CLIError(message: "Unknown todo subcommand: \(sub). Try: add, list, check, uncheck, start, edit, rm, move, clear, set, open")
+            throw CLIError(message: Self.unknownTodoSubcommandMessage(sub))
         }
     }
 
