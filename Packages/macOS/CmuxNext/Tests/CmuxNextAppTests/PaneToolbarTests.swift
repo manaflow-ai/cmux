@@ -70,6 +70,25 @@ struct PaneToolbarTests {
         #expect(bar.view.intrinsicContentSize.width == 0)
     }
 
+    /// A zoomed pane says so (cx-tzv37): its zoom button takes the bar's last slot, lit, with the
+    /// exit symbol, and a click unzooms; unzoomed, the bar is as before.
+    @Test func aZoomedPaneShowsItsZoomButtonLit() throws {
+        let bar = Bar()
+        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: ["toggleSplitZoom"], zoomed: true)
+        #expect(bar.buttons == ["splitRight", "splitDown", "openDiffViewer", "toggleSplitZoom"])
+        #expect(bar.more == ["Open File"])
+        let zoom = try #require(bar.view.buttons.last)
+        #expect(zoom.state == .on)
+        #expect(zoom.symbol == "arrow.down.right.and.arrow.up.left")
+        #expect(bar.view.buttons.dropLast().allSatisfy { $0.state == .off })
+
+        bar.click("toggleSplitZoom")
+        #expect(bar.runs.map(\.id) == ["toggleSplitZoom"])
+        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [], zoomed: false)
+        #expect(bar.buttons == ["splitRight", "splitDown", "openDiffViewer", "file.open"])
+        #expect(bar.view.buttons.allSatisfy { $0.state == .off })
+    }
+
     @Test func hideMovesAButtonIntoMoreAndShowBringsItBack() throws {
         let bar = Bar()
         bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [])

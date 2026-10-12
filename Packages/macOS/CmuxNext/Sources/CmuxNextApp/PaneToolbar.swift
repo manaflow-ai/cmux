@@ -104,7 +104,7 @@ final class PaneToolbar {
     ]
 
     /// Shows the bar for tab `target` of `kind` (nil: none) with `hidden` buttons under "…".
-    func update(target: String?, kind: Kind?, hidden: Set<String>) {
+    func update(target: String?, kind: Kind?, hidden: Set<String>, zoomed: Bool = false) {
         self.target = target
         self.kind = kind
         self.hidden = hidden
