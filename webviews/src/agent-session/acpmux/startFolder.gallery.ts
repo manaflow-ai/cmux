@@ -11,7 +11,10 @@ const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a
 const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
 
 /// A new chat in a project folder: its folder menu offers New Worktree (cx-lyqio.2).
+// A new chat (no session yet: the summary's empty id matches the snapshot's), so its folder menu
+// offers New Worktree.
 const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
+  sessionId: "",
   summary: { sessionId: "", cwd: "/Users/you/src/cmux", harness: "claude", model: "claude-opus-5-5", effort: "high" },
 });
 
@@ -92,6 +95,40 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           ctx.document.querySelector('[aria-label="Folder"]')?.textContent?.includes("fix-sidebar"),
         );
+      },
+    },
+    "worktree-creating": {
+      note: "Play: New Worktree while the host is still making it: the line above the composer says Creating worktree…, then the chat starts there.",
+      ready: { newSession: true },
+      native: {
+        "git.worktree.create": {
+          value: { root: WORKTREE, branch: "cmux/fix-sidebar", base: "main", base_commit: "4f2a9c1" },
+          replayed: false,
+        },
+        "workspace.useFolder": { status: "ok", cwd: WORKTREE },
+      },
+      nativeDelayMs: { "git.worktree.create": 1500 },
+      snapshot: inProject,
+      play: async (ctx) => {
+        await ctx.click({ selector: '[aria-label="Folder"]' });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const folder = ctx.document.querySelector('[aria-label="Folder"]');
+        const items = [
+          ...ctx.document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]'),
+        ].map((item) => `${item.getAttribute("role")}:${item.textContent?.trim()}`);
+        if (!items.includes("menuitem:New Worktree"))
+          throw new Error(
+            `the folder control (${folder?.tagName} ${folder?.className}) offers ${JSON.stringify(items)}`,
+          );
+        await ctx.click({ role: "menuitem", name: "New Worktree" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-worktree-creating")?.textContent?.includes("Creating worktree"),
+        );
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Folder"]')?.textContent?.includes("fix-sidebar"),
+        );
+        if (ctx.document.querySelector(".acpmux-worktree-creating"))
+          throw new Error("the creating line outlived the worktree");
       },
     },
     "worktree-refused": {
