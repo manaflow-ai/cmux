@@ -242,7 +242,22 @@
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
    the window is too short. Marks are muted at rest: color is for state, not for every row. */
-.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:240px}
+.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:120px}
+/* One scroller (Leo 2026-10-12: two scrollbars, the page's at the window edge and the list's inside
+   it). With All chats the list is the scroller and the page never scrolls: in a short window the
+   list gives up rows instead of pushing the page past the window. Without it the page scrolls. */
+.nt-screen:has(.nt-all){overflow:hidden}
+/* Whichever one scrolls fades out under its top and bottom edges instead of slicing a row (as
+   Settings, cx-jh7kq). The fades sit inside the page's padding; the scrollbar's strip on the right
+   stays unmasked. */
+.nt-screen:not(:has(.nt-all)),.nt-all-list{
+  --nt-fade-top:8px;
+  --nt-fade-bottom:20px;
+  mask-image:linear-gradient(to bottom,transparent,#000 var(--nt-fade-top),#000 calc(100% - var(--nt-fade-bottom)),transparent),linear-gradient(#000,#000);
+  mask-size:calc(100% - 14px) 100%,14px 100%;
+  mask-position:left top,right top;
+  mask-repeat:no-repeat;
+}
 .nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500}
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
