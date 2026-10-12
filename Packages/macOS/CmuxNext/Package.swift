@@ -26,6 +26,9 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CMUXMobileCore, CmuxIrxTransport (phone host; no UI)
+//   CmuxNextApp -> CmuxNativeHost (native-mobile/host: the native iPhone app's WebRTC host bridge,
+//     with CmuxNativeLink and CmuxNativeWire from native-mobile/Shared; the App's NativePhoneHost
+//     runs it against the app's own daemon; native-mobile/ARCHITECTURE.md)
 //   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
@@ -137,6 +140,10 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // The native iPhone app's host bridge (native-mobile/ARCHITECTURE.md); brings
+        // native-mobile/Shared and its WebRTC binary framework.
+        .package(path: "../../../native-mobile/host"),
+        .package(path: "../../../native-mobile/Shared"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),
@@ -211,6 +218,9 @@ let package = Package(
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
+                .product(name: "CmuxNativeHost", package: "host"),
+                .product(name: "CmuxNativeLink", package: "Shared"),
+                .product(name: "CmuxNativeWire", package: "Shared"),
             ],
             resources: [
                 .process("Resources"),

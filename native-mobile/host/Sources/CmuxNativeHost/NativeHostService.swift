@@ -16,13 +16,17 @@ public actor NativeHostService {
         public var guardrail: PathGuard
         public var uploadsRoot: String?
         public var log: @Sendable (String) -> Void
+        /// Acceptor and peer changes, for an embedding app's status UI.
+        public var onEvent: @Sendable (NativeHostEvent) -> Void
 
         public init(locator: DaemonSocketLocator = DaemonSocketLocator(), guardrail: PathGuard = PathGuard(),
-                    uploadsRoot: String? = nil, log: @escaping @Sendable (String) -> Void = { _ in }) {
+                    uploadsRoot: String? = nil, log: @escaping @Sendable (String) -> Void = { _ in },
+                    onEvent: @escaping @Sendable (NativeHostEvent) -> Void = { _ in }) {
             self.locator = locator
             self.guardrail = guardrail
             self.uploadsRoot = uploadsRoot
             self.log = log
+            self.onEvent = onEvent
         }
     }
 
@@ -37,7 +41,7 @@ public actor NativeHostService {
         let locator = configuration.locator
         let services = HostServices(guardrail: configuration.guardrail, uploadsRoot: configuration.uploadsRoot,
                                     daemonSocket: { locator.resolve() })
-        router = ChannelRouter(services: services, locator: locator, log: configuration.log)
+        router = ChannelRouter(services: services, locator: locator, log: configuration.log, onEvent: configuration.onEvent)
     }
 
     public init(acceptor: any HostAcceptor, configuration: Configuration = Configuration()) {
@@ -68,17 +72,29 @@ public actor NativeHostService {
     public var connectedPeers: [LinkPeer] { router.peers() }
 }
 
+/// What the host reports to an embedding app (`Configuration.onEvent`).
+public enum NativeHostEvent: Sendable, Equatable {
+    /// The signaling acceptor's state (listening once the Worker accepted the host).
+    case acceptor(HostAcceptorState)
+    /// A phone's link came up; `path` says direct or relay when known.
+    case peerConnected(LinkPeer, LinkPathInfo?)
+    case peerDisconnected(LinkPeer)
+}
+
 /// Routes accepted channels by label.
 final class ChannelRouter: HostAcceptorDelegate {
     let services: HostServices
     let locator: DaemonSocketLocator
     let log: @Sendable (String) -> Void
+    let onEvent: @Sendable (NativeHostEvent) -> Void
     private let open = Mutex<[ObjectIdentifier: (channel: any LinkChannel, peer: LinkPeer)]>([:])
 
-    init(services: HostServices, locator: DaemonSocketLocator, log: @escaping @Sendable (String) -> Void) {
+    init(services: HostServices, locator: DaemonSocketLocator, log: @escaping @Sendable (String) -> Void,
+         onEvent: @escaping @Sendable (NativeHostEvent) -> Void = { _ in }) {
         self.services = services
         self.locator = locator
         self.log = log
+        self.onEvent = onEvent
     }
 
     func peers() -> [LinkPeer] {
@@ -116,13 +132,16 @@ final class ChannelRouter: HostAcceptorDelegate {
     func hostAcceptor(_ acceptor: any HostAcceptor, peerDidConnect peer: LinkPeer, path: LinkPathInfo?) {
         let detail = path.map { "\($0.path) local=\($0.localCandidateType ?? "?") remote=\($0.remoteCandidateType ?? "?")" } ?? "unknown"
         log("\(peer) connected (\(detail))")
+        onEvent(.peerConnected(peer, path))
     }
 
     func hostAcceptor(_ acceptor: any HostAcceptor, peerDidDisconnect peer: LinkPeer) {
         log("\(peer) disconnected")
+        onEvent(.peerDisconnected(peer))
     }
 
     func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState) {
         log("acceptor \(type(of: acceptor)): \(state)")
+        onEvent(.acceptor(state))
     }
 }

@@ -97,6 +97,8 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
+  /** Settings > iPhone: the native iPhone app's host on this Mac (the app's NativePhoneHost). */
+  phone?: PhoneState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
@@ -117,6 +119,46 @@ export type ComputerUseState = {
   /** The helper app's name, null when this build has no signed helper. */
   helper: string | null;
 };
+
+/** The pairing code on screen: `code` is `XXXX-XXXX`, `qr` a PNG data URL of `url`, `expires_at` Unix ms. */
+export type PhonePairing = { code: string; url: string; qr: string | null; expires_at: number };
+
+/** Settings > iPhone as the host draws it (every text localized by the app). */
+export type PhoneState = {
+  enabled: boolean;
+  status: string;
+  status_kind: "success" | "attention" | "neutral" | "quiet";
+  host_name: string | null;
+  /** Whether the app's daemon socket is known (the phone's terminals need it). */
+  daemon: boolean;
+  peers: Array<{ id: string; path: string }>;
+  pairing: PhonePairing | null;
+  pairing_busy: boolean;
+  error: string | null;
+  can_reset: boolean;
+  /** `registered_as` and `expires` carry one `%@`. */
+  strings: Record<
+    | "title"
+    | "allow"
+    | "allow_help"
+    | "status"
+    | "registered_as"
+    | "pair"
+    | "pair_help"
+    | "refresh"
+    | "done"
+    | "expires"
+    | "expired"
+    | "phones"
+    | "no_phones"
+    | "reset"
+    | "reset_help",
+    string
+  >;
+};
+
+/** One Settings > iPhone gesture; `enable`, `pair` and `reset` need the person's own click. */
+export type PhoneRun = { action: "enable" | "disable" | "pair" | "endPairing" | "reset" };
 
 /** One button of the Accounts part; the host localizes every text. */
 export type AccountsButton = {
@@ -295,6 +337,8 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: one Settings > iPhone gesture (turn access on or off, show a pairing code). */
+  "cmux.settings.phone.run": [PhoneRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */

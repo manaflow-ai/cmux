@@ -37,6 +37,7 @@ import {
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type PhoneRun,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -342,6 +343,12 @@ export class SettingsStore {
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
+  }
+
+  /** One Settings > iPhone gesture, then a fresh read of the host lists (its state). */
+  async runPhone(run: PhoneRun): Promise<void> {
+    await this.request("cmux.settings.phone.run", run);
+    await this.refreshHost();
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */

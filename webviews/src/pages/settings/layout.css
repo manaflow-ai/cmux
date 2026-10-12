@@ -787,3 +787,55 @@
     --content-fade-top: 12px;
   }
 }
+
+/* Settings > iPhone: the pairing code beside its QR code. The QR sits on white in a small-radius
+   rect (scanners need the light quiet zone in dark mode too); the code is large monospace. */
+.phone-pairing-body {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+}
+
+.phone-qr {
+  flex: none;
+  padding: 8px;
+  border-radius: 4px;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.phone-pairing-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.phone-code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  user-select: all;
+}
+
+.phone-code[data-expired="true"] {
+  color: var(--muted-text);
+  text-decoration: line-through;
+}
+
+.phone-pairing-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.phone-error {
+  margin-top: 6px;
+  color: var(--warning);
+}

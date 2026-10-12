@@ -118,6 +118,10 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params in try await harnesses.run(params) }
+        provider.phoneRun = { [weak services] params, userGesture in
+            guard let phone = services?.phone else { return .object([:]) }
+            return try await phone.runPage(params, userGesture: userGesture)
+        }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in

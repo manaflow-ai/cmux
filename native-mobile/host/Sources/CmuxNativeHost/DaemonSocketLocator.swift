@@ -2,7 +2,9 @@ import Foundation
 
 /// Finds the cmux-tui daemon socket.
 ///
-/// Order: an explicit path; `$CMUX_TUI_SOCKET`; for a named session,
+/// Order: an explicit path; a `provider` (an embedding app that knows its own
+/// daemon, such as the cmux-next Mac app; nil from it means no daemon, with no
+/// fallback); `$CMUX_TUI_SOCKET`; for a named session,
 /// `<root>/cmux-tui-<uid>/<session>.sock` where root is the first non-empty of
 /// `$XDG_RUNTIME_DIR`, `$TMPDIR`, `/tmp`, then `/tmp/cmux-tui-<uid>/<session>.sock`;
 /// with no session, the most recently modified `*.sock` in those directories.
@@ -11,10 +13,14 @@ public struct DaemonSocketLocator: Sendable {
     public var session: String?
     public var environment: [String: String]
     public var uid: uid_t
+    /// The embedding app's current daemon socket, read per daemon channel.
+    public var provider: (@Sendable () -> String?)?
 
     public init(explicitPath: String? = nil, session: String? = nil,
-                environment: [String: String] = ProcessInfo.processInfo.environment, uid: uid_t = getuid()) {
+                environment: [String: String] = ProcessInfo.processInfo.environment, uid: uid_t = getuid(),
+                provider: (@Sendable () -> String?)? = nil) {
         self.explicitPath = explicitPath
+        self.provider = provider
         self.session = session
         self.environment = environment
         self.uid = uid
@@ -43,6 +49,7 @@ public struct DaemonSocketLocator: Sendable {
     /// Resolves the socket path, or nil when none exists.
     public func resolve(fileManager: FileManager = .default) -> String? {
         if let explicitPath, !explicitPath.isEmpty { return explicitPath }
+        if let provider { return provider().flatMap { $0.isEmpty ? nil : $0 } }
         if let env = environment["CMUX_TUI_SOCKET"], !env.isEmpty { return env }
         if let session, !session.isEmpty {
             return candidates(session: session).first { Self.isSocket($0) }

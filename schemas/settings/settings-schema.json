@@ -833,6 +833,29 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "phone",
+        "lead" : [
+          "phone"
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.phone",
+          "text" : "iPhone"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "advanced"
         ],
         "aliases" : [

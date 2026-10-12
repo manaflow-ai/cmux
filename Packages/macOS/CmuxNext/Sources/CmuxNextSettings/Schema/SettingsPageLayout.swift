@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops, phone
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -167,6 +167,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle", groups: [],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+        // The native cmux iPhone app's access to this Mac: the switch, status and pairing
+        // (NativePhoneHost in the App; native-mobile/ARCHITECTURE.md).
+        CategorySpec(
+            id: "phone", title: SettingsText.keyed("settings.category.phone", "iPhone"), symbol: "iphone",
+            groups: [], lead: [.phone]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),

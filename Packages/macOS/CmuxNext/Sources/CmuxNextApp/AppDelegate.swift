@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudContext = services.startCloud()
         services.ssh.start()
         services.serverReach.start()
+        services.phone.start()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -382,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.phone.stop()
         services?.daemon.shutdownConnection()
     }
 

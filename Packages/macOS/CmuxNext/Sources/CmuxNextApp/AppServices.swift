@@ -49,6 +49,8 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    /// The native cmux iPhone app's host (Settings > iPhone): this Mac's daemon over WebRTC.
+    private(set) lazy var phone = NativePhoneHost.app(daemon: daemon, bundleID: environment.launch.bundleID)
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

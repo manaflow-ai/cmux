@@ -32,6 +32,9 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > iPhone's gestures (`NativePhoneHost.runPage`); its state is the host lists'
+    /// `phone`. The Bool is whether the person's own gesture made the call.
+    var phoneRun: (@MainActor (JSONValue, Bool) async throws -> JSONValue)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -121,6 +124,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return try await harnessesRun(params)
+        case "cmux.settings.phone.run":
+            guard let phoneRun else { throw PageError(code: "cmux.page.unavailable", message: "no phone host") }
+            return try await phoneRun(params, context.page == PageDescriptor.settings.id && context.userGesture)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
