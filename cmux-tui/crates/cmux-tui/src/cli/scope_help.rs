@@ -105,6 +105,7 @@ USAGE
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
     [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+  cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -120,11 +121,13 @@ SCOPES
   unstaged     The working tree against the index, with untracked files
   staged       The index against HEAD
   committed    HEAD against its first parent
-  branch       The working tree against the merge base with origin's default
-               branch (else main or master), with untracked files
+  branch       The working tree against the merge base with the base branch,
+               with untracked files
 
-status prints the branch, upstream, how far it is ahead and behind, and the
-base branch. diff prints each changed file's status and line counts; --patch
+status prints the branch, upstream, how far it is ahead and behind, the base
+branch (the one a worktree create recorded for the branch, else origin's
+default branch, else main or master), and in a linked worktree its main
+checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
@@ -154,6 +157,12 @@ paths, every tracked change with --all (and untracked files with
 --include-untracked), or else the index as it is. push pushes the branch's
 commit to the branch of the same name, never forced, and sets its upstream
 when it has none. --expected-head refuses when HEAD moved since you read it.
+
+worktree create makes a worktree for a chat at ~/.cmux/worktrees/<project>/<name>
+on a new branch cmux/<name> from --base (the current branch by default), and
+records the base as branch.cmux/<name>.cmuxBase. A taken name gets the next free
+suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
+as it is.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

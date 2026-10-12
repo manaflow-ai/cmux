@@ -116,9 +116,31 @@ test("Staged unstages instead, and a refusal shows inline", async () => {
     expect(menuItem("Stage")).toBeUndefined();
     await act(async () => menuItem("Unstage")!.click());
     await settle();
-    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"] .acpmux-diff-notice-text');
     expect(notice?.textContent).toBe("That folder is outside this chat's folders.");
     expect(view.reads).toEqual(["staged"]);
+  } finally {
+    await act(async () => view.root.unmount());
+  }
+});
+
+/// A refusal stayed up after later actions worked (dogfood run, hq #1893): a Stage refusal still
+/// showed after a commit and a push from the same view. It has a Dismiss button now, as git's
+/// own errors in the view do.
+test("a refusal can be dismissed", async () => {
+  const view = await open("Unstaged", async () => {
+    throw new Error("That folder is outside this chat's folders.");
+  });
+  try {
+    await act(async () => view.more()!.click());
+    await settle();
+    await act(async () => menuItem("Stage")!.click());
+    await settle();
+    const notice = () => view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const dismiss = notice()?.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]');
+    expect(dismiss).toBeTruthy();
+    await act(async () => dismiss!.click());
+    expect(notice()).toBeNull();
   } finally {
     await act(async () => view.root.unmount());
   }
@@ -205,7 +227,7 @@ test("Staged unstages one hunk, and a refusal shows inline", async () => {
     await act(async () => view.button("Unstage hunk at a.txt line 1")!.click());
     await settle();
     expect(asked).toEqual([[["a.txt"], ["-one", "+two", " keep"], true]]);
-    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"]');
+    const notice = view.container.querySelector('.acpmux-diff-notice[role="alert"] .acpmux-diff-notice-text');
     expect(notice?.textContent).toBe("That change is no longer in the file. Refresh and try again.");
   } finally {
     await act(async () => view.root.unmount());

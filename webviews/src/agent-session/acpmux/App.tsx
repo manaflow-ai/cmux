@@ -94,7 +94,8 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
-import { SessionRowsContext } from "./turnChanges/sessionRows";
+import { PlanList } from "./conversation/PlanList";
+import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -159,7 +160,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
+import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -520,6 +521,12 @@ const SummaryRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const PlanRow = memo(
+  function PlanRow({ row }: RowProps) {
+    return row.plan ? <PlanList entries={row.plan} /> : <div className="acpmux-muted">{row.text}</div>;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -585,7 +592,7 @@ const defaultRegistry: NativeRegistry = {
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
-  plan: NoticeRow,
+  plan: PlanRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -2499,6 +2506,22 @@ function AcpmuxPane() {
     },
     [requestFolder],
   );
+  /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
+  const [worktreeError, setWorktreeError] = useState<string | undefined>();
+  const startInWorktree = useCallback((cwd: string) => {
+    // A newer folder pick wins over this worktree, as between two picks.
+    const pick = ++folderPick.current;
+    setFolderAsk(undefined);
+    setWorktreeError(undefined);
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick !== folderPick.current) return;
+      // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
+      if (freshRef.current) setProjectDraft(folder);
+      else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+    });
+  }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -3601,34 +3624,36 @@ function AcpmuxPane() {
           <TurnActionsContext.Provider value={turnActions}>
             <TurnCountsContext.Provider value={turnCountsFor}>
               <SessionRowsContext.Provider value={snapshot.rows}>
-                <SubagentNavContext.Provider value={setSubagentView}>
-                  <VirtualTranscript
-                    rows={transcriptRows}
-                    working={snapshot.isWorking}
-                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                    jumpButton={!quick}
-                    focusComposer={() => composerHandle.current?.focus()}
-                    find={quick ? undefined : find}
-                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                    openAt={
-                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                        ? scrollAnchor
-                        : undefined
-                    }
-                    onAnchor={
-                      quick || childRows || !shownSessionId
-                        ? undefined
-                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                    }
-                    expanded={expanded}
-                    registry={registry}
-                    githubRepository={githubRepository}
-                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                    onOpenDiff={quick ? undefined : openDiff}
-                    onToggleActivity={toggleActivity}
-                  />
-                </SubagentNavContext.Provider>
+                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                  <SubagentNavContext.Provider value={setSubagentView}>
+                    <VirtualTranscript
+                      rows={transcriptRows}
+                      working={snapshot.isWorking}
+                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                      jumpButton={!quick}
+                      focusComposer={() => composerHandle.current?.focus()}
+                      find={quick ? undefined : find}
+                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                      canLoadOlder={!childRows && snapshot.canLoadOlder}
+                      openAt={
+                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                          ? scrollAnchor
+                          : undefined
+                      }
+                      onAnchor={
+                        quick || childRows || !shownSessionId
+                          ? undefined
+                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                      }
+                      expanded={expanded}
+                      registry={registry}
+                      githubRepository={githubRepository}
+                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                      onOpenDiff={quick ? undefined : openDiff}
+                      onToggleActivity={toggleActivity}
+                    />
+                  </SubagentNavContext.Provider>
+                </SessionCwdContext.Provider>
               </SessionRowsContext.Provider>
             </TurnCountsContext.Provider>
           </TurnActionsContext.Provider>
@@ -3789,6 +3814,9 @@ function AcpmuxPane() {
           />
         )
       )}
+      {worktreeError && freshChat && !snapshot.sessionId && (
+        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
+      )}
       {aside && (
         <SideQuestion
           state={aside}
@@ -3885,6 +3913,7 @@ function AcpmuxPane() {
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
+          onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>
             void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(

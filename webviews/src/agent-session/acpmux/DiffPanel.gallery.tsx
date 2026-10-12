@@ -263,7 +263,13 @@ const showReviewThreads: Play = async (ctx) => {
   await chooseScope(ctx, "Branch");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
   const texts = (selector: string) =>
-    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => body.textContent);
+    // A body is Markdown, whose line break is a <br>; a folded thread's body isn't rendered, so
+    // read the text with each <br> as a newline rather than innerText.
+    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => {
+      const copy = body.cloneNode(true) as Element;
+      for (const br of copy.querySelectorAll("br")) br.replaceWith("\n");
+      return copy.textContent;
+    });
   const inDiff = texts(".acpmux-diff-pierre");
   const aboveFile = texts(".acpmux-diff-file > .acpmux-review-unplaced");
   const otherFiles = texts(".acpmux-diff-body > .acpmux-review-unplaced");
@@ -339,7 +345,8 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/changes/ReviewThread.tsx#ReviewThread",
   ],
   load: async () => GalleryDiffPanel,
-  styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./changes/changes.css")]),
   widths: { narrow: 520, normal: 860, wide: 1180 },
   height: 620,
   variants: {
