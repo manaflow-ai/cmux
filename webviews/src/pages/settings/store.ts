@@ -277,6 +277,14 @@ export class SettingsStore {
     else await this.refresh();
   }
 
+  /** Opens the cmux picker for an image of the person's own; the host copies it into the
+   * backgrounds folder and sets it as the background. */
+  async chooseBackdropImage(): Promise<void> {
+    const reply = await this.request("cmux.settings.backdrop.choose_image", {});
+    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
+    else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
   /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */
   async copy(text: string): Promise<void> {
     await this.request("cmux.app.clipboard.write", { text });
