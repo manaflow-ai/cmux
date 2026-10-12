@@ -3,8 +3,8 @@ import CmuxSettings
 import SwiftUI
 
 /// Whether a Cloud creation action (New Cloud Workspace, New Cloud Machine)
-/// may run, or must first introduce Cloud with the welcome card so the person
-/// can enable it, sign in, or upgrade instead of getting no response.
+/// may run, or must first introduce Cloud with the welcome card, whose next
+/// step offers Enable or Upgrade, instead of giving no response.
 enum CloudCreationGate: Equatable {
     case proceed
     case introduceCloud
@@ -15,10 +15,17 @@ enum CloudCreationGate: Equatable {
     ///   - isEnabled: The local first-use activation is on.
     ///   - canRunCloudOperations: The Cloud operation controller admits work
     ///     (enabled and signed in), or nil before app composition.
-    static func resolve(isAvailable: Bool, isEnabled: Bool, canRunCloudOperations: Bool?) -> CloudCreationGate {
+    ///   - isAuthInProgress: A session restore or sign-in is still settling,
+    ///     so signed out is not yet a real answer.
+    static func resolve(
+        isAvailable: Bool,
+        isEnabled: Bool,
+        canRunCloudOperations: Bool?,
+        isAuthInProgress: Bool
+    ) -> CloudCreationGate {
         guard isAvailable else { return .proceed }
         guard isEnabled else { return .introduceCloud }
-        return canRunCloudOperations == false ? .introduceCloud : .proceed
+        return canRunCloudOperations == false && !isAuthInProgress ? .introduceCloud : .proceed
     }
 }
 
@@ -256,14 +263,17 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Continues the Cloud action that opened the card once the activation
-    /// Enable started has finished preparing, and only if it ended enabled.
+    /// Continues the Cloud action that opened the card once activation has
+    /// finished preparing, and only if it ended enabled. A cancel and retry
+    /// while waiting replaces the task, so wait for whichever is current.
     static func resume(
         _ action: @MainActor () -> Void,
         after activation: CloudActivationCoordinator
     ) async {
-        await activation.activationTask?.value
-        guard activation.state == .enabled else { return }
+        while let task = activation.activationTask {
+            await task.value
+        }
+        guard activation.state == .enabled, !activation.isPreparing else { return }
         action()
     }
 

@@ -84,7 +84,9 @@ extension AppDelegate {
                     destination?.apply(workspaceID: workspaceID)
                     return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
                 }
-                if accessBecameUnavailable {
+                // Losing access mid-create falls back to New Machine only
+                // while Cloud can still run; the welcome is for a direct press.
+                if accessBecameUnavailable, self?.cloudCreationGate() == .proceed {
                     fallbackToNewMachine()
                 }
             } catch CloudWorkspaceCreationError.noMachines {
@@ -213,6 +215,15 @@ extension AppDelegate {
         }
     }
 
+    private func cloudCreationGate() -> CloudCreationGate {
+        CloudCreationGate.resolve(
+            isAvailable: CloudMachinesFeature.isAvailable,
+            isEnabled: CloudMachinesFeature.isEnabled,
+            canRunCloudOperations: cloudWorkspaceOperationController?.isCurrentlyAvailable,
+            isAuthInProgress: auth?.accountFlow.isWorkingOnAuth == true
+        )
+    }
+
     /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
     /// or signed out, instead of doing nothing. The welcome card's own next
     /// step decides between Enable and Upgrade; Enable then resumes `resume`.
@@ -220,12 +231,7 @@ extension AppDelegate {
         over window: NSWindow?,
         resume: @escaping @MainActor () -> Void
     ) -> Bool {
-        let gate = CloudCreationGate.resolve(
-            isAvailable: CloudMachinesFeature.isAvailable,
-            isEnabled: CloudMachinesFeature.isEnabled,
-            canRunCloudOperations: cloudWorkspaceOperationController?.isCurrentlyAvailable
-        )
-        guard gate == .introduceCloud else { return false }
+        guard cloudCreationGate() == .introduceCloud else { return false }
         cloudWelcomeWindowController.present(
             over: window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             onEnabled: resume
