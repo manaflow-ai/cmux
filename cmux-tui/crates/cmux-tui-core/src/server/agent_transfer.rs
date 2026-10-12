@@ -29,7 +29,11 @@
 //!   files and refuses that move from then on. A receive its finish ended
 //!   (settled) can still be asked, so a pump that lost the finish answer
 //!   learns whether the chat landed (`landed`) before it commits or aborts
-//!   the source.
+//!   the source. A receive acpmux answered here stays askable after it was
+//!   dropped and after this daemon restarts (`askable.rs`: the 40 most
+//!   recent, 24 h each, on disk when the session has a state folder), so a
+//!   restart between a finish and the pump's question does not leave the
+//!   move unresolved.
 //!
 //! Machine kind: receive and finish read `agent-session-start`'s host gate
 //! at each call and refuse on a team VM and on a Cloud VM of unknown kind
@@ -84,7 +88,9 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
 mod ask_first;
+mod askable;
 mod landed;
+mod state_file;
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 
@@ -137,6 +143,8 @@ pub(crate) struct AgentTransfers {
     moves: Mutex<HashMap<String, Move>>,
     /// Chats a finish here landed (`landed.rs`).
     landed: landed::Landed,
+    /// Receives a receive-abort may still name after a restart (`askable.rs`).
+    askable: askable::Askable,
     calls: AtomicUsize,
 }
 
@@ -687,7 +695,16 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
             // drops its files and refuses the move from now on (its forget).
-            transfers.take_for_abort(&receive_id).ok_or(Refusal::UnknownReceive)?
+            match transfers.take_for_abort(&receive_id) {
+                Some(prepared) => prepared,
+                // Not held in memory (this daemon restarted, or its receive
+                // was dropped): the recorded move of a receive acpmux
+                // answered here, asked again (acpmux's forget is idempotent).
+                None => {
+                    let moved = mux.askable_receive(&receive_id).ok_or(Refusal::UnknownReceive)?;
+                    Prepared::Forget { receive_id, moved, live: None }
+                }
+            }
         }
         Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
@@ -815,6 +832,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
                 return Err(Refusal::Unguarded.into());
             };
+            // Before the pump learns the receive: it can always ask about it.
+            mux.remember_askable_receive(receive_id, &moved);
             let entry = Receive { cwd, moved, touched: Instant::now(), finishing: false };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))

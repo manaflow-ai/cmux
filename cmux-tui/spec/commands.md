@@ -8202,10 +8202,19 @@ manifest lacks a plain `transferId` and `sessionId` is
 A receive its finish ended (the finish succeeded, failed for good, or met a
 team VM) stays askable: its receive-abort sends the same forget again and
 answers `landed`, so a pump whose finish answer was lost learns whether the
-chat arrived before it commits or aborts the source. The daemon keeps the
-16 most recent such receives in memory, each for 24 h; a daemon restart
-forgets them (`agent_transfer.unknown_receive`). Writes and finishes of a
+chat arrived before it commits or aborts the source. Writes and finishes of a
 settled receive stay `agent_transfer.unknown_receive`.
+
+Every receive acpmux answered here stays askable the same way after it was
+dropped and after a daemon restart: the daemon records its move and chat ids
+(from the receive's manifest) in `agent-transfer-receives.json` next to the
+session's registry, the 40 most recent for 24 h each, owner-only and read
+only when it is this user's regular file (an in-memory session keeps them in
+memory). A receive-abort of a receive the daemon no longer holds sends the
+recorded forget again; acpmux's forget mark is on disk, so the answer is
+real and a late finish can never land the chat. Writes and finishes of such
+a receive stay `agent_transfer.unknown_receive`; a receive id this daemon
+never recorded is `agent_transfer.unknown_receive` too.
 
 ### agent-transfer-finish
 

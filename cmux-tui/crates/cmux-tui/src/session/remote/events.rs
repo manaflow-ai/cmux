@@ -479,6 +479,7 @@ impl RemoteSession {
                         .and_then(NotificationSource::parse)
                         .unwrap_or(NotificationSource::Daemon),
                     desktop: value.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+                    reply: value.get("reply").and_then(Value::as_bool).unwrap_or(false),
                 }));
             }
             Some("overflow") => {
