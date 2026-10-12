@@ -20,8 +20,10 @@ import Testing
         }
     }
 
-    @Test func listTeamsThrowsWhenUserRequestFails() async {
-        // A closed local port stands in for a dropped connection or timeout.
+    @Test func listTeamsThrowsWhenTokenRefreshFails() async {
+        // The stored access token is not a fresh JWT, so Stack refreshes it
+        // against a closed local port: the refresh fails like a dropped
+        // connection and no usable token resolves.
         let client = StackAuthClient(
             config: AuthConfig(environment: .production),
             tokenStore: .explicit(accessToken: "access", refreshToken: "refresh"),
