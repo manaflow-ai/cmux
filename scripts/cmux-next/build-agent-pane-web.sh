@@ -49,7 +49,9 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
 # Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split
+# --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
+# one of the sheets the page's <style> is written from (checked below).
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
@@ -67,10 +69,21 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 # One surface for every menu and popover (the pane does not load ui.css, which imports it).
 cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
+# The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
+cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" "$SRC/acpmux/changes/changes.css" \
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
+# Every sheet the pane imports ships: a missing one renders its component unstyled in the app
+# only (the dev server loads imports), as New Tab's tools did.
+while IFS= read -r sheet; do
+  perl -0777 -e 'open my $all, "<", shift or die; open my $one, "<", shift or die; exit(index(<$all>, <$one>) < 0)' \
+    "$WORK/styles.css" "$ROOT/webviews/$sheet" && continue
+  echo "error: the agent pane imports webviews/$sheet but build-agent-pane-web.sh does not add it to the page's styles" >&2
+  exit 1
+done < "$WORK/imported-sheets"
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
