@@ -381,8 +381,9 @@ async fn copilot_auggie_goose_and_crush_chats_give_their_prompts_and_answers() {
     }
 }
 
-/// A Codex chat as current Codex writes it: no `event_msg` user and agent messages, only
-/// `response_item` messages, beside injected instructions and the model's progress notes.
+/// A Codex chat begun on an older Codex (event messages, beside unannotated message items) and
+/// resumed on a current one, which writes no event messages: only `response_item` messages, with
+/// injected instructions and the model's progress notes among them.
 fn codex_current(h: &Path, project: &Path, id: &str) {
     let message = |role: &str, kinds: &[&str], text: &str, phase: Option<&str>| {
         let kind = if role == "assistant" { "output_text" } else { "input_text" };
@@ -394,8 +395,26 @@ fn codex_current(h: &Path, project: &Path, id: &str) {
         }
         json!({"type": "response_item", "timestamp": "2026-10-02T09:00:01Z", "payload": payload})
     };
+    let event = |kind: &str, text: &str| {
+        json!({"type": "event_msg", "timestamp": "2026-10-01T09:00:01Z",
+               "payload": {"type": kind, "message": text}})
+    };
+    let legacy = |role: &str, text: &str| {
+        json!({"type": "response_item", "timestamp": "2026-10-01T09:00:01Z",
+               "payload": {"type": "message", "role": role,
+                           "content": [{"type": "input_text", "text": text}]}})
+    };
+    let image_prompt = json!({"type": "response_item", "timestamp": "2026-10-02T09:00:05Z",
+        "payload": {"type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": "What is in this picture?"},
+                        {"type": "input_image", "image_url": "data:image/png;base64,AAAA"}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text", "user.image"]}}});
     let lines = [
-        json!({"type": "session_meta", "payload": {"id": id, "cwd": project, "timestamp": "2026-10-02T09:00:00Z"}}),
+        json!({"type": "session_meta", "payload": {"id": id, "cwd": project, "timestamp": "2026-10-01T09:00:00Z"}}),
+        legacy("user", "Start the project"),
+        event("user_message", "Start the project"),
+        legacy("assistant", "Started."),
+        event("agent_message", "Started."),
         message("developer", &["host_skills.instructions"], "<skills_instructions>", None),
         message(
             "user",
@@ -408,6 +427,8 @@ fn codex_current(h: &Path, project: &Path, id: &str) {
         json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:02Z",
                "payload": {"type": "item_completed", "turn_id": "t1", "item": {"type": "reasoning"}}}),
         message("assistant", &["unknown"], "Bumped to 1.2.", Some("final_answer")),
+        image_prompt,
+        message("assistant", &["unknown"], "A cat.", Some("final_answer")),
         message("user", &["user.text"], "Thanks", None),
         message("assistant", &["unknown"], "You're welcome.", Some("final_answer")),
     ];
@@ -431,7 +452,12 @@ async fn a_current_codex_chat_gives_its_prompts_and_final_answers() {
     let answer = call(&tx, &mut rx, 2, "_acpmux/chat_transcript", json!({"key": key})).await;
     assert_eq!(
         turns(&answer),
-        [pair("Bump the version", "Bumped to 1.2."), pair("Thanks", "You're welcome.")],
+        [
+            pair("Start the project", "Started."),
+            pair("Bump the version", "Bumped to 1.2."),
+            pair("What is in this picture?", "A cat."),
+            pair("Thanks", "You're welcome.")
+        ],
         "{answer}"
     );
 }
