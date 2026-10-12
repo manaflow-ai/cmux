@@ -75,6 +75,10 @@ struct AcpmuxBundleReplacedTests {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return
         }
+        // The shut-down daemon is gone before the test ends.
+        let exitDeadline = ContinuousClock.now + .seconds(10)
+        while kill(pid, 0) == 0, ContinuousClock.now < exitDeadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(kill(pid, 0) != 0, "the daemon outlived its shutdown")
         #expect(pid != before, "the old daemon still answers")
         var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         #expect(proc_pidpath(pid, &path, UInt32(path.count)) > 0)
