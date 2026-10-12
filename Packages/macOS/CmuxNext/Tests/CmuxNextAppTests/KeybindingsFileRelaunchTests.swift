@@ -108,7 +108,8 @@ struct KeybindingsFileRelaunchTests {
         #expect(failure == nil, "the page refused the rebind")
         #expect(written == [.user], "the table did not show the rebind once set returned")
         let file = (try? String(contentsOf: root.appending(path: "keybindings.json"), encoding: .utf8)) ?? ""
-        #expect(file.contains("nextSurface") && file.contains("cmd+ctrl+opt+j x y"), "keybindings.json: \(file)")
+        // The daemon writes normalized strokes (cmd, shift, opt, ctrl), as the page lists them.
+        #expect(file.contains("nextSurface") && file.contains(KeybindingReports.text(keys)), "keybindings.json: \(file)")
 
         let second = try await Launch(root: root, session: session, binary: binary)
         await second.wait { second.connected && !second.entries(command, keys: keys).isEmpty }
@@ -192,5 +193,40 @@ struct KeybindingsFileRelaunchTests {
         await launch.quit()
         #expect(results.isEmpty, "\(results.joined(separator: "\n"))")
         #expect(issues.isEmpty, "\(issues)")
+    }
+
+    /// A hand-written entry whose `when` is not in canonical form, removed
+    /// from the page (which lists the canonical text), goes from the file:
+    /// the edit names the entry as the file writes it.
+    @Test func removingAHandWrittenEntryFromThePageTakesItOutOfTheFile() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = FileManager.default.temporaryDirectory.appending(path: "cn-keyrm-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: root.appending(path: "cmux.json"))
+        let file = root.appending(path: "keybindings.json")
+        try Data(#"[{"key": "cmd+ctrl+opt+k x", "command": "nextSurface", "when": "surfaceKind==terminal"}]"#.utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let command = ActionID(rawValue: "nextSurface")
+        let keys = try #require(KeybindingReports.keys(from: "cmd+ctrl+opt+k x"))
+
+        let launch = try await Launch(root: root, session: "cn-keyrm-\(UUID().uuidString.prefix(8).lowercased())", binary: binary)
+        await launch.wait { launch.connected && !launch.entries(command, keys: keys).isEmpty }
+        let listed = launch.entries(command, keys: keys).first?.when?.text
+        var failure: String?
+        do {
+            _ = try await launch.call("cmux.keybindings.remove", [
+                "command": .string(command.rawValue), "key": .string(KeybindingReports.text(keys)),
+                "when": listed.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            ])
+        } catch {
+            failure = String(describing: error)
+        }
+        let left = launch.entries(command, keys: keys).count
+        await launch.quit()
+        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        #expect(listed == "surfaceKind == terminal")
+        #expect(failure == nil, "the page refused the remove: \(failure ?? "")")
+        #expect(left == 0, "the binding is still in the table")
+        #expect(!text.contains("nextSurface"), "keybindings.json kept the entry or gained a removal: \(text)")
     }
 }
