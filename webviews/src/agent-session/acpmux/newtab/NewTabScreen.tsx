@@ -139,9 +139,11 @@ export function NewTabScreen(props: Props) {
   );
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
-  // The project chip names that folder too, as a new chat's hero does: never the home ~ a fresh
-  // workspace's tab inherits, nor the private agent-home folder (cx-7fje0, cx-nn3e).
-  const chatFolderName = projectName(chatFolder);
+  // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
+  // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
+  // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
+  const askFolder = project && project !== props.cwd ? project : props.startCwd;
+  const askFolderName = projectName(askFolder);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -441,8 +443,7 @@ export function NewTabScreen(props: Props) {
           <div className="nt-pickers" onPointerDownCapture={touch}>
             <ProjectChooser
               projects={props.projects ?? []}
-              current={project}
-              {...(chatFolderName ? { currentLabel: chatFolderName } : {})}
+              {...(askFolder && askFolderName ? { current: askFolder, currentLabel: askFolderName } : {})}
               icon={<FolderIcon />}
               onPick={pickProject}
               {...(browseProject ? { onBrowse: browseProject } : {})}
