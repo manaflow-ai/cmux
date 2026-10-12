@@ -227,6 +227,31 @@ fn a_link_changed_with_a_hub_lets_the_next_connect_spawn() {
     assert_eq!(host.spawner.spawns(), 1);
 }
 
+/// A link that starts after the null-hub answer is found by the next
+/// connect (cx-rtipa S2): that connect sends one new `link.get`, and the
+/// connect after the answer spawns. A connect while it waits sends none.
+#[test]
+fn a_null_hub_asks_for_the_link_details_again_on_the_next_connect() {
+    let mut host = host();
+    link_get(&mut host);
+    host.send(&json!({ "t": "host.result", "id": 1, "value": no_hub() }));
+    let (first, before) = connect_lines(&mut host, "c-1");
+    assert!(before.iter().all(|l| !is_request(l)), "no request before the connect: {before:?}");
+    assert_eq!(first["error"]["code"], "cmux.cloud.link_unavailable", "{first}");
+    assert_eq!(first["error"]["retryable"], true, "{first}");
+    let retry = host.next();
+    let expected =
+        json!({ "t": "host.request", "id": 2, "op": "cmux.host.link.get", "params": {} });
+    assert_eq!(retry, Some(expected), "one new request after that connect");
+    let (second, around) = connect_lines(&mut host, "c-2");
+    assert_eq!(second["error"]["code"], "cmux.cloud.link_unavailable", "{second}");
+    assert!(around.iter().all(|l| !is_request(l)), "{around:?}");
+    host.send(&json!({ "t": "host.result", "id": 2, "value": details("/opt/cmux/bin/cmux-tui") }));
+    let up = connect(&mut host, "c-3");
+    assert_eq!(up["ok"], true, "{up}");
+    assert_eq!(host.spawner.spawns(), 1);
+}
+
 #[test]
 fn a_link_changed_back_to_a_null_hub_ends_the_live_link() {
     let mut host = host();
