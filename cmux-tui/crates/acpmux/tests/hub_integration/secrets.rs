@@ -178,22 +178,37 @@ async fn secrets_a_remote_device_can_neither_ask_answer_nor_spend() {
 }
 
 #[tokio::test]
-async fn secrets_a_cancelled_turn_closes_the_card_and_a_chat_holds_one_card() {
+async fn secrets_a_cancelled_turn_closes_the_card_and_a_new_ask_replaces_an_abandoned_one() {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = session_in(&mut person, &cwd()).await;
     let mut agent = unproven(&hub, Origin::Local).await;
     let ask = json!({"sessionId": id, "name": "NPM_TOKEN", "reason": "Publish"});
-    let asked = send(&mut agent, "_acpmux/secret_request", ask.clone()).await;
+    let first = send(&mut agent, "_acpmux/secret_request", ask.clone()).await;
     let card = person.wait_for(method::MUX_EVENT, |p| p["kind"] == "secret_request").await;
-    let secret_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
+    let first_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
 
-    // One open card per chat: a second ask waits for nothing.
-    let second = agent.request("_acpmux/secret_request", ask).await;
-    assert!(second.is_err(), "a second card opened: {second:?}");
+    // A harness that gave up on the first ask (its tool timed out) asks again:
+    // the new card replaces the old, which answers its asker `cancelled`.
+    let second = send(&mut agent, "_acpmux/secret_request", ask).await;
+    let replaced = reply(&mut agent, first).await.unwrap();
+    assert_eq!(replaced["outcome"], "cancelled", "{replaced}");
+    let card = person
+        .wait_for(method::MUX_EVENT, |p| {
+            p["kind"] == "secret_request" && p["msg"]["secretId"] != first_id.as_str()
+        })
+        .await;
+    let secret_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
+    let stale = person
+        .request(
+            "_acpmux/secret_submit",
+            json!({"sessionId": id, "secretId": first_id, "value": VALUE}),
+        )
+        .await;
+    assert!(stale.is_err(), "the replaced card took a value: {stale:?}");
 
     // Stop ends the turn and the card with it; a late answer finds no card.
     person.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
-    let cancelled = reply(&mut agent, asked).await.unwrap();
+    let cancelled = reply(&mut agent, second).await.unwrap();
     assert_eq!(cancelled["outcome"], "cancelled", "{cancelled}");
     assert!(cancelled.get("secretRef").is_none(), "{cancelled}");
     let late = person
@@ -203,4 +218,36 @@ async fn secrets_a_cancelled_turn_closes_the_card_and_a_chat_holds_one_card() {
         )
         .await;
     assert!(late.is_err(), "a closed card took a value: {late:?}");
+}
+
+#[tokio::test]
+async fn secrets_a_run_that_cannot_start_keeps_the_ref() {
+    let (hub, mut person) = setup(PermissionPolicy::Ask).await;
+    let id = session_in(&mut person, &cwd()).await;
+    let mut agent = unproven(&hub, Origin::Local).await;
+    let asked = send(
+        &mut agent,
+        "_acpmux/secret_request",
+        json!({"sessionId": id, "name": "API_KEY", "reason": "Deploy"}),
+    )
+    .await;
+    let card = person.wait_for(method::MUX_EVENT, |p| p["kind"] == "secret_request").await;
+    let secret_id = card["msg"]["secretId"].as_str().unwrap().to_owned();
+    person
+        .request(
+            "_acpmux/secret_submit",
+            json!({"sessionId": id, "secretId": secret_id, "value": VALUE}),
+        )
+        .await
+        .unwrap();
+    let secret_ref = reply(&mut agent, asked).await.unwrap()["secretRef"].clone();
+    let run = |argv: Value| json!({"sessionId": id, "secretRef": secret_ref, "env": "API_KEY", "argv": argv});
+
+    // A command that is not installed spends nothing: the person need not type it again.
+    let missing = agent
+        .request("_acpmux/secret_run", run(json!(["acpmux-secret-test-no-such-command"])))
+        .await;
+    assert!(missing.is_err(), "{missing:?}");
+    let ran = agent.request("_acpmux/secret_run", run(json!(["true"]))).await.unwrap();
+    assert_eq!(ran["exitCode"], 0, "{ran}");
 }
