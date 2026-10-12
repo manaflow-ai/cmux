@@ -17,11 +17,14 @@ enum AppearanceHandlers {
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
-        // Change Background… (the chat's empty-space menu) opens Settings on the Background row.
+        // Change Background… (the window's or a chat's empty-space menu) opens Settings on the art
+        // picker, which can also set the clicked (else the shown) workspace's own background.
         registry.bind("appearance.changeBackground", run: { invocation in
             let settings = context.services.settingsWindow
+            let workspace = context.scope(invocation).workspace?.id
             do {
-                try settings.show(section: .appearance, setting: "appearance.background", focus: invocation.allowsViewChange)
+                try settings.show(section: .appearance, setting: "appearance.background", focus: invocation.allowsViewChange,
+                                  route: SettingsWindowService.backgroundRoute(workspace: workspace))
             } catch {
                 try settings.show(section: .appearance, focus: invocation.allowsViewChange)
             }

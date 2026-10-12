@@ -147,7 +147,11 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     window.addEventListener("pagehide", () => observer.disconnect(), { once: true });
   }
   const { sectionHref } = await import("../../pages/settings/router");
-  history.replaceState(null, "", `${location.pathname}${location.search}#${sectionHref(state.section, state.focus)}`);
+  history.replaceState(
+    null,
+    "",
+    `${location.pathname}${location.search}#${sectionHref(state.section, state.focus, state.workspace)}`,
+  );
   document.documentElement.dataset.cmuxPage = "settings";
   if (state.look) document.documentElement.dataset.settingsLook = state.look;
   await import("../../pages/settings/main");

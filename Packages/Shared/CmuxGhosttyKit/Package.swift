@@ -28,6 +28,8 @@ import PackageDescription
 // Since 03ddb2869 the Metal text shader contrasts against the real
 // background under a macOS glass style, so minimum-contrast keeps dark text
 // dark on a light theme (PR 35).
+// Since 4792f0307 it does the same at background-opacity 0, which cmux-next
+// gives its surfaces in a translucent window (PR 36).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -52,8 +54,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-03ddb28693a58ace2fbcae5d78eb1c36b80af7be-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "345b0ace874ac65684d60815d6b720a25988a14b82bca1725df288e634143464"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-4792f03070e6134ea764e3e9bec630631eb1bd47-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "fe416827c16b0abb2e31de16294dfc22265d503f4dedc84036b0fc5145fecfb6"
         ),
     ]
 )

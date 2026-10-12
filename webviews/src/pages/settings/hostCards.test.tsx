@@ -59,6 +59,64 @@ test("Shuffle Daily is a tile that keeps appearance.background daily", async () 
   page.unmount();
 });
 
+test("Change Background… on a workspace chooses that workspace's own background", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background&workspace=ws-1",
+    mock: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // It opens on All Workspaces, so Change Background… still chooses for every window.
+  expect(picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!.checked).toBe(true);
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  const scope = picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!;
+  await act(async () => scope.click());
+  await settle();
+  expect(scope.checked).toBe(true);
+  // It follows All Workspaces until it has its own; the app-wide image tiles are left out.
+  const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
+  expect(follow.getAttribute("aria-pressed")).toBe("true");
+  expect(picker.textContent).not.toContain("Choose Image");
+
+  const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
+  const appPreviews = runs(page, "cmux.settings.preview").length;
+  await act(async () => {
+    none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    value: "none",
+  });
+  expect(runs(page, "cmux.settings.preview").length).toBe(appPreviews);
+  await act(async () => none.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+
+  await act(async () => none.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: "none" });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  expect(none.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => follow.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: null });
+
+  // All Workspaces chooses appearance.background again.
+  const all = picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!;
+  await act(async () => all.click());
+  await settle();
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  await act(async () => picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "none" });
+  page.unmount();
+});
+
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;

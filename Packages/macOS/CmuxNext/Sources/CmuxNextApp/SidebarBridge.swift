@@ -314,24 +314,28 @@ final class SidebarBridge {
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                               tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:))
+                                               tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
+                                               iconAsset: IconAssetImages.shared.sidebarIcon(owner: machines.local))
         for session in machines.cloud {
             let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:))
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon))
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines), muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:))
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon))
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab, pageFace: pageFace,
-                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:))
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon))
         }
         return sections
     }

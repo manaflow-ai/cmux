@@ -43,6 +43,7 @@ import {
   type SettingsPageAction,
   type SettingsStreams,
   type WireError,
+  type WorkspaceBackground,
 } from "./ops";
 
 /** A refused write: `message` is a page string; `detail` is the owner's own (English) text. */
@@ -284,6 +285,26 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.backdrop.choose_image", {});
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** The workspace `id`'s own background, or null when the host has none or the workspace is gone. */
+  async workspaceBackground(id: string): Promise<WorkspaceBackground | null> {
+    const reply = await this.request("cmux.settings.backdrop.workspace", { workspace: id });
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Saves the workspace `id`'s own background; null follows appearance.background again. */
+  async setWorkspaceBackground(id: string, value: string | null): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.workspace.set", { workspace: id, value });
+    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
+    return reply.ok;
+  }
+
+  /** Shows `value` in the workspace `id` without saving it; `undefined` ends the preview. */
+  previewWorkspaceBackground(id: string, value: string | null | undefined): void {
+    if (value === undefined)
+      void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, end: true });
+    else if (this.ui.connected) void this.request("cmux.settings.backdrop.workspace.preview", { workspace: id, value });
   }
 
   /** Browse More Art: the works matching `query`, or null when the host could not search. */
