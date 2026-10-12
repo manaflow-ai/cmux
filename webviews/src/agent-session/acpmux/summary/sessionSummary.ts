@@ -143,7 +143,8 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
   const ends = rows.flatMap((row) => (row.backgroundTask ? [row.backgroundTask] : []));
   const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
   const launched = all
-    .filter((tool) => input(tool).run_in_background === true)
+    // Shell calls only: a subagent's Agent call can run in the background too.
+    .filter((tool) => tool.kind === "execute" && input(tool).run_in_background === true)
     .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,

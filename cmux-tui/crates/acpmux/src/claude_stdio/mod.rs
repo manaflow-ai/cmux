@@ -247,19 +247,21 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
-    /// Shells running in the background (Bash `run_in_background`, or a
-    /// backgrounded `local_bash` task) by tool_use id, until their
-    /// `task_notification` or Claude's exit ends them (cx-ncc.84).
+    /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
+    /// result (or, once a `local_bash` task names it, its `task_notification`),
+    /// and those in the background (`run_in_background`, or moved there) until
+    /// their `task_notification` or Claude's exit ends them.
     background_shells: Mutex<HashMap<String, BackgroundShell>>,
 }
 
-/// A background shell: the session its Bash call ran in, its command, and
-/// Claude's task id once a task event named it.
+/// A running shell: the session its Bash call ran in, its command, Claude's
+/// task id once a task event named it, and whether it runs in the background.
 #[derive(Debug, Clone)]
 struct BackgroundShell {
     sid: String,
     command: String,
     task: Option<String>,
+    background: bool,
 }
 
 #[derive(Debug, Clone)]

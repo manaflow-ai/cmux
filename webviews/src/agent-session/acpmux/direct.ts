@@ -2297,7 +2297,6 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
   return { reason, harness: data.harness, folder: data.folder };
 }
 
-/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.
 function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
   const state = update.state;
@@ -2310,6 +2309,7 @@ function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
   };
 }
 
+/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
 function planEntries(entries: unknown): AcpmuxPlanEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.flatMap((entry) => {

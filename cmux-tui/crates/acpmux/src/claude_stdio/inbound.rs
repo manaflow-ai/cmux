@@ -123,8 +123,9 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Every shell, so one moved to the background later
+                        // keeps its command (cx-ncc.84).
                         if name == "Bash"
-                            && input.get("run_in_background") == Some(&Value::Bool(true))
                             && let Some(id) = c.get("id").and_then(Value::as_str)
                         {
                             let command =
@@ -133,6 +134,8 @@ impl Translator {
                                 sid: sid.clone(),
                                 command: command.to_owned(),
                                 task: None,
+                                background: input.get("run_in_background")
+                                    == Some(&Value::Bool(true)),
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -201,6 +204,17 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // A failed launch never ran; a foreground shell no task
+                        // named is done.
+                        {
+                            let mut shells = self.background_shells.lock().await;
+                            if shells
+                                .get(tool)
+                                .is_some_and(|s| is_err || (!s.background && s.task.is_none()))
+                            {
+                                shells.remove(tool);
+                            }
+                        }
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
@@ -482,9 +496,10 @@ impl Translator {
         usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
     }
 
-    /// Claude's task events for a background shell (cx-ncc.84): a backgrounded
-    /// `local_bash` task_started records one Claude moved to the background
-    /// itself, and its `task_notification` returns a `background_task_update`
+    /// Claude's task events for a shell (cx-ncc.84): a `local_bash`
+    /// task_started names its task and says whether it runs in the background,
+    /// a task_updated may move it there, and a background one's
+    /// `task_notification` returns a `background_task_update`
     /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
     /// reason or summary when it gave one. The update goes to the session the
     /// shell's Bash call ran in, a subagent's too.
@@ -492,7 +507,7 @@ impl Translator {
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = text("task_id");
         let mut shells = self.background_shells.lock().await;
-        // A notification may name only the task.
+        // A task_updated or notification may name only the task.
         let tool = match text("tool_use_id") {
             Some(tool) => tool.to_owned(),
             None => {
@@ -500,25 +515,29 @@ impl Translator {
                 shells.iter().find(|(_, s)| s.task.as_deref() == Some(task))?.0.clone()
             }
         };
-        if sub == "task_started" {
-            if text("task_type") == Some("local_bash")
-                && line.get("is_backgrounded") == Some(&Value::Bool(true))
-            {
+        let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
+        match sub {
+            "task_started" if text("task_type") == Some("local_bash") => {
                 let shell = shells.entry(tool).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
                     task: None,
+                    background: false,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
-            } else if let (Some(shell), Some(task)) = (shells.get_mut(&tool), task) {
-                shell.task = Some(task.to_owned());
+                shell.background |= backgrounded(line.get("is_backgrounded"));
+                return None;
             }
-            return None;
+            "task_updated" => {
+                if let Some(shell) = shells.get_mut(&tool) {
+                    shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                }
+                return None;
+            }
+            "task_notification" => {}
+            _ => return None,
         }
-        if sub != "task_notification" {
-            return None;
-        }
-        let shell = shells.remove(&tool)?;
+        let shell = shells.remove(&tool).filter(|s| s.background)?;
         let state = match text("status") {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
@@ -539,7 +558,8 @@ impl Translator {
     /// The background shells still running when Claude's stdout closed: they
     /// ended with its process, so each is reported `stopped`.
     pub async fn end_background_shells(&self) -> Vec<Message> {
-        let mut shells: Vec<_> = self.background_shells.lock().await.drain().collect();
+        let mut shells: Vec<_> =
+            self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
         shells.sort_by(|a, b| a.0.cmp(&b.0));
         shells
             .into_iter()
