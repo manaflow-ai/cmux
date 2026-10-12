@@ -109,7 +109,17 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import {
+  DATE,
+  PREVIEW,
+  RENDER,
+  THINKING,
+  WORKED,
+  WORKING,
+  isFoldedCopy,
+  type TurnView,
+  turnViewFrom,
+} from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -152,9 +162,10 @@ import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW, childView, withSubagentRows } from "./subagents/subagentRows";
+import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
 import { SubagentGroupHeader, SubagentListRow, SubagentNavContext, SubagentOfRow } from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
+import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
@@ -1926,11 +1937,9 @@ function AcpmuxPane() {
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
-  const promptCount = useMemo(() => {
-    let count = 0;
-    for (const row of snapshot.rows) if (row.kind === "user") count += 1;
-    return count;
-  }, [snapshot.rows]);
+  const lastMarks = useRef<RowMarks | undefined>(undefined);
+  const marks = useMemo(() => (lastMarks.current = markRows(snapshot.rows, lastMarks.current)), [snapshot.rows]);
+  const promptCount = marks.prompts.length;
   const trustAsk = useFolderTrustAsk(
     trustSource,
     {
@@ -1991,21 +2000,23 @@ function AcpmuxPane() {
         )
       : snapshot.rows;
   }, [snapshot.rows, snapshot.permissionGroups]);
+  // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
+  const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
     if (childRows) return childRows;
     const rows = sourceRows;
-    return acpmuxPerf.timed("app.rows", () =>
-      withMoveRows(
-        withShellRows(
-          withSubagentRows(
-            turnView(rows, expanded, { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs }),
-            expanded,
-          ),
-          chatShellRuns,
-        ),
-        sessionMoves,
-      ),
-    );
+    return acpmuxPerf.timed("app.rows", () => {
+      const last = lastTurns.current;
+      const turns = turnViewFrom(
+        rows,
+        expanded,
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs },
+        last?.turns,
+      );
+      const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
+      lastTurns.current = { turns, subagents };
+      return withMoveRows(withShellRows(subagents.rows, chatShellRuns), sessionMoves);
+    });
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
   const lineage = useMemo(
@@ -2330,15 +2341,7 @@ function AcpmuxPane() {
     return turnDisplay(t, diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
   }, [diffFiles, diffTurn, hunkDecisions, t, turnCheckpoint]);
   // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
-  const endedEditTurn = useMemo(() => {
-    let ended = false;
-    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
-      const row = snapshot.rows[index]!;
-      if (row.kind === "turnSummary") ended = true;
-      else if (row.kind === "editedFiles") return ended ? row.id : undefined;
-    }
-    return undefined;
-  }, [snapshot.rows]);
+  const endedEditTurn = endedEditRow(marks);
   useEffect(() => {
     if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
   }, [endedEditTurn, requestTurnCheckpoint, turnKey]);

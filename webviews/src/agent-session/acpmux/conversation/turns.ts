@@ -10,7 +10,7 @@
 import type { AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
-import { timestampTurns } from "./timestamps";
+import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import type { Translate } from "../i18n";
 
@@ -66,23 +66,85 @@ const isEdit = (row: AcpmuxRow) =>
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
+  options: { now?: number; working?: boolean; clockOffset?: number } = {},
+): AcpmuxRow[] {
+  return turnViewFrom(rows, expanded, options).rows;
+}
+
+/// A turn view (``turnViewFrom``) with what it was drawn from, for the next snapshot to build on.
+export type TurnView = {
+  source: readonly AcpmuxRow[];
+  expanded: ReadonlySet<string>;
+  clockOffset: number;
+  /// Where the first prompt is: the rows before it draw as they are.
+  lead: number;
+  /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
+  /// rows there are up to its end.
+  starts: number[];
+  times: TurnTimes[];
+  dated: boolean[];
+  ends: number[];
+  rows: AcpmuxRow[];
+};
+
+/// ``turnView``, building on `previous`: the turns before the one holding the first row that
+/// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
+/// shapes only its last turns.
+export function turnViewFrom(
+  rows: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
   {
     now = Date.now(),
     working = false,
     clockOffset = 0,
   }: { now?: number; working?: boolean; clockOffset?: number } = {},
-): AcpmuxRow[] {
-  const out: AcpmuxRow[] = [];
-  let index = 0;
-  // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
-  while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
-  const loadedFromStart = index === 0;
+  previous?: TurnView,
+): TurnView {
+  // The turn to shape from: the one holding the first changed row. The turn before it may
+  // have ended there, and the last turn draws differently once another follows it.
+  let reuse = 0;
+  if (previous && previous.expanded === expanded && previous.clockOffset === clockOffset && previous.starts.length) {
+    const shared = previous.source;
+    let from = 0;
+    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+    while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    reuse = Math.max(0, reuse - 1);
+  }
+  // The first turn's line depends on `now`.
+  if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
+    reuse = 0;
+  let index: number;
+  let lead: number;
+  let out: AcpmuxRow[];
+  let starts: number[];
+  let times: TurnTimes[];
+  let dated: boolean[];
+  let ends: number[];
+  if (reuse > 0) {
+    lead = previous!.lead;
+    index = previous!.starts[reuse]!;
+    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    starts = previous!.starts.slice(0, reuse);
+    times = previous!.times.slice(0, reuse);
+    dated = previous!.dated.slice(0, reuse);
+    ends = previous!.ends.slice(0, reuse);
+  } else {
+    out = [];
+    index = 0;
+    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
+    while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+    lead = index;
+    starts = [];
+    times = [];
+    dated = [];
+    ends = [];
+  }
+  const first = starts.length;
+  const fromStart = lead === 0;
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
   // and neither ends the turn nor folds into it. Indexes, not arrays: a long chat's snapshot only
   // copies the rows of a turn that changed (shapedTurn).
-  const starts: number[] = [];
-  const times: { promptAt: number; answerAt?: number }[] = [];
   while (index < rows.length) {
     const start = index++;
     let answerAt: number | undefined;
@@ -91,18 +153,20 @@ export function turnView(
       index += 1;
     }
     starts.push(start);
-    times.push({ promptAt: rows[start]!.at, answerAt });
+    const turn = { promptAt: rows[start]!.at, answerAt };
+    dated.push(showsTimestamp(turn, times.at(-1), now, fromStart));
+    times.push(turn);
   }
-  const dated = timestampTurns(times, now, loadedFromStart);
-  for (let at = 0; at < starts.length; at += 1) {
+  for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
     for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!))
       out.push(row);
+    ends.push(out.length);
   }
-  return out;
+  return { source: rows, expanded, clockOffset, lead, starts, times, dated, ends, rows: out };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long

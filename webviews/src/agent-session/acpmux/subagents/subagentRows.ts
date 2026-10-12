@@ -43,6 +43,28 @@ export function childView(
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
 
+/// ``withSubagentRows`` with what it was drawn from, for the next snapshot to build on.
+export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; rows: AcpmuxRow[] };
+
+/// ``withSubagentRows``, building on `previous`: in a chat without subagent groups, only the rows
+/// after the first that differs from `previous.source` (by object) can bring one.
+export function subagentRowsFrom(
+  rows: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
+  previous?: SubagentRows,
+): SubagentRows {
+  if (previous && !previous.grouped) {
+    const shared = previous.source;
+    let from = 0;
+    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+    let grouped = false;
+    for (let index = from; index < rows.length && !grouped; index += 1) grouped = isSubagentGroup(rows[index]!);
+    if (!grouped) return { source: rows, grouped, rows: rows as AcpmuxRow[] };
+  }
+  const out = withSubagentRows(rows, expanded);
+  return { source: rows, grouped: out !== rows, rows: out };
+}
+
 /// An open group's subagents as rows below it, one line each, so every line keeps a fixed
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
