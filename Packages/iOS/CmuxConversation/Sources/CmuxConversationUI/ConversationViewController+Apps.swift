@@ -475,17 +475,17 @@ extension ConversationViewController {
             self.pickedAssets[assetID] = nil
             self.photoDrawer?.deselect(assetID: assetID)
         }
-        // Measured on iOS 26 Messages (iPhone 17 Pro): a card inset 8 pt from
-        // the sides and bottom, as tall as the keyboard area (336 pt plus the
-        // home-indicator inset), with the field 24 pt above its top edge.
-        let inset: CGFloat = 8
-        let height: CGFloat = 336 + view.safeAreaInsets.bottom
+        // Messages' app-card sheet (see PhotoDrawerGeometry).
+        var iOS27 = false
+        if #available(iOS 27, *) { iOS27 = true }
+        let inset = PhotoDrawerGeometry.inset
+        let height = PhotoDrawerGeometry.height(iOS27: iOS27)
         let top = view.bounds.height - inset - height
         drawer.frame = CGRect(x: inset, y: view.bounds.height, width: view.bounds.width - 2 * inset, height: height)
         view.addSubview(drawer)
         photoDrawer = drawer
         // The composer's field sits 4 pt above its container's bottom.
-        let composerBottom = top - 20 - (view.bounds.height - view.safeAreaInsets.bottom)
+        let composerBottom = top - (PhotoDrawerGeometry.fieldGap(iOS27: iOS27) - 4) - (view.bounds.height - view.safeAreaInsets.bottom)
         // On the keyboard's own curve: the keyboard leaving and the drawer
         // arriving move the composer as one motion, never down then up.
         animateAlongsideKeyboard {
