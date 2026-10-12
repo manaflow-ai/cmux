@@ -36,13 +36,15 @@ pub(super) const NOTIFY_HELP: &str = "\
 USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
     [--surface <term_id>|current] [--workspace <ws_id>|current]
+    [--reply] [--desktop true|false]
   cmux notify --clear [--surface <term_id>|current] [--workspace current]
 
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
 terminal unless --surface names another terminal or --workspace asks for a
-session-level row. --title defaults to \"Notification\". --reply is refused:
-a reply would type into a terminal. --window and --id-format are accepted and
-ignored.
+session-level row. --title defaults to \"Notification\". --reply asks for a
+banner with a Reply field: its text is typed into the notifying terminal,
+then Return. --desktop false posts no banner. --window and --id-format are
+accepted and ignored.
 ";
 
 pub(super) const ROOM_HELP: &str = "\
