@@ -22,7 +22,7 @@ struct ToastCopyTests {
     @Test func theClosedNewTabToastSaysNewTab() throws {
         let store = Self.store()
         let pages = InternalPageTabStore()
-        for surface in [1, 2] {
+        for surface: SurfaceID in [1, 2] {
             let tab = try #require(store.tab(surface: surface))
             let message = MiscHandlerStrings.tabClosed(CloseUndoToasts.title(of: tab, pages: pages))
             #expect(message == MiscHandlerStrings.tabClosed(Strings.untitledBrowser))
