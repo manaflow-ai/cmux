@@ -105,6 +105,11 @@
       "vcpuMessage": "VM-ene dine bruker allerede {used} av {pool} vCPU-er. Denne VM-en trenger {requested} vCPU-er.",
       "upgradeAction": "Sett en VM på pause eller slett den, eller oppgrader til Max.",
       "action": "Sett en VM på pause eller slett den."
+    },
+    "activeLimit": {
+      "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
+      "provisioning": "{name} (klargjøres)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

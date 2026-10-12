@@ -9189,7 +9189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // panel's pending row show Base coming up while the person keeps working (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
-                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.activeMachineCount ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,

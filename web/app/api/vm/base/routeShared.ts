@@ -182,6 +182,7 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId,
         retryAction: operation === "reset"
           ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
