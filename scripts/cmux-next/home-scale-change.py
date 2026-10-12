@@ -104,21 +104,21 @@ try:
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    # The first open after launch can come before the window's Home page settles (the Home tab then shows, not the
-    # fixture): open again until the fixture's transcript answers.
-    def fixture_shown():
-        texts = (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
-        if texts:
-            return texts
-        rpc("debug.home_native_fixture.open")
-        time.sleep(1)  # test harness: one open request per second while the window starts, not app code
-        return None
-    if not check("the Home fixture opens and shows its transcript", bool(poll(fixture_shown, timeout=120)),
+    # A new fixture tab: a fixture tab restored from the gate's earlier script (same tag; the daemon keeps the pane's
+    # tabs) shows no transcript. Up to 3 tries, 30 s each (the first open can come before the window settles).
+    def texts():
+        return (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
+    shown = None
+    for _ in range(3):
+        rpc("debug.home_native_fixture.open", {"new": True})
+        shown = poll(texts, timeout=30)
+        if shown:
+            break
+    if not check("the Home fixture opens and shows its transcript", bool(shown),
                  rpc("debug.home.drive", {"action": "texts"})):
         # Which windows and pages show (for the failure's cause).
         print("     windows: " + json.dumps(rpc("debug.window_list"))[:1500], flush=True)
         print("     home: " + json.dumps(rpc("debug.home"))[:800], flush=True)
-        print("     open: " + json.dumps(rpc("debug.home_native_fixture.open"))[:300], flush=True)
     rpc("debug.home.drive", {"action": "focus"})
     rpc("debug.home.drive", {"action": "type", "text": "Scale change check"})
     sent = rpc("debug.home.drive", {"action": "send"}) or {}

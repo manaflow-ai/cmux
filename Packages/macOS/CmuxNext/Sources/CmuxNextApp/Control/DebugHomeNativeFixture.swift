@@ -166,10 +166,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(ok)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
-        let view = services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
+            : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }
