@@ -8,7 +8,10 @@ for a local login page is imported as a person does (Import from Another
 Browser…, a passwords CSV). Then:
   1. a Chromium tab a person opens on that page gets the sign-in filled;
   2. a Chromium tab an agent opens (the socket's action.run) never does
-     (plans/cmux-next/passwords.md, slice 1).
+     (plans/cmux-next/passwords.md, slice 1);
+  3. a CSV with a new password for that sign-in keeps the saved one and its
+     toast offers Replace; pressing it saves the new one, so importing the new
+     one again counts as already saved (cx-dwg.6).
 Nothing reads the page through the socket, since any automated read marks
 the tab agent-driven and turns filling off: the page reports its own form
 (:autofill on both fields) to the test's local server.
@@ -89,6 +92,8 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 ORIGIN = f"http://127.0.0.1:{server.server_port}"
 PASSWORDS_CSV = "name,url,username,password,note\n" \
                 f"127.0.0.1,{ORIGIN}/login,{USERNAME},not-a-real-password-{RUN},\n"
+CHANGED_CSV = PASSWORDS_CSV.replace("not-a-real-password", "a-new-throwaway-password")
+CSV_TOAST = "password-csv-imported"
 
 
 def check(ok, what):
@@ -145,33 +150,48 @@ def type_text(text):
         key(char)
 
 
+def shown_toasts():
+    return [t for w in rpc("debug.toast").get("windows", []) for t in w.get("toasts", [])]
+
+
 def toasts():
-    return [t.get("message", "") for w in rpc("debug.toast").get("windows", []) for t in w.get("toasts", [])]
+    return [t.get("message", "") for t in shown_toasts()]
 
 
-def import_through(browser, filename):
-    """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog."""
-    reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
-    check(reply.get("performed") is True, f"the action runs as a person's palette run ({reply})")
-    shown = wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser dialog ({browser})")
-    if not shown:
-        return None
-    rpc("debug.dialog", {"set": {"browser": browser}})
-    rpc("debug.dialog", {"press": "continue"})
-    steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
-    if not steps:
-        return shown
-    rpc("debug.dialog", {"press": "choose"})
-    time.sleep(0.8)  # the picker's first listing
-    type_text(EXPORTS + "/")
-    report = key("return")
-    print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
-    type_text(filename.split(".")[0])
-    report = key("forwarddelete")
-    print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
-    report = key("return")
-    print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
-    return shown, steps
+def import_through(browser, filename, attempts=2):
+    """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog.
+
+    Soon after launch the picker can close before its first key (the window
+    taking focus); then the whole flow runs once more."""
+    for attempt in range(attempts):
+        reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
+        check(reply.get("performed") is True, f"the action runs as a person's palette run ({reply})")
+        shown = wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser dialog ({browser})")
+        if not shown:
+            return None
+        rpc("debug.dialog", {"set": {"browser": browser}})
+        rpc("debug.dialog", {"press": "continue"})
+        steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
+        if not steps:
+            return shown
+        rpc("debug.dialog", {"press": "choose"})
+        # The picker is the palette; at first launch it can take seconds to open.
+        wait_for(lambda: rpc("debug.focus").get("context", {}).get("palette_open"), "the file picker opens", 20)
+        time.sleep(0.8)  # the picker's first listing
+        type_text(EXPORTS + "/")
+        report = key("return")
+        if "palette_page" not in report:
+            print(f"note: picker closed before its keys (attempt {attempt + 1})", report, flush=True)
+            continue
+        print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+        type_text(filename.split(".")[0])
+        report = key("forwarddelete")
+        print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+        report = key("return")
+        print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
+        return shown, steps
+    check(False, f"the file picker stays open for {filename}")
+    return None
 
 
 
@@ -205,6 +225,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
 print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    to_workspace()  # the picker's keys go to a window's palette, not the first-launch Home page
     import_through("chrome", "passwords.csv")
     summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
     check(summary is not None and "Imported: 1." in summary, f"the throwaway sign-in is saved ({summary})")
@@ -224,6 +245,27 @@ try:
     agent = reports.get("agent") or {}
     check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
           f"an agent's Chromium tab is never filled ({agent})")
+
+    # The same sign-in with a new password: a conflict, never overwritten
+    # silently; Replace is the person's choice.
+    write(os.path.join(EXPORTS, "changed.csv"), CHANGED_CSV)
+    import_through("chrome", "changed.csv")
+    conflict = wait_for(lambda: next((t for t in shown_toasts() if "different password" in t.get("message", "")), None),
+                        "the conflict toast", 60)
+    check(conflict is not None and (conflict.get("action") or "").startswith("Replace"),
+          f"the conflict toast offers Replace ({conflict})")
+    reply = rpc("debug.toast", {"press": CSV_TOAST})
+    check(reply.get("pressed") is True, f"a person presses Replace ({reply.get('pressed')})")
+    replaced = wait_for(lambda: next((t for t in toasts() if "Replaced:" in t), None), "the replaced toast", 60)
+    check(replaced is not None and "Replaced: 1." in replaced, f"the saved password is replaced ({replaced})")
+    wait_for(lambda: not os.path.exists(os.path.join(EXPORTS, "changed.csv")), "the replaced file goes to the Trash", 10)
+    check(not os.path.exists(os.path.join(EXPORTS, "changed.csv")), "every row is saved, so the file goes to the Trash")
+
+    write(os.path.join(EXPORTS, "again.csv"), CHANGED_CSV)
+    import_through("chrome", "again.csv")
+    again = wait_for(lambda: next((t for t in toasts() if "Imported: 0." in t), None), "the repeat import toast", 60)
+    check(again is not None and "different password" not in again,
+          f"the new password is the saved one: importing it again is already saved ({again})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:

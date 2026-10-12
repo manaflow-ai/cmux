@@ -506,8 +506,9 @@ CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, in
 // copies the entries before it returns, so the caller zeroes its buffers at
 // once; the shim zeroes its copies when the store has taken them. Values are
 // never logged. REPLY with `reply` and browser 0 follows: s1 = {"added",
-// "duplicate","conflict","rejected"} (counts only). Returns 0 when nothing was
-// started (bad path, or the fork lacks cmux_password_import: API 15).
+// "duplicate","conflict","rejected"} (counts), plus "conflicts" (the indices
+// of the conflicting entries) on API 20. Returns 0 when nothing was started
+// (bad path, or the fork lacks cmux_password_import: API 15).
 typedef struct {
   const char* url;
   size_t url_length;
@@ -529,6 +530,14 @@ CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, 
 CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void);
 // 1 when this fork can write passwords (cmux_password_import, API 15).
 CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
+// 1 when an import reply lists the conflicting rows ("conflicts": indices
+// into the entries) and those can be replaced (API 20).
+CMUX_SHIM_EXPORT int cmux_shim_password_replace_available(void);
+// Saves each entry's password over the saved one for its sign-in, the
+// person's explicit choice for a conflict; never adds a sign-in. Replies
+// {"updated","missing","rejected"} like cmux_shim_import_passwords does.
+CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path, int reply,
+                                                 const cmux_shim_password_entry* entries, int count);
 // Turns Chromium's password filling on or off in one tab. An agent-driven
 // tab has it off: a page script could otherwise read a filled password
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
