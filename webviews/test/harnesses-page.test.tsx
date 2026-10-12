@@ -62,7 +62,8 @@ type Page = {
   closed?: string[];
   acpmux?: AcpmuxSnapshot["catalog"];
   /// What the install command prints, and its exit code.
-  shell?: { output: string[]; code: number; ends?: Promise<void> };
+  /// `ends` holds the last reply; `endsWithOutput`: that reply is more output, not the exit.
+  shell?: { output: string[]; code: number; ends?: Promise<void>; endsWithOutput?: boolean };
   /// The sign-in check's answer for each harness (default: Codex signed out, the rest signed in).
   auth?: Record<string, HarnessHealth["auth"]>;
   update?: HarnessHealth["update"];
@@ -91,6 +92,8 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
       const chunk = output[reads];
       reads += 1;
       if (chunk !== undefined) return Promise.resolve({ output: chunk, next: reads });
+      if (page.shell?.endsWithOutput)
+        return (page.shell.ends ?? Promise.resolve()).then(() => ({ output: "more\n", next: reads }));
       return (page.shell?.ends ?? Promise.resolve()).then(() => ({
         output: "",
         next: reads,
@@ -226,7 +229,9 @@ test("unmounting the page stops an install it started", async () => {
   const calls: Call[] = [];
   let end = () => {};
   const ends = new Promise<void>((resolve) => (end = resolve));
-  const container = await renderPage(calls, [], { shell: { output: ["fetching\n"], code: 0, ends } });
+  const container = await renderPage(calls, [], {
+    shell: { output: ["fetching\n"], code: 0, ends, endsWithOutput: true },
+  });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
   await settle(20);
   await act(async () => root!.unmount());

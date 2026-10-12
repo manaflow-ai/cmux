@@ -27,7 +27,7 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
-    @ObservationIgnored private var lastRescan: ContinuousClock.Instant?
+    @ObservationIgnored private var reload: Task<Void, Never>?
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -153,14 +153,18 @@ final class AgentHarnessCenter {
     }
 
     /// `_acpmux/reload_config` (cx-apoko): acpmux reads its profiles and looks on PATH again, for
-    /// a harness the Harnesses page just installed. A reload restarts pooled sessions, so one runs
-    /// at most every few seconds. A daemon without a config file refuses; the health check after
-    /// it still runs.
+    /// a harness the Harnesses page just installed. Running chats stay; idle pooled sessions are
+    /// dropped and model lists probed again, so reloads run one after another, never at once (a
+    /// second install that ends during a reload gets its own after it). A daemon without a config
+    /// file refuses; the health check after it still runs.
     private func rescan() async {
-        let now = ContinuousClock.now
-        if let lastRescan, now - lastRescan < .seconds(5) { return }
-        lastRescan = now
-        _ = try? await call(.reload)
+        let previous = reload
+        let next = Task { [weak self] in
+            await previous?.value
+            _ = try? await self?.call(.reload)
+        }
+        reload = next
+        await next.value
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {

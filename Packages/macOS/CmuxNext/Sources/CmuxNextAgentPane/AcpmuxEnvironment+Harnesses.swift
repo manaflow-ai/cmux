@@ -44,7 +44,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// Agent CLI health (cx-ny85): version, install channel, newest version, sign-in, update command.
     case health = "_acpmux/harness/health"
     /// acpmux reads its profiles and looks on PATH again (cx-apoko: a harness the Harnesses page
-    /// just installed). Sessions stay up.
+    /// just installed). Running chats stay; idle pooled sessions are dropped.
     case reload = "_acpmux/reload_config"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
