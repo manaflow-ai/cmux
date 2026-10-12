@@ -9,7 +9,7 @@ public import Foundation
 /// relaunch (cx-ncc.45).
 nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
     /// Lines the cards show.
-    public static let shownLines = 4
+    public static let shownLines = 3
 
     public var version: String?
     public var date: Date?

@@ -22,13 +22,20 @@ extension UpdaterService {
     /// release notes yet" (cx-7rone). Offline with an empty cache the page
     /// keeps that empty state.
     public var changelogNotes: ReleaseNotesStore? {
-        guard testFeedURL == nil, identity.track == .development, identity.feed().usedFallback else { return releaseNotes }
-        #if DEBUG
-        if UpdateHarness.current?.contentKey != nil { return releaseNotes }
-        #endif
+        guard changelogReadsDevelopmentNotes else { return releaseNotes }
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes/nightly-next", directoryHint: .isDirectory)
         return ReleaseNotesStore(feedURL: Self.developmentNotesFeedURL, cache: cache)
+    }
+
+    /// Whether ``changelogNotes`` reads the cmux-next nightly notes (a DEV build
+    /// with no feed of its own, no test feed, not a harness copy with notes).
+    public var changelogReadsDevelopmentNotes: Bool {
+        guard testFeedURL == nil, identity.track == .development, identity.feed().usedFallback else { return false }
+        #if DEBUG
+        if UpdateHarness.current?.contentKey != nil { return false }
+        #endif
+        return true
     }
 
     /// The cmux-next nightly feed whose `notes/` a DEV build's changelog page reads.

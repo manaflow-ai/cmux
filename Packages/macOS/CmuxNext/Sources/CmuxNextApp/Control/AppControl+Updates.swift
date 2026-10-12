@@ -98,7 +98,8 @@ extension AppControl {
             // popover (the React surface); "state" reads which update pages the
             // sidebar holds and the web views under it; "dismiss-updated" runs
             // the Updated card's x (cx-asynu). "sidebar-width" {width} sets the
-            // active window's sidebar width (narrow-sidebar shots); "open-changes"
+            // active window's sidebar width (narrow-sidebar shots; answers the
+            // previous width, to restore it); "open-changes"
             // runs the staged card's "See all changes" (its intent) and
             // "open-whats-new" the Updated card's "See What's New" (cx-7rone).
             .mainActor("debug.update_surfaces") { [weak services = appServices] call in
@@ -119,8 +120,9 @@ extension AppControl {
                     guard let width = call.params["width"]?.doubleValue, width > 0 else {
                         throw ControlError.invalidParams("debug.update_surfaces: sidebar-width needs width")
                     }
+                    let previous = Double(sidebar.bounds.width)
                     services.windows.active?.sidebar.restore(width: width, hidden: false)
-                    return .value(.object(["width": .number(Double(sidebar.bounds.width))]))
+                    return .value(.object(["previous": .number(previous), "width": .number(width)]))
                 case "open-changes":
                     SidebarCardFeed.handle(.openUpdateChanges, services: services)
                     return .value(.null)

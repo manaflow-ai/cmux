@@ -79,7 +79,10 @@ extension PageFactory {
     /// (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let updater = services.updater
-        let provider = ChangelogPageProvider(source: updater.changelogNotes, currentBuild: updater.identity.build,
+        // A DEV build reading the cmux-next nightly notes is not in their list: no current build,
+        // so the page selects the newest listed one.
+        let current = updater.changelogReadsDevelopmentNotes ? "" : updater.identity.build
+        let provider = ChangelogPageProvider(source: updater.changelogNotes, currentBuild: current,
                                              media: updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

@@ -265,11 +265,16 @@ NARROW_SIDEBAR = 160
 
 
 def changelog_shots(sock, out, phase, log, action, popover):
-    """cx-7rone: the sidebar's update card at the narrow width (light and dark), then the What's New
-    page its button opens (`action`: open-changes or open-whats-new), light and dark."""
+    """cx-7rone: the sidebar's update card at the narrow width (light and dark), then, at the width
+    before, the What's New page its button opens (`action`: open-changes or open-whats-new), light
+    and dark. The ready phase leaves that page's tab open in the session the relaunch restores."""
     shots = {"width": rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": NARROW_SIDEBAR}).get("result")}
     time.sleep(1.0)  # capture timing only: the card's page re-measures at the new width
     shots.update(surface_shots(sock, out, f"{phase}-narrow", log, popover=popover))
+    # Back to the width before, so later captures (and the relaunched session) keep it.
+    previous = (shots["width"] or {}).get("previous")
+    if previous:
+        rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": previous})
     shots["open"] = rpc(sock, "debug.update_surfaces", {"action": action}).get("result")
     time.sleep(3.0)  # capture timing only: the page loads the notes list and the newest notes
     shots.update(surface_shots(sock, out, f"{phase}-changelog", log, popover=False))

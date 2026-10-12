@@ -60,6 +60,9 @@
   font-size: var(--text-detail);
   font-weight: 500;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: default;
 }
 .wn-card-primary:hover { background: var(--page-selection); }
