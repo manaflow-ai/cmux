@@ -54,6 +54,8 @@ final class NotificationCenterService {
     @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
+    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
