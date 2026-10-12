@@ -437,7 +437,8 @@ class Soak:
                 body = json.loads(handle.read())
         except (OSError, ValueError):
             return False
-        return body.get("pid") in self.seen_pids or (self.app_pid is not None and body.get("parentPid") == self.app_pid)
+        # parentPid: a helper that started and crashed between two ticks (acpmux hosts come and go with turns).
+        return body.get("pid") in self.seen_pids or body.get("parentPid") in self.seen_pids | {self.app_pid} - {None}
 
     def track(self, kinds):
         """Remembers the PIDs whose crash reports are this copy's (not WebKit's: any app's)."""
@@ -604,6 +605,8 @@ class Soak:
             wanted, got = getattr(self.args, name), self.setup.get(name)
             if got != wanted:
                 failures.append(f"setup: {got} of {wanted} {name}")
+        if self.args.agents and samples and not samples[-1]["turns_done"]:
+            failures.append("no agent turn finished")
         if self.setup.get("error"):
             failures = [f"setup stopped: {self.setup['error']}"]  # the rest follow from it
         hours = round((samples[-1]["elapsed_s"] if samples else 0) / 3600, 2)
@@ -688,6 +691,8 @@ def main():
                         help="an idle CPU over its limit warns (default, until a 24h report shows real idle numbers) or fails")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     args = parser.parse_args()
+    if args.warmup + args.idle >= args.hours * 3600:
+        parser.error("--warmup plus --idle must leave a load phase within --hours")  # else every load check is empty
     soak = Soak(args)
     teardown = None
     result = {"ok": False}
