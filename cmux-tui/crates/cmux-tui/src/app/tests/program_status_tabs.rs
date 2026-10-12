@@ -6,9 +6,9 @@
 
 use super::*;
 
-/// The text of the first tab.
-fn first_tab(app: &mut App, terminal: &mut Terminal<TestBackend>) -> String {
-    terminal.draw(|frame| crate::ui::draw(app, frame)).unwrap();
+/// The text of the first tab, rendered as the event loop renders `action`.
+fn first_tab(app: &mut App, terminal: &mut Terminal<TestBackend>, action: RenderAction) -> String {
+    app.draw_terminal(terminal, action).unwrap();
     let Some(tab) = app.hits.iter().find_map(|(rect, hit)| {
         matches!(hit, crate::app::Hit::Tab { index: 0, .. }).then_some(*rect)
     }) else {
@@ -29,17 +29,23 @@ fn wait_for_tab(
     shown: impl Fn(&str) -> bool,
 ) -> String {
     let deadline = Instant::now() + crate::test_wait::EVENT;
+    let mut action = RenderAction::Draw;
     loop {
-        let tab = first_tab(app, terminal);
+        let tab = first_tab(app, terminal, action);
         if shown(&tab) {
             return tab;
         }
         assert!(Instant::now() < deadline, "the tab never showed {wanted}; it reads {tab:?}");
-        while let Ok(event) = mux_events.try_recv() {
-            app.handle(AppEvent::Mux(event)).unwrap();
-        }
-        while let Ok(event) = app_events.try_recv() {
-            app.handle(event).unwrap();
+        // Like the event loop: the frame redraws the layout only when an
+        // event asked for it.
+        action = RenderAction::Paint;
+        let events = std::iter::from_fn(|| mux_events.try_recv().ok().map(AppEvent::Mux))
+            .chain(std::iter::from_fn(|| app_events.try_recv().ok()))
+            .collect::<Vec<_>>();
+        for event in events {
+            if app.handle(event).unwrap() == RenderAction::Draw {
+                action = RenderAction::Draw;
+            }
         }
         std::thread::sleep(Duration::from_millis(10));
     }

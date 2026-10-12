@@ -10,8 +10,8 @@ use cmux_tui_core::resource::{
 };
 use cmux_tui_core::{
     BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId,
-    ResourceSelectors, ScreenId, ShownProgramStatus, SplitDir, SplitId, State, SurfaceId,
-    SurfaceKind, SurfaceNotification, WorkspaceId, assign_short_ids,
+    ResourceSelectors, ScreenId, SplitDir, SplitId, State, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 
