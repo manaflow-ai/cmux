@@ -63,9 +63,10 @@ struct ShellView: View {
                 .id(shell.destination)
                 .transition(.identity)
         }
-        .environment(shell)
+        // Sheets read the shell too, so it goes on after them.
         .sheet(isPresented: $shell.showSettings) { SettingsView() }
         .sheet(isPresented: $shell.showAddMac) { AddMacView() }
+        .environment(shell)
     }
 
     @ViewBuilder

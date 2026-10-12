@@ -504,6 +504,24 @@ final class FlowTests: XCTestCase {
         snap(app, "d2-zoomed")
     }
 
+    func testSettings() throws {
+        let app = launchSignedIn()
+        pause(3)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.profile"].tap()
+        pause(1.5)
+        snap(app, "e0-settings")
+        app.buttons["appearance.dark"].tap()
+        pause(1)
+        snap(app, "e0b-dark")
+        app.buttons["appearance.system"].tap()
+        pause(0.5)
+        app.swipeUp()
+        pause(1)
+        snap(app, "e1-settings-bottom")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

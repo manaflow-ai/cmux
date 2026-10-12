@@ -3,11 +3,13 @@ import SwiftUI
 @main
 struct CmuxNextApp: App {
     @State private var model = AppModel()
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(model)
+                .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
                 .task { await model.launch() }
         }
     }
