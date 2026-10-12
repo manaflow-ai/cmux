@@ -55,5 +55,33 @@ import Testing
         #expect(harness.file.contains("\"daily\""))
         #expect(isArt(harness.scope.backdropSelection))
         #expect(harness.settings.snapshot.diagnostics.isEmpty)
+        #expect(harness.scope.backdropSelection == .art(.daily(on: Date())))
+    }
+
+    /// At midnight the window turns to the next day's work without a settings change.
+    @Test func theNextDayShowsTheNextWork() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "daily"],
+                                        context: Self.gesture)
+        let today = Date()
+        await settle { harness.scope.backdropSelection == .art(.daily(on: today)) }
+        let tomorrow = BackdropArt.nextDay(after: today).addingTimeInterval(60)
+        harness.terminal.now = { tomorrow }
+        harness.terminal.showDailyArt()
+        #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow)))
+        #expect(harness.scope.backdropSelection != .art(.daily(on: today)))
+    }
+
+    /// Every work shows once before any repeats, and no two days in a row show the same one.
+    @Test func theRotationVisitsEveryWorkOncePerCycle() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let start = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12)))
+        let count = BackdropArt.allCases.count
+        let works = (0..<count).map { BackdropArt.daily(on: start.addingTimeInterval(Double($0) * 86_400), calendar: calendar) }
+        #expect(Set(works).count == count)
+        #expect(zip(works, works.dropFirst()).allSatisfy { $0 != $1 })
+        #expect(BackdropArt.daily(on: start.addingTimeInterval(3_600), calendar: calendar) == works[0])
     }
 }

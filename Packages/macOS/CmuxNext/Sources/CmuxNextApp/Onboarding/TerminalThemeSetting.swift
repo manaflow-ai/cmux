@@ -58,6 +58,10 @@ final class TerminalThemeSetting {
     var repaint: () -> Void = { ThemeBridge.repaintBackground() }
     /// The reload after the last step of a window background drag (the Opacity slider).
     private let reloadTimer = DemandTimer(owner: "terminal-theme.background-reload")
+    /// Shuffle Daily: turns the backdrop to the next work at local midnight.
+    private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
+    /// The clock Shuffle Daily reads (tests move it to another day).
+    var now: () -> Date = Date.init
     static let backgroundReloadDelay = Duration.milliseconds(60)
     private var observation: Task<Void, Never>?
 
@@ -73,20 +77,26 @@ final class TerminalThemeSetting {
         // settings, so a font size slider's preview never reloads Ghostty per tick. A background step
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
-             background: settings.applied.windowBackground, art: settings.applied.backdropSelection)
+             background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
+             daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root))
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background, art) in ObservationStream({
+            for await (snapshot, theme, edits, background, art, daily) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
-                 settings.applied.backdropSelection)
+                 settings.applied.backdropSelection, BackdropSelectionSetting.shufflesDaily(settings.applied.root))
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art, daily: daily)
             }
         }
     }
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
-                      art: BackdropSelection?) {
-        backdropScope.setBackdropSelection(art)
+                      art: BackdropSelection?, daily: Bool) {
+        if daily {
+            showDailyArt()
+        } else {
+            dailyTimer.cancel()
+            backdropScope.setBackdropSelection(art)
+        }
         backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
@@ -95,6 +105,14 @@ final class TerminalThemeSetting {
         state.edits = edits
         state.background = background
         apply(state)
+    }
+
+    /// Shows the work of `now()`'s day and turns to the next one at the following midnight.
+    func showDailyArt() {
+        let today = now()
+        backdropScope.setBackdropSelection(.art(.daily(on: today)))
+        let wait = max(1, BackdropArt.nextDay(after: today).timeIntervalSince(today) + 1)
+        dailyTimer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.showDailyArt() }
     }
 
     /// Puts `snapshot`'s appearance on the Ghostty overrides before the
