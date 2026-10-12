@@ -157,7 +157,12 @@ if [ "$1" = -create ]; then
 fi
 exit 0
 SH
-chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo"
+cat > "$FAKEBIN/codesign" <<'SH'
+#!/bin/bash
+printf 'codesign %s\n' "$*" >> "$EVENTS"
+exit 0
+SH
+chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo" "$FAKEBIN/codesign"
 
 # Every case needs its own download cache: the installer skips the curl for a
 # slice already cached under the manifest's commit, and that commit is one
@@ -404,9 +409,17 @@ APP_HOST_APP="$TEST_DIR/AppHost.app"
 install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-arm.log" 2>&1
 cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host"
 [ -x "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
+# A thin slice keeps the signature it was published with.
+if grep -q '^codesign ' "$EVENTS"; then
+  echo "FAIL: a thin companion slice was signed again" >&2; exit 1
+fi
 install_remote "$TEST_DIR/AppHostUniversal.app" > "$TEST_DIR/app-host-universal.log" 2>&1
 grep -q '^lipo -create .*cmux-tui-app-host-aarch64-apple-darwin' "$EVENTS"
 [ -x "$TEST_DIR/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host" ]
+# The published x86_64 slices carry no signature (only arm64 links ad-hoc
+# signed), so a lipo'd companion is signed ad hoc as a whole; unsigned, the
+# tagged build's check-bundled-browser-host.sh refuses bin/cmux-browser-host.
+grep -q '^codesign --force --sign - .*/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host$' "$EVENTS"
 printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
 install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
 [ ! -e "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
