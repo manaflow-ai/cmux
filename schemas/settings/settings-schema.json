@@ -7266,7 +7266,8 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
-        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"
+        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
+        "file:/Users/Shared/Harbor.png"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -8504,6 +8505,8 @@
       "refuses" : [
         "system:relative/path.heic",
         "system:",
+        "file:relative.png",
+        "file:",
         "__not_a_backdrop__",
         1,
         true
@@ -21914,7 +21917,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "894b1403278b21079ac3d22fdb58d1f343e730e613769aa0d6f6d8c36bdc0f07",
+  "schema_hash" : "70c305de2dc2e183050ef4546c9f391e22777a2ea5ab70f00470ea7bad119026",
   "sections" : [
     {
       "id" : "general",
