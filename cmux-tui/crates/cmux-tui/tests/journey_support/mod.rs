@@ -68,7 +68,13 @@ impl Machine {
                           "env": {"FAKE_SESSION_PREFIX": "fake-session-"}});
         // The fake agent's `normal` mode asks: a chat moved back under the
         // Web's control must be in an asking mode.
-        let config = json!({"harnesses": {"fake": fake}, "defaultHarness": "fake",
+        // `fake-approve` is the same agent under a profile that approves
+        // everything: only the person's app may switch a chat to that, so a
+        // test picks the profile when it starts the chat.
+        let mut approving = fake.clone();
+        approving["policy"] = json!("approve-all");
+        let config = json!({"harnesses": {"fake": fake, "fake-approve": approving},
+                            "defaultHarness": "fake",
                             "webAskingModes": {"fake": ["normal"]}});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         let machine = Self {

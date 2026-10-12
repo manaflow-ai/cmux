@@ -124,10 +124,12 @@ fn bring_back_journey_returns_a_vm_edit_a_commit_and_a_chat_to_the_mac() {
 
     // 1. A chat that approves everything is refused on the way back, and
     // stays on the VM, open.
-    let created = vm_acpmux.call("session/new", json!({"cwd": synced, "mcpServers": []}));
+    let created = vm_acpmux.call(
+        "session/new",
+        json!({"cwd": synced, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake-approve"}}}),
+    );
     let approving = created["sessionId"].as_str().unwrap().to_owned();
     vm_acpmux.call("session/prompt", prompt(&approving, "hi", "p-approving"));
-    vm_acpmux.call("_acpmux/set_policy", json!({"sessionId": approving, "policy": "approve-all"}));
     let approving_tab = bound_agent_tab(&vm, &approving);
     let (ok, refused) = move_back(&vm, &mac, approving_tab, &repo, &pump);
     assert!(!ok, "an approve-all chat moved back: {refused}");
