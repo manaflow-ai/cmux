@@ -192,11 +192,25 @@ final class WorkspaceHoverCardView: NSView {
             row.icon.superview?.isHidden = fact == nil
             row.label.isHidden = fact == nil
             guard let fact else { continue }
-            row.icon.image = NSImage.icon(fact.icon, size: Self.iconSize)
+            row.icon.image = Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize)
             row.label.stringValue = fact.text
         }
         factsStack.isHidden = content.facts.isEmpty
         applyColors()
+    }
+
+    /// A status entry's own icon: its stored image, its SF Symbol or its emoji; nil for none (or
+    /// an asset not read yet), so the fact's icon draws.
+    private static func ownImage(_ fact: WorkspaceHoverCardContent.Fact) -> NSImage? {
+        let size = NSSize(width: iconSize, height: iconSize)
+        if let image = fact.image { return NSImage(cgImage: image.image, size: size) }
+        guard let mark = fact.mark, !mark.isEmpty else { return nil }
+        if let symbol = NSImage(systemSymbolName: mark, accessibilityDescription: nil) { return symbol }
+        guard !mark.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
+        return NSImage(size: size, flipped: false) { rect in
+            (mark as NSString).draw(in: rect, withAttributes: [.font: NSFont.systemFont(ofSize: rect.height * 0.8)])
+            return true
+        }
     }
 
     func setResources(_ report: ResourceReport?) {
