@@ -34,6 +34,9 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     private var applyingOffset = false
     private var lastViewportRow = -1
     private var tuiPan: UIPanGestureRecognizer?
+    /// Direct typing (tap the terminal); the composer steps aside meanwhile.
+    let keyInput = TerminalKeyInputView()
+    var onDirectTypingChange: ((Bool) -> Void)?
     private var tuiPanCarry: CGFloat = 0
 
     init(session: TerminalSession) {
@@ -60,6 +63,14 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         scrollView.bottomEdgeEffect.style = .soft
         setContentScrollView(scrollView, for: .top)
         setContentScrollView(scrollView, for: .bottom)
+
+        view.addSubview(keyInput)
+        keyInput.onText = { [weak self] text in self?.session.send(text: text) }
+        keyInput.onKeys = { [weak self] keys in self?.session.sendKeys(keys) }
+        keyInput.onFocusChange = { [weak self] focused in self?.onDirectTypingChange?(focused) }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
+        tap.cancelsTouchesInView = false
+        scrollView.addGestureRecognizer(tap)
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(tuiPanned(_:)))
         pan.isEnabled = false
@@ -228,6 +239,16 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         lastViewportRow = -1
         UIView.performWithoutAnimation { view.setNeedsLayout(); view.layoutIfNeeded() }
     }
+
+    @objc private func terminalTapped() {
+        if keyInput.isFirstResponder { return }
+        let became = keyInput.becomeFirstResponder()
+        AppModel.log.info("terminal tap: becameFirstResponder=\(became, privacy: .public) window=\(self.keyInput.window != nil, privacy: .public)")
+        Haptics.soft()
+    }
+
+    /// Starts direct typing (the composer's terminal-keyboard button).
+    func beginDirectTyping() { keyInput.becomeFirstResponder() }
 
     // MARK: TUI gestures
 

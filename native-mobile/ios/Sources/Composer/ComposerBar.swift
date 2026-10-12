@@ -10,6 +10,7 @@ struct ComposerBar: View {
     @Bindable var model: ComposerModel
     let session: TerminalSession
     let services: ServiceClient?
+    var onTerminalKeyboard: (() -> Void)? = nil
     var agentWorking: Bool
     var placeholder: String
 

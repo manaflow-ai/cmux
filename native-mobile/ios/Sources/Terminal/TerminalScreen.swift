@@ -10,6 +10,9 @@ final class TerminalChromeState {
     /// The composer's real width; without it the hosting controller measures
     /// the composer at unlimited width and the text box never wraps.
     var width: CGFloat = 0
+    /// The terminal itself has the keyboard (no composer).
+    var directTyping = false
+    var beginDirectTyping: (() -> Void)?
 }
 
 /// One terminal: Ghostty under floating glass controls, the composer docked
@@ -140,6 +143,7 @@ struct TerminalScreen: View {
 /// The composer plus the jump-to-bottom button, hosted inside the UIKit
 /// terminal controller (so the bottom scroll edge effect tracks it).
 struct ComposerHostContent: View {
+    @AppStorage("composer.visible") private var showComposer = true
     let model: ComposerModel
     let session: TerminalSession
     let chrome: TerminalChromeState
@@ -161,9 +165,24 @@ struct ComposerHostContent: View {
                 .accessibilityLabel(String(localized: "Jump to bottom"))
                 .accessibilityIdentifier("terminal.jumpToBottom")
             }
-            ComposerBar(model: model, session: session, services: services, agentWorking: agentWorking, placeholder: placeholder)
+            if !chrome.directTyping && showComposer {
+                ComposerBar(model: model, session: session, services: services, agentWorking: agentWorking, placeholder: placeholder)
+                    .transition(.opacity)
+            } else if !chrome.directTyping {
+                // Composer turned off in Settings: one glass button brings
+                // up the terminal keyboard.
+                Button { chrome.beginDirectTyping?() } label: {
+                    Image(systemName: "keyboard").font(.system(size: 17, weight: .medium)).frame(width: 48, height: 48)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16).padding(.bottom, 6)
+                .accessibilityLabel(String(localized: "Type in terminal"))
+            }
         }
         .animation(.smooth(duration: 0.22), value: chrome.atBottom)
+        .animation(.smooth(duration: 0.2), value: chrome.directTyping)
         .frame(width: chrome.width > 0 ? chrome.width : nil)
         .preferredColorScheme(.dark)
     }
@@ -186,6 +205,8 @@ struct TerminalHost: UIViewControllerRepresentable {
             if chrome.atBottom != atBottom { chrome.atBottom = atBottom }
         }
         chrome.scrollToBottom = { [weak controller] in controller?.scrollToBottom(animated: true) }
+        controller.onDirectTypingChange = { [chrome] typing in chrome.directTyping = typing }
+        chrome.beginDirectTyping = { [weak controller] in controller?.beginDirectTyping() }
         controller.onWidthChange = { [chrome] width in
             if abs(chrome.width - width) > 0.5 { chrome.width = width }
         }
