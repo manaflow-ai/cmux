@@ -52,13 +52,6 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
-        if let data = AgentPanePagePreload.take(file) {
-            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: Self.headers(for: file, length: data.count))
-            task.didReceive(response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil))
-            task.didReceive(data)
-            task.didFinish()
-            return
-        }
         let id = ObjectIdentifier(task)
         active.insert(id)
         // task-owner: one file read per scheme task; a stopped task is never answered
