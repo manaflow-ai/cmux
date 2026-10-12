@@ -23,6 +23,16 @@ final class CloudMovedChats {
         var remoteChat: String
         /// The workspace name the chat had on this Mac.
         var name: String?
+        /// Set once Bring Back Local moved the chat back: its session on this Mac and the key that
+        /// makes its tab's creation idempotent. Kept until that tab opened, so the machine tab's
+        /// row (and a relaunch) still only opens it.
+        var broughtBack: BroughtBack?
+    }
+
+    /// A chat moved back to this Mac whose tab here may not have opened yet.
+    struct BroughtBack: Codable, Equatable, Sendable {
+        var session: String
+        var key: String
     }
 
     /// The app's ledger, for menus built where no ``AppServices`` reaches (the chat page menu).
@@ -54,7 +64,15 @@ final class CloudMovedChats {
     private func entries() -> [String: Entry] {
         guard let defaults = defaults() else { return memory }
         guard let data = defaults.data(forKey: Self.defaultsKey) else { return [:] }
-        return (try? JSONDecoder().decode([String: Entry].self, from: data)) ?? [:]
+        // One by one: an entry this version can't read drops alone, never the whole ledger.
+        let read = (try? JSONDecoder().decode([String: Lenient].self, from: data)) ?? [:]
+        return read.compactMapValues(\.entry)
+    }
+
+    /// An entry, or nil when it doesn't decode.
+    private struct Lenient: Decodable {
+        let entry: Entry?
+        init(from decoder: any Decoder) throws { entry = try? Entry(from: decoder) }
     }
 
     private func save(_ entries: [String: Entry]) {

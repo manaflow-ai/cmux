@@ -16,7 +16,8 @@ import Foundation
 /// It keeps the move's recovery model: it runs on the machine the chat moved to; a conflict stops
 /// before anything moves and names the files; a run that may not have finished (a thrown CLI, an
 /// unresolved move) retries on that machine (a second pull finds nothing new, a rerun of the move
-/// resolves an unresolved one first); after the move committed Retry only opens the local tab.
+/// resolves an unresolved one first); after the move committed Retry only opens the local tab, and
+/// the ledger keeps that until the tab opened, so the row and a relaunch still only open it.
 /// Progress and failures are toasts, never a sheet.
 @MainActor
 struct CloudBringBack {
@@ -43,6 +44,10 @@ struct CloudBringBack {
               let session = record.session ?? services.agentTabs.sessions[services.agentTabs.resolve(tab.id)],
               let entry = services.cloud.movedChats.entry(host: record.host, session: session) else {
             throw ActionFailure(message: CloudBringBackStrings.notFromMove)
+        }
+        // The move back committed before (this run or one before a relaunch): only open the tab.
+        if let back = entry.broughtBack {
+            return perform(tab: tab) { try await reshow(Self.shown(entry, back), tab: tab) }
         }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
@@ -119,12 +124,20 @@ struct CloudBringBack {
             throw Failure(message: CloudBringBackStrings.unresolved, retry: again)
         }
         guard moved.ok, let session = moved.sessionID else { throw Self.failure(moving: moved, machine: name, retry: again) }
-        // The move committed: from here Retry only opens the chat's tab on this Mac.
-        services.cloud.movedChats.forget(host: entry.host, session: entry.session)
-        let shown = CloudMoveRetries.Shown(session: session, harness: entry.harness, machineID: entry.machineID, folder: entry.localChat,
-                                           name: entry.name, key: moved.transferID ?? session)
-        try await finish(shown, tab: tab)
+        // The move committed: from here Retry only opens the chat's tab on this Mac. The ledger
+        // keeps that (not only memory) until the tab opened.
+        let back = CloudMovedChats.BroughtBack(session: session, key: moved.transferID ?? session)
+        var committed = entry
+        committed.broughtBack = back
+        services.cloud.movedChats.record(committed)
+        try await finish(Self.shown(committed, back), tab: tab)
         return name
+    }
+
+    /// What opens a chat moved back by `back`, from its ledger entry.
+    private static func shown(_ entry: CloudMovedChats.Entry, _ back: CloudMovedChats.BroughtBack) -> CloudMoveRetries.Shown {
+        CloudMoveRetries.Shown(session: back.session, harness: entry.harness, machineID: entry.machineID, folder: entry.localChat,
+                               name: entry.name, key: back.key, host: entry.host, movedSession: entry.session)
     }
 
     /// A Retry of a bring back that committed: opens the chat's tab here, nothing else.
@@ -140,6 +153,7 @@ struct CloudBringBack {
         } catch {
             throw Failure(message: CloudBringBackStrings.tabFailed(String(describing: error)), retry: .show(shown))
         }
+        if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
         // Reopen Closed never offers it.
         do {
             let daemon = services.machines.daemon(forTab: tab)
