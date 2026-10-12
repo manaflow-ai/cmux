@@ -75,6 +75,8 @@ import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
+import { ToolCards } from "./toolCards/ToolCards";
+import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import type { QuestionReply } from "./question/model";
@@ -3311,9 +3313,20 @@ function AcpmuxPane() {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
+          "models.refresh": async () => {
+            try {
+              await client.refreshModels();
+            } finally {
+              // A refused or failed probe still re-reads what acpmux has.
+              await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+            }
+          },
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation
-          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing.
+          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing;
+          // acpmux refusing the prompt shows its reason (cx-cuk4); acpmux giving none (down, too
+          // slow) says so (cx-nt39g).
           "chat.harness.enable": ({ folder, id }) =>
             client.harnessEnable(String(folder), String(id)).then(
               async (result) => {
@@ -3323,7 +3336,11 @@ function AcpmuxPane() {
                 return result;
               },
               (error: unknown) => {
-                if ((error as { code?: unknown } | null)?.code !== "transport.harness_not_confirmed")
+                const refused = error as { code?: unknown; detail?: unknown; reason?: unknown } | null;
+                if (typeof refused?.detail === "string") client.notice(refused.detail);
+                else if (refused?.reason === "harness.prompt_unavailable")
+                  client.notice(translate("harnesses.enableUnavailable"));
+                else if (refused?.code !== "transport.harness_not_confirmed")
                   client.notice(errorMessage(error) || String(error));
                 return undefined;
               },
@@ -4016,6 +4033,7 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </ArtifactContext.Provider>
   );
+  const toolCards = useToolCards();
   const asks = (
     <>
       {snapshot.permissionGroups?.supported && (
@@ -4036,8 +4054,12 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask || snapshot.secret) && (
+      {(individualPermission || trustAsk.ask || snapshot.secret || toolCards.length > 0) && (
         <div className="acpmux-permission">
+          <ToolCards
+            cards={toolCards}
+            onAnswer={(id, action) => void callNative("chat.toolCard.respond", { id, action }).catch(() => undefined)}
+          />
           {trustAsk.ask && (
             <TrustAsk
               ask={trustAsk.ask}

@@ -50,7 +50,9 @@
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
 //!   stays, the target's finish replaces it); the manifest lists their
-//!   scrubbed sizes.
+//!   scrubbed sizes. With `ask_first: true` the chat is first narrowed here
+//!   to an asking policy, rules and mode (`ask_first.rs`), so a Mac's guard
+//!   that refused it takes it.
 //! - `agent-transfer-read {transfer_id, path, offset, limit?}` pages a bundle
 //!   file the begin manifest of a move begun through this daemon lists.
 //! - `agent-transfer-commit {surface, transfer_id, to}` and
@@ -85,6 +87,9 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
+/// `access-request-v1`, served on a Cloud host as this is.
+pub mod access_requests;
+mod ask_first;
 mod askable;
 mod landed;
 mod state_file;
@@ -296,6 +301,12 @@ impl Mux {
         *self.agent_transfers.host.write().unwrap_or_else(|e| e.into_inner()) = host;
     }
 
+    /// True on a cmux Cloud host, as the binary set it at start
+    /// (`access-request-v1` is served there only).
+    pub(crate) fn on_cloud_host(&self) -> bool {
+        self.agent_transfers.host().is_some_and(|host| host.cloud)
+    }
+
     /// True with an acpmux socket path and a host.
     pub(crate) fn serves_agent_transfer(&self) -> bool {
         self.serves_agent_session_attach() && self.agent_transfers.host().is_some()
@@ -346,6 +357,8 @@ struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
     interrupt: bool,
+    #[serde(default)]
+    ask_first: bool,
 }
 
 #[derive(Deserialize)]
@@ -537,6 +550,9 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer) {
+        return Some(keep_open);
+    }
     if !message.contains("\"agent-transfer-") {
         return None;
     }
@@ -620,6 +636,7 @@ enum Prepared {
     Begin {
         session: String,
         interrupt: bool,
+        ask_first: bool,
     },
     Read {
         transfer_id: String,
@@ -700,12 +717,12 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 }
             }
         }
-        Verb::Begin(BeginParams { surface, interrupt }) => {
+        Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt }
+            Prepared::Begin { session, interrupt, ask_first }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -858,7 +875,10 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             }
             Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt } => {
+        Prepared::Begin { session, interrupt, ask_first } => {
+            if ask_first {
+                ask_first::narrow(&call, &session)?;
+            }
             let source_session = session.clone();
             let params = json!({"sessionId": session, "interrupt": interrupt});
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;

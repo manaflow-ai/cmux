@@ -9,10 +9,10 @@ import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
 
-/** One delay group for a page's tooltips: moving between controls shows the next one at once. */
+/** A page's tooltips show at once, with no hover delay (POLISH), and close at once. */
 export function TooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <BaseTooltip.Provider delay={500} closeDelay={0}>
+    <BaseTooltip.Provider delay={0} closeDelay={0}>
       {children}
     </BaseTooltip.Provider>
   );

@@ -238,6 +238,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_clipboard_read: false,
         supports_viewer_size_priority: true,
         supports_pty_custody: false,
+        supports_program_status: false,
     };
     let record_path = record.record_path(&root);
     let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -267,6 +268,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_clipboard_read: false,
         supports_viewer_size_priority: false,
         supports_pty_custody: false,
+        supports_program_status: false,
     };
     let record_path = std::env::temp_dir().join(format!(
         "cmux-input-ack-surface-{}-{}.json",
@@ -291,6 +293,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,

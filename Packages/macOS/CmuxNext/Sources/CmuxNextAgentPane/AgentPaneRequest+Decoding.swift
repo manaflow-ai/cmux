@@ -212,6 +212,8 @@ extension AgentPaneRequest {
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "chat.markUnread":
             self = .markUnread
+        case "chat.toolCard.respond":
+            if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

@@ -272,6 +272,7 @@ impl SurfaceSessionScope {
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::HistoryChanged { .. }
             | MuxEvent::SettingsChanged(_)
+            | MuxEvent::KeybindingsChanged(_)
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }

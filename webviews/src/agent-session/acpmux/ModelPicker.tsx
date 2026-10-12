@@ -816,7 +816,13 @@ export function ModelPicker(props: ModelPickerProps) {
                     <span className="acpmux-menu-label flex-1 truncate">{t("picker.newChat")}</span>
                   </button>
                 ) : visible.length === 0 ? (
-                  <div className={emptyNote}>{starredView && !query ? t("picker.starredEmpty") : noMatchesText}</div>
+                  <div className={emptyNote}>
+                    {starredView && !query
+                      ? t("picker.starredEmpty")
+                      : !query && selected && selected.models.length === 0
+                        ? t("picker.noModels")
+                        : noMatchesText}
+                  </div>
                 ) : (
                   visible.map((model, index) => (
                     <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>

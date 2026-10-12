@@ -21,6 +21,7 @@ pub(crate) mod app_workspaces;
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
+pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]

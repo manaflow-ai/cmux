@@ -9,8 +9,8 @@ import UniformTypeIdentifiers
 /// `list` (the binding table with conflicts, `KeybindingReports.list`),
 /// `record.start` / `record.stop` with the `recorded` stream (the key
 /// dispatcher hands the page's keys to a `KeyRecorder`), and the `changed`
-/// stream. `set`, `remove` and `reset` answer `cmux.keybindings.unsupported`
-/// until keybindings.json is written by its owner (cmux-config, slice 4).
+/// stream. `set`, `remove` and `reset` write cmux.json, or keybindings.json
+/// through the home daemon (`KeybindingPageWrites`).
 @MainActor
 final class KeybindingsPageProvider: PageProvider {
     private unowned let services: AppServices
@@ -19,6 +19,7 @@ final class KeybindingsPageProvider: PageProvider {
     private var recorder: KeyRecorder?
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var fileListener: UUID?
 
     init(services: AppServices) {
         self.services = services
@@ -43,7 +44,7 @@ final class KeybindingsPageProvider: PageProvider {
             guard let settings = services.settings else {
                 throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
             }
-            let writes = KeybindingPageWrites(registry: services.registry, settings: settings)
+            let writes = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
             let fields = params.objectValue ?? [:]
             switch op {
             case "cmux.keybindings.set": try await writes.set(fields)
@@ -65,10 +66,22 @@ final class KeybindingsPageProvider: PageProvider {
             recordedListeners[id] = onEvent
             return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
         case "cmux.keybindings.changed":
-            // Fires after a keymap import (and, with slice 4, when keybindings.json loads).
+            // Fires after a keymap import and whenever keybindings.json loads.
             let id = UUID()
             changedListeners[id] = onEvent
-            return PageSubscription { [weak self] in _ = self?.changedListeners.removeValue(forKey: id) }
+            if fileListener == nil {
+                fileListener = services.keybindingsFile.onChange { [weak self] in
+                    for listener in self?.changedListeners.values.map({ $0 }) ?? [] { listener([:]) }
+                }
+            }
+            return PageSubscription { [weak self] in
+                guard let self else { return }
+                changedListeners[id] = nil
+                if changedListeners.isEmpty, let fileListener {
+                    services.keybindingsFile.removeListener(fileListener)
+                    self.fileListener = nil
+                }
+            }
         default:
             throw PageError.unknownOp(stream)
         }

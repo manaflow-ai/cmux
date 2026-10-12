@@ -5,10 +5,13 @@ import type { Play } from "../../gallery/play";
 import { DiffPanel } from "./DiffPanel";
 import { diffHunks, diffLines, editPatch, type TurnFile } from "./diff";
 import type { ChangeScope, ChangesSource } from "./changes/model";
+import type { HunkDecision, HunkReview } from "./changes/hunkReview";
 
 type PanelProps = ComponentProps<typeof DiffPanel>;
-type GalleryProps = Omit<PanelProps, "onClose" | "onOpenFile"> & {
+type GalleryProps = Omit<PanelProps, "onClose" | "onOpenFile" | "review"> & {
   openFile?: "resolve" | "reject";
+  /// The turn's hunk review, held here as the pane holds it (App.tsx hunkDecisions).
+  reviewing?: boolean;
 };
 
 const changed = (path: string, before: string | undefined, after: string | undefined): TurnFile => {
@@ -220,12 +223,26 @@ const errorSource: ChangesSource = {
 };
 const pendingSource: ChangesSource = { diff: () => new Promise(() => {}) };
 
-function GalleryDiffPanel({ openFile = "resolve", ...props }: GalleryProps) {
+function GalleryDiffPanel({ openFile = "resolve", reviewing = false, ...props }: GalleryProps) {
   const [action, setAction] = useState<string>();
+  const [decisions, setDecisions] = useState<ReadonlyMap<string, HunkDecision>>(new Map());
+  const review: HunkReview = {
+    decisions,
+    decide: (key, decision) =>
+      setDecisions((current) => {
+        const next = new Map(current);
+        if (decision) next.set(key, decision);
+        else next.delete(key);
+        return next;
+      }),
+    requestRevert: (keys) =>
+      setDecisions((current) => new Map([...current, ...keys.map((key) => [key, "requested"] as const)])),
+  };
   return (
     <div data-diff-gallery-action={action ?? ""}>
       <DiffPanel
         {...props}
+        review={reviewing ? review : undefined}
         onClose={() => setAction("close")}
         onOpenFile={async (path, where) => {
           setAction(`${where}:${path}`);
@@ -235,6 +252,13 @@ function GalleryDiffPanel({ openFile = "resolve", ...props }: GalleryProps) {
     </div>
   );
 }
+
+/// Reject a whole file from its More menu: each of its changes reads Rejected and the revert bar counts them.
+const rejectFile: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "More actions for src/agent/Reply.tsx" });
+  await ctx.click({ role: "menuitem", name: "Reject file" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-revert-count")?.textContent === "2 changes rejected");
+};
 
 const toggleToolbar: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "File tree" });
@@ -379,6 +403,9 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/changes/PullRequestButton.tsx#PullRequestButton",
     "agent-session/acpmux/changes/HunkStage.tsx#HunkStage",
     "agent-session/acpmux/changes/ReviewThread.tsx#ReviewThread",
+    "agent-session/acpmux/changes/HunkActions.tsx#HunkActions",
+    "agent-session/acpmux/changes/RevertBar.tsx#RevertBar",
+    "agent-session/acpmux/changes/FileHeader.tsx#FileHeader",
   ],
   load: async () => GalleryDiffPanel,
   styles: () =>
@@ -409,6 +436,11 @@ export default componentEntry<GalleryProps>({
       note: "Escape returns to the transcript while the reader owns focus.",
       props: { files },
       play: closeWithEscape,
+    },
+    "review-file": {
+      note: "A turn's review: each change has Reject and Accept, and a file's More menu rejects all of it; the bar counts what goes back to the agent.",
+      props: { files, reviewing: true },
+      play: rejectFile,
     },
     "stage-hunk": {
       note: "In Unstaged each hunk has Stage hunk; n moves to the second hunk and s stages it alone.",

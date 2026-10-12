@@ -929,6 +929,157 @@
         }
       ],
       "note": "Suggested follows Recent"
+    },
+    {
+      "query": "vs",
+      "expect": ["action:splitRight"],
+      "group": "settings",
+      "aliases": {
+        "splitRight": ["vs"]
+      },
+      "note": "an alias that matches none of the row's text finds it"
+    },
+    {
+      "query": "  VS ",
+      "expect": ["action:splitRight"],
+      "group": "settings",
+      "aliases": {
+        "splitRight": ["vs"]
+      },
+      "note": "an alias ignores case and surrounding space"
+    },
+    {
+      "query": "new tab",
+      "expect": ["action:newWindow"],
+      "group": "settings",
+      "aliases": {
+        "newWindow": ["new tab"]
+      },
+      "note": "an exact alias beats a whole-title match"
+    },
+    {
+      "query": "close",
+      "expect": ["action:closeWindow"],
+      "group": "settings",
+      "aliases": {
+        "closeWindow": ["close"]
+      },
+      "replay": [
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        },
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        },
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        }
+      ],
+      "note": "an exact alias beats a learned pick"
+    },
+    {
+      "query": "clo",
+      "expect": ["action:closeTab"],
+      "group": "settings",
+      "aliases": {
+        "closeWindow": ["close"]
+      },
+      "replay": [
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        },
+        {
+          "query": "close",
+          "pick": "action:closeTab",
+          "daysAgo": 0
+        }
+      ],
+      "note": "only a whole alias wins: a prefix of it leaves the learned pick first"
+    },
+    {
+      "query": "",
+      "expect": ["action:closeTab"],
+      "at": 1,
+      "group": "settings",
+      "pins": ["closeTab", "splitDown"],
+      "note": "the empty query shows pins first, in the user's order"
+    },
+    {
+      "query": "",
+      "expect": ["action:splitDown"],
+      "at": 2,
+      "group": "settings",
+      "pins": ["closeTab", "splitDown"],
+      "note": "the second pin is second"
+    },
+    {
+      "query": "",
+      "expect": ["action:splitDown"],
+      "at": 1,
+      "group": "settings",
+      "pins": ["splitDown"],
+      "replay": [
+        {
+          "query": "new w",
+          "pick": "action:newWindow",
+          "daysAgo": 0
+        }
+      ],
+      "note": "pins come before Recent"
+    },
+    {
+      "query": "",
+      "expect": ["action:newWindow"],
+      "at": 2,
+      "group": "settings",
+      "pins": ["splitDown"],
+      "replay": [
+        {
+          "query": "new w",
+          "pick": "action:newWindow",
+          "daysAgo": 0
+        }
+      ],
+      "note": "Recent follows the pins"
+    },
+    {
+      "query": "",
+      "expect": ["action:newTab.default"],
+      "at": 1,
+      "group": "settings",
+      "pins": ["newTab.default"],
+      "note": "a pinned Suggested row shows once, as a pin"
+    },
+    {
+      "query": "",
+      "expect": ["action:splitRight"],
+      "at": 2,
+      "group": "settings",
+      "pins": ["newTab.default"],
+      "note": "Suggested follows the pins without repeating them (Split Right is Suggested's second row)"
+    },
+    {
+      "query": "",
+      "expect": ["action:newTab.default"],
+      "at": 2,
+      "group": "settings",
+      "pins": ["newWindow"],
+      "replay": [
+        {
+          "query": "new w",
+          "pick": "action:newWindow",
+          "daysAgo": 0
+        }
+      ],
+      "note": "a pinned Recent row shows once, as a pin: Suggested follows at once"
     }
   ]
 }

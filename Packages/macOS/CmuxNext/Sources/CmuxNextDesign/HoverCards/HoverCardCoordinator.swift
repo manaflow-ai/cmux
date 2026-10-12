@@ -42,10 +42,14 @@ public final class HoverCardCoordinator {
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
-    /// This app's visible windows, front first: a no-activate run (a
-    /// capture slot) hit-tests against these (tests inject them).
-    public var ownWindows: () -> [NSWindow] = {
-        (NSWindow.windowNumbers(options: []) ?? []).compactMap { NSApp?.window(withWindowNumber: $0.intValue) }
+    /// This app's visible windows that take the mouse, front first: a
+    /// no-activate run (a capture slot) hit-tests against these. Tests inject
+    /// plain numbers and frames, so the window server's state cannot flake them.
+    public var ownWindows: () -> [(number: Int, frame: CGRect)] = {
+        (NSWindow.windowNumbers(options: []) ?? [])
+            .compactMap { NSApp?.window(withWindowNumber: $0.intValue) }
+            .filter { $0.isVisible && !$0.ignoresMouseEvents }
+            .map { ($0.windowNumber, $0.frame) }
     }
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
@@ -280,9 +284,7 @@ public final class HoverCardCoordinator {
     /// not ours.
     private func ownTopWindowNumber(at point: CGPoint) -> Int? {
         let card = panel?.windowNumber
-        return ownWindows().first {
-            $0.isVisible && !$0.ignoresMouseEvents && $0.windowNumber != card && $0.frame.contains(point)
-        }?.windowNumber
+        return ownWindows().first { $0.number != card && $0.frame.contains(point) }?.number
     }
 
     private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {

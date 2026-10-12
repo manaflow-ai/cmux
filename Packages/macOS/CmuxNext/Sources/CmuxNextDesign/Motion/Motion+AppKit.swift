@@ -339,4 +339,18 @@ extension Motion {
         transition.type = .fade
         return transition
     }
+
+    /// Under Reduce Motion, a change that would move things crossfades in place instead
+    /// (motion.md rule 7): `layer` fades from what it showed to what it shows after this
+    /// transaction. Nil when fades are off.
+    @discardableResult
+    public static func crossfadeInPlace(_ layer: CALayer?) -> CATransition? {
+        let seconds = duration(.crossfade)
+        guard let layer, seconds > 0 else { return nil }
+        let transition = crossfadeAction
+        transition.duration = seconds
+        transition.timingFunction = fadeCurve
+        layer.add(transition, forKey: "cmux.reduceMotionCrossfade")
+        return transition
+    }
 }

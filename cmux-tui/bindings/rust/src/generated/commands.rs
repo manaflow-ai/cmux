@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd.
+// cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -485,6 +485,9 @@ pub struct CloseWorkspaceRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// With end_terminals: the close is not recorded in the closed history (session_end).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::CloseReason>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -3761,6 +3764,9 @@ impl CmuxClient {
         }
         if !request.origin.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
+        }
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-workspace", "close-reason-v1")?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }

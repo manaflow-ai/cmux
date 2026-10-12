@@ -13050,6 +13050,17 @@
       "since": 12,
       "capability": "batch-close-v1"
      },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "CloseReason"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -23326,6 +23337,52 @@
      "kitty-image-budget-update-failed carries retry_exhausted and summary.",
      "cell-pixel-update-retries-exhausted carries attempts, remaining, cell_width, and cell_height."
     ]
+   }
+  },
+  "keybindings-changed": {
+   "since": 12,
+   "capability": "keybindings-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "keybindings-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "user",
+        "cli",
+        "mcp",
+        "script",
+        "remote",
+        "app",
+        "file"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    }
   },
   "layout-changed": {

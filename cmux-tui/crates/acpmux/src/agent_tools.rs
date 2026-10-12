@@ -139,7 +139,14 @@ pub struct Inputs {
     pub cua_v2: Option<PathBuf>,
     /// This acpmux executable (the `cua-mcp` bridge command).
     pub acpmux: Option<PathBuf>,
+    /// The app shows the secret card ([`SECRET_TOOLS_ENV`] is `1`): sessions
+    /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
+    /// wait with nothing to answer it.
+    pub secrets: bool,
 }
+
+/// Set to `1` by an app that shows the secret card (cx-ncc.42).
+pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -159,6 +166,7 @@ impl Inputs {
             cua: crate::cua_socket::from_env(),
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: std::env::current_exe().ok(),
+            secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
         }
     }
 }
@@ -274,6 +282,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             .collect(),
         });
     }
+    if let (true, Some(acpmux)) = (inputs.secrets, &inputs.acpmux) {
+        // request_secret and run_with_secret (`secret_mcp.rs`): `for_session`
+        // names the session and this daemon's socket in its env.
+        servers.push(McpServer {
+            name: crate::secret_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["secret-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && inputs.cmux_json.as_deref().is_some_and(mcp_enabled)
     {
@@ -317,6 +335,13 @@ impl AgentTools {
             server.env.retain(|(k, _)| k != AGENT_SESSION_ENV);
             if server.name == "cmux" {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
+            }
+            if server.name == crate::secret_mcp::SERVER_NAME {
+                let socket = crate::config::socket_path().to_string_lossy().into_owned();
+                server.env = vec![
+                    (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    ("ACPMUX_SOCKET".to_owned(), socket),
+                ];
             }
         }
         self

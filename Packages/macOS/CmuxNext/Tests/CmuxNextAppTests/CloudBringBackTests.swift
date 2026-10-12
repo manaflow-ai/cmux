@@ -50,7 +50,7 @@ struct CloudBringBackTests {
     }
 
     /// The Mac's guard refuses a chat that approves everything: the machine's tab stays, the
-    /// message names the setting in plain words, and Retry is offered for after it is changed.
+    /// message names the setting in plain words, and "Ask first, then bring back" is offered.
     @Test func aGuardRefusalKeepsTheMachineTabWithAClearMessage() async throws {
         try await Self.withRoundTrip("policy") { trip in
             let error = try #require(await trip.bringBack(), "the bring back did not report the refusal")
@@ -58,7 +58,34 @@ struct CloudBringBackTests {
             #expect(trip.calls().count == 4, "\(trip.calls())")
             #expect(trip.machineChat() != nil, "the machine's tab closed though the chat did not move")
             #expect(trip.localChat() == nil)
-            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .move(machineID: "vm-move"))
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .askFirst(machineID: "vm-move"))
+        }
+    }
+
+    /// "Ask first, then bring back" (cx-rppd.10): after the Mac's guard refused a chat that approves
+    /// on its own, the stop's toast offers to narrow the machine's chat to an asking policy and mode
+    /// and bring it back. A plain rerun never changes the chat; the toast's action runs the move again
+    /// with `--ask-first` (the machine's daemon narrows the chat before the move; this Mac's guard is
+    /// unchanged), and the chat comes back.
+    @Test func aGuardRefusalOffersAskFirstThenBringsTheChatBack() async throws {
+        try await Self.withRoundTrip("policy") { trip in
+            #expect(await trip.bringBack() != nil, "the bring back did not report the refusal")
+            #expect(trip.calls().count == 4, "\(trip.calls())")
+            // Bring Back Local again, not the toast's action: refused again, the chat left as it is.
+            #expect(await trip.bringBack() != nil, "a plain rerun brought the chat back")
+            #expect(trip.calls().count == 6, "\(trip.calls())")
+            #expect(trip.calls().last?.contains("--ask-first") == false, "a plain rerun narrowed the chat: \(trip.calls())")
+            #expect(trip.machineChat() != nil, "the machine's tab closed though the chat did not move")
+            // The toast's "Ask first, then bring back" (``CloudBringBack/askFirstInvocation(tab:)``).
+            let askFirst = ActionInvocation(target: ActionTargetRef(kind: .tab, id: trip.machineKey), arguments: ["askFirst": .bool(true)], origin: .user)
+            #expect(trip.services.registry.perform(CloudBringBack.action, invocation: askFirst))
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = trip.calls()
+            #expect(calls.count == 8, "\(calls)")
+            #expect(calls.last == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
+                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--ask-first"])
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }
     }
 
@@ -270,7 +297,7 @@ struct CloudBringBackTests {
                     [ -n "$registry" ] || exit 70
                     printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}'
-                elif [ '\(mode)' = policy ]; then
+                elif [ '\(mode)' = policy ] && [ "${12}" != --ask-first ]; then
                     echo '{"ok":false,"error":"the machine did not take the chat: acpmux refused the request: transfer.policy: approve-all","error_code":"agent_transfer.refused"}'
                     exit 1
                 else
