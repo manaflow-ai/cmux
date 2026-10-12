@@ -42,7 +42,7 @@ input {
   max-width: 280px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--page-elevated);
+  background: var(--surface-popup);
   border: 1px solid var(--page-separator);
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
   outline: none;

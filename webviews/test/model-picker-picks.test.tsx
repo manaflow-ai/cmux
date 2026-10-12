@@ -27,6 +27,7 @@ const keys = [
   "DocumentFragment",
   "SVGElement",
   "HTMLTemplateElement",
+  "localStorage",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -57,6 +58,7 @@ beforeAll(() => {
     DocumentFragment: dom.window.DocumentFragment,
     SVGElement: dom.window.SVGElement,
     HTMLTemplateElement: dom.window.HTMLTemplateElement,
+    localStorage: dom.window.localStorage,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -68,6 +70,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  dom.window.localStorage.clear();
 });
 
 afterAll(() => {
@@ -80,7 +83,10 @@ afterAll(() => {
 
 type Sent = { method: "model" | "harness" | "effort"; value: string };
 
-async function mount(start: { harness: string }) {
+async function mount(start: {
+  harness: string;
+  extra?: { id: string; name: string; unavailable?: string; probeFailed?: boolean }[];
+}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -88,12 +94,14 @@ async function mount(start: { harness: string }) {
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   // acpmux's harness list: what `_acpmux/models` reports for each catalog harness.
-  const acpmux: Snapshot["catalog"] = BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
-    id: harness.id,
-    name: harness.name,
-    family: harness.families[0],
-    models: harness.models.map((model) => ({ id: model.id, name: model.name })),
-  })) as Snapshot["catalog"];
+  const acpmux: Snapshot["catalog"] = BUNDLED_MODEL_CATALOG.harnesses
+    .map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      family: harness.families[0],
+      models: harness.models.map((model) => ({ id: model.id, name: model.name })),
+    }))
+    .concat((start.extra ?? []).map((entry) => ({ ...entry, family: entry.id, models: [] }))) as Snapshot["catalog"];
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
@@ -221,12 +229,13 @@ test("a row of another provider starts that provider on that row's model", async
 /// The New Tab page: no chat yet, so a pick starts a deferred switch (`chat.new {deferred}`) that
 /// acpmux runs behind the page. The chips are the page's own (App.tsx); the host's actions are
 /// the pane's `chat.new` and `chat.model` (App.tsx), on a real HarnessSwitch.
-async function mountNewTab(start: { harness: string }) {
+async function mountNewTab(start: { harness: string; folder?: string }) {
   const { createRoot } = await import("react-dom/client");
   const { useSyncExternalStore } = await import("react");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
-  const { HarnessSwitch, applySwitch, defaultModel } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { HarnessSwitch, applySwitch, lastOfferedModel } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { newTabStart } = await import("../src/agent-session/acpmux/newtab/chipDefaults");
   const { HarnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
@@ -239,6 +248,7 @@ async function mountNewTab(start: { harness: string }) {
   const profiles = new HarnessProfiles(() => undefined);
   const sent: { method: string; params: Record<string, unknown> }[] = [];
   const created: string[] = [];
+  const models: string[] = [];
   const store = new HarnessSwitch();
   store.connect({
     turnRunning: () => false,
@@ -250,7 +260,9 @@ async function mountNewTab(start: { harness: string }) {
     leave: () => undefined,
     open: async (sessionId) => sessionId,
     send: async () => undefined,
-    setModel: async () => undefined,
+    setModel: async (model) => {
+      models.push(model);
+    },
     setMode: async () => undefined,
     setConfig: async () => undefined,
     discard: () => undefined,
@@ -263,9 +275,10 @@ async function mountNewTab(start: { harness: string }) {
     "chat.new": (params) => {
       sent.push({ method: "chat.new", params });
       const { harness, cwd, deferred, model } = params;
+      const picked = model ? String(model) : lastOfferedModel(String(harness), acpmux, cwd ? String(cwd) : undefined);
       return store.switchTo(String(harness), cwd ? String(cwd) : undefined, {
         deferred: deferred === true,
-        ...(model ? { model: String(model) } : {}),
+        ...(picked ? { model: picked } : {}),
       });
     },
     "chat.model": (params) => {
@@ -275,6 +288,7 @@ async function mountNewTab(start: { harness: string }) {
     "chat.mode": async () => undefined,
     "chat.effort": async () => undefined,
   };
+  const folder = start.folder ?? "/tmp/project";
   const raw: Snapshot = {
     type: "snapshot",
     protocolVersion: 1,
@@ -289,19 +303,12 @@ async function mountNewTab(start: { harness: string }) {
   function Page() {
     const view = useSyncExternalStore(store.subscribe, store.view);
     const snapshot = applySwitch(raw, view, acpmux, profiles);
-    // NewTabScreen's chip snapshot: the shown agent and its default model until a pick.
-    const chips = snapshot.summary?.harness
-      ? snapshot
-      : {
-          ...snapshot,
-          summary: {
-            sessionId: "",
-            turnCount: 0,
-            harness: start.harness,
-            model: defaultModel(start.harness, acpmux, profiles) ?? "default",
-          },
-        };
-    return <NewTabComposerChips snapshot={chips} cwd="/tmp/project" />;
+    // NewTabScreen's start: the chip's pick, else the last pick, else the shown agent's default.
+    const agents = [start.harness, ...acpmux.map((entry) => entry.id).filter((id) => id !== start.harness)].map(
+      (id) => ({ id, name: id }),
+    );
+    const chips = newTabStart(snapshot, agents, start.harness, folder).snapshot;
+    return <NewTabComposerChips snapshot={chips} cwd={folder} />;
   }
   const client = new QueryClient();
   root = createRoot(host);
@@ -312,7 +319,16 @@ async function mountNewTab(start: { harness: string }) {
       </QueryClientProvider>,
     );
   });
-  return { sent, catalog: BUNDLED_MODEL_CATALOG };
+  /// Return on the page: asks the agent the chip shows, in the page's folder (screenActions onAsk).
+  const ask = async () => {
+    const harness = shownHarness();
+    await act(async () => {
+      await (window as unknown as { cmuxAcpmuxActions: Record<string, (params: Record<string, unknown>) => unknown> })
+        .cmuxAcpmuxActions["chat.new"]!({ harness, cwd: folder });
+    });
+  };
+  const shownHarness = () => store.view().intent?.harness ?? newTabStart(raw, acpmux, start.harness, folder).harness!;
+  return { sent, created, models, ask, catalog: BUNDLED_MODEL_CATALOG };
 }
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -419,4 +435,105 @@ test("a typed combo for another provider starts it on that model, then sets its 
     { method: "harness", value: "codex/gpt-6-astra" },
     { method: "effort", value: "high" },
   ]);
+});
+
+test("the rail's + shows only where the Harnesses page can open (never in the Quick Composer)", async () => {
+  const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
+  await mountNewTab({ harness: "claude" });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  // No pane that can show the page is mounted (the Quick Composer registers none).
+  expect(host.querySelector(".acpmux-mp-add-agent")).toBeNull();
+  const opened: string[] = [];
+  let unregister = () => {};
+  await act(async () => {
+    unregister = registerHarnessesPage(() => opened.push("harnesses"));
+  });
+  const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-agent");
+  expect(add).not.toBeNull();
+  await act(async () => add!.click());
+  expect(opened).toEqual(["harnesses"]);
+  act(() => unregister());
+});
+
+async function pickOnNewTab(from: string, provider: string, id: string, folder?: string) {
+  await mountNewTab({ harness: from, ...(folder ? { folder } : {}) });
+  await openOn(provider);
+  const row = rows().find((candidate) => candidate.dataset.key === `model:${id}`)!;
+  await act(async () => row.click());
+  await settle();
+  act(() => root?.unmount());
+  root = undefined;
+}
+
+test("the last pick is the model of the next New Tab, after a restart too, and the chat starts on it", async () => {
+  await pickOnNewTab("claude", "Codex", "gpt-6-astra");
+  // A new tab: the page and its switch are new; only what was remembered carries over.
+  const next = await mountNewTab({ harness: "claude" });
+  expect(chip()).toBe("GPT-6 Astra");
+  act(() => root?.unmount());
+  root = undefined;
+  // A restart: the modules load again, as a relaunched app's page does.
+  const restarted = await import(`../src/agent-session/acpmux/lastPick?restart=${Date.now()}`);
+  expect(restarted.lastPick()).toEqual({ harness: "codex", model: "gpt-6-astra" });
+  const tab = await mountNewTab({ harness: "claude" });
+  expect(chip()).toBe("GPT-6 Astra");
+  await tab.ask();
+  await settle();
+  expect({ created: tab.created, models: tab.models }).toEqual({ created: ["codex"], models: ["gpt-6-astra"] });
+  expect(next.created).toEqual([]);
+});
+
+test("a folder keeps its own last pick; other folders take the latest pick anywhere", async () => {
+  await pickOnNewTab("claude", "Codex", "gpt-6-astra", "/work/a");
+  await pickOnNewTab("codex", "Claude Code", "claude-opus-5-5", "/work/b");
+  for (const [folder, name] of [
+    ["/work/a", "GPT-6 Astra"],
+    ["/work/b", "Claude Opus 5.5"],
+    ["/work/c", "Claude Opus 5.5"],
+  ] as const) {
+    await mountNewTab({ harness: "claude", folder });
+    expect({ folder, chip: chip() }).toEqual({ folder, chip: name });
+    act(() => root?.unmount());
+    root = undefined;
+  }
+});
+
+test("the rail lists the harnesses set up here; one acpmux cannot run stays off it", async () => {
+  await mount({
+    harness: "claude",
+    extra: [{ id: "grok", name: "Grok", unavailable: "grok: command not found" }],
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const rail = () => [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
+  expect(rail().some((title) => title.startsWith("Grok"))).toBe(false);
+  expect(rail().some((title) => title.startsWith("Claude Code"))).toBe(true);
+});
+
+test("a harness whose model probe alone failed stays on the rail", async () => {
+  await mount({
+    harness: "claude",
+    extra: [{ id: "grok", name: "Grok", unavailable: "model list timed out", probeFailed: true }],
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const rail = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
+  expect(rail.some((title) => title.startsWith("Grok"))).toBe(true);
+});
+
+test("a remembered model the harness no longer offers is neither drawn nor asked for", async () => {
+  dom.window.localStorage.setItem(
+    "cmux.acpmux.lastPick",
+    JSON.stringify({ global: { harness: "claude", model: "claude-opus-3" } }),
+  );
+  const tab = await mountNewTab({ harness: "claude" });
+  expect(chip()).not.toContain("opus-3");
+  await tab.ask();
+  await settle();
+  expect(tab.created).toEqual(["claude"]);
+  expect(tab.models).toEqual([]);
 });

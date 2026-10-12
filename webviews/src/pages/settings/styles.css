@@ -50,6 +50,13 @@ body {
   color: var(--text);
 }
 
+/* One scroller (cx-jh7kq): the content column. The Settings page's document never scrolls, so a
+   wheel at the content's end goes nowhere and the page never slides up under the window. Pages
+   that only borrow this stylesheet (gallery frames) keep their own scrolling. */
+:is(html, body):has(.settings) {
+  overflow: hidden;
+}
+
 body {
   background: transparent;
 }
@@ -85,9 +92,11 @@ mark {
 }
 
 .settings {
+  position: relative;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -97,6 +106,7 @@ mark {
   padding: 14px 10px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  overscroll-behavior: contain;
   transition: border-color var(--motion-hover);
 }
 
@@ -106,9 +116,30 @@ mark {
   border-right-color: transparent;
 }
 
+/* Rows fade out under the top and bottom edges instead of being cut mid-row. The fades sit in
+   the padding at either end; the scrollbar's strip on the right stays unmasked. */
 .content {
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px 28px 48px;
+  --content-fade-top: 18px;
+  --content-fade-bottom: 28px;
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--content-fade-top),
+      #000 calc(100% - var(--content-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-size:
+    calc(100% - 14px) 100%,
+    14px 100%;
+  mask-position:
+    left top,
+    right top;
+  mask-repeat: no-repeat;
 }
 
 .search {
@@ -536,9 +567,6 @@ mark {
 
 .domain {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
 }
 
 .domain-button {
@@ -548,14 +576,12 @@ mark {
   max-width: 260px;
 }
 
+/* A pop-up over the rows (cx-jh7kq): opening it pushes no row down. */
 .domain-panel {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 260px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .domain-list {

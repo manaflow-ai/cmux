@@ -69,6 +69,9 @@ export type ChangesSource = {
   /// The pull request's review threads, `{url, number, threads}` (changes/reviewThreads.ts).
   reviewThreads?: () => Promise<unknown>;
   status?: () => Promise<unknown>;
+  /// One file of a scope with every unchanged line as context (changes/wholeFile.ts), named from the
+  /// repository's top; absent where the host can't read it.
+  wholeFile?: (scope: ChangeScope, path: string) => Promise<unknown>;
   turn?: (turn: { rowId: string }) => Promise<unknown>;
   /// `git.commit` and `git.push` with the page's params and `idempotency_key`; each resolves to
   /// the session host's MutationResult (changes/gitWrite.ts).

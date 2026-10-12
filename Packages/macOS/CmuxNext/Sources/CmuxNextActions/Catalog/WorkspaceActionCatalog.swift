@@ -245,12 +245,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 cliName: "workspace set-color"
             ),
             ActionDescriptor(
-                id: "palette.workspaceCustomColor",
-                title: String(localized: "action.palette.workspaceCustomColor", defaultValue: "Custom Workspace Color…", bundle: .module),
-                keywords: ["color", "tint"], category: .workspace, symbol: "eyedropper",
-                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace custom-color"
-            ),
-            ActionDescriptor(
                 id: "palette.resetWorkspaceColor",
                 title: String(localized: "action.palette.resetWorkspaceColor", defaultValue: "Reset Workspace Color", bundle: .module),
                 keywords: ["color", "tint"], category: .workspace, symbol: "paintbrush",

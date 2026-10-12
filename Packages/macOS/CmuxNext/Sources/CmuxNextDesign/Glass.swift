@@ -27,18 +27,19 @@ public struct Glass {
             OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
     }()
 
-    /// A floating panel over content (palette, hover card, find and prompt
-    /// bars) that hosts `content` edge to edge: Liquid Glass with the theme
-    /// tint, or under Reduce Transparency an opaque theme fill
-    /// (`ThemeTokens.opaqueOverlayFill`) with a hairline, switched live
-    /// when the setting or the theme changes. Use this for every overlay;
-    /// it takes clicks unless `interactive` is false.
+    /// A floating panel over content that carries text (palette, dialogs,
+    /// hover cards, find and prompt bars, page info, popovers, toasts) and
+    /// hosts `content` edge to edge: the solid popup surface
+    /// (`Palette.popupSurface`) with a hairline, never glass, so the text
+    /// under it never shows through (Leo, 2026-10-12). It follows the theme
+    /// live. Use this for every overlay; it takes clicks unless
+    /// `interactive` is false.
     public static func makeOverlayPanel(
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = true
     ) -> OverlaySurfaceView {
-        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius)
+        let surface = OverlaySurfaceView(material: .opaque, interactive: interactive, cornerRadius: cornerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true
