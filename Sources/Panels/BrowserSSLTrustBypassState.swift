@@ -27,6 +27,7 @@ final class BrowserSSLTrustBypassState {
     /// minted, consumed, or honored. Read per call so a profile pushed
     /// mid-session applies to the next navigation.
     private let isBypassAllowed: () -> Bool
+    private let fingerprintServerTrust: (SecTrust) -> BrowserServerTrustFingerprint?
 
     init(
         tokenLifetime: TimeInterval = 24 * 60 * 60,
@@ -35,9 +36,13 @@ final class BrowserSSLTrustBypassState {
         now: @escaping () -> Date = { Date.now },
         isBypassAllowed: @escaping () -> Bool = {
             !ManagedDevicePolicy().isEnforced(.disableTLSTrustBypass)
+        },
+        fingerprintServerTrust: @escaping (SecTrust) -> BrowserServerTrustFingerprint? = {
+            BrowserServerTrustFingerprint(serverTrust: $0)
         }
     ) {
         self.isBypassAllowed = isBypassAllowed
+        self.fingerprintServerTrust = fingerprintServerTrust
         self.tokenLifetime = tokenLifetime
         self.maximumPendingBypassCount = max(1, maximumPendingBypassCount)
         self.maximumRetainedRequestBodyBytes = max(0, maximumRetainedRequestBodyBytes)
@@ -46,7 +51,7 @@ final class BrowserSSLTrustBypassState {
 
     func recordObservedServerTrust(_ trust: SecTrust, for protectionSpace: URLProtectionSpace) {
         guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
-              let fingerprint = BrowserServerTrustFingerprint(serverTrust: trust) else {
+              let fingerprint = fingerprintServerTrust(trust) else {
             return
         }
         recordObservedServerTrustFingerprint(fingerprint, for: scope)
@@ -67,7 +72,7 @@ final class BrowserSSLTrustBypassState {
         guard isBypassAllowed(),
               let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
               bypassedTrusts.contains(where: { $0.scope == scope }),
-              let fingerprint = BrowserServerTrustFingerprint(serverTrust: serverTrust) else {
+              let fingerprint = fingerprintServerTrust(serverTrust) else {
             return false
         }
         return isBypassed(scope: scope, fingerprint: fingerprint)
