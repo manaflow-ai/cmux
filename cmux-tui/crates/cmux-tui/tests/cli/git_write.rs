@@ -439,6 +439,17 @@ fn removing_a_worktree_chat_keeps_unsaved_work_unless_told_to_discard_it() {
     assert!(!clean.exists());
     assert_eq!(git(&repo, &["branch", "--list", "cmux/clean"]), "");
 
+    // Commits on a detached HEAD live only there: they keep it too.
+    let detached = create("detached", "c3");
+    git(&detached, &["checkout", "-q", "--detach"]);
+    fs::write(detached.join("a.txt"), "three\n").unwrap();
+    git(&detached, &["commit", "-q", "-am", "detached work"]);
+    let args = ["worktree", "remove", "--idempotency-key", "r6"];
+    let refused = git_cli(&server, &detached, &args);
+    assert!(!refused.status.success(), "a detached HEAD's commits were removed");
+    assert!(reason(&refused).contains("unpushed_commits"), "{}", reason(&refused));
+    assert!(detached.exists());
+
     // The main checkout is no worktree to remove.
     let args = ["worktree", "remove", "--discard", "--idempotency-key", "r5"];
     let refused = git_cli(&server, &repo, &args);
