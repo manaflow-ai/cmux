@@ -44,10 +44,15 @@ fn subscribe_deltas(server: &HeadlessServer) -> (impl Sized + use<>, mpsc::Recei
     });
     writeln!(writer, r#"{{"id":1,"cmd":"subscribe","tree_events":"deltas"}}"#).unwrap();
     writer.flush().unwrap();
-    let line = rx.recv_timeout(Duration::from_secs(5)).expect("no subscribe reply");
-    let reply: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(reply["ok"], true, "subscribe failed: {reply}");
-    (writer, rx)
+    // Events can precede the reply; skip to the line answering id 1.
+    loop {
+        let line = rx.recv_timeout(Duration::from_secs(5)).expect("no subscribe reply");
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply["id"] == 1 {
+            assert_eq!(reply["ok"], true, "subscribe failed: {reply}");
+            return (writer, rx);
+        }
+    }
 }
 
 /// The first `event` delta on the subscription.
