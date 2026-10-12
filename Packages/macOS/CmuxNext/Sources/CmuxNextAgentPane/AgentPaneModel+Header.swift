@@ -112,7 +112,7 @@ extension AgentPaneModel {
             }
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .archive(let archived): return await archive(archived)
-        case .markUnread: return await AgentPaneMarkUnread.reply(self)
+        case .markUnread: return await AgentPaneMarkUnread(self).reply()
         case .sideChat(let fork):
             return await openSideChat(fork)
         default:
