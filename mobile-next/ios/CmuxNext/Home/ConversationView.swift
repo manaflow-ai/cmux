@@ -165,7 +165,7 @@ struct ConversationView: View {
                     }
                     withAnimation(Messages.menuOut) { self.reactingTo = nil }
                 }
-                .transition(.opacity)
+                .transition(.opacity.animation(.easeOut(duration: 0.22)))
             }
         }
     }
@@ -490,7 +490,7 @@ struct TapbackOverlay: View {
         ZStack {
             // Messages blurs and darkens the backdrop ~19% (measured lum 245.6 → 198.5).
             Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
-                .overlay(Color.black.opacity(0.22).ignoresSafeArea())
+                .overlay(Color.black.opacity(0.32).ignoresSafeArea())
                 .onTapGesture { done(nil) }
             VStack(alignment: isMine ? .trailing : .leading, spacing: 10) {
                 HStack(spacing: 5) {

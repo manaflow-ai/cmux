@@ -71,3 +71,12 @@ the outgoing row under the incoming card, as expected for that transition; no cu
 | At rest | ~530 ms | ~620 ms (sub-pixel tail) |
 
 Times now show for received rows too (only sent bubbles slide), as in Messages.
+
+## Tapback backdrop (reference: iMessage §3.8)
+
+| Run | Backdrop darkening | Time to settle |
+| --- | --- | --- |
+| iMessage | 19% (lum 245.6 → 198.5) | ~217 ms |
+| cmux r37 (material + 6% black) | 8% | ~100 ms |
+| cmux r38 (22%) | 12% | ~110 ms |
+| cmux r39 (32%, 0.22 s ease-out) | 16% (221 → 185, over gray bubbles) | ~150 ms |
