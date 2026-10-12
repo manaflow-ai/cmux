@@ -167,6 +167,8 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
+  onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
@@ -223,6 +225,7 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   onBrowseFolder,
   onConnect,
   localName,
@@ -839,6 +842,7 @@ export function Composer({
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
+      onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       summary={snapshot.summary}

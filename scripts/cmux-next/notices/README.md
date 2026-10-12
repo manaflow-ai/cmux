@@ -75,7 +75,9 @@ nightly-next collects a second tree from that submodule
 puts the tree and its Zig packages in the source archive. A product that
 builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
-Linked set: `vt_link_graph.py generate` (Testbox or CI; it runs zig) builds
+Linked set: `vt_link_graph.py generate` (CI or a Testbox; it runs zig; a
+`ghosttykit-pin/<name>` push uploads it as the source-archive run's
+`vt-link-graph` artifact) builds
 libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
 macOS, aarch64/x86_64 Linux musl and x86_64 Windows GNU, reads the archive's DWARF source paths and
 writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks

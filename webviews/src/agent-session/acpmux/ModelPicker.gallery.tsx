@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample models), not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { ModelPickerProps } from "./modelPickerLayout";
+import type { Play } from "../../gallery/play";
 
 const catalog: ModelPickerProps["catalog"] = [
   {
@@ -46,6 +47,18 @@ const base: ModelPickerProps = {
   onEffort: () => undefined,
 };
 
+const numericSearch: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  const search = { selector: '.acpmux-mp input[role="combobox"]' };
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
+  await ctx.type("gpt", search);
+  await ctx.press("1");
+  // With a query active, a digit is search input rather than a row shortcut. The menu remains
+  // mounted after the key, whereas the old shortcut path selected the first cross-harness match
+  // and closed the picker.
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
+};
+
 export default componentEntry<ModelPickerProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
@@ -67,5 +80,9 @@ export default componentEntry<ModelPickerProps>({
     fetching: { props: { ...base, catalogRefresh: refresh("fetching", "2026-10-07T10:00:00Z") } },
     updated: { props: { ...base, catalogRefresh: refresh("updated", "2026-10-07T12:30:00Z") } },
     error: { props: { ...base, catalogRefresh: refresh("error", "2026-10-07T10:00:00Z") } },
+    "numeric-search": {
+      props: { ...base },
+      play: numericSearch,
+    },
   },
 });

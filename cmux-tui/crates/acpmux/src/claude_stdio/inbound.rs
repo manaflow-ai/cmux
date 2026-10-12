@@ -113,7 +113,7 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
-                        out.push(upd(json!({
+                        let mut call = json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
                             "title": tool_title(name, &input),
@@ -121,7 +121,14 @@ impl Translator {
                             "status": "in_progress",
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
-                        })));
+                        });
+                        with_edit(&mut call, name, &input);
+                        if let (Some(diffs), Some(id)) =
+                            (call.get("content"), c.get("id").and_then(Value::as_str))
+                        {
+                            self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        out.push(upd(call));
                     }
                 }
             }
@@ -170,13 +177,21 @@ impl Translator {
                             _ => String::new(),
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // ACP content replaces the call's content: a finished edit
+                        // keeps its diff, and a failed one says why.
+                        let content = match self.edits.lock().await.remove(tool) {
+                            Some(diffs) if !is_err => diffs,
+                            _ => {
+                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                            }
+                        };
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call_update",
                             "toolCallId": c.get("tool_use_id"),
                             "status": if is_err { "failed" } else { "completed" },
-                            "content": [{"type": "content", "content": {"type": "text", "text": text}}],
+                            "content": content,
                         })));
-                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
                         // A background subagent's result is only its launch.
                         if self.background_subagents.lock().await.contains(tool) {
                             continue;
@@ -213,18 +228,24 @@ impl Translator {
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
-                        out.push(Message::request(acp_id, method::SESSION_REQUEST_PERMISSION, json!({
-                            "sessionId": sid,
-                            "toolCall": {
-                                "toolCallId": req.get("tool_use_id"),
-                                "title": tool_title(name, &input),
-                                "kind": tool_kind(name),
-                                "status": "pending",
-                                "rawInput": input,
-                                "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
-                            },
-                            "options": options,
-                        })));
+                        let mut call = json!({
+                            "toolCallId": req.get("tool_use_id"),
+                            "title": tool_title(name, &input),
+                            "kind": tool_kind(name),
+                            "status": "pending",
+                            "rawInput": input,
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
+                        });
+                        with_edit(&mut call, name, &input);
+                        out.push(Message::request(
+                            acp_id,
+                            method::SESSION_REQUEST_PERMISSION,
+                            json!({
+                                "sessionId": sid,
+                                "toolCall": call,
+                                "options": options,
+                            }),
+                        ));
                     }
                     other => {
                         // Anything else (hook_callback, mcp_message) is declined
@@ -466,6 +487,16 @@ impl Translator {
             "capabilities": {},
             "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
         })
+    }
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
     }
 }
 
