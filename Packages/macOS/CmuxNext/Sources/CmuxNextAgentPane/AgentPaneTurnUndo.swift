@@ -226,7 +226,7 @@ extension AgentPaneTurnUndo {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        let results = await run(undo, roots: model.roots() + model.transport.addedRoots, trash: model.trashFile)
+        let results = await run(undo, roots: model.fileOpenRoots(), trash: model.trashFile)
         return AgentPaneReply.success(["files": results.map { ["path": $0.path, "status": $0.status.rawValue] }])
     }
 }
