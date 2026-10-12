@@ -2550,15 +2550,22 @@ function AcpmuxPane() {
   const startInWorktree = useCallback((cwd: string) => {
     // A newer folder pick wins over this worktree, as between two picks.
     const pick = ++folderPick.current;
+    const sessionId = shownSession.current;
     setFolderAsk(undefined);
     setWorktreeError(undefined);
     setWorktreeCreating(true);
-    void newWorktree(callNative, cwd, (folder) => {
-      if (pick !== folderPick.current) return;
+    const use = (folder: string) => {
       // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
       if (freshRef.current) setProjectDraft(folder);
       else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    };
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick === folderPick.current) use(folder);
     })
+      .then(({ ask }) => {
+        // The host asks about the worktree's folder first: the question shows as a picked folder's.
+        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId });
+      })
       .catch((error: unknown) => {
         if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
       })
