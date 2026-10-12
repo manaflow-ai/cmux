@@ -75,10 +75,12 @@ import Testing
         let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
             .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
         ], buttons: [.ok()]))
-        for view in [sidebar, restart, placeholder, dialog] as [NSView] { scope.root(view) }
+        let compose = HomeComposeSheet(contacts: [])
+        let views: [NSView] = [sidebar, restart, placeholder, dialog, compose.view]
+        for view in views { scope.root(view) }
 
-        let buttons = [sidebar, restart, placeholder, dialog].flatMap(Self.pushButtons(in:))
-        #expect(buttons.count >= 7)
+        let buttons = views.flatMap(Self.pushButtons(in:))
+        #expect(buttons.count >= 10)
         let fill = scope.perform { Palette.selectionFill }
         for button in buttons {
             let bezel = try #require(button.bezelColor, "\(button.title)")
