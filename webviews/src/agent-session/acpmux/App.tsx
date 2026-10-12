@@ -73,6 +73,8 @@ import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { ToolCards } from "./toolCards/ToolCards";
+import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import type { QuestionReply } from "./question/model";
@@ -4008,6 +4010,7 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </ArtifactContext.Provider>
   );
+  const toolCards = useToolCards();
   const asks = (
     <>
       {snapshot.permissionGroups?.supported && (
@@ -4028,8 +4031,12 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask) && (
+      {(individualPermission || trustAsk.ask || toolCards.length > 0) && (
         <div className="acpmux-permission">
+          <ToolCards
+            cards={toolCards}
+            onAnswer={(id, action) => void callNative("chat.toolCard.respond", { id, action }).catch(() => undefined)}
+          />
           {trustAsk.ask && (
             <TrustAsk
               ask={trustAsk.ask}

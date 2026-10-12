@@ -9,6 +9,7 @@ import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
 import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
+import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setHeaderState } from "./header/headerState";
 import { setFloatingState } from "./floatingState";
@@ -92,6 +93,9 @@ export function applyHostEvent(event: HostEvent): void {
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "toolCards":
+      // Direct, like deviceChats: a push before the chat mounts is kept.
+      return setToolCards(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":
