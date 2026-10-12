@@ -545,7 +545,7 @@ interface CmuxGlobal {
   }
   closed: {
     /** `closed.delete` (mutation, scope `closed:write`) */
-    delete: CmuxOp<{ machine?: string; session?: string; closed?: Cmux.StateId; members?: Array<number>; all?: boolean; since_ms?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedDeleteResult>>
+    delete: CmuxOp<{ machine?: string; session?: string; closed?: Cmux.StateId; members?: Array<number>; all?: boolean; since_ms?: string; before_ms?: string; keep_newest?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedDeleteResult>>
     /** `closed.list` (read, scope `closed:read`) */
     list: CmuxOp<{ machine?: string; session?: string; window?: string; limit?: number }, Array<Cmux.ClosedItemSnapshot>>
     /** `closed.reopen` (mutation, scope `closed:write`) */

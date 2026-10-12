@@ -20,6 +20,7 @@ final class PageGoneView: NSView {
         setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
+        codeLabel.focusRingType = .none
         let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
         reload.setAccessibilityIdentifier(BrowserChromeView.pageGoneReloadIdentifier)
         let stack = NSStackView(views: [symbol, titleLabel, messageLabel, reload, codeLabel])

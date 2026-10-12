@@ -69,7 +69,9 @@ pub(crate) fn start_host_runtime(
     }
     // The seed's OSC 9;4 progress (the owner appends its last value) reaches
     // this host's metadata too, so later snapshots keep it.
-    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::with_program_status(
+        signals.program_status.clone(),
+    );
     if !seed.is_empty() {
         terminal_metadata.observe_output(seed);
         let _ = terminal_metadata.take_notifications();

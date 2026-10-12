@@ -2289,6 +2289,11 @@ export class AcpmuxDirectClient {
       ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
     ];
   }
+  /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
+  /// the lists it has and asks each harness before it answers (the picker's Refresh models).
+  refreshModels(): Promise<unknown> {
+    return this.request("_acpmux/models", { refresh: true });
+  }
   /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
   /// click or key handler, with no await before it: the host takes the gesture, shows its own
   /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there

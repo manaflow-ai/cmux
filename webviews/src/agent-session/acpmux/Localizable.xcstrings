@@ -25081,6 +25081,138 @@
         }
       }
     },
+    "picker.noModels": {
+      "comment": "Agent pane: the model picker when the agent has reported no models",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج بعد. حدّث لسؤال الوكيل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema modela. Osvježite da ponovo pitate agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller endnu. Opdater for at spørge agenten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Modelle. Aktualisieren, um den Agenten erneut zu fragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models yet. Refresh to ask the agent again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay modelos. Actualiza para volver a preguntar al agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle pour l’instant. Actualisez pour interroger de nouveau l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora nessun modello. Aggiorna per chiedere di nuovo all’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルはまだありません。更新してエージェントにもう一度問い合わせます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានម៉ូដែលនៅឡើយ។ ធ្វើឱ្យស្រស់ ដើម្បីសួរភ្នាក់ងារម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 모델이 없습니다. 새로 고쳐 에이전트에 다시 요청하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller ennå. Oppdater for å spørre agenten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak modeli. Odśwież, aby ponownie zapytać agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há modelos. Atualize para perguntar ao agente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Моделей пока нет. Обновите, чтобы снова запросить агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีโมเดล รีเฟรชเพื่อถามเอเจนต์อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz model yok. Ajana yeniden sormak için yenileyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Моделей ще немає. Оновіть, щоб знову запитати агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có mô hình nào. Làm mới để hỏi lại tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂无模型。刷新以再次询问代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚無模型。重新整理以再次詢問代理。"
+          }
+        }
+      }
+    },
     "picker.off": {
       "comment": "Agent pane: the reasoning menu",
       "extractionState": "manual",

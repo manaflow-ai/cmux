@@ -573,6 +573,17 @@ impl TerminalMetadata {
         Self { program_status, ..Self::default() }
     }
 
+    /// Replaces the OSC 7501 records with a terminal host's.
+    pub(crate) fn restore_program_status(
+        &self,
+        snapshot: crate::program_status::ProgramStatusSnapshot,
+    ) {
+        self.program_status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore(snapshot);
+    }
+
     /// The OSC 7501 records this metadata publishes.
     pub(crate) fn program_status(&self) -> crate::program_status::SharedProgramStatus {
         self.program_status.clone()

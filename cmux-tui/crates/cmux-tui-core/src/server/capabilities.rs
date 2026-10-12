@@ -32,6 +32,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
     }
+    #[cfg(unix)]
+    if mux.on_cloud_host() {
+        capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
+    }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
