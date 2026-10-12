@@ -61,6 +61,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// Chromium's password manager asks to save or update a sign-in, or its
+    /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
+    /// `cmux_shim_password_prompt_answer(promptID, …)`.
+    case passwordPrompt(browser: Int32, promptID: Int32, json: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -134,6 +138,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
+        case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
         default: self = .unknown(kind: kind)
         }
     }

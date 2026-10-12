@@ -28,6 +28,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
     /// always for the site) or `.cancel`.
     case openExternalApp(app: String, scheme: String)
+    /// Chromium's password manager asks to save (or, with `update`, to
+    /// replace) the sign-in a person submitted (fork API 20). Answered
+    /// `.accept` (Save / Update), `.deny` (never for the site) or `.cancel`
+    /// (Not Now). The password itself never leaves Chromium.
+    case savePassword(username: String, update: Bool)
 }
 
 /// The user's answer to a prompt.
