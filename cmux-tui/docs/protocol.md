@@ -127,7 +127,8 @@ every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
 OSC 7 (or the launch directory) and reads the repository's HEAD on the host
 that owns the PTY, so remote daemons report their own branches. `tab-changed`
-delivers the refreshed tab after a pin or directory change.
+delivers the refreshed tab after a pin or directory change. A pinned browser
+tab also reports `pinned_url`, the page it showed when it was pinned.
 
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
