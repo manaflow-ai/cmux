@@ -397,6 +397,25 @@ final class FlowTests: XCTestCase {
         pause(1.5)
     }
 
+    /// Swipe actions on a conversation row (Messages: unread/pin leading, delete trailing).
+    func testListSwipes() throws {
+        let app = launchSignedIn()
+        pause(5)
+        let row = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'home.row.'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.swipeRight()
+        pause(1)
+        snap(app, "a0-swipe-right")
+        app.buttons["Unread"].firstMatch.tap()
+        pause(1.5)
+        snap(app, "a1-unread")
+        row.swipeLeft()
+        pause(1)
+        snap(app, "a2-swipe-left")
+        app.tap()
+        pause(1)
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

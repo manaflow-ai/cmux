@@ -6,6 +6,9 @@ import SwiftUI
 struct DrawerContainer<Drawer: View, Content: View>: View {
     @Binding var isOpen: Bool
     var gestureEnabled: Bool
+    /// When set, a closed drawer only opens from drags that start this close
+    /// to the left edge (screens whose rows have their own swipe actions).
+    var edgeWidth: CGFloat? = nil
     @ViewBuilder var drawer: () -> Drawer
     @ViewBuilder var content: () -> Content
 
@@ -57,6 +60,7 @@ struct DrawerContainer<Drawer: View, Content: View>: View {
                 if !dragging {
                     // Claim only clearly horizontal drags in the opening direction.
                     guard abs(dx) > abs(dy) * 1.4 else { return }
+                    if !isOpen, let edgeWidth, value.startLocation.x > edgeWidth { return }
                     if !isOpen && dx < 0 { return }
                     if isOpen && dx > 0 { return }
                     dragging = true

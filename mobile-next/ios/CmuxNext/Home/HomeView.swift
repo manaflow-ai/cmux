@@ -82,6 +82,14 @@ struct HomeView: View {
                     .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width - 16 }
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button {
+                            if item.info.unreadCount > 0 { model.host(item.host)?.markRead(item.info.id) }
+                            else { model.host(item.host)?.markUnread(item.info.id) }
+                        } label: {
+                            Label(item.info.unreadCount > 0 ? "Read" : "Unread",
+                                  systemImage: item.info.unreadCount > 0 ? "message" : "message.badge")
+                        }
+                        .tint(Messages.accent)
+                        Button {
                             model.host(item.host)?.setPinned(item.info.id, !item.info.pinned)
                         } label: {
                             Label(item.info.pinned ? "Unpin" : "Pin", systemImage: item.info.pinned ? "pin.slash.fill" : "pin.fill")
@@ -94,8 +102,16 @@ struct HomeView: View {
                         } label: {
                             Label("Delete", systemImage: "trash.fill")
                         }
+                        .tint(Color(hex: 0xFF383C))
                     }
                     .contextMenu {
+                        Button {
+                            if item.info.unreadCount > 0 { model.host(item.host)?.markRead(item.info.id) }
+                            else { model.host(item.host)?.markUnread(item.info.id) }
+                        } label: {
+                            Label(item.info.unreadCount > 0 ? "Mark as Read" : "Mark as Unread",
+                                  systemImage: item.info.unreadCount > 0 ? "message" : "message.badge")
+                        }
                         Button {
                             model.host(item.host)?.setPinned(item.info.id, !item.info.pinned)
                         } label: {

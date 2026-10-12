@@ -31,6 +31,15 @@ final class ShellState {
         }
     }
 
+    /// Lists with swipe actions keep horizontal swipes for their rows; the
+    /// drawer opens from the screen edge there (and from anywhere elsewhere).
+    var drawerEdgeWidth: CGFloat? {
+        switch destination {
+        case .home, .terminals, .macs: 28
+        default: nil
+        }
+    }
+
     func go(_ destination: Destination) {
         if self.destination == destination {
             if destination == .home { homePath = [] }
@@ -46,7 +55,7 @@ struct ShellView: View {
     @State private var shell = ShellState()
 
     var body: some View {
-        DrawerContainer(isOpen: $shell.drawerOpen, gestureEnabled: shell.drawerGestureEnabled) {
+        DrawerContainer(isOpen: $shell.drawerOpen, gestureEnabled: shell.drawerGestureEnabled, edgeWidth: shell.drawerEdgeWidth) {
             SidebarView()
         } content: {
             // Swap screens instantly; only the drawer animates (as in ChatGPT).

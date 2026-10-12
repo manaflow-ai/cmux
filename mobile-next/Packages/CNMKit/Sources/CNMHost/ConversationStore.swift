@@ -105,10 +105,10 @@ final class ConversationStore: @unchecked Sendable {
         return message
     }
 
-    func markRead(_ id: String) {
+    func markRead(_ id: String, unread: Bool = false) {
         lock.withLock {
             guard var stored = conversations[id] else { return }
-            stored.info.unreadCount = 0
+            stored.info.unreadCount = unread ? max(1, stored.info.unreadCount) : 0
             conversations[id] = stored
         }
         save()

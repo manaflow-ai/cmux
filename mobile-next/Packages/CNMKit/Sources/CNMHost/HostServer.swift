@@ -167,7 +167,9 @@ public final class HostServer: @unchecked Sendable {
         case .conversationSend:
             return try .encode(try conversations.send(try params.decode(ConversationSendParams.self)))
         case .conversationRead:
-            conversations.markRead(try params.decode(ConversationIDParams.self).conversation)
+            let request = try params.decode(ConversationIDParams.self)
+            // flag == false marks the conversation unread again.
+            conversations.markRead(request.conversation, unread: request.flag == false)
             return .null
         case .conversationDelete:
             conversations.delete(try params.decode(ConversationIDParams.self).conversation)

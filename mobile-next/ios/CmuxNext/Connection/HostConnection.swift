@@ -283,6 +283,13 @@ final class HostConnection: Identifiable {
         Task { _ = try? await requirePeer().request(.conversationRead, params: try .encode(ConversationIDParams(conversation: conversation))) }
     }
 
+    func markUnread(_ conversation: String) {
+        if let index = conversations.firstIndex(where: { $0.id == conversation }) {
+            conversations[index].unreadCount = max(1, conversations[index].unreadCount)
+        }
+        Task { _ = try? await requirePeer().request(.conversationRead, params: try .encode(ConversationIDParams(conversation: conversation, flag: false))) }
+    }
+
     func setPinned(_ conversation: String, _ pinned: Bool) {
         if let index = conversations.firstIndex(where: { $0.id == conversation }) { conversations[index].pinned = pinned }
         Task { _ = try? await requirePeer().request(.conversationPin, params: try .encode(ConversationIDParams(conversation: conversation, flag: pinned))) }
