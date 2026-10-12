@@ -363,7 +363,13 @@ extension AgentHibernationController {
                 )
                 terminalPanel?.beginAgentHibernationTermination(
                     agent: agent,
-                    lastActivityAt: lastActivityAt
+                    lastActivityAt: lastActivityAt,
+                    processExitFence: {
+                        // Bound this lifecycle fence independently of the
+                        // teardown coordinator so a failed process observer
+                        // cannot hold a retired native surface forever.
+                        await processExitCompletion.wait(timeout: .seconds(15))
+                    }
                 )
             }
         )

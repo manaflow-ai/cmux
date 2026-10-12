@@ -1,6 +1,5 @@
 import AppKit
 import CmuxTerminalCore
-import CmuxFoundation
 import Foundation
 import GhosttyKit
 import CmuxTerminalGhosttyRuntimeTestStubs
@@ -173,7 +172,6 @@ import Testing
 
         let modes = [1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016]
         let enabled = Data(modes.flatMap { Array("\u{1b}[?\($0)h".utf8) })
-        let sequence = SSHTerminalModeResetSequence()
         cmux_test_ghostty_surface_terminal_modes_reset(runtimeSurface)
         surface.writeProcessOutputData(enabled, to: runtimeSurface)
         #expect(modes.allSatisfy {
@@ -213,7 +211,6 @@ import Testing
         var freeIterator = freeObserved.stream.makeAsyncIterator()
         #expect(await freeIterator.next() == true)
         #expect(await surface.waitForAgentHibernationRuntimeTeardown(timeout: .seconds(1)))
-        #expect(sequence.terminalBytes.contains(0x1b))
     }
 
     /// A released runtime never reports echo back on, so the pane host must

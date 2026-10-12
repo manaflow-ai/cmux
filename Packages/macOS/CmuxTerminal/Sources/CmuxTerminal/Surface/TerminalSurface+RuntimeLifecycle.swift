@@ -2,6 +2,7 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
@@ -464,6 +465,23 @@ extension TerminalSurface {
             return true
         }
 
+        let surfaceBits = UInt(bitPattern: surfaceToFree)
+        let beforeNativeFree: @Sendable () async -> Void = {
+            await retiredRemoteOutputLane.drain()
+            guard let processExitFence,
+                  await processExitFence(),
+                  let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+                return
+            }
+            let resetBytes = SSHTerminalModeResetSequence().terminalBytes
+            resetBytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                    return
+                }
+                ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+            }
+        }
+
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.hibernate surface=\(id.uuidString.prefix(5)) " +
@@ -485,9 +503,7 @@ extension TerminalSurface {
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
                 displayLayer: displayLayer,
-                beforeFree: {
-                    await retiredRemoteOutputLane.drain()
-                },
+                beforeFree: beforeNativeFree,
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -505,10 +521,7 @@ extension TerminalSurface {
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
             displayLayer: displayLayer,
-            beforeFree: {
-                await retiredRemoteOutputLane.drain()
-                _ = processExitFence
-            },
+            beforeFree: beforeNativeFree,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
         )
