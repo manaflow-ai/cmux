@@ -106,6 +106,7 @@ USAGE
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
     [--set-upstream | --no-set-upstream] [--expected-head <commit>]
   cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
+  cmux git worktree apply [TARGET]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -163,6 +164,12 @@ on a new branch cmux/<name> from --base (the current branch by default), and
 records the base as branch.cmux/<name>.cmuxBase. A taken name gets the next free
 suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
 as it is.
+
+worktree apply, run in such a worktree, brings everything it changed since its
+recorded base (commits, edits and new files; not submodules) to the main checkout
+as uncommitted changes. HEAD and the index stay; it is refused when the main
+checkout has changes of its own (or untracked files) at those paths, or when the
+work does not apply cleanly there.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
