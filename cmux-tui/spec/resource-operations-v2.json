@@ -8502,6 +8502,47 @@
       },
       "extra": false
     },
+    "GitWorktreeRemoveResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The removed worktree's folder."
+        },
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout, which stays."
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's branch; absent for a detached HEAD."
+        },
+        "branch_deleted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The branch was deleted with it: git.worktree.create made it."
+        }
+      },
+      "extra": false
+    },
     "SidebarItemRef": {
       "kind": "object",
       "fields": {
@@ -15750,6 +15791,71 @@
         "The user's checkout, index and uncommitted changes are untouched. git worktree add runs in the user's environment, so their post-checkout hook and filters run; it never prompts and is stopped after 120 s.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the worktree the first attempt made; a failing post-checkout hook does not undo the worktree, so it is reported as made.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, base_not_found, name_taken, path_exists, no_home, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+      ]
+    },
+    "git.worktree.remove": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "discard": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Remove it even with uncommitted changes or commits on no other branch or remote. Default: false."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeRemoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Run it in a linked worktree; the main checkout is never removed. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
+        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files; ignored files do not count) or commits on no other branch and no remote. With discard those are lost.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finishes what the first attempt started; once the folder is gone a new request for it names no repository.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
     "history.backups.purge": {

@@ -130,6 +130,7 @@ declare namespace Cmux {
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string }
+  type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = string
@@ -810,6 +811,8 @@ interface CmuxGlobal {
       apply: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.MutationResult<Cmux.GitWorktreeApplyResult>>
       /** `git.worktree.create` (mutation, scope `git:execute`) */
       create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; name?: string; base?: string }, Cmux.MutationResult<Cmux.GitWorktreeCreateResult>>
+      /** `git.worktree.remove` (mutation, scope `git:execute`) */
+      remove: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; discard?: boolean }, Cmux.MutationResult<Cmux.GitWorktreeRemoveResult>>
     }
   }
   github: {

@@ -164,6 +164,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::PUSH_CAPABILITY,
         crate::git_ops::WORKTREE_CAPABILITY,
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
+        crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,

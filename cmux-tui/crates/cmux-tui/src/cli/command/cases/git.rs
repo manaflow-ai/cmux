@@ -52,6 +52,7 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             "git.worktree.create",
         ),
         (vec!["git", "worktree", "apply", "--path", "/repo"], "git.worktree.apply"),
+        (vec!["git", "worktree", "remove", "--path", "/repo", "--discard"], "git.worktree.remove"),
         (
             vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
             "git.files.search",

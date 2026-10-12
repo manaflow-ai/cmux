@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c7109cdbdeaaa2a78262d2445528fb481bd64d9d3a4131c6e888c18d5fa16164",
+  "catalog_sha256": "818bf07cf5f490911ff589135039f0b9e6574c78808b3c1f78f81bf84902b271",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -182,6 +182,9 @@
       "class": "mutation"
     },
     "git.worktree.create": {
+      "class": "mutation"
+    },
+    "git.worktree.remove": {
       "class": "mutation"
     },
     "history.backups.purge": {
