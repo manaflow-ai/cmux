@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import Foundation
 
 /// The read-side merge of every history owner (plans/cmux-next/history.md
@@ -19,6 +20,7 @@ final class HistoryService {
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
+    let closedRetention: ClosedHistoryRetention
     /// Tabs this process made a page for (a later page for the same tab is
     /// a reload, not a visit).
     var installedPageKeys: Set<String> = []
@@ -30,6 +32,7 @@ final class HistoryService {
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
         commands = CommandHistory(services: services)
+        closedRetention = ClosedHistoryRetention(services: services)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -41,6 +44,13 @@ final class HistoryService {
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
         adoptDaemonHistoryOnFirstConnection()
+    }
+
+    /// Launch: keeps each daemon's command recording and closed-history
+    /// retention in step with the settings.
+    func startDaemonSync(settings: SettingsController) {
+        commands.start(settings: settings)
+        closedRetention.start(settings: settings)
     }
 
     // MARK: Pages

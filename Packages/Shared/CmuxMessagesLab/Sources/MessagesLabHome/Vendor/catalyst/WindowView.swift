@@ -1335,12 +1335,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let s = max(1, Fixture.renderScale), place = windowPlace
         let top0 = windowY(contentY: layout.contentTop(i))
         let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
-        let left = body.minX + RowCell.snap(0, place.origin.x, place.axis.x, scale: s)
-        let target = CGRect(x: left, y: top, width: body.width, height: body.height)
-        // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
-        // lower than the landed cell's until the swap).
-        let flying = CGRect(x: target.minX, y: target.minY, width: target.width, height: p.size.height)
-        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin,
+        let dx = RowCell.snap(0, place.origin.x, place.axis.x, scale: s)
+        // The landed balloon: RowDraw.balloon in row coordinates as the cell draws it (Messages draws an outgoing text
+        // balloon 0.38 pt inside its frame from 2 lines on), moved to the snapped window place; the text stays on the
+        // frame. The flying bubble keeps 16 pt per line (p.size, not bodySize; measured: its bottom is 1 pt lower than
+        // the landed cell's until the swap).
+        let rowFrame = CGRect(x: body.minX, y: body.minY, width: body.width, height: p.size.height)
+        let shift = CGPoint(x: dx, y: top - body.minY)
+        let frame = rowFrame.offsetBy(dx: shift.x, dy: shift.y)
+        let flying = RowDraw.balloon(rowFrame, row: p).offsetBy(dx: shift.x, dy: shift.y)
+        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size,
+                             textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin,
                              fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
         #if canImport(UIKit) || APPKIT_NATIVE
@@ -1761,21 +1766,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Hit testing
 
-    struct Hit { var row: PartRow; var body: CGRect; var key: String }
+    /// `outline`: the drawn balloon (RowDraw.balloon, computed in row coordinates as the cell draws it), same space as
+    /// `body`; its corners are those of `body` (BubblePath.make cornersOf).
+    struct Hit { var row: PartRow; var body: CGRect; var key: String; var outline: CGRect }
 
     func hit(_ p: CGPoint) -> Hit? {
         if threadOpen {
             for (v, spec) in zip(threadViews, threadSpecs).reversed() {
                 guard case let .part(row) = spec.kind else { continue }
                 let body = RowDraw.bodyRect(spec).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
-                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+                let outline = RowDraw.balloon(RowDraw.bodyRect(spec), row: row).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
+                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
             }
             return nil
         }
         for case let cell as RowCell in collection.visibleCells {
             guard let spec = cell.spec, case let .part(row) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: self)
-            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+            let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row), to: self)
+            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
         }
         return nil
     }
@@ -1806,7 +1815,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if case let .part(p) = row.spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
                 let body = RowDraw.bodyRect(row.spec)
                 let y = windowY(contentY: layout.contentTop(i))
-                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key)
+                let outline = RowDraw.balloon(body, row: p).offsetBy(dx: 0, dy: y - body.minY)
+                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key, outline: outline)
             }
         }
         return nil

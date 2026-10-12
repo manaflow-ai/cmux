@@ -49,6 +49,7 @@ final class SettingsPageProvider: PageProvider {
     var backdropImages: SettingsBackdropImages?
     /// Browse more art: the museum search's results for this page.
     var museumArt: MuseumArtSession?
+    var workspaceBackgrounds: SettingsWorkspaceBackgrounds?
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
@@ -157,6 +158,8 @@ final class SettingsPageProvider: PageProvider {
             return try await chooseBackdropImage()
         case "cmux.settings.art.search", "cmux.settings.art.use":
             return try await museumArt(op, params: params)
+        case "cmux.settings.backdrop.workspace", "cmux.settings.backdrop.workspace.set", "cmux.settings.backdrop.workspace.preview":
+            return try workspaceBackground(op, params: params, context: context)
         case "cmux.settings.section.actions":
             guard let name = params["section"]?.stringValue, let section = SettingsSection(rawValue: name) else {
                 throw PageError.invalidParams("section is required")

@@ -100,7 +100,12 @@ export function SettingsApp() {
           {searching ? (
             <SearchResults query={shownQuery} changedOnly={shownChangedOnly} />
           ) : (
-            <SectionView key={location.section} section={location.section} focus={location.focus} />
+            <SectionView
+              key={location.section}
+              section={location.section}
+              focus={location.focus}
+              workspace={location.workspace}
+            />
           )}
         </div>
       </main>

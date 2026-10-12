@@ -173,6 +173,8 @@ extension SettingsSchema {
         "palette.aliases": .userOnly, "palette.pins": .userOnly,
         "history.terminalCommands": .privacy,
         "history.commandRetentionDays": .privacy,
+        "history.closed.maxGroups": .privacy,
+        "history.closed.maxAgeDays": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).

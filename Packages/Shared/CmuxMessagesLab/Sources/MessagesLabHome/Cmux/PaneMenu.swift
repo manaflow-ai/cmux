@@ -17,7 +17,8 @@ extension ChatController {
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
         // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
         // the press; back when the menu closes).
-        let hl = MenuHighlight(host: host, body: hit.body, outgoing: hit.row.outgoing, tail: hit.row.tail)
+        // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
+        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail)
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
@@ -186,10 +187,10 @@ final class EmojiBubbleButton: NSView {
 final class MenuHighlight: NSObject, NSMenuDelegate {
     private let layer = CAShapeLayer()
     private weak var host: NSView?
-    init(host: NSView, body: CGRect, outgoing: Bool, tail: Bool) {
+    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool) {
         self.host = host
         super.init()
-        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail).cgPath
+        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
         if outgoing {
             layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
             layer.compositingFilter = "multiplyBlendMode"

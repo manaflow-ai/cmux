@@ -63,15 +63,23 @@ enum KeybindingReports {
     /// entry, but a user Ghostty keybind once. Its app-wide
     /// `.ghosttyFallback` entry (same keys and command as its `.ghostty`
     /// entry) is not a second row, so the remaining `ghostty-fallback` rows
-    /// are Ghostty's defaults. A row of an action in `heldElsewhere` (a
+    /// are Ghostty's defaults. A binding the table holds twice is one row,
+    /// its later entry (the one that runs): the Chrome tab keys repeat the
+    /// catalog's Cmd-1…9 and Cmd-Shift-] / [ (`KeyBindingDefaults.tabSwitching`),
+    /// and two rows with one identity piled up on the page (dogfood run 7).
+    /// A row of an action in `heldElsewhere` (a
     /// system-wide key `GlobalHotKeyService` could not register: another app
     /// holds it) carries `heldElsewhere: true`.
     static func pageList(_ params: [String: JSONValue], registry: ActionRegistry,
                          heldElsewhere: Set<ActionID> = []) -> JSONValue {
         let entries = RegistryKeyBindings(registry).table.entries
         let user = Set(entries.filter { $0.source == .ghostty }.map { GhosttyRow(keys: $0.keys, command: $0.command) })
-        let page = list(params, registry: registry) { entry in
-            entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command))
+        var later: Set<KeyBinding> = []
+        let repeated = Set(entries.indices.reversed().filter { !later.insert(entries[$0]).inserted })
+        let page = list(params, registry: registry) { index in
+            let entry = entries[index]
+            return !repeated.contains(index)
+                && (entry.source != .ghosttyFallback || !user.contains(GhosttyRow(keys: entry.keys, command: entry.command)))
         }
         guard !heldElsewhere.isEmpty, case .object(var object) = page, case .array(let rows)? = object["bindings"] else { return page }
         object["bindings"] = .array(rows.map { row in
@@ -93,8 +101,8 @@ enum KeybindingReports {
     /// case-insensitive), `command` and `source`. Each entry has an `id`
     /// (its position in the table) and `conflicts`: the ids of the other
     /// entries on the same keys whose `when` can hold at the same time.
-    /// `shows` leaves entries out (``pageList(_:registry:)``).
-    static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (KeyBinding) -> Bool = { _ in true }) -> JSONValue {
+    /// `shows` leaves entries out by their position (``pageList(_:registry:)``).
+    static func list(_ params: [String: JSONValue], registry: ActionRegistry, shows: (Int) -> Bool = { _ in true }) -> JSONValue {
         let query = params["query"]?.stringValue?.lowercased() ?? ""
         let command = params["command"]?.stringValue
         let source = params["source"]?.stringValue
@@ -102,7 +110,7 @@ enum KeybindingReports {
         let byKeys = Dictionary(grouping: entries.indices, by: { entries[$0].keys })
         let rows = entries.indices.filter { index in
             let entry = entries[index]
-            if !shows(entry) { return false }
+            if !shows(index) { return false }
             if let command, registry.canonicalID(for: ActionID(rawValue: command)) != entry.command { return false }
             if let source, entry.source.name != source { return false }
             guard !query.isEmpty else { return true }
@@ -114,7 +122,7 @@ enum KeybindingReports {
             guard case .object(var object) = json(entry, registry: registry) else { return .null }
             object["id"] = JSONValue(index)
             let conflicts = (byKeys[entry.keys] ?? []).filter {
-                $0 != index && shows(entries[$0]) && WhenClause.canOverlap(entries[$0].when, entry.when)
+                $0 != index && shows($0) && WhenClause.canOverlap(entries[$0].when, entry.when)
             }
             object["conflicts"] = .array(conflicts.map { JSONValue($0) })
             return .object(object)
