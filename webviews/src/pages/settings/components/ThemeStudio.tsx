@@ -24,6 +24,7 @@ import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../th
 import { ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { SettingRow, useRowMenu } from "./SettingRow";
+import { ThemeFiles } from "./ThemeFiles";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
@@ -203,6 +204,12 @@ export function ThemeStudio() {
               {t("settingsPage.theme.contrast", lowest("text"), lowest("textSecondary"), lowest("accent"))}
             </span>
           </figcaption>
+          <ThemeFiles
+            base={terminal.name}
+            disabled={disabled || previewing !== null}
+            canSave={!!state.themeColors?.has(terminal.name)}
+            onSaved={(name) => write({ kind: "single", name })}
+          />
         </figure>
       ) : null}
       <section className="group">

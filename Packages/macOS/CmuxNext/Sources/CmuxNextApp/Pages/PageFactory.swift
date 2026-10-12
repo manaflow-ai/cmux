@@ -138,6 +138,13 @@ struct PageFactory {
                 return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
             }
         }
+        provider.themeFiles = SettingsThemeFiles(
+            folders: {
+                .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
+                      environment: ProcessInfo.processInfo.environment)
+            },
+            reload: { [weak services] in await services?.themes.catalog.reload() },
+            pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
