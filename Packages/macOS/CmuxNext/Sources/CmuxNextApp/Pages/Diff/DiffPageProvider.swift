@@ -78,6 +78,7 @@ final class DiffPageProvider: PageProvider {
             return try await open(folder: URL(fileURLWithPath: path, isDirectory: true), source: DiffOpenSource(page: params["source"]))
         default:
             if let value = try await storeCall(op, params: params) { return value }
+            if let value = try await gitCall(op, params: params, context: context) { return value }
             let method = String(op.dropFirst("cmux.diff.".count))
             guard op.hasPrefix("cmux.diff."), Self.methods.contains(method) else { throw PageError.unknownOp(op) }
             return try await request(method, params: params.objectValue ?? [:])
