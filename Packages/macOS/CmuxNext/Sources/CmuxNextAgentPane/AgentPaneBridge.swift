@@ -66,7 +66,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
         // handshake, which can be after didFinish, where the theme and
-        // customization were first pushed; push them again so they land.
+        // customization were first pushed; push them again so they land. The New Tab page's chats
+        // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
             logger.info("agent pane ready accepted")
             view.applyTheme()
@@ -75,6 +76,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyEditedFiles()
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
+            AgentPaneDeviceChat.push(view.deviceChats, to: view)
+            AgentPaneClosedItem.push(view.recentlyClosed, to: view)
         }
         return view.model
     }

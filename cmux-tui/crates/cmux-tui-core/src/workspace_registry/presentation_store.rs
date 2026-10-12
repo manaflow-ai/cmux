@@ -43,7 +43,7 @@ mod frontend_browser_history;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
-    validate_presentation_icon, validate_presentation_icon_asset,
+    validate_presentation_icon_asset,
 };
 pub(crate) mod svg_icon;
 

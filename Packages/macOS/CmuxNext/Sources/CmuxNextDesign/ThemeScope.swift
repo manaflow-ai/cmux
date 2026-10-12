@@ -295,7 +295,7 @@ public final class ThemeScope {
         next.accent = ThemeStore.shared.accent
         // Art Color: the hue of the art this scope shows, else the theme's own accent.
         if ThemeStore.shared.accentFollowsArt, level != .config {
-            next.accentColor = backdropArt?.accentColor ?? themeAccentColor
+            next.accentColor = backdropArt?.accentHue ?? themeAccentColor
         }
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).

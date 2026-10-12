@@ -9,7 +9,7 @@ import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
-import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
+import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WindowGlass, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 
 export const BACKGROUND_KEY = "appearance.background";
@@ -156,9 +156,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       {own && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
-      {opacity && !own && (
+      {!own && (
         <div className="rows">
-          <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />
+          {opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
+          <WindowGlass />
         </div>
       )}
       <div className="backdrop-grid">
