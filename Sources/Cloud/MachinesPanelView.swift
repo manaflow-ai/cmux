@@ -629,10 +629,13 @@ struct MachinesPanelView: View {
         )
 
         Task { @MainActor in
-            let manager = tabManager
-                ?? AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
             let coordinator = CoderouterSetupWorkspaceCoordinator(
-                manager: manager,
+                managerSource: { @MainActor in
+                    if let tabManager, !tabManager.isFinalizedForWindowClose {
+                        return tabManager
+                    }
+                    return AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+                },
                 provider: provider,
                 initialTerminalCommand: command
             )

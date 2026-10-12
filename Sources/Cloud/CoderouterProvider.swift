@@ -154,18 +154,18 @@ struct CoderouterSetupWorkspaceCoordinator {
         defaultValue: "CodeRouter Setup"
     )
 
-    private let manager: TabManager?
+    private let managerSource: @MainActor () -> TabManager?
     private let provider: CoderouterProvider
     private let initialTerminalCommand: String?
     private let persistence: CoderouterSetupWorkspacePersistence
 
     init(
-        manager: TabManager?,
+        managerSource: @escaping @MainActor () -> TabManager?,
         provider: CoderouterProvider,
         initialTerminalCommand: String? = nil,
         persistence: CoderouterSetupWorkspacePersistence = CoderouterSetupWorkspacePersistence()
     ) {
-        self.manager = manager
+        self.managerSource = managerSource
         self.provider = provider
         self.initialTerminalCommand = initialTerminalCommand
         self.persistence = persistence
@@ -177,7 +177,7 @@ struct CoderouterSetupWorkspaceCoordinator {
     }
 
     func resolveDestination() -> Destination? {
-        let manager = manager.flatMap { manager in
+        let manager = managerSource().flatMap { manager in
             manager.isFinalizedForWindowClose ? nil : manager
         }
         let selectedWorkspace = manager?.selectedWorkspace
