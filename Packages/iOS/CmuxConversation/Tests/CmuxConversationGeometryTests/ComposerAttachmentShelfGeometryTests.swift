@@ -61,3 +61,19 @@ import Testing
         }
     }
 }
+
+/// The Photos drawer under the composer: Messages' app-card sheet, iPhone
+/// 17 Pro simulators. ChatKit logs its compact detent (318 pt on 26.5, 301
+/// on 27.0) and the sheet's frame is {8, 528, 386, 338} on 26.5 and
+/// {8, 544.3, 386, 321.7} on 27.0, with the field 22 / 21.3 pt above it.
+@Suite struct PhotoDrawerGeometryTests {
+    @Test func drawerMatchesMessagesSheetPerOS() {
+        #expect(PhotoDrawerGeometry.height(iOS27: false) == 338)
+        #expect(abs(PhotoDrawerGeometry.height(iOS27: true) - 321.7) < 0.5)
+        #expect(PhotoDrawerGeometry.inset == 8)
+        #expect(PhotoDrawerGeometry.fieldGap(iOS27: false) == 22)
+        #expect(abs(PhotoDrawerGeometry.fieldGap(iOS27: true) - 21.3) < 0.2)
+        // On an 874 pt screen the sheet's top lands where Messages' does.
+        #expect(874 - PhotoDrawerGeometry.inset - PhotoDrawerGeometry.height(iOS27: false) == 528)
+    }
+}
