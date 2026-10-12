@@ -8,7 +8,7 @@ answers, MockHomeSource.scheduleReplies), sends a message through the field's se
 Passes when the send goes and the bubble is in the image: its box (debug.home.drive typing) is
 read from the app and the mean colour inside it must differ from the background beside it; its flat
 edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6); in that
-snapshot every text row's left and top lie on whole device pixels and its straight edges have no partial pixels
+snapshot every text row's anchored side (incoming left, outgoing right) and top lie on whole device pixels and its straight edges have no partial pixels
 (c1457e5 row-snap; home_pixels.row_edges). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 

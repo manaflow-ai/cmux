@@ -104,27 +104,34 @@ def row_edges(px, w, h, scale, frame, window_height):
 
 def check_rows(check, name, report, path, keys=None, min_rows=3):
     """check(name, ok, detail): the caller's check. Text rows fully inside the transcript area (not under the title bar or the composer): left and top on
-    whole device pixels (the row's snapped content; the bottom follows the bubble's height), and at most 10 %
+    whole device pixels on its anchored side (the row's snapped content; the bottom follows the bubble's height), and at most 10 %
     partial lines along each straight edge in the snapshot. `keys`: only these rows."""
     w, h, px = read_png(path)
     scale = w / report["windowWidth"]; wh = report["windowHeight"]
     rows = [r for r in report["rows"] if r["kind"] == "text" and (keys is None or r["key"] in keys)
             and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
     check(f"{name}: at least {min_rows} text rows to measure", len(rows) >= min_rows, report["rows"][:12])
-    bad_place, bad_edges, total = [], [], 0
+    bad_place, bad_edges, unmeasured = [], [], []
     for r in rows:
-        left, top = r["x"] * scale, (wh - r["y"] - r["height"]) * scale
-        if abs(left - round(left)) > 0.01 or abs(top - round(top)) > 0.01:
-            bad_place.append({r["key"]: [round(left, 3), round(top, 3)]})
+        # The anchored side: an incoming bubble starts at the row's left margin, an outgoing one ends at the
+        # right margin; the other side is the text's width (not on the pixel grid, the same in Messages).
+        side = (r["x"] + r["width"] if r["outgoing"] else r["x"]) * scale
+        top = (wh - r["y"] - r["height"]) * scale
+        if abs(side - round(side)) > 0.01 or abs(top - round(top)) > 0.01:
+            bad_place.append({r["key"]: [round(side, 3), round(top, 3)]})
         edges = row_edges(px, w, h, scale, r, wh)
-        line = []
+        edges.pop("left" if r["outgoing"] else "right", None)
+        line, row_measured = [], 0
         for edge, (place, measured, partial) in edges.items():
-            total += measured
+            row_measured += measured
             line.append(f"{edge} {place:.2f}px {partial}/{measured}")
             if measured >= 8 and partial > measured * 0.1:
                 bad_edges.append({r["key"]: edge, "partial": partial, "measured": measured, "place": round(place, 3)})
+        if row_measured < 8:
+            unmeasured.append(r["key"])
         print(f"     {name} {r['key']} ({'out' if r['outgoing'] else 'in'}): " + ", ".join(line), flush=True)
-    check(f"{name}: every text row's left and top edges are on whole device pixels", not bad_place, bad_place)
-    check(f"{name}: the straight edges were measured", total >= 8 * len(rows) > 0, total)
+    check(f"{name}: every text row's anchored side (incoming left, outgoing right) and top are on whole device pixels",
+          not bad_place, bad_place)
+    check(f"{name}: every text row's straight edges were measured (8 lines or more)", bool(rows) and not unmeasured, unmeasured)
     check(f"{name}: no straight row edge has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)
     return rows
