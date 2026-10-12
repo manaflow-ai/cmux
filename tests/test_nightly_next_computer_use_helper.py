@@ -91,6 +91,22 @@ def main():
     signed = [i for i, run in enumerate(runs) if "verify-computer-use-helper.sh signed" in run]
     _check(codesign >= 0 and any(i > codesign for i in signed),
            "after Codesign apps, the nightly checks the helper's Developer ID signature")
+    # The helper's own notary submission starts before Codesign apps, so Apple's
+    # wait overlaps the smoke steps, and the DMG step only finishes it, with a
+    # bounded wait: an unbounded one ran past the step timeout before the
+    # pending-DMG state existed, which left nothing to recover.
+    started = [i for i, run in enumerate(runs) if "notarize-computer-use-helper.sh --start" in run]
+    _check(codesign >= 0 and any(i < codesign for i in started),
+           "the helper's notary submission starts before Codesign apps")
+    _check(codesign >= 0 and "all-except-computer-use" in runs[codesign],
+           "Codesign apps keeps the submitted helper's signature (all-except-computer-use)")
+    notarize = next((s for s in sign_steps if s.get("id") == "notarize-nightly"), {})
+    env = notarize.get("env", {})
+    _check("CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE" in env and "CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in env,
+           "the DMG step finishes the started helper submission with a bounded wait")
+    helper_script = open(os.path.join(ROOT, "scripts", "ci", "notarize-computer-use-helper.sh"), encoding="utf-8").read()
+    _check("CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in helper_script,
+           "notarize-computer-use-helper.sh bounds its notarytool wait")
     arch_step = next((r for n, r in zip(names, runs) if n == "Verify nightly binary architectures"), "")
     _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,
            "the architecture gate covers the helper's executable")
