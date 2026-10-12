@@ -387,33 +387,53 @@ public final class ConversationTextEffectLayer: CALayer {
         return context.makeImage()
     }
 
-    fileprivate static func animation(_ unit: Unit, fontSize: CGFloat, seed: UInt64, begin: CFTimeInterval) -> CAAnimation {
+    /// The keyframes of one glyph's loop: a transform track and, when the
+    /// glyph's opacity changes at all, an opacity track. Times are fractions
+    /// of the cycle.
+    struct LoopKeyframes {
+        var transformTimes: [Double]
+        var transforms: [CATransform3D]
+        var opacityTimes: [Double]
+        var opacities: [Double]
+    }
+
+    /// One pose per 60 Hz frame of the cycle, as a transform and an opacity.
+    static func loopKeyframes(_ effect: ConversationTextEffect, index: Int, count: Int, fontSize: CGFloat, seed: UInt64) -> LoopKeyframes {
         let cycle = ConversationTextEffectMotion.cycle
         let fps = 60.0
         let frames = Int(cycle * fps)
-        var transforms: [NSValue] = []
-        var opacities: [NSNumber] = []
-        var times: [NSNumber] = []
-        transforms.reserveCapacity(frames + 1)
+        var result = LoopKeyframes(transformTimes: [], transforms: [], opacityTimes: [], opacities: [])
+        result.transforms.reserveCapacity(frames + 1)
         for frame in 0...frames {
             let t = Double(frame) / fps
-            let pose = ConversationTextEffectMotion.pose(unit.effect, index: unit.index, count: unit.count, time: t, seed: seed)
+            let pose = ConversationTextEffectMotion.pose(effect, index: index, count: count, time: t, seed: seed)
             var transform = CATransform3DMakeTranslation(CGFloat(pose.dx) * fontSize, CGFloat(pose.dy) * fontSize * flipSign, 0)
             transform = CATransform3DRotate(transform, CGFloat(pose.rotation) * flipSign, 0, 0, 1)
             transform = CATransform3DScale(transform, CGFloat(pose.scale), CGFloat(pose.scale), 1)
-            transforms.append(NSValue(caTransform3D: transform))
-            opacities.append(NSNumber(value: pose.opacity))
-            times.append(NSNumber(value: t / cycle))
+            result.transforms.append(transform)
+            result.transformTimes.append(t / cycle)
+            result.opacities.append(pose.opacity)
+            result.opacityTimes.append(t / cycle)
         }
+        return result
+    }
+
+    fileprivate static func animation(_ unit: Unit, fontSize: CGFloat, seed: UInt64, begin: CFTimeInterval) -> CAAnimation {
+        let keyframes = loopKeyframes(unit.effect, index: unit.index, count: unit.count, fontSize: fontSize, seed: seed)
+        var tracks: [CAAnimation] = []
         let transform = CAKeyframeAnimation(keyPath: "transform")
-        transform.values = transforms
-        transform.keyTimes = times
-        let opacity = CAKeyframeAnimation(keyPath: "opacity")
-        opacity.values = opacities
-        opacity.keyTimes = times
+        transform.values = keyframes.transforms.map { NSValue(caTransform3D: $0) }
+        transform.keyTimes = keyframes.transformTimes.map { NSNumber(value: $0) }
+        tracks.append(transform)
+        if !keyframes.opacities.isEmpty {
+            let opacity = CAKeyframeAnimation(keyPath: "opacity")
+            opacity.values = keyframes.opacities.map { NSNumber(value: $0) }
+            opacity.keyTimes = keyframes.opacityTimes.map { NSNumber(value: $0) }
+            tracks.append(opacity)
+        }
         let group = CAAnimationGroup()
-        group.animations = [transform, opacity]
-        group.duration = cycle
+        group.animations = tracks
+        group.duration = ConversationTextEffectMotion.cycle
         group.repeatCount = .infinity
         group.beginTime = begin
         group.isRemovedOnCompletion = false
