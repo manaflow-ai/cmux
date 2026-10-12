@@ -918,3 +918,115 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     assert_code(&read, "agent_transfer.unknown_tab");
     fake.no_frame();
 }
+
+// MARK: A landed chat in a tab of this machine
+
+/// `new-conversation-tab` of a `registry:` tab that already names `session`,
+/// as Move to Cloud opens a moved chat on the machine it landed on.
+fn machine_tab(client: &mut Client, mux: &Arc<Mux>, session: &str) -> Value {
+    let host = format!("registry:{}", mux.registry_identity().0);
+    machine_tab_of(client, mux, &host, Some(session))
+}
+
+fn machine_tab_of(client: &mut Client, mux: &Arc<Mux>, host: &str, session: Option<&str>) -> Value {
+    let (_, pane) = terminal_pane(mux);
+    client.request(json!({"cmd":"new-conversation-tab","pane":pane,
+                          "agent_session":{"host":host,"session":session,"harness":"claude"}}))
+}
+
+/// The session `agent-transfer-source` reads from the tab a create answered.
+fn tab_session_of(client: &mut Client, created: &Value) -> Value {
+    let surface = ok_data(created)["surface"].clone();
+    let source = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    ok_data(&source)["session"].clone()
+}
+
+/// Receives the test manifest's chat and finishes it (acpmux answers
+/// `acp_moved`, while the manifest names `acp_moving`).
+fn land(client: &mut Client, fake: &FakeAcpmux, home: &Home) {
+    ok_data(&receive(client, &home.text("work/project")));
+    let _ = fake.frame();
+    let finished = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&finished)["session"]["sessionId"], json!("acp_moved"));
+    let _ = fake.frame();
+}
+
+#[test]
+fn a_chat_this_daemon_landed_opens_in_a_tab_of_this_machine_and_no_other_does() {
+    let fake = FakeAcpmux::start("xlandtab");
+    let home = Home::new("landtab");
+    let mux = transfer_mux(&fake, "atx-landtab", &home, true);
+    let mut client = Client::connect(&mux, "xlandtab");
+    let mismatch = "conversation_tab.machine_mismatch";
+    // Nothing landed yet: still another machine's chat.
+    assert_code(&machine_tab(&mut client, &mux, "acp_moved"), mismatch);
+    land(&mut client, &fake, &home);
+    // The session acpmux's finish answered opens in this store's own tab.
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    assert_eq!(tab_session_of(&mut client, &opened), json!("acp_moved"));
+    // The manifest's id (a client's), any other session, and another
+    // store's host are still refused.
+    assert_code(&machine_tab(&mut client, &mux, "acp_moving"), mismatch);
+    assert_code(&machine_tab(&mut client, &mux, "acp_other"), mismatch);
+    let elsewhere = machine_tab_of(&mut client, &mux, "registry:another-store", Some("acp_moved"));
+    assert_code(&elsewhere, mismatch);
+    // A bind into a tab of this machine stays refused, landed chat or not.
+    let unbound =
+        machine_tab_of(&mut client, &mux, &format!("registry:{}", mux.registry_identity().0), None);
+    let surface = ok_data(&unbound)["surface"].clone();
+    let bind = client.request(json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                                     "session":"acp_moved","expected_session":null}));
+    assert_code(&bind, mismatch);
+    fake.no_frame();
+}
+
+#[test]
+fn a_receive_that_did_not_land_opens_no_tab_of_this_machine() {
+    let fake = FakeAcpmux::start("xnoland");
+    let home = Home::new("noland");
+    let mux = transfer_mux(&fake, "atx-noland", &home, true);
+    let mut client = Client::connect(&mux, "xnoland");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    for name in ["incomplete", "exists"] {
+        let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+                                           "name":name}));
+        assert_code(&finish, "agent_transfer.refused");
+        let _ = fake.frame();
+    }
+    for session in ["acp_moving", "acp_moved"] {
+        assert_code(&machine_tab(&mut client, &mux, session), "conversation_tab.machine_mismatch");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn a_landed_chat_still_opens_in_a_tab_of_this_machine_after_a_restart() {
+    let fake = FakeAcpmux::start("xlandkeep");
+    let home = Home::new("landkeep");
+    let root = home.path.join("state");
+    let open = || {
+        let mux = Mux::open_persistent("landed", crate::SurfaceOptions::default(), &root).unwrap();
+        mux.set_acpmux_socket(Some(fake.socket.clone()));
+        mux.set_agent_transfer_host(Some(AgentTransferHost {
+            cloud: true,
+            home: home.path.clone(),
+        }));
+        mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+        mux
+    };
+    let mux = open();
+    let mut client = Client::connect(&mux, "xlandkeep");
+    land(&mut client, &fake, &home);
+    drop(client);
+    mux.shutdown();
+    drop(mux);
+    let mux = open();
+    let mut client = Client::connect(&mux, "xlandkeep2");
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    assert_eq!(tab_session_of(&mut client, &opened), json!("acp_moved"));
+    assert_code(&machine_tab(&mut client, &mux, "acp_other"), "conversation_tab.machine_mismatch");
+    drop(client);
+    mux.shutdown();
+    fake.no_frame();
+}
