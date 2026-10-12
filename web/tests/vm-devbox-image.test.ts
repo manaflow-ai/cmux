@@ -899,7 +899,7 @@ describe("devbox image template", () => {
       const claude = JSON.parse(readFileSync(path.join(home, ".claude.json"), "utf8"));
       expect(claude.mcpServers["cua-computer-use"]).toEqual({
         command: driver,
-        args: ["mcp", "--claude-code-computer-use-compat"],
+        args: ["mcp"],
       });
       const codex = Bun.TOML.parse(readFileSync(path.join(home, ".codex/config.toml"), "utf8")) as Record<string, any>;
       expect(codex.mcp_servers["cua-driver"]).toEqual({ command: driver, args: ["mcp"] });

@@ -378,10 +378,10 @@ document = load_json(claude)
 if document is not None:
     servers = document.get("mcpServers")
     if servers is None:
-        document["mcpServers"] = {"cua-computer-use": {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]}}
+        document["mcpServers"] = {"cua-computer-use": {"command": driver, "args": ["mcp"]}}
         atomic_json(claude, document)
     elif isinstance(servers, dict) and "cua-computer-use" not in servers:
-        servers["cua-computer-use"] = {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]}
+        servers["cua-computer-use"] = {"command": driver, "args": ["mcp"]}
         atomic_json(claude, document)
 
 # Codex's TOML parser lets us validate before replacing. Appending preserves
