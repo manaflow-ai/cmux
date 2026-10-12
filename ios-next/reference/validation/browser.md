@@ -638,3 +638,22 @@ instead of the browser access banner. The host team needs to classify cmux-next
 browser panes as `browser` and fill in `reason`. Terminal card images keep
 the light or dark style from when they were requested until the next
 `show(_:)` call.
+
+## Round 8: the Tabs tab is the Safari grid again
+
+Correction from Aziz: the Tabs tab is `BrowserRoot`'s Safari tab grid, with
+nothing added. The only difference is that terminals are tabs too. Each
+terminal is its own card in the same grid, in creation order with new tabs at
+the end. The pane canvas, Mac split geometry, workspace titles, tab-count
+badges, the hold-to-pick overlay and the card pills are removed. A terminal card is
+the TerminalThumbnails image in the same card frame and title row. It opens
+into TerminalContent at full page size. The bottom toolbar shows the terminal
+title in the address capsule, with TerminalAccessory above it (external
+placement). (+) is a plain menu: New Tab / New Terminal. The access banner
+and "Show on Mac" remain only inside an opened Mac browser tab. Screenshots:
+tab shell light and dark (grid and open terminal), and the grid without a tab
+bar, light and dark:
+
+![Tabs grid with terminals](browser/tabs-grid-with-terminals.png)
+
+Round 7's pane canvas is superseded.
