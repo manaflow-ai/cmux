@@ -416,6 +416,8 @@ extension Workspace {
                 reservation.creationReceipt.beginAttempt()
                 onStart()
                 self?.restartReservedCloudTerminalPane(reservation)
+                (catalog.provider(for: reservation.machine) as? CmuxTuiSurfaceProvider)?
+                    .beginAttachHandshake(for: reservation)
             },
             onFinish: onFinish,
             inlineFailure: { [weak self, reservation] error in

@@ -141,7 +141,7 @@ extension CmuxTuiSurfaceProvider {
                 )
             }
             manualMirrorSessions[created.panelID] = session
-            session.reconnect(socketPath: connected.socketPath)
+            session.reconnect(socketPath: connected.socketPath, handshake: reservation?.takeAttachHandshake())
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
@@ -153,6 +153,17 @@ extension CmuxTuiSurfaceProvider {
             session.stop()
             throw error
         }
+    }
+
+    /// Registers a new pane's attach stream while the machine creates its
+    /// terminal, so the attachment needs only `attach-surface` once the
+    /// terminal exists. The link is the machine's existing one.
+    func beginAttachHandshake(for reservation: CloudTerminalPaneReservation) {
+        let handshake = CloudTuiManualMirrorHandshake(identity: CloudTuiManualMirrorSession.localSharingIdentity)
+        reservation.beginAttachHandshake(handshake)
+        let links = links
+        let machineID = machineID
+        handshake.start { try await links.connected(machineID: machineID).socketPath }
     }
 
     /// Resolves the daemon-local surface needed by a byte attachment.
