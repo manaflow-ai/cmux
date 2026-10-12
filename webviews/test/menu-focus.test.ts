@@ -138,9 +138,11 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await trigger.focus();
             await page.keyboard.press("ArrowDown");
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
-            await page.waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]') !== null, null, {
-              timeout: 2_000,
-            }).catch(() => undefined);
+            await page
+              .waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]') !== null, null, {
+                timeout: 2_000,
+              })
+              .catch(() => undefined);
             const byKeyboard = await openMenu(page);
             expect({ byMouse, byKeyboard }).toEqual({
               byMouse: { ring: "", dimmed: [], highlighted: -1, focusInMenu: true },

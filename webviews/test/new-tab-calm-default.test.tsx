@@ -53,7 +53,6 @@ test("the default New Tab shows the composer and five recent chats, nothing else
         <NewTabScreen
           snapshot={noChat(manySessions(12))}
           lastAgent="claude"
-          tools={[{ id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight"] }]}
           onAddHarness={noop}
           loadChatsPage={async () => ({ ready: true, chats: [] })}
           onOpenChat={noop}

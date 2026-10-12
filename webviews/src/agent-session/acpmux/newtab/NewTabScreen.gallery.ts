@@ -73,7 +73,7 @@ export default agentPaneEntry({
     layoutShiftMax: {
       value: 0.4,
       reason:
-        "Typing an address or an open tab's name shows the rows between the field and the chat cards, which move down.",
+        "Typing an address or an open tab's name shows the rows between the field and the recent chats, which move down.",
     },
   },
   covers: [
@@ -100,9 +100,17 @@ export default agentPaneEntry({
       snapshot: noChat(),
       native: {},
     },
-    "many-chats": {
-      note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+    "calm-default": {
+      note: "The default page is calm (Leo 2026-10-11): the composer with its arrow-up Send, then the five newest chats as quiet rows and All Chats for the rest. No tools row, no Recently Closed, no All chats table.",
       ready: newTab(),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+      },
+    },
+    "many-chats": {
+      note: "Threads template: every chat in All chats below the field, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => {
@@ -149,11 +157,6 @@ export default agentPaneEntry({
       ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
       snapshot: noChat(manySessions(4)),
     },
-    "without-tools": {
-      note: "The reserved Tools region is omitted when no host action can run.",
-      ready: newTab({ tools: [] }),
-      snapshot: noChat(manySessions(3)),
-    },
     "split-open-tabs": {
       note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
       ready: newTab({
@@ -166,8 +169,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "recently-closed": {
-      note: "Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
-      ready: newTab(),
+      note: "Threads template, Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(2)),
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
@@ -215,49 +218,6 @@ export default agentPaneEntry({
           },
         ]);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
-      },
-    },
-    "with-tools": {
-      note: "Tools use the host action catalog and shortcut labels.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-    },
-    "tool-menu-open": {
-      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
-        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
-      },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".nt-tool-menu-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
-      },
-    },
-    "tool-menu-keyboard": {
-      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
-        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
-      },
-      play: async (ctx) => {
-        const trigger = { selector: ".nt-tool-menu-button" };
-        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
-        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
-        await ctx.focus(trigger);
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(0));
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(1));
-        await ctx.press("Escape");
-        await ctx.waitFor(
-          () =>
-            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
-            ctx.document.activeElement === ctx.find(trigger),
-        );
       },
     },
     "typed-prompt": {
@@ -318,7 +278,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
     },

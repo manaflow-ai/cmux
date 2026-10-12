@@ -68,7 +68,6 @@ export function newTabScreenActions(deps: {
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
-    onRunAction: (id) => ignore(callNative("action.run", { id })),
     onAddHarness: () => ignore(callNative("action.run", { id: "palette.addHarness" })),
     onTouched: () => ignore(callNative("newTab.touched")),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

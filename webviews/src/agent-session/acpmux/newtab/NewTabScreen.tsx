@@ -8,6 +8,7 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
+import { ArrowUpIcon } from "../ComposerPickers";
 import { defaultModel } from "../harnessSwitch";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
@@ -24,7 +25,6 @@ import { RowGlyph } from "./RowGlyph";
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -44,7 +44,6 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
-  onRunAction?(id: string): void;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -63,7 +62,6 @@ type Props = NewTabScreenActions & {
   location?: string;
   lastAgent?: string;
   home?: string;
-  tools?: NewTabHost["tools"];
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -91,7 +89,7 @@ type Props = NewTabScreenActions & {
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
-  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
+  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
   const [text, setText] = useState(location ?? "");
@@ -150,10 +148,13 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
-  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  const cards = useMemo(
+    () => recentChatCards(snapshot.sessions, now, t, device, sections.recent),
+    [snapshot.sessions, now, t, device, sections.recent],
+  );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
-  const allChats = sections.chats !== "none" && !!props.loadChatsPage && !!props.onOpenChat;
+  const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
@@ -321,7 +322,7 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
     >
       {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
-          row, the Return glyph at the end. */}
+          row, the Send button at the end. */}
       <div className="nt-box">
         <div className="nt-input">
           {shell ? (
@@ -373,13 +374,13 @@ export function NewTabScreen(props: Props) {
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
           <button
             type="button"
-            className="nt-enter"
+            className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
             aria-label={t("composer.send")}
-            title={t("composer.send")}
+            title={t("composer.sendTooltip")}
             disabled={!text.trim()}
             onClick={send}
           >
-            ↵
+            <ArrowUpIcon />
           </button>
         </div>
       </div>
@@ -390,7 +391,7 @@ export function NewTabScreen(props: Props) {
           {props.onAddHarness && (
             <button type="button" className="nt-tool nt-add-harness" onClick={() => props.onAddHarness?.()}>
               <span className="nt-tool-icon" aria-hidden="true">
-                {toolIcon("plus")}
+                <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>
             </button>
@@ -433,9 +434,6 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.tools && (tools.length > 0 || props.onAddHarness) && (
-        <ToolsRow tools={tools} onRunAction={props.onRunAction} onAddHarness={props.onAddHarness} />
-      )}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
@@ -483,92 +481,8 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
-/// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
-/// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
-/// down) are in its trailing disclosure menu. "Integrate a harness" ends the row.
-function ToolsRow({
-  tools,
-  onRunAction,
-  onAddHarness,
-}: {
-  tools: NonNullable<NewTabHost["tools"]>;
-  onRunAction?: (id: string) => void;
-  onAddHarness?: () => void;
-}) {
-  const t = useT();
-  return (
-    <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
-      {tools.map((tool) => {
-        const button = (
-          <button
-            type="button"
-            className="nt-tool"
-            // The shortcut in the tooltip: shown inline on hover it moved every later tool.
-            title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
-            onClick={() => onRunAction?.(tool.id)}
-          >
-            <span className="nt-tool-icon" aria-hidden="true">
-              {toolIcon(tool.symbol)}
-            </span>
-            <span>{toolTitle(t, tool)}</span>
-          </button>
-        );
-        return tool.menu.length > 0 ? (
-          <div className="nt-tool-host nt-tool-host-with-menu" key={tool.id}>
-            {button}
-            <span className="nt-tool-menu">
-              <Menu>
-                <MenuButton className="nt-tool-menu-button" label={t("newTabPage.moreOptions")} aria-haspopup="menu">
-                  …
-                </MenuButton>
-                <MenuPopup
-                  className="nt-tool-menu-popover"
-                  label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
-                  align="end"
-                >
-                  {tool.menu.map((id) => (
-                    <MenuItem className="nt-tool-menu-item" key={id} onSelect={() => onRunAction?.(id)}>
-                      {toolMenuTitle(t, id)}
-                    </MenuItem>
-                  ))}
-                </MenuPopup>
-              </Menu>
-            </span>
-          </div>
-        ) : (
-          <React.Fragment key={tool.id}>{button}</React.Fragment>
-        );
-      })}
-      {onAddHarness && (
-        <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
-          <span className="nt-tool-icon" aria-hidden="true">
-            {toolIcon("plus")}
-          </span>
-          <span>{t("newtab.addHarness")}</span>
-        </button>
-      )}
-    </nav>
-  );
-}
-
-/// 14 px stroke icons in currentColor for the host actions, by SF Symbol name.
-function toolIcon(symbol: string): React.ReactNode {
-  const path: Record<string, React.ReactNode> = {
-    plusminus: <path d="M4 4.5h4M6 2.5v4M4 11.5h8M10 4.5h2" />,
-    terminal: (
-      <>
-        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-        <path d="m4.75 6.25 2 1.75-2 1.75M8.5 10h2.75" />
-      </>
-    ),
-    folder: (
-      <path d="M1.75 4.25c0-.8.65-1.5 1.5-1.5h2.6l1.5 1.5h5.4c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H3.25c-.85 0-1.5-.65-1.5-1.5z" />
-    ),
-    "bubble.left.and.text.bubble.right": (
-      <path d="M2.25 4c0-.85.65-1.5 1.5-1.5h8.5c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H7l-3 2.5V11h-.25c-.85 0-1.5-.65-1.5-1.5zM5 5.75h6M5 8h4" />
-    ),
-    plus: <path d="M8 3v10M3 8h10" />,
-  };
+/// The 14 px plus in currentColor before "Integrate a harness".
+function PlusIcon() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -580,28 +494,9 @@ function toolIcon(symbol: string): React.ReactNode {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {path[symbol] ?? <circle cx="8" cy="8" r="2" />}
+      <path d="M8 3v10M3 8h10" />
     </svg>
   );
-}
-
-function toolMenuTitle(t: Translate, id: string): string {
-  if (id === "splitRight") return t("newTabPage.tool.splitRight");
-  if (id === "splitDown") return t("newTabPage.tool.splitDown");
-  return id;
-}
-
-function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["tools"]>[number]): string {
-  const key: Record<
-    string,
-    "newTabPage.tool.changes" | "newTabPage.tool.terminal" | "newTabPage.tool.files" | "newTabPage.tool.sideChat"
-  > = {
-    openDiffViewer: "newTabPage.tool.changes",
-    newSurface: "newTabPage.tool.terminal",
-    "file.open": "newTabPage.tool.files",
-    "agentPane.searchChats": "newTabPage.tool.sideChat",
-  };
-  return key[tool.id] ? t(key[tool.id]) : tool.title;
 }
 
 function rowKey(row: ScreenRow): string {
