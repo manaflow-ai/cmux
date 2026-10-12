@@ -135,6 +135,12 @@ const modelFocus: Play = async (ctx) => {
 const modelPressDragRelease: Play = async (ctx) => {
   await ctx.pointer.down({ role: "button", name: "Model" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]') !== null);
+  await ctx.waitFor(() => {
+    const popup = ctx.document.querySelector<HTMLElement>('[role="dialog"]');
+    if (!popup) return false;
+    const rect = popup.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && ctx.document.defaultView?.getComputedStyle(popup).visibility !== "hidden";
+  });
   // Astra is folded under Older models in this fixture. Drag to the visible current model row;
   // the gesture still exercises the picker trigger's press-drag-release path without inventing a
   // click on a row that is not mounted.
