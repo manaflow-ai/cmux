@@ -169,6 +169,19 @@ final class HostConnection: Identifiable {
         scheduleRetry()
     }
 
+    /// After the app was suspended: a link that doesn't answer in 3 s is dead
+    /// (ICE would take ~30 s to say so); drop it and dial again now.
+    func probe() async {
+        guard let peer else { if online, dialTask == nil { connect() }; return }
+        do {
+            _ = try await peer.request(.hello, params: nil, timeout: .seconds(3))
+        } catch {
+            guard self.peer === peer else { return }
+            peer.close()
+            dropped("No answer after resuming")
+        }
+    }
+
     func disconnect() {
         dialTask?.cancel()
         dialTask = nil

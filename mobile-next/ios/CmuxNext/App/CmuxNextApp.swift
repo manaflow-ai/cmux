@@ -17,6 +17,7 @@ struct CmuxNextApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -32,5 +33,8 @@ struct RootView: View {
             }
         }
         .animation(.smooth(duration: 0.35), value: model.phase)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { for host in model.hosts { await host.probe() } } }
+        }
     }
 }
