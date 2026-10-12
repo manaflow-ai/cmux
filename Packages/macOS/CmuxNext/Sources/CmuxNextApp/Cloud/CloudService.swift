@@ -55,6 +55,8 @@ final class CloudService {
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
+    /// Moved chats' file requests for this Mac, asked in their chats.
+    @ObservationIgnored let accessAsks = CloudAccessAsks()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines

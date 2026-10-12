@@ -127,7 +127,7 @@ case "$(cd "$package_path" && pwd -P)" in
           # The head's own tree publishes late (or never, for an unmerged PR head).
           # A head that changes no cmux-tui input tests the newest published tree,
           # as PR CI does; one that does change it skips the live-daemon suites.
-          if key="$(bash "$pin" fallback-key 2>/dev/null)" && [ -n "$key" ] \
+          if key="$(bash "$pin" fallback-key)" && [ -n "$key" ] \
               && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
             tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || exit 0
             printf '%s' "$key" > "$evidence_dir/tui-tree-key"

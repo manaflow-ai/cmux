@@ -12,6 +12,10 @@ final class AgentPaneLaunchImages {
 
     let directory: URL?
     private var taken: Set<String> = []
+    /// A New Tab page's first frame this run, with the pane size and appearance it drew at: a
+    /// New Tab page that has not painted draws it, so a Cmd-N right after launch shows the
+    /// page's frame, never an empty pane, while its page loads (cx-ec99).
+    private var newTabFrame: (image: NSImage, size: NSSize, appearance: NSAppearance.Name?)?
 
     init(directory: URL?) {
         self.directory = directory
@@ -36,6 +40,16 @@ final class AgentPaneLaunchImages {
             return image
         }
         return nil
+    }
+
+    /// The New Tab frame drawn at `size` (zero: a pane not laid out yet) and `appearance`.
+    func newTabFrame(size: NSSize, appearance: NSAppearance.Name?) -> NSImage? {
+        guard let frame = newTabFrame, frame.appearance == appearance, size == .zero || size == frame.size else { return nil }
+        return frame.image
+    }
+
+    func rememberNewTabFrame(_ image: NSImage, size: NSSize, appearance: NSAppearance.Name?) {
+        newTabFrame = (image, size, appearance)
     }
 
     /// Replaces the saved pages with `images` (by tab key).

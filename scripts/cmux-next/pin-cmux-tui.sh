@@ -1350,17 +1350,44 @@ PY
     # A head that changes no tree input (its key equals its base's) tests the
     # same cmux-tui as that base, so an older published tree stands in for an
     # unpublished one. A commit on the base compares with its first parent.
+    # Fleet steps check out the ref at depth 1 with no branch refs: fetch the
+    # base and deepen both to CMUX_TUI_TREE_SEARCH_COMMITS so the merge base,
+    # the parent and the published tree's commit are in the history.
+    # The fleet worker's checkout is a git init fetched from the repository URL,
+    # with no origin remote: fetch from CMUX_TUI_TREE_FALLBACK_REMOTE then.
     fallback_base="${CMUX_TUI_TREE_FALLBACK_BASE:-origin/feat-cmux-next}"
-    if ! git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}" >/dev/null \
-        && [[ "$fallback_base" == origin/* ]]; then
-      timeout 60 git -C "$repo_root" fetch -q --no-tags origin \
-        "+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base" 2>/dev/null || true
+    fallback_depth="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
+    fallback_remote=origin
+    git -C "$repo_root" remote get-url origin >/dev/null 2>&1 \
+      || fallback_remote="${CMUX_TUI_TREE_FALLBACK_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
+    fallback_refs=()
+    if [[ "$fallback_base" == origin/* ]] \
+        && ! git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}" >/dev/null; then
+      fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
     fi
-    fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)" || exit 1
-    if [[ "$fallback_rev" == "$(git -C "$repo_root" rev-parse HEAD)" ]]; then
-      fallback_rev="$(git -C "$repo_root" rev-parse -q --verify HEAD^1)" || exit 1
+    if [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]]; then
+      fallback_refs+=("$(git -C "$repo_root" rev-parse HEAD)")
+      [[ -z "$(git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}")" ]] \
+        || fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
+      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not deepen the shallow checkout; using the history it has" >&2
+    elif (( ${#fallback_refs[@]} )); then
+      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not fetch $fallback_base" >&2
     fi
-    [[ "$(tree_key HEAD)" == "$(tree_key "$fallback_rev")" ]] || exit 1
+    if ! fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)"; then
+      echo "fallback-key: no merge base of HEAD and $fallback_base in the last $fallback_depth commits" >&2
+      exit 1
+    fi
+    if [[ "$fallback_rev" == "$(git -C "$repo_root" rev-parse HEAD)" ]] \
+        && ! fallback_rev="$(git -C "$repo_root" rev-parse -q --verify HEAD^1)"; then
+      echo "fallback-key: HEAD is on $fallback_base and its parent is not in the checkout" >&2
+      exit 1
+    fi
+    if [[ "$(tree_key HEAD)" != "$(tree_key "$fallback_rev")" ]]; then
+      echo "fallback-key: HEAD changes a cmux-tui tree input since ${fallback_rev:0:12}; no fallback tree" >&2
+      exit 1
+    fi
     resolved="$(CMUX_TUI_TREE_DISPATCH='' GITHUB_STEP_SUMMARY='' resolve_newest_published_tree)" || exit 1
     awk -F= '$1 == "key" { print $2 }' <<<"$resolved" | grep .
     ;;
