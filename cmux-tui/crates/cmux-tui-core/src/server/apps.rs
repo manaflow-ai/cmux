@@ -100,6 +100,10 @@ enum Command {
         #[serde(default)]
         follow: bool,
     },
+    /// The link registration changed (`cmux link ensure` or `stop` ran):
+    /// tell every app server that reads the link (`cmux.host.link.changed`).
+    #[serde(rename = "apps-link-changed")]
+    LinkChanged,
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister { families: Vec<String> },
@@ -312,6 +316,7 @@ pub(super) fn try_handle(
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
+        Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::Set {
             idempotency_key,
             app,

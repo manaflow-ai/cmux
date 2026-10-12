@@ -121,13 +121,14 @@ impl Supervisor {
     }
 
     /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. No watch on the link registration calls it yet (a watch
-    /// needs a file-notify dependency in this crate); until then a server
-    /// asks `cmux.host.link.get` again, which reads the registration live.
+    /// the link. The app calls it (`apps-link-changed`) after `cmux link
+    /// ensure` or `stop` changed the link registration; no file watch calls
+    /// it (that needs a file-notify dependency in this crate), and a server
+    /// that saw no hub asks `cmux.host.link.get` again on its next connect.
     /// The servers are read under the lock; the folder checks run after it is
     /// released, and a server whose folder fails is stopped (cx-wmd8x).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(super) fn host_link_changed(&self) {
+    /// Returns how many servers it told.
+    pub(crate) fn host_link_changed(&self) -> usize {
         let servers: Vec<(String, std::sync::Arc<super::servers::ServerProcess>)> = {
             let inner = self.inner.lock().unwrap();
             inner
@@ -139,14 +140,19 @@ impl Supervisor {
                 .map(|(app, server)| (app.clone(), server.process.clone()))
                 .collect()
         };
+        let mut told = 0;
         for (app, process) in servers {
             match self.host_link(&app) {
-                Ok(data) => process.send(line(&json!({
-                    "t": "host.event", "op": "cmux.host.link.changed", "data": data,
-                }))),
+                Ok(data) => {
+                    process.send(line(&json!({
+                        "t": "host.event", "op": "cmux.host.link.changed", "data": data,
+                    })));
+                    told += 1;
+                }
                 Err(reason) => self.stop_for_unsafe_folder(&app, &reason),
             }
         }
+        told
     }
 }
 
