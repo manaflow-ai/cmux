@@ -814,7 +814,7 @@ describe("codex responses proxy with no account configured", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: {
-        message: "No Codex account is shared with this Cloud machine's team. Accounts added on another device are private until the person who added them shares them: choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team).",
+        message: "No Codex account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team).",
         type: "invalid_request_error",
         code: "no_account_configured",
       },
