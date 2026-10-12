@@ -12,6 +12,7 @@ use super::tests::{
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
+use crate::workspace_registry::WorkspacePresentationUpdate;
 
 fn workspace_of(mux: &Arc<Mux>, surface: SurfaceId) -> WorkspaceId {
     mux.with_state(|state| {
@@ -284,4 +285,37 @@ fn a_workspace_selection_reports_only_the_workspaces_it_closed() {
         state.workspaces.iter().map(|workspace| workspace.public_id.to_string()).collect::<Vec<_>>()
     });
     assert!(live.contains(&empty), "the empty workspace stays: {live:?}");
+}
+
+/// A pinned workspace stays when its siblings close, unless the call
+/// includes pinned objects.
+#[test]
+fn close_other_workspaces_keeps_a_pinned_workspace() {
+    let mux = Mux::new_for_test("bulk-pinned-workspace", SurfaceOptions::default());
+    let anchor = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    let pinned_slot = workspace_of(&mux, terminal_tabs(&mux, 1)[0]);
+    let pinned = workspace_public(&mux, pinned_slot);
+    let loose = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    mux.set_workspace_metadata(
+        Some(pinned_slot),
+        None,
+        WorkspacePresentationUpdate {
+            pinned: Some(true),
+            ..WorkspacePresentationUpdate::default()
+        },
+        None,
+        None,
+        &WorkspaceMutation::daemon_local("bulk-pin"),
+    )
+    .unwrap();
+
+    let others =
+        json!({"verb": "close", "level": "workspace", "selector": "others", "anchor": anchor});
+    let closed = mutate(&mux, "layout.bulk", others.clone(), "others");
+    assert_eq!(closed["workspace_ids"], json!([loose]));
+
+    let mut everything = others;
+    everything["include_pinned"] = json!(true);
+    let closed = mutate(&mux, "layout.bulk", everything, "others-pinned");
+    assert_eq!(closed["workspace_ids"], json!([pinned]));
 }
