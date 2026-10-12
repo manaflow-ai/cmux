@@ -73,6 +73,21 @@ import Testing
         #expect(harness.scope.backdropSelection != .art(.daily(on: today)))
     }
 
+    /// A time zone or clock change re-picks the work for the new local day at once.
+    @Test func aClockChangeShowsTheNewDaysWork() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "daily"],
+                                        context: Self.gesture)
+        let today = Date()
+        await settle { harness.scope.backdropSelection == .art(.daily(on: today)) }
+        let tomorrow = BackdropArt.nextDay(after: today).addingTimeInterval(60)
+        harness.terminal.now = { tomorrow }
+        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        await settle { harness.scope.backdropSelection == .art(.daily(on: tomorrow)) }
+        #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow)))
+    }
+
     /// Every work shows once before any repeats, and no two days in a row show the same one.
     @Test func theRotationVisitsEveryWorkOncePerCycle() throws {
         var calendar = Calendar(identifier: .gregorian)
