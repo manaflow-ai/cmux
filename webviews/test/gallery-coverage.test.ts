@@ -66,18 +66,24 @@ function pages(): Map<string, string[]> {
 }
 
 const pageFiles = pages();
-const scope = prScope({
+const RULES = [
+  "webviews/test/gallery-coverage.test.ts",
+  "webviews/test/support/prScope.ts",
+  "webviews/scripts/gallery/entries.ts",
+];
+const LISTS = ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/];
+const scope = prScope({ rules: RULES, lists: LISTS });
+// validateEntries and its helpers decide only "the entries are valid": a pull request that edits
+// them owns every entry problem, not the base branch's coverage gaps.
+const validation = prScope({
   rules: [
-    "webviews/test/gallery-coverage.test.ts",
-    "webviews/test/support/prScope.ts",
-    "webviews/scripts/gallery/entries.ts",
+    ...RULES,
     "webviews/src/gallery/format.ts",
-    // validateEntries' helpers.
     "webviews/src/gallery/play.ts",
     "webviews/src/experiments/experiment.ts",
     "webviews/src/experiments/tunable.ts",
   ],
-  lists: ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/],
+  lists: LISTS,
 });
 /** A component (`file#Name`) or page id: its source files, and the names an allowlist or covers line gives it. */
 function place(name: string) {
@@ -153,7 +159,7 @@ describe("gallery coverage", async () => {
   const allowlist = JSON.parse(fs.readFileSync(ALLOWLIST, "utf8")) as Allowlist;
 
   test("the entries are valid", () => {
-    expect(scope.owned(validateEntries(entries), entryPlace, (problem) => problem)).toEqual([]);
+    expect(validation.owned(validateEntries(entries), entryPlace, (problem) => problem)).toEqual([]);
   });
 
   test("every cover names a component or page that exists", () => {
