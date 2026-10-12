@@ -1,6 +1,7 @@
 // Leo 2026-10-12, on nightly-next: a New Tab's model picker listed every Claude model, not the
 // curated few. The chip starts on the catalog's default for Claude Code (Sonnet 5), which is not one
-// of them, and the picker opened its More models fold to show it. At the New Tab boundary: the
+// of them, and the picker opened its More models fold to show it; Fable 5.1, which Claude Code
+// offers by its alias (`fable`), never matched the curated list. At the New Tab boundary: the
 // real screen and its chips, with the catalog acpmux answered on a Mac with Claude Code.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -91,20 +92,19 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
   const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
   const { noChat } = await import("../src/gallery/fixtures/acpmux");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-  const model = (id: string, name: string) => ({ id, name });
+  // What Claude Code itself reports (acpmux's probe on a capture Mac, 2026-10-12): Fable 5.1 by
+  // its alias.
   const acpmux: Snapshot["catalog"] = [
     {
       id: "claude",
       name: "Claude Code",
       family: "claude",
       models: [
-        model("default", "Default (Claude Code's choice)"),
-        model("claude-fable-5-1", "Claude Fable 5.1"),
-        model("claude-opus-5-5", "Claude Opus 5.5"),
-        model("claude-opus-4-8", "Claude Opus 4.8"),
-        model("claude-sonnet-5-5", "Claude Sonnet 5.5"),
-        model("claude-sonnet-5", "Claude Sonnet 5"),
-        model("claude-haiku-5-5", "Claude Haiku 5.5"),
+        { id: "default", name: "Default (Claude Code's choice)" },
+        { id: "claude-opus-5-5", name: "Claude Opus 5.5", shortName: "Opus 5.5" },
+        { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", shortName: "Sonnet 5.5" },
+        { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", shortName: "Haiku 5.5" },
+        { id: "fable", name: "Fable 5.1" },
       ],
     },
   ];
@@ -134,7 +134,9 @@ test("a New Tab's picker lists the curated models and the chip's own, with the r
   expect(rows()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Sonnet 5"]);
   const more = host.querySelector<HTMLButtonElement>(".acpmux-mp-older")!;
   expect(more.getAttribute("aria-expanded")).toBe("false");
-  // Its row is checked, and opening the fold lists every other model under it once.
+  // Fable 5.1 runs by the alias Claude Code offers. The chip's row is checked, and opening the fold
+  // lists every other model under it once.
+  expect(host.querySelector('[data-key="model:fable"] .acpmux-menu-label')?.textContent).toBe("Fable 5.1");
   expect(host.querySelector('[data-key="model:claude-sonnet-5"]')?.getAttribute("aria-checked")).toBe("true");
   await act(async () => more.click());
   const all = rows();
