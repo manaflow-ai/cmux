@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextSettings
 
 extension DebugMouse {
     /// `debug.mouse {"target": "page"}`: a left click on the Chromium page of `pane` (default: the
