@@ -2293,7 +2293,8 @@ export class AcpmuxDirectClient {
   /// click or key handler, with no await before it: the host takes the gesture, shows its own
   /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
   /// rejects with code `transport.harness_not_confirmed`; when acpmux refused to give the prompt
-  /// (no Trust answer, an invalid file), that rejection carries its reason as `detail`.
+  /// (no Trust answer, an invalid file), that rejection carries its reason as `detail`; when
+  /// acpmux gave no prompt (down, too slow), `reason` is `harness.prompt_unavailable`.
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
