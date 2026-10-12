@@ -4,65 +4,197 @@ import SwiftUI
 struct FeedScreen: View {
     let app: AppModel
     @State private var openTerminal: DaemonTab?
+    @State private var position = ScrollPosition(edge: .top)
+    @State private var scrolledDown = false
+    @State private var newPosts = 0
+    @State private var topID: String?
 
     private var store: FeedStore { app.feed }
 
     var body: some View {
         Group {
             if store.visible.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(store.visible) { item in
-                            FeedPostView(item: item, store: store) { open(item) }
-                            Divider().padding(.leading, 68)
-                        }
+                if store.items.isEmpty, let connection = app.connection, connection.phase != .connected {
+                    if case .offline(let message) = connection.phase {
+                        OfflineState(hostName: connection.host.name, message: message) { app.reconnect() }
+                    } else {
+                        FeedSkeleton()
                     }
-                    .padding(.bottom, 24)
+                } else {
+                    emptyState
                 }
-                .scrollEdgeEffectStyle(.soft, for: .all)
-                .refreshable { await app.connection?.refresh(); await store.backfill() }
+            } else {
+                timeline
             }
         }
         .background(Theme.background)
         .navigationTitle(String(localized: "Feed"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker(String(localized: "Show"), selection: Bindable(store).filter) {
-                        ForEach(FeedStore.Filter.allCases) { filter in Text(filter.title).tag(filter) }
-                    }
-                    Divider()
-                    Button { store.markAllRead() } label: { Label(String(localized: "Mark All as Read"), systemImage: "checkmark.circle") }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                }
-                .accessibilityIdentifier("feed.filter")
-            }
+            ToolbarItem(placement: .topBarTrailing) { filterMenu }
         }
         .navigationDestination(item: $openTerminal) { tab in
             if let connection = app.connection { TerminalScreen(connection: connection, tab: tab) }
         }
     }
 
+    private var timeline: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(store.visible) { item in
+                    FeedPostView(item: item, store: store) { open(item) }
+                        .id(item.id)
+                    Divider().padding(.leading, 68)
+                }
+            }
+            .padding(.bottom, 24)
+            .scrollTargetLayout()
+        }
+        .scrollPosition($position)
+        .scrollEdgeEffectStyle(.soft, for: .all)
+        .refreshable {
+            Haptics.soft()
+            await app.connection?.refresh()
+            await store.backfill()
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 120
+        } action: { _, down in
+            scrolledDown = down
+            if !down { newPosts = 0 }
+        }
+        .onChange(of: store.visible.first?.id, initial: true) { _, first in
+            defer { topID = first }
+            guard let previous = topID, let first, first != previous else { return }
+            if scrolledDown, let index = store.visible.firstIndex(where: { $0.id == previous }) {
+                newPosts += index
+                Haptics.soft()
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                if let connection = app.connection, let kind = connection.phase.statusKind(hostName: connection.host.name) {
+                    ConnectionStatusCapsule(kind: kind, onRetry: { app.reconnect() })
+                        .padding(.vertical, 6)
+                }
+                if newPosts > 0 && scrolledDown {
+                    Button {
+                        Haptics.tap()
+                        withAnimation(.smooth(duration: 0.4)) { position.scrollTo(edge: .top) }
+                        newPosts = 0
+                    } label: {
+                        Label(newPosts == 1 ? String(localized: "1 new post") : String(localized: "\(newPosts) new posts"),
+                              systemImage: "arrow.up")
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 34)
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("feed.newPosts")
+                }
+            }
+            .animation(.smooth(duration: 0.3), value: newPosts > 0 && scrolledDown)
+        }
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            Picker(String(localized: "Show"), selection: Bindable(store).filter) {
+                ForEach(FeedStore.Filter.allCases) { filter in
+                    Label(filter.title, systemImage: filter.symbol).tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+            Section {
+                Button { Haptics.success(); store.markAllRead() } label: {
+                    Label(String(localized: "Mark All as Read"), systemImage: "checkmark.circle")
+                }
+                .disabled(store.unreadCount == 0)
+            }
+        } label: {
+            Image(systemName: store.filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .accessibilityLabel(String(localized: "Filter: \(store.filter.title)"))
+        .accessibilityIdentifier("feed.filter")
+    }
+
     private func open(_ item: FeedItem) {
         store.markRead(item)
         guard let surface = item.surface, let tab = app.connection?.tab(surface: surface) else { return }
+        Haptics.selection()
         openTerminal = tab
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "bell.badge").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
-            Text(store.filter == .attention ? String(localized: "Nothing needs you") : String(localized: "All caught up"))
-                .font(.headline)
-            Text(String(localized: "When an agent asks a question, needs permission or finishes, it shows up here."))
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+        switch store.filter {
+        case .attention:
+            StateMessageView(systemImage: "checkmark.bubble", title: String(localized: "Nothing needs you"),
+                             message: String(localized: "Questions and permission requests from your agents show up here.")) {
+                Button(String(localized: "Show all posts")) { store.filter = .all }
+                    .buttonStyle(.primaryCapsule)
+            }
+        case .done:
+            StateMessageView(systemImage: "flag.checkered", title: String(localized: "Nothing finished yet"),
+                             message: String(localized: "When an agent finishes a task, it shows up here.")) {
+                Button(String(localized: "Show all posts")) { store.filter = .all }
+                    .buttonStyle(.primaryCapsule)
+            }
+        case .all:
+            StateMessageView(systemImage: "bell", title: String(localized: "All caught up"),
+                             message: String(localized: "When an agent asks a question, needs permission or finishes, it shows up here."))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension FeedStore.Filter {
+    var symbol: String {
+        switch self {
+        case .all: "tray.full"
+        case .attention: "exclamationmark.bubble"
+        case .done: "checkmark.circle"
+        }
+    }
+}
+
+/// Post-shaped placeholders while the feed loads.
+struct FeedSkeleton: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<4, id: \.self) { index in
+                HStack(alignment: .top, spacing: 12) {
+                    Circle().fill(Color.primary.opacity(0.08)).frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 9) {
+                        SkeletonBar(width: 140, height: 11)
+                        SkeletonBar(height: 10)
+                        SkeletonBar(width: [220, 180, 240, 160][index], height: 10)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+                Divider().padding(.leading, 68)
+            }
+            Spacer()
+        }
+        .shimmer()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Loading feed"))
+    }
+}
+
+/// X-style compact relative time: "now", "4m", "3h", "2d", then a date.
+func compactRelativeTime(_ date: Date, now: Date = .now) -> String {
+    let seconds = max(0, now.timeIntervalSince(date))
+    switch seconds {
+    case ..<60: return String(localized: "now")
+    case ..<3600: return String(localized: "\(Int(seconds / 60))m")
+    case ..<86400: return String(localized: "\(Int(seconds / 3600))h")
+    case ..<(7 * 86400): return String(localized: "\(Int(seconds / 86400))d")
+    default: return date.formatted(.dateTime.month(.abbreviated).day())
     }
 }
 
@@ -101,7 +233,9 @@ struct FeedPostView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .background(item.read ? Color.clear : Color.primary.opacity(0.03))
         .contentShape(.rect)
         .onTapGesture { onOpen() }
         .contextMenu {
@@ -128,8 +262,12 @@ struct FeedPostView: View {
                     .background(Capsule().fill(Theme.attention.opacity(0.18)))
                     .foregroundStyle(Theme.attention)
             }
-            Text(item.createdAt, format: .relative(presentation: .named, unitsStyle: .narrow))
-                .font(.caption).foregroundStyle(.tertiary)
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Text(compactRelativeTime(item.createdAt, now: context.date))
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .accessibilityLabel(item.createdAt.formatted(.relative(presentation: .named)))
         }
     }
 
@@ -263,11 +401,12 @@ struct BubbleShape: Shape {
         let r: CGFloat = min(18, rect.height / 2)
         var path = Path()
         path.addRoundedRect(in: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height), cornerSize: CGSize(width: r, height: r), style: .continuous)
-        // Tail.
+        // Tail: square off the bottom-right corner and flick out to the right.
         let x = rect.maxX, y = rect.maxY
-        path.move(to: CGPoint(x: x - 10, y: y - 6))
-        path.addCurve(to: CGPoint(x: x + 5, y: y), control1: CGPoint(x: x - 4, y: y - 1), control2: CGPoint(x: x + 1, y: y))
-        path.addCurve(to: CGPoint(x: x - 2, y: y - 12), control1: CGPoint(x: x - 2, y: y - 3), control2: CGPoint(x: x - 2, y: y - 8))
+        path.move(to: CGPoint(x: x - 14, y: y))
+        path.addQuadCurve(to: CGPoint(x: x + 5, y: y), control: CGPoint(x: x - 2, y: y + 0.5))
+        path.addQuadCurve(to: CGPoint(x: x, y: y - 14), control: CGPoint(x: x - 1, y: y - 4))
+        path.addLine(to: CGPoint(x: x - 14, y: y - 14))
         path.closeSubpath()
         return path
     }
