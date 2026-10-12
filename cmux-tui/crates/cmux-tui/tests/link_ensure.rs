@@ -367,6 +367,51 @@ fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
     assert!(!app.registration().exists());
 }
 
+/// A bad install id (it would name archive files) is refused before
+/// anything changes: the running link, its key and its peers stay.
+#[test]
+fn link_ensure_refuses_a_bad_install_id_before_it_changes_anything() {
+    let base = Scratch::new("badid");
+    let app = base.app("a");
+    let first = app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    let dir = app.state_dir();
+    let d = dir.to_str().unwrap();
+    app.json(&[
+        "link",
+        "peer",
+        "add",
+        "--state-dir",
+        d,
+        "--install",
+        "inst_peer",
+        "--user",
+        "u_a",
+        "--team",
+        "t_a",
+        "--public-key",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    ]);
+    let key = std::fs::read(dir.join("private.key")).unwrap();
+    let peers = std::fs::read(dir.join("peers.json")).unwrap();
+    let out = app.cmux(&["link", "ensure", "--state-dir", d, "--install", "x/y", "--handoff"]);
+    assert!(!out.status.success(), "a bad install id was accepted");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("invalid_install"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(alive(pid(&first)), "the running link was stopped");
+    assert_eq!(pid(&app.status()), pid(&first));
+    assert_eq!(std::fs::read(dir.join("private.key")).unwrap(), key, "the key changed");
+    assert_eq!(std::fs::read(dir.join("peers.json")).unwrap(), peers, "the peers changed");
+    let moved: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .filter(|name| name.starts_with("private.key.") || name.starts_with("peers."))
+        .collect();
+    assert!(moved.is_empty(), "archive files appeared: {moved:?}");
+}
+
 #[test]
 fn link_ensure_needs_an_install_the_first_time() {
     let base = Scratch::new("first");
