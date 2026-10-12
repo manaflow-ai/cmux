@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Cmd-N and Cmd-T paint stable on a running tagged build (bd cx-8g3sn).
 
-A new workspace (Cmd-N) or tab (Cmd-T) opens on the New Tab page with no blank or
-intermediate frame: the window as the window server composited it, read frame after frame
-around the key (`debug.new_tab` frame_strip), changes outside the pane's content area in one
-step (each frame equals the one before the key or the settled one), and the content area never
-shows one flat color. Fails on any such frame and prints where the frame strips are.
+A new workspace (Cmd-N) or tab (Cmd-T) opens on the New Tab page, the prewarmed spare handed
+over (no page loads for it), with no blank or intermediate frame: the window as the window
+server composited it, read frame after frame around the key (`debug.new_tab` frame_strip),
+changes outside the pane's content area in one step (each frame equals the one before the key
+or the settled one), and the content area never shows one flat color. Fails on any such frame
+and prints where the frame strips are.
 
 The app runs already (a capture slot: `capture-host launch`), with its debug socket.
 
@@ -61,14 +62,24 @@ def spare_ready():
 failures = []
 for run in range(opts.runs):
     for key in opts.keys.split(","):
+        if key == "t":
+            # Cmd-T on a New Tab page only focuses it: open from a terminal tab (Control-`).
+            rpc("debug.key", {"key": "`", "modifiers": ["control"]})
+            time.sleep(1.0)  # test harness wait: the terminal tab shows
         wait(f"a ready spare before Cmd-{key.upper()}", spare_ready, 30)
+        openings = len((rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])
         time.sleep(0.5)  # test harness wait: the window settles (caret, hover) before the strip
         out = f"{opts.out}/cmd-{key}-{run}"
         reply = rpc("debug.new_tab", {"action": "frame_strip", "key": key, "dir": out, "duration_ms": opts.duration_ms}) or {}
         if "error" in reply:
             sys.exit(f"FAIL frame_strip Cmd-{key.upper()}: {reply}")
         bad = [f for f in reply["frames"] if f["intermediate"] or f["blank"]]
-        print(f"Cmd-{key.upper()} run {run}: {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
+        # The page is the prewarmed spare, handed over, not a page loaded for this opening.
+        recorded = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
+        opening = recorded[-1] if len(recorded) > openings else {}
+        if not opening.get("spare"):
+            failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
+        print(f"Cmd-{key.upper()} run {run}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
               f"intermediate={reply['intermediate']:.0f} blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
         for frame in bad:
             print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
