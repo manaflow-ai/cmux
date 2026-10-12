@@ -220,9 +220,9 @@ final class HostConnection {
         return client
     }
 
-    func send(surface: Int, text: String) async throws {
+    func send(surface: Int, text: String, paste: Bool = false) async throws {
         guard let control else { throw DaemonClient.Failure(message: "Not connected.") }
-        try await control.send(surface: surface, text: text)
+        try await control.send(surface: surface, text: text, paste: paste)
     }
 
     func sendKeys(surface: Int, _ keys: [String]) async throws {

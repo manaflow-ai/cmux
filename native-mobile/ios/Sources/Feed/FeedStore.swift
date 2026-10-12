@@ -186,7 +186,10 @@ final class FeedStore {
     /// Types a reply into the agent's terminal and presses Return.
     func reply(_ item: FeedItem, text: String) async throws {
         guard let connection, let surface = item.surface else { return }
-        try await connection.send(surface: surface, text: text)
+        // A multi-line reply goes in as one bracketed paste; typed newlines
+        // would submit the first line on its own.
+        let message = ComposerModel.plainPunctuation(text.trimmingCharacters(in: .newlines))
+        try await connection.send(surface: surface, text: message, paste: message.contains("\n"))
         try await connection.sendKeys(surface: surface, ["enter"])
         markAnswered(item, text)
     }
