@@ -46,6 +46,11 @@ export function ptyTabs(tree: unknown): TabInfo[] {
 
 export const terminalId = (surface: number) => `s${surface}`;
 
+/** Daemon errors meaning the surface or terminal is gone. */
+export function isGoneError(message: string): boolean {
+  return /unknown (surface|terminal|tab)|(surface|terminal|tab) .*(not found|does not exist|disappeared|is dead)|no such (surface|terminal)/i.test(message);
+}
+
 export function parseTerminalId(id: string): number {
   const m = /^s(\d{1,10})$/.exec(id);
   if (!m) throw new RpcError("not_found", `terminal ${id} not found`);
@@ -180,12 +185,40 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
 
   async close(id: string): Promise<void> {
     const { surface } = await this.known(id);
-    await (await this.conn()).request("close-surface", { surface });
+    await (await this.conn()).request("close-surface", { surface }).catch((err) => {
+      throw this.mapError(err, surface);
+    });
   }
 
   async rename(id: string, title: string): Promise<void> {
     const { surface } = await this.known(id);
-    await (await this.conn()).request("rename-surface", { surface, name: title });
+    await (await this.conn()).request("rename-surface", { surface, name: title }).catch((err) => {
+      throw this.mapError(err, surface);
+    });
+  }
+
+  /**
+   * A daemon error for a terminal that no longer exists on the Mac becomes
+   * not_found (the phone shows "This terminal ended on the Mac"), and the
+   * terminal leaves term.list right away. Other failures stay unavailable.
+   */
+  private mapError(err: unknown, surface: number): RpcError {
+    if (err instanceof RpcError) return err;
+    const message = (err as Error)?.message ?? String(err);
+    if (isGoneError(message)) {
+      this.forget(surface);
+      this.scheduleRefresh();
+      return new RpcError("not_found", `terminal ${terminalId(surface)} ended on the Mac`);
+    }
+    return new RpcError("unavailable", message);
+  }
+
+  /** Drops a terminal the daemon no longer knows (term.exited for the phone). */
+  private forget(surface: number): void {
+    const t = this.terminals.get(surface);
+    if (!t) return;
+    this.terminals.delete(surface);
+    this.emit("event", "term.exited", { terminalId: t.id, code: 0 });
   }
 
   /**
@@ -242,7 +275,7 @@ export class DaemonTerminals extends EventEmitter<DaemonTerminalsEvents> {
       await stream.request("set-size-counts", { surface, counts: false });
     } catch (err) {
       stream.close();
-      throw err instanceof RpcError ? err : new RpcError("unavailable", (err as Error).message);
+      throw this.mapError(err, surface);
     }
     return {
       terminal: { ...(this.terminals.get(surface) ?? t) },

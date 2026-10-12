@@ -86,6 +86,7 @@ async function fakeDaemon() {
       case "list-workspaces":
         return ok(tree());
       case "attach-surface":
+        if (!tabs.some((t) => t.surface === m.surface)) return conn.send({ id: m.id, ok: false, error: `unknown surface ${m.surface}` });
         conn.send({ event: "vt-state", surface: m.surface, cols: 104, rows: 40, data: Buffer.from("REPLAY$ ").toString("base64") });
         return ok({ lease: "lease-1", participant: "c9" });
       case "send":
@@ -285,6 +286,28 @@ describe("daemon terminals bridge", () => {
     await waitFor(() => updates.some((t) => t.id === "s42" && t.title === "mac tab"));
     await expect(client.request("term.attach", { terminalId: "s5", cols: 1, rows: 1 })).rejects.toMatchObject({ code: "not_found" }); // browser tab
     await expect(client.request("term.attach", { terminalId: "../x", cols: 1, rows: 1 })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("maps a terminal that ended on the Mac to not_found and drops it from the list", async () => {
+    const d = await fakeDaemon();
+    cleanups.push(() => d.srv.close());
+    const terminals = new DaemonTerminals(() => d.path);
+    const { core, client } = await connectedCore({ bridge: { terminals } });
+    cleanups.push(() => core.shutdown());
+    const exited: any[] = [];
+    client.peer.on("event", (t, p) => t === "term.exited" && exited.push(p));
+    expect((await client.request("term.list")).terminals.map((t: any) => t.id)).toEqual(["s2"]);
+    // The Mac closed the terminal; the host has not heard about it yet.
+    d.tabs.splice(d.tabs.findIndex((t) => t.surface === 2), 1);
+    await expect(client.request("term.attach", { terminalId: "s2", cols: 80, rows: 24 })).rejects.toMatchObject({ code: "not_found" });
+    await waitFor(() => exited.some((e) => e.terminalId === "s2"));
+    expect((await client.request("term.list")).terminals).toEqual([]);
+  });
+
+  it("recognizes the daemon's gone-terminal errors", async () => {
+    const { isGoneError } = await import("../src/bridge/daemonTerminals.ts");
+    for (const m of ["attach-surface: unknown surface 7", "unknown terminal abc", "surface 7 not found", "pane disappeared"].slice(0, 3)) expect(isGoneError(m), m).toBe(true);
+    for (const m of ["attach-surface: timed out", "connection closed: socket closed", "bad request: x"]) expect(isGoneError(m), m).toBe(false);
   });
 
   it("finds pty tabs anywhere in the tree", () => {
