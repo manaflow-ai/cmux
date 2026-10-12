@@ -657,10 +657,6 @@ final class RowCell: UICollectionViewCell {
             }
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
-            for d in dots {  // cmux: themed typing dots (Fixture.typingDotDim / typingDotLit follow the theme)
-                d.backgroundColor = Fixture.typingDotDim.cgColor
-                d.sublayers?.first?.backgroundColor = Fixture.typingDotLit.cgColor
-            }
             applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
             CATransaction.commit()
             self.spec = nil

@@ -19,20 +19,16 @@
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
              default: return nil
-@@ -658,7 +657,11 @@
+@@ -658,7 +657,7 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
 -            fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-+            for d in dots {  // cmux: themed typing dots (Fixture.typingDotDim / typingDotLit follow the theme)
-+                d.backgroundColor = Fixture.typingDotDim.cgColor
-+                d.sublayers?.first?.backgroundColor = Fixture.typingDotLit.cgColor
-+            }
 +            applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1119,6 +1122,16 @@
+@@ -1119,6 +1118,16 @@
          CATransaction.commit()
      }
  
