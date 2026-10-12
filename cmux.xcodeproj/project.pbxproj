@@ -3069,6 +3069,7 @@
 		0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */; };
 		0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */; };
 		0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */; };
+		099C0989821DEF65CF762A70 /* RemoteTmuxViewConnection+LeftoverClients.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053DCBFB4FCD9AD09EDEE790 /* RemoteTmuxViewConnection+LeftoverClients.swift */; };
 		CAB12232BEBFA6339113FC38 /* RemoteTmuxViewConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC2F77E7008B9EA04E331EF1 /* RemoteTmuxViewConnection.swift */; };
 		2ABB757D8CF86F7E12A075DB /* RemoteTmuxViewReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDB6CFC51DAB00D196A80144 /* RemoteTmuxViewReconciler.swift */; };
 		2ECD289046D74B86FFD4C9B4 /* RemoteTmuxViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20993205FA97F9381828DF6 /* RemoteTmuxViewSession.swift */; };
@@ -7584,6 +7585,7 @@
 		0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxTransportRegistry.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersion.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersionTests.swift; sourceTree = "<group>"; };
+		053DCBFB4FCD9AD09EDEE790 /* RemoteTmuxViewConnection+LeftoverClients.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxViewConnection+LeftoverClients.swift"; sourceTree = "<group>"; };
 		FC2F77E7008B9EA04E331EF1 /* RemoteTmuxViewConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxViewConnection.swift; sourceTree = "<group>"; };
 		CDB6CFC51DAB00D196A80144 /* RemoteTmuxViewReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxViewReconciler.swift; sourceTree = "<group>"; };
 		B20993205FA97F9381828DF6 /* RemoteTmuxViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxViewSession.swift; sourceTree = "<group>"; };
@@ -12189,6 +12191,7 @@
 				BCA3F59452093B3DC3501CCD /* RemoteTmuxSessionChannel.swift */,
 				3DD2FC977A20A6798FFABA54 /* RemoteTmuxSessionSource.swift */,
 				FC2F77E7008B9EA04E331EF1 /* RemoteTmuxViewConnection.swift */,
+				053DCBFB4FCD9AD09EDEE790 /* RemoteTmuxViewConnection+LeftoverClients.swift */,
 				CDB6CFC51DAB00D196A80144 /* RemoteTmuxViewReconciler.swift */,
 				B20993205FA97F9381828DF6 /* RemoteTmuxViewSession.swift */,
 				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
@@ -16215,6 +16218,7 @@
 				6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */,
 				0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */,
+				099C0989821DEF65CF762A70 /* RemoteTmuxViewConnection+LeftoverClients.swift in Sources */,
 				CAB12232BEBFA6339113FC38 /* RemoteTmuxViewConnection.swift in Sources */,
 				2ABB757D8CF86F7E12A075DB /* RemoteTmuxViewReconciler.swift in Sources */,
 				2ECD289046D74B86FFD4C9B4 /* RemoteTmuxViewSession.swift in Sources */,

@@ -633,7 +633,7 @@ final class RemoteTmuxViewConnection {
         return false
     }
 
-    private func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
+    func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
         let outcome = await conn.queryOutcomeWithTimeout(command, timeout: 15, reconnectOnTimeout: false)
         if let lines = outcome.lines { return lines }
         guard Self.shouldRetryReconcileQuery(after: outcome) else { return nil }
@@ -702,11 +702,11 @@ final class RemoteTmuxViewConnection {
                   conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
+            await detachLeftoverViewClients(conn)
         }
 
-        // Bounded: an alive-but-slow server gets one longer retry before we decide
-        // the control stream is wedged and reconnect. Other query users opt out of
-        // reconnect-on-timeout so quit/new-workspace paths do not flap the stream.
+        // Bounded: an alive-but-slow server gets one longer retry before we call the stream wedged
+        // and reconnect. Other query users opt out so quit/new-workspace paths do not flap it.
         guard
             let sessOut = await reconcileListQuery(
                 conn,
