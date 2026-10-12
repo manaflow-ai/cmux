@@ -154,8 +154,13 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
         };
         if let Some(result) = reply {
             let frame = match result.get(FAKE_ERROR) {
-                Some(message) => json!({"jsonrpc":"2.0","id":id,
-                                        "error":{"code":-32000,"message":message}}),
+                Some(message) => {
+                    let mut error = json!({"code":-32000,"message":message});
+                    if let Some(data) = result.get(FAKE_ERROR_DATA) {
+                        error["data"] = data.clone();
+                    }
+                    json!({"jsonrpc":"2.0","id":id,"error":error})
+                }
                 None => json!({"jsonrpc":"2.0","id":id,"result":result}),
             };
             writeln!(writer, "{frame}").unwrap();
@@ -165,12 +170,17 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
 
 /// A fake answer carrying this key is sent as a JSON-RPC error.
 const FAKE_ERROR: &str = "__fake_error";
+/// The `data` of that error, when the fake answer carries one.
+const FAKE_ERROR_DATA: &str = "__fake_error_data";
 
 /// The fake's `_acpmux/transfer_*` answers: a receive whose manifest names
 /// [`UNGUARDED_CHAT`] is answered as an acpmux without the guard would, one
 /// whose manifest `transferId` is `xfer_many_<n>` gets receive id `rcv_<n>`,
-/// a finish named `exists` or `incomplete` fails as acpmux's would, and an
-/// abort of [`ABORT_FAILS_CHAT`] fails.
+/// a finish named `exists` or `incomplete` fails as acpmux's would, one named
+/// `slow` answers after 800 ms, a forget of move `xfer_forget_fails` fails, a forget
+/// of move `xfer_landed` answers that its chat landed, and an abort of
+/// [`ABORT_FAILS_CHAT`] fails, and a begin of [`MOVING_CHAT`] answers that
+/// it is being moved already, with that move's id as acpmux's error data.
 fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     use base64::Engine as _;
     let base64 = base64::engine::general_purpose::STANDARD;
@@ -193,7 +203,15 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
         "_acpmux/transfer_finish" if params["name"] == json!("incomplete") => {
             json!({FAKE_ERROR: "transfer.incomplete: \"events/0.ndjson\": 0 of 3"})
         }
+        "_acpmux/transfer_finish" if params["name"] == json!("slow") => {
+            std::thread::sleep(Duration::from_millis(800));
+            json!({"sessionId": "acp_moved", "cwd": params["cwd"]})
+        }
         "_acpmux/transfer_finish" => json!({"sessionId": "acp_moved", "cwd": params["cwd"]}),
+        "_acpmux/transfer_begin" if params["sessionId"] == json!(MOVING_CHAT) => json!({
+            FAKE_ERROR: "transfer.moving: this chat is already being moved",
+            FAKE_ERROR_DATA: {"transferId": "xfer_frozen"},
+        }),
         "_acpmux/transfer_begin" => json!({
             "schema": "acpmux.transfer.v1", "transferId": "xfer_1",
             "sessionId": params["sessionId"],
@@ -211,7 +229,11 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
                    "eof": true})
         }
         "_acpmux/transfer_read" => json!({"data": base64.encode("abc"), "next": 3, "eof": true}),
-        "_acpmux/transfer_forget" => json!({"transferId": params["transferId"], "landed": false}),
+        "_acpmux/transfer_forget" if params["transferId"] == json!("xfer_forget_fails") => {
+            json!({FAKE_ERROR: "transfer: disk full"})
+        }
+        "_acpmux/transfer_forget" => json!({"transferId": params["transferId"],
+                                           "landed": params["transferId"] == json!("xfer_landed")}),
         "_acpmux/transfer_commit" => json!({"sessionId": params["sessionId"], "committed": true}),
         "_acpmux/transfer_abort" if params["sessionId"] == json!(ABORT_FAILS_CHAT) => {
             json!({FAKE_ERROR: "transfer.closed: the move committed"})
@@ -221,6 +243,8 @@ fn transfer_reply(method: &str, params: &Value) -> Option<Value> {
     })
 }
 
+/// A chat the fake says is already being moved (move `xfer_frozen`).
+pub(super) const MOVING_CHAT: &str = "acp_moving_already";
 /// A chat whose move the fake refuses to abort.
 pub(super) const ABORT_FAILS_CHAT: &str = "acp_abort_fails";
 /// A bundle's `session.json` (acpmux `SessionMeta`), with the source
@@ -292,12 +316,23 @@ impl Client {
         None
     }
 
-    pub(super) fn request(&mut self, mut value: Value) -> Value {
+    pub(super) fn request(&mut self, value: Value) -> Value {
+        let id = self.send(value);
+        self.answer(id)
+    }
+
+    /// Sends a request without waiting for its answer; returns its id.
+    pub(super) fn send(&mut self, mut value: Value) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         value["id"] = json!(id);
         writeln!(self.writer, "{value}").unwrap();
         self.writer.flush().unwrap();
+        id
+    }
+
+    /// The answer to request `id`.
+    pub(super) fn answer(&mut self, id: u64) -> Value {
         let deadline = Instant::now() + WAIT;
         loop {
             let line = self.read_line(deadline).expect("no response before the deadline");
