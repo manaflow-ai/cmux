@@ -55,9 +55,20 @@ struct SidebarCalmMotionTests {
         #expect(model.activeProfileID == ProfileKey("home"))
     }
 
-    @Test func aNewGroupsChipFadesInWithoutGrowing() throws {
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
+    /// The rows open in a window on screen: with no screen Motion snaps them.
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func aNewGroupsChipFadesInWithoutGrowing() throws {
         let model = SidebarModel(sections: Self.sections(grouped: false))
         let sidebar = Self.sidebar(model)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        sidebar.layoutSubtreeIfNeeded()
         let scaled = try { () throws -> [String] in
             Motion.reduceMotionOverride = false
             defer { Motion.reduceMotionOverride = nil }
