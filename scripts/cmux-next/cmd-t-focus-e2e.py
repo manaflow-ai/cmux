@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Live check of Cmd-T by focus (cx-xt5k) on a running tagged cmux-next build.
 
-Cmd-T follows the focused pane. A pane with a tab strip (a terminal, a browser tab) gets a new tab
-in that pane; on the New Tab page Cmd-T keeps that page (one per pane). An agent chat, or a pane without a strip (a lone chat), gets a
-new workspace in the current group instead. Both open the New Tab page. With
-`tabs.swapCmdTAndCmdN` on, Cmd-T is always New Workspace and Cmd-N is always New Tab.
+Cmd-T follows the focused pane. A pane with a tab strip (a terminal, a browser tab, the New Tab
+page, also with the keyboard in its field) gets a new tab in that pane (Leo 2026-10-10). An agent
+chat, or a pane without a strip (a lone chat), gets a new workspace in the current group instead.
+Both open the New Tab page. With `tabs.swapCmdTAndCmdN` on, Cmd-T is always New Workspace and
+Cmd-N is always New Tab.
+
+With the keyboard in the New Tab page's field (a web view), every bound app shortcut must reach
+the key router, not the page: `debug.key` `dry_run` asks the router what it would run, for each
+shortcut in `action.list`, without running it.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It presses keys as the user does (`debug.key`: the key
@@ -165,6 +170,56 @@ def press(letter, case, expects):
     row(case, expected, observed, ok)
 
 
+def field_focused(case):
+    field = rpc("debug.new_tab", {"action": "field"}) or {}
+    row(case, "the New Tab field has the keyboard", json.dumps(field), field.get("focused") is True)
+
+
+# Shortcuts that edit the focused field (the Edit menu's): a text field keeps them.
+FIELD_KEYS = {"cmd+a", "cmd+c", "cmd+v", "cmd+x", "cmd+z", "cmd+shift+z"}
+
+
+def debug_key_args(config):
+    """debug.key params for a single-stroke `shortcut_config` such as "cmd+shift+t", else None."""
+    if not config or " " in config or "," in config:
+        return None
+    *mods, letter = config.split("+")
+    names = {"cmd": "command", "shift": "shift", "opt": "option", "ctrl": "control"}
+    if any(m not in names for m in mods) or not ({"cmd", "ctrl"} & set(mods)):
+        return None
+    if len(letter) == 1 and "shift" in mods and letter.isalpha():
+        letter = letter.upper()
+        mods = [m for m in mods if m != "shift"]
+    return {"key": letter, "modifiers": [names[m] for m in mods]}
+
+
+def sweep_shortcuts():
+    """Every bound app shortcut (a Command or Control chord) reaches the key router while the
+    New Tab field has the keyboard: the router would run an action for it, none goes to the page."""
+    # A build without `dry_run` would run every shortcut: send none unless the router answers dry.
+    probe = rpc("debug.key", {"key": "t", "modifiers": ["command"], "dry_run": True}) or {}
+    if "decision" not in probe:
+        row("every app shortcut reaches the router with the keyboard in the New Tab field",
+            "debug.key dry_run answers", json.dumps(probe), False)
+        return
+    actions = (rpc("action.list", {"available_only": True}) or {}).get("actions") or []
+    delivered, ran, skipped = [], 0, 0
+    for entry in actions:
+        config = entry.get("shortcut_config")
+        args = debug_key_args(config)
+        if args is None or config in FIELD_KEYS:
+            skipped += 1
+            continue
+        verdict = rpc("debug.key", dict(args, dry_run=True)) or {}
+        if verdict.get("action"):
+            ran += 1
+        else:
+            delivered.append(f"{config} ({entry.get('id')}): {verdict.get('decision') or verdict.get('error')}")
+    row("every app shortcut reaches the router with the keyboard in the New Tab field",
+        "each Command/Control shortcut runs an action, none goes to the page",
+        f"{ran} routed, {skipped} skipped; to the page: {delivered or 'none'}", ran > 0 and not delivered)
+
+
 def setting(path, value):
     saved = (rpc("settings.get", {"path": path}) or {}).get("value")
     print(path, "was:", saved, "set:", rpc("settings.set", {"path": path, "value": value}), flush=True)
@@ -185,8 +240,13 @@ def main():
         # A script's workspace starts on a terminal: a pane with a tab strip.
         print("newTab (workspace):", opened(lambda: action("newTab", focus=True)), flush=True)
         press("t", "Cmd-T on a terminal opens a tab there", "tab")
-        # The New Tab page is a tab of a pane with a strip: Cmd-T keeps it (one page per pane).
-        press("t", "Cmd-T on the New Tab page keeps it, no workspace", "stay")
+        # The New Tab page is a tab of a pane with a strip: Cmd-T opens another, also with the
+        # keyboard in the page's field (a web view), and again from that one.
+        field_focused("Cmd-T opened the New Tab page with the keyboard in its field")
+        press("t", "Cmd-T with the keyboard in the New Tab field opens a tab there", "tab")
+        field_focused("the new New Tab page has the keyboard in its field")
+        press("t", "Cmd-T again from that New Tab field opens another tab", "tab")
+        sweep_shortcuts()
         reply = action("openBrowser", {"url": "about:blank"}, focus=True)
         wait(lambda: created(reply) and tab(created(reply)), 20)
         time.sleep(1)  # test harness: the browser tab is selected
