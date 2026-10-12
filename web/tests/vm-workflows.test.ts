@@ -2052,6 +2052,33 @@ describe("VM Effect workflows", () => {
     expect(destroyCalls).toBe(0);
   });
 
+  // A destroy the route answered as in progress may have removed the
+  // machine at the provider already; the retry treats that as done.
+  test("a destroy retry after the first destroy removed the machine finishes the row", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-destroy-retry",
+      providerVmId: "provider-vm-destroy-retry",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () => {
+        destroyCalls += 1;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "destroy",
+          cause: Object.assign(new Error("VM not found"), { status: 404, code: "NOT_FOUND" }),
+        }));
+      },
+    };
+    await Effect.runPromise(
+      destroyVm({ userId: vm.userId, providerVmId: "provider-vm-destroy-retry" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(destroyCalls).toBe(1);
+  });
+
   test("destroyVm fails closed when active identity cleanup exceeds the hot-path cap", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000132",

@@ -132,10 +132,15 @@ export async function vmGuestUnresponsiveCopy(locale: Locale): Promise<VmRequire
 
 /** Localized copy for a read that answered at its deadline (routeDeadline.ts). */
 export async function vmProviderTimeoutCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmRouteDeadlineCopy("providerTimeout", locale);
+}
+
+/** Localized copy for a VM route that answered at its deadline (routeDeadline.ts). */
+export async function vmRouteDeadlineCopy(kind: "inProgress" | "providerTimeout", locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
     locale,
     messages: await loadMessages(locale),
-    namespace: "vmErrors.providerTimeout",
+    namespace: `vmErrors.${kind}`,
   }) as unknown as (key: string) => string;
   return {
     title: translator("title"),

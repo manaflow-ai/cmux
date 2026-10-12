@@ -21,6 +21,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
  * the route's answer.
  */
 export type ProviderReadOptions = { readonly signal?: AbortSignal };
+/** A provider's raw pause state, see `VMProvider.getPauseState`. */
+export type VmPauseState = "paused" | "in_progress" | "not_paused" | "destroyed";
 
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
@@ -570,6 +572,13 @@ export interface VMProvider {
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
 
   getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
+  /**
+   * Whether the machine is paused at the provider, still moving between
+   * states (`in_progress`, e.g. Freestyle `pausing` or `starting`), or
+   * neither. Unlike {@link getStatus} this never folds a transition or a
+   * powered-off machine into `paused`; pause retries reconcile on it.
+   */
+  getPauseState?(vmId: string): Promise<VmPauseState>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
@@ -740,7 +749,6 @@ export class ProviderTlsRuleLimitError extends ProviderError {
   }
 }
 
-/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
 /** True when `err` or one of its causes is a {@link ProviderGuestUnresponsiveError}. */
 export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
   let current = err;
@@ -751,6 +759,30 @@ export function hasProviderGuestUnresponsiveCause(err: unknown): boolean {
   return false;
 }
 
+/**
+ * True when a provider failure says the call was never answered, not that it
+ * was refused: a stuck guest ({@link ProviderGuestUnresponsiveError}), a
+ * client timeout or abort, a gateway 502/504 (a background request polled
+ * past its limit), or the provider's VM_NON_RESPONSIVE. The first error in
+ * the chain that carries an HTTP status decides, so an early 401/403/404/429
+ * or another 5xx is a refusal. A hung call may still complete at the provider.
+ */
+export function isProviderHangCause(err: unknown): boolean {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderGuestUnresponsiveError) return true;
+    if (typeof current !== "object") return false;
+    const record = current as { status?: unknown; code?: unknown; name?: unknown; cause?: unknown };
+    if (typeof record.status === "number") {
+      return record.status === 502 || record.status === 504 || record.code === "VM_NON_RESPONSIVE";
+    }
+    if (record.name === "TimeoutError" || record.name === "AbortError") return true;
+    current = record.cause;
+  }
+  return false;
+}
+
+/** Whether `err` or anything in its cause chain is a {@link ProviderTlsRuleLimitError}. */
 export function hasProviderTlsRuleLimitCause(err: unknown): boolean {
   let current = err;
   for (let depth = 0; depth < 8 && current; depth += 1) {

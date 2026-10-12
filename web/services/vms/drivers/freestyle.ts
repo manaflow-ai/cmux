@@ -21,6 +21,7 @@ import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
   ProviderGuestUnresponsiveError,
+  isProviderHangCause,
   ProviderMachineRecreateRequiredError,
   ProviderNetworkFullError,
   ProviderTlsRuleLimitError,
@@ -55,6 +56,7 @@ import {
   type VMResourceStatsResult,
   type VMStatus,
   type ProviderReadOptions,
+  type VmPauseState,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -602,6 +604,13 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
   }
 }
 
+/** Freestyle's raw state as a pause observation (see FreestyleProvider.getPauseState). */
+export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
+  if (state === "paused") return "paused";
+  if (state === "pausing" || state === "starting") return "in_progress";
+  return "not_paused";
+}
+
 /**
  * Tunnel creates finish in ~150 ms at the median and ~2.2 s at the slowest
  * seen in production (30 days); 10 s leaves room while cutting a hung create
@@ -648,24 +657,6 @@ function isFreestyleExecNoExit(err: unknown): boolean {
     && err.status === 409
     && err.code === "VM_NON_RESPONSIVE"
     && /exec produced no exit/i.test(err.message);
-}
-
-/**
- * An exec failure that says the guest did not answer, not that the request
- * was refused: a client timeout or abort, a gateway 502/504 (a background
- * request polled past its limit), or the provider's VM_NON_RESPONSIVE. Early
- * refusals (401/403/404/429) and other 5xx keep their own provider error.
- */
-function isFreestyleGuestUnanswered(err: unknown): boolean {
-  let current = err;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof FreestyleApiError) {
-      return current.status === 502 || current.status === 504 || current.code === "VM_NON_RESPONSIVE";
-    }
-    if (current instanceof Error && (current.name === "TimeoutError" || current.name === "AbortError")) return true;
-    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
-  }
-  return false;
 }
 
 function freestyleOperationError(operation: string, err: unknown): ProviderError {
@@ -1075,7 +1066,7 @@ export class FreestyleProvider implements VMProvider {
           .exec({ command: scpPrepareCommand(key, expires), timeoutMs: SCP_PREPARE_EXEC_TIMEOUT_MS, linuxUser: GUEST_LINUX_USER });
       } catch (err) {
         // The command never ran or its answer was lost: nothing is known about sshd.
-        if (isFreestyleGuestUnanswered(err)) {
+        if (isProviderHangCause(err)) {
           throw new ProviderGuestUnresponsiveError("freestyle", `SCP preparation in ${vmId}: the machine did not answer the setup command`, err);
         }
         throw new ProviderError("freestyle", `prepareSCP(${vmId})`, err);
@@ -1262,6 +1253,30 @@ export class FreestyleProvider implements VMProvider {
         } catch (err) {
           if (isNotFound(err)) return "destroyed";
           throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  /**
+   * The raw pause state: only `paused` is a finished pause. `pausing` and
+   * `starting` are transitions; `stopped` is powered off, which a pause does
+   * not produce (memory is lost), so it is not a finished pause.
+   */
+  async getPauseState(vmId: string): Promise<VmPauseState> {
+    return withVmSpan(
+      "cmux.vm.provider.get_pause_state",
+      "provider",
+      spanAttributes(vmId, "get_pause_state"),
+      async (span) => {
+        try {
+          const data = await this.deps.client().vms.get(vmId);
+          const state = freestylePauseState(data.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.pause_state": state });
+          return state;
+        } catch (err) {
+          if (isNotFound(err)) return "destroyed";
+          throw new ProviderError("freestyle", `getPauseState(${vmId})`, err);
         }
       },
     );

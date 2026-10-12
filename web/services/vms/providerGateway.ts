@@ -31,6 +31,7 @@ import {
   type VMVolumeInventory,
   type VMVolumeListOptions,
   type VMStatus,
+  type VmPauseState,
   type VMStats,
   type VMResourceStatsResult,
   type VMResizeOptions,
@@ -60,6 +61,7 @@ export type VmProviderGatewayShape = {
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
@@ -288,6 +290,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId, options);
+    }),
+  getPauseState: (provider, vmId) =>
+    providerEffect(provider, "getPauseState", async () => {
+      const driver = getProvider(provider);
+      return driver.getPauseState ? await driver.getPauseState(vmId) : null;
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
