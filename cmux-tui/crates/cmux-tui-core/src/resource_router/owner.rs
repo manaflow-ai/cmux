@@ -162,6 +162,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TabGroupMove
         | ResourceOperation::TabGroupUngroup
         | ResourceOperation::TabGroupClose
+        | ResourceOperation::LayoutBulk
         | ResourceOperation::WorkspaceGroupList
         | ResourceOperation::WorkspaceGroupCreate
         | ResourceOperation::WorkspaceGroupUpdate
