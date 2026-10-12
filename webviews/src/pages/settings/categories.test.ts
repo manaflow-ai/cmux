@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import exported from "../../../../schemas/settings/settings-schema.json";
 import "./testCatalog";
 import { CATEGORY_CARDS, categories, categoryOf, homes } from "./categories";
+import { hasIcon } from "./icons";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
 import { schema, sections } from "./schema";
@@ -82,4 +83,10 @@ test("the page renders the exported layout", () => {
   ).toEqual(
     (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, ...category }) => category) as never,
   );
+});
+
+// The sidebar falls back to the General gear for an unknown symbol, so a new category without its
+// own icon looks like General (Settings > iPhone shipped that way).
+test("every category symbol has its own sidebar icon", () => {
+  expect(categories.filter((category) => !hasIcon(category.symbol)).map((category) => category.id)).toEqual([]);
 });

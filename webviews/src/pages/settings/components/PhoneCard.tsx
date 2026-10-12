@@ -37,8 +37,8 @@ function PhoneBody({ phone }: { phone: PhoneState }) {
   const run = (action: "enable" | "disable" | "pair" | "endPairing" | "reset") => void store.runPhone({ action });
   return (
     <>
+      {/* No group title: the category heading above already reads "iPhone" (as Accounts). */}
       <section className="group" data-card="phone" data-phone-enabled={phone.enabled}>
-        <h3 className="group-title">{s.title}</h3>
         <div className="rows">
           <div className="row" tabIndex={-1}>
             <div className="row-main">
@@ -58,10 +58,7 @@ function PhoneBody({ phone }: { phone: PhoneState }) {
               </div>
             </div>
           </div>
-          <ActionRow
-            title={s.status}
-            help={phone.host_name ? fill(s.registered_as, phone.host_name) : ""}
-          >
+          <ActionRow title={s.status} help={phone.host_name ? fill(s.registered_as, phone.host_name) : ""}>
             <span
               className={phone.status_kind === "attention" ? "badge badge-warning" : "badge"}
               data-phone-status={phone.status_kind}
@@ -93,24 +90,32 @@ function PhoneBody({ phone }: { phone: PhoneState }) {
         {phone.error && <output className="row-help block phone-error">{phone.error}</output>}
       </section>
       {phone.enabled && phone.pairing && (
-        <PairingPanel pairing={phone.pairing} strings={s} onRefresh={() => run("pair")} onDone={() => run("endPairing")} />
+        <PairingPanel
+          pairing={phone.pairing}
+          strings={s}
+          onRefresh={() => run("pair")}
+          onDone={() => run("endPairing")}
+        />
       )}
       {phone.enabled && (
         <section className="group" data-card="phone-peers">
           <h3 className="group-title">{s.phones}</h3>
-          <div className="rows">
-            {phone.peers.length === 0 ? (
-              <output className="row-help block">{s.no_phones}</output>
-            ) : (
-              phone.peers.map((peer, index) => (
+          {phone.peers.length === 0 ? (
+            // Outside the bordered rows (as Accounts' empty state): a bare line inside them has no row padding.
+            <output className="row-help block" data-phone-peers-empty="">
+              {s.no_phones}
+            </output>
+          ) : (
+            <div className="rows">
+              {phone.peers.map((peer, index) => (
                 <ActionRow key={peer.id} title={`iPhone ${index + 1}`} help="">
                   <span className="badge" data-phone-path={peer.path}>
                     {peer.path}
                   </span>
                 </ActionRow>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
     </>
