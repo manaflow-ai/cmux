@@ -90,6 +90,17 @@ struct ClassicImportTests {
         #expect(shapes.contains { $0.hasPrefix("right(down(app|chat:claude)|") }, "\(shapes)")
     }
 
+    /// Once the agent exits, classic drops `terminal.agent` and keeps only the
+    /// session's `resumeBinding`; that session still comes over as its chat.
+    @Test func anEndedAgentSessionComesOverAsItsChat() async throws {
+        let shapes = try await importClassic(Self.everything) { session in
+            let agent = #"{"agent":{"kind":"claude","sessionId":"7f3c2a10-5b4e-4c8d-9a61-2e0f8b9d4c37","workingDirectory":"/Users/cmux/p4rt-full/proj/docs"},"#
+            #expect(session.contains(agent), "the fixture's agent terminal changed")
+            return session.replacingOccurrences(of: agent, with: #"{"resumeBinding":{"kind":"claude","checkpointId":"7f3c2a10-5b4e-4c8d-9a61-2e0f8b9d4c37","cwd":"/Users/cmux/p4rt-full/proj/docs","command":"claude --resume 7f3c2a10-5b4e-4c8d-9a61-2e0f8b9d4c37","autoResume":false},"wasAgentRunning":false,"#)
+        }.shapes["full"] ?? []
+        #expect(shapes.contains { $0.hasPrefix("right(down(app|chat:claude)|") }, "\(shapes)")
+    }
+
     /// An SSH workspace opens on its host (classic: `cmux ssh cmux@127.0.0.1
     /// --port 2222`), through the daemon for that destination.
     @Test func anSSHWorkspaceOpensOnItsHost() async throws {
