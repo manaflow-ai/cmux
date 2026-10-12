@@ -5,10 +5,12 @@ extension ShellWindow {
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
     /// mouse-down in the band is delivered as usual, then moves the window
     /// (or runs the double-click action) only when the policy says so.
-    /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first.
+    /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
+    /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
-        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
+        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow,
+              !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)
         }
         super.sendEvent(event)

@@ -6,7 +6,7 @@ import UserNotifications
 /// macOS notification banners through `UNUserNotificationCenter`, so the
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
-/// through `onOpen`. The center is touched only when the first banner posts,
+/// through `onOpen`; a reply banner's typed text goes to `onReply`. The center is touched only when the first banner posts,
 /// so hosts without a bundle identifier (tests) never create it. An
 /// automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
 /// GUI proofs on shared hosts) never creates it either: no authorization
@@ -25,10 +25,17 @@ final class DesktopNotifier: NSObject {
         var sound: String?
         /// The status badge PNG the banner carries (OSC 7501 alerts), else nil.
         var attachment: Data?
+        /// The banner takes a typed reply (`notify --reply`).
+        var reply = false
     }
 
     /// Banner clicked: the notification id and its tab's surface handle.
     var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
+    /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
+    var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
+    /// The category of banners with a Reply field, and its action.
+    nonisolated static let replyCategory = "cmux.notification.reply"
+    nonisolated static let replyAction = "cmux.notification.reply.send"
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
     /// Whether this launch uses the system notification center (not in automation launches).
@@ -47,9 +54,9 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false) {
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
-                             sound: defaultSound ? "default" : nil, attachment: attachment))
+                             sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
@@ -67,6 +74,7 @@ final class DesktopNotifier: NSObject {
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
+        if reply { content.categoryIdentifier = Self.replyCategory }
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
         content.userInfo = info
@@ -103,6 +111,11 @@ final class DesktopNotifier: NSObject {
         onOpen?(id, surface)
     }
 
+    /// The Reply field's Send path, also used by `debug.notifications` (reply).
+    func reply(id: String, surface: UInt64?, text: String) {
+        onReply?(id, surface, text)
+    }
+
     /// CEF embeds the same executable in helper app bundles whose identifiers
     /// contain a `.helper.*` component. Only the main cmux app may own the
     /// macOS notification center and request authorization.
@@ -122,6 +135,7 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        center.setNotificationCategories([Self.replyBannerCategory()])
         self.center = center
         if !requestedAuthorization {
             requestedAuthorization = true
@@ -130,6 +144,19 @@ final class DesktopNotifier: NSObject {
             }
         }
         return center
+    }
+
+    /// Reply banners' category: one text field whose Send types into the terminal.
+    private static func replyBannerCategory() -> UNNotificationCategory {
+        let action = UNTextInputNotificationAction(
+            identifier: replyAction,
+            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .module),
+            // A reply ends in Return in a terminal: the Mac must be unlocked to send one.
+            options: [.authenticationRequired],
+            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .module),
+            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .module)
+        )
+        return UNNotificationCategory(identifier: replyCategory, actions: [action], intentIdentifiers: [])
     }
 }
 
@@ -146,8 +173,10 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
         let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
+            if let replied { self?.reply(id: id, surface: surface, text: replied) }
         }
         completionHandler()
     }
