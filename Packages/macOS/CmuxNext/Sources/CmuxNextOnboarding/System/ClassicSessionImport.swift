@@ -62,13 +62,19 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
-    /// A local folder that is gone (a deleted project, a cleared /tmp) becomes the
-    /// home folder, since no terminal can start in it; an SSH workspace's folders
-    /// are on its host.
     public func read() throws -> [ClassicSessionWorkspace] {
         guard let data = try readData() else { return [] }
-        return try decode(data).map { saved in
-            guard saved.remote == nil else { return saved }
+        return try decode(data)
+    }
+
+    /// The saved workspaces for Import Workspaces from Classic cmux: a local
+    /// folder that is gone (a deleted project, a cleared /tmp) becomes the home
+    /// folder, since no terminal can start in it. Only the import checks the
+    /// folders; `read()` stays free of file checks that could ask for privacy
+    /// access at launch. SSH and Cloud VM folders are on their hosts.
+    public func readForImport() throws -> [ClassicSessionWorkspace] {
+        try read().map { saved in
+            guard saved.remote == nil, saved.cloudVM == nil else { return saved }
             return saved.openingMissingFolders(in: NSHomeDirectory()) { path in
                 var isFolder: ObjCBool = false
                 return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
@@ -154,9 +160,14 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     }
 
     /// The session of an agent that exited: classic then keeps only its
-    /// `resumeBinding` (`checkpointId` is the session id).
+    /// `resumeBinding` (`checkpointId` is the session id). Only a binding the
+    /// agent's own hook recorded names a session, as in classic; one from the
+    /// CLI, process detection or a session import does not. A persistent SSH
+    /// launch's session is on its host, not this Mac.
     private static func endedAgent(_ binding: [String: Any]?, directory: String?) -> ClassicSessionAgent? {
-        guard let binding, let kind = binding["kind"] as? String, ["claude", "codex"].contains(kind),
+        guard let binding, binding["source"] as? String == "agent-hook",
+              ((binding["launchFlavor"] as? [String: Any])?["kind"] as? String ?? "local") == "local",
+              let kind = binding["kind"] as? String, ["claude", "codex"].contains(kind),
               let session = binding["checkpointId"] as? String, !session.isEmpty else { return nil }
         return ClassicSessionAgent(harness: kind, sessionID: session, workingDirectory: binding["cwd"] as? String ?? directory)
     }
