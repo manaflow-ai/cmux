@@ -25252,6 +25252,114 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-spaces-hide",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "profile"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.spaces.hide",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Spaces",
+      "title_key" : "action.sidebar.spaces.hide",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-spaces-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarFooter"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.spaces.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Spaces",
+      "title_key" : "action.sidebar.spaces.show",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-profile-control-hide",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.profileControl.hide",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Profile Button",
+      "title_key" : "action.sidebar.profileControl.hide",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-profile-control-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarFooter"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.profileControl.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Profile Button",
+      "title_key" : "action.sidebar.profileControl.show",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-group-by-none",
       "context_menu" : "offered",
       "context_menus" : [
@@ -29844,9 +29952,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "space.delete",
+          "id" : "sidebar.spaces.hide",
           "kind" : "action",
           "order" : 11,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 12
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "space.delete",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31212,6 +31337,39 @@
 
       ]
     },
+    "sidebarFooter" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.spaces.show",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.profileControl.show",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
     "sidebarItem" : {
       "entries" : [
         {
@@ -31233,9 +31391,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.item.removeEverywhere",
+          "id" : "sidebar.profileControl.hide",
           "kind" : "action",
           "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.item.removeEverywhere",
+          "kind" : "action",
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31248,7 +31423,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.remove",
           "kind" : "action",
-          "order" : 3,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -31261,7 +31436,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
-          "order" : 4,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
