@@ -16,7 +16,8 @@ Cases:
   message right away, then a live thread reply (its root's text preview shows
   above it). Then the transcript moves by half a device pixel: the text rows
   under the preview rest on whole device pixels with no partial pixels on their
-  straight edges (MessagesLab c1457e5 row-snap; home_pixels.check_rows).
+  straight edges where the app draws them (MessagesLab c1457e5 row-snap, 2281879
+  balloon; home_pixels.check_rows).
 
 Reads and writes only through the debug socket; no system input. Runs on
 cmux-lawrence-2 (GUI host), never on the laptop. Ends with quitEndSessions and
@@ -204,8 +205,8 @@ try:
         compare("thread, live reply", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                                "I will do the backfill after it.", "After the thread", "Third reply, arriving live."],
                 "thread-live.png")
-        # The live reply's root preview (a 2-line text preview: 52.65 pt of parts, a 52.5 pt row on the pixel
-        # grid since MessagesLab c1457e5) sits above the reply. With the transcript on half a device pixel
+        # The live reply's root preview (ROOT wraps to several lines: a 100.5 pt row on the pixel grid since
+        # MessagesLab c1457e5, measured at d5f924a; 100.65 pt of parts before) sits above the reply. With the transcript on half a device pixel
         # (both axes), the text rows under the preview rest on whole device pixels with crisp straight edges.
         rows = (rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []
         kinds = [r["kind"] for r in rows]

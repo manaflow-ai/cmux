@@ -1088,10 +1088,10 @@ final class RowCell: UICollectionViewCell {
         }
         if bitmap.superlayer !== contentView.layer { contentView.layer.insertSublayer(bitmap, above: fillContainer) }
         fillContainer.isHidden = false
-        let body = RowDraw.bodyRect(spec)
+        let frame = RowDraw.bodyRect(spec), body = RowDraw.balloon(frame, row: p)
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
-        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
+        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
         placeFillGradient(width: spec.width)
     }
 

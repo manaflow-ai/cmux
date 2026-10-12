@@ -21,6 +21,9 @@ export type MuseumArtResult = {
   page: string;
 };
 
+/** A workspace's own background: its name and value (null follows appearance.background). */
+export type WorkspaceBackground = { workspace: string; title: string; value: string | null };
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -309,6 +312,12 @@ export type SettingsOps = {
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
+  "cmux.settings.backdrop.workspace": [{ workspace: string }, WorkspaceBackground];
+  /** Native: save a workspace's own background; null follows appearance.background again. */
+  "cmux.settings.backdrop.workspace.set": [{ workspace: string; value: string | null }, unknown];
+  /** Native: show `value` in that workspace's windows without saving it; `end` drops the preview. */
+  "cmux.settings.backdrop.workspace.preview": [{ workspace: string; value?: string | null; end?: boolean }, unknown];
   /** Browse More Art: public-domain works in open museum collections matching `query`. */
   "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
   /** Downloads the work `key` into the backgrounds folder and sets it as the background. */

@@ -131,6 +131,13 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
     /// anchor opens its section.
+    /// The art picker, for `workspace` too when given (its This Workspace choice).
+    static func backgroundRoute(workspace: String?) -> String? {
+        guard let route = route(section: .appearance, setting: "appearance.background") else { return nil }
+        guard let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return route }
+        return "\(route)&workspace=\(id)"
+    }
+
     static func route(section: SettingsSection?, setting: String?) -> String? {
         if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
             return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"

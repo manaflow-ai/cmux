@@ -102,36 +102,85 @@ def row_edges(px, w, h, scale, frame, window_height):
     return out
 
 
+def _coverage(p, o, i):
+    """How much of pixel p is the inside colour i (0: the outside colour o, 1: i), least squares over RGB."""
+    den = sum((i[k] - o[k]) ** 2 for k in range(3))
+    if den <= 0:
+        return None
+    return min(1.0, max(0.0, sum((p[k] - o[k]) * (i[k] - o[k]) for k in range(3)) / den))
+
+
+def edge_position(px, w, h, edge, near, span, contrast_min=24):
+    """The measured place (device px) of a straight edge near the whole pixel `near`, from the summed coverage
+    of the 4 pixel lines around it (the far outside and far inside colours 4 and 3 lines away), the mean over the
+    lines across `span` whose contrast is at least `contrast_min`. edge: top or left (inside after the edge) or
+    bottom or right (inside before it). None when fewer than 8 lines have contrast."""
+    first = edge in ("top", "left")
+    places = []
+    for t in span:
+        def at(k):
+            return _pixel(px, w, h, t, k) if edge in ("top", "bottom") else _pixel(px, w, h, k, t)
+        o, i = (at(near - 4), at(near + 3)) if first else (at(near + 3), at(near - 4))
+        if o is None or i is None or _dist(o, i) < contrast_min:
+            continue
+        covs = [at(k) for k in range(near - 2, near + 2)]
+        if None in covs:
+            continue
+        c = [_coverage(q, o, i) for q in covs]
+        if None in c:
+            continue
+        places.append(near + 2 - sum(c) if first else near - 2 + sum(c))
+    return (sum(places) / len(places), len(places)) if len(places) >= 8 else (None, len(places))
+
+
 def check_rows(check, name, report, path, keys=None, min_rows=3):
-    """check(name, ok, detail): the caller's check. Text rows fully inside the transcript area (not under the title bar or the composer): left and top on
-    whole device pixels on its anchored side (the row's snapped content; the bottom follows the bubble's height), and at most 10 %
-    partial lines along each straight edge in the snapshot. `keys`: only these rows."""
+    """check(name, ok, detail): the caller's check. Text rows fully inside the transcript area (not under the
+    title bar or the composer):
+    - the row's frame (its snapped content) has its anchored side (incoming left, outgoing right; the other side
+      is the text's width) and its top on whole device pixels;
+    - the drawn balloon's edges are where the app draws them (`balloon`: RowDraw.balloon; an incoming balloon is
+      its frame, an outgoing text balloon is a little inside it on macOS 27, MessagesLab 2281879), measured from
+      the snapshot's coverage within 0.12 device px: top, bottom and, for a bubble 60 pt or taller, the anchored side;
+    - an incoming balloon's straight edges have no partial pixels (at most 10 % of their lines).
+    `keys`: only these rows."""
     w, h, px = read_png(path)
     scale = w / report["windowWidth"]; wh = report["windowHeight"]
     rows = [r for r in report["rows"] if r["kind"] == "text" and (keys is None or r["key"] in keys)
             and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
     check(f"{name}: at least {min_rows} text rows to measure", len(rows) >= min_rows, report["rows"][:12])
-    bad_place, bad_edges, unmeasured = [], [], []
+    bad_place, bad_edges, off_edges, unmeasured = [], [], [], []
     for r in rows:
-        # The anchored side: an incoming bubble starts at the row's left margin, an outgoing one ends at the
-        # right margin; the other side is the text's width (not on the pixel grid, the same in Messages).
         side = (r["x"] + r["width"] if r["outgoing"] else r["x"]) * scale
         top = (wh - r["y"] - r["height"]) * scale
         if abs(side - round(side)) > 0.01 or abs(top - round(top)) > 0.01:
             bad_place.append({r["key"]: [round(side, 3), round(top, 3)]})
-        edges = row_edges(px, w, h, scale, r, wh)
-        edges.pop("left" if r["outgoing"] else "right", None)
-        line, row_measured = [], 0
-        for edge, (place, measured, partial) in edges.items():
-            row_measured += measured
-            line.append(f"{edge} {place:.2f}px {partial}/{measured}")
-            if measured >= 8 and partial > measured * 0.1:
-                bad_edges.append({r["key"]: edge, "partial": partial, "measured": measured, "place": round(place, 3)})
-        if row_measured < 8:
-            unmeasured.append(r["key"])
-        print(f"     {name} {r['key']} ({'out' if r['outgoing'] else 'in'}): " + ", ".join(line), flush=True)
+        b = r.get("balloon") or r
+        bl, br = b["x"] * scale, (b["x"] + b["width"]) * scale
+        bt, bb = (wh - b["y"] - b["height"]) * scale, (wh - b["y"]) * scale
+        x0, x1 = bl + (br - bl) * 0.3, bl + (br - bl) * 0.7
+        y0, y1 = bt + (bb - bt) * 0.3, bt + (bb - bt) * 0.7
+        expected = {"top": (bt, range(int(x0), int(x1))), "bottom": (bb, range(int(x0), int(x1)))}
+        if r["height"] >= 60:
+            expected["right" if r["outgoing"] else "left"] = (br if r["outgoing"] else bl, range(int(y0), int(y1)))
+        line = []
+        for edge, (want, span) in expected.items():
+            got, n = edge_position(px, w, h, edge, round(want), span)
+            if got is None and edge in ("top", "bottom"):
+                unmeasured.append({r["key"]: edge, "lines": n})
+            line.append(f"{edge} {want:.2f}/{'-' if got is None else f'{got:.2f}'}px")
+            if got is not None and abs(got - want) > 0.12:
+                off_edges.append({r["key"]: edge, "drawn": round(want, 3), "measured": round(got, 3)})
+        if not r["outgoing"]:
+            for edge, (place, measured, partial) in row_edges(px, w, h, scale, r, wh).items():
+                if edge == "right":
+                    continue
+                line.append(f"{edge} partial {partial}/{measured}")
+                if measured >= 8 and partial > measured * 0.1:
+                    bad_edges.append({r["key"]: edge, "partial": partial, "measured": measured, "place": round(place, 3)})
+        print(f"     {name} {r['key']} ({'out' if r['outgoing'] else 'in'}; edge drawn/measured): " + ", ".join(line), flush=True)
     check(f"{name}: every text row's anchored side (incoming left, outgoing right) and top are on whole device pixels",
           not bad_place, bad_place)
-    check(f"{name}: every text row's straight edges were measured (8 lines or more)", bool(rows) and not unmeasured, unmeasured)
-    check(f"{name}: no straight row edge has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)
+    check(f"{name}: every text row's top and bottom edges were measured (8 lines each or more)", bool(rows) and not unmeasured, unmeasured)
+    check(f"{name}: every balloon edge is where the app draws it (within 0.12 device px)", not off_edges, off_edges)
+    check(f"{name}: no straight edge of an incoming balloon has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)
     return rows
