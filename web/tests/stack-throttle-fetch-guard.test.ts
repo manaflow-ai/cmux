@@ -60,12 +60,12 @@ describe("Stack throttle fetch guard", () => {
     installStackThrottleFetchGuard(globalThis, PROJECT_ID);
     const other = await fetch("https://example.com/limited");
     expect(other.status).toBe(429);
-    const stackTeapot = await fetch("https://api.hexclave.com/api/v1/teapot", {
+    const stackTeapot = await fetch("https://stack.test/api/v1/teapot", {
       headers: { "x-hexclave-project-id": PROJECT_ID, "x-hexclave-random-nonce": "n" },
     });
     expect(stackTeapot.status).toBe(418);
     // Our own server-key REST helpers send no SDK nonce and read the 429 themselves.
-    const ownHelper = await fetch("https://api.hexclave.com/api/v1/contact-channels", {
+    const ownHelper = await fetch("https://stack.test/api/v1/contact-channels", {
       headers: { "x-hexclave-project-id": PROJECT_ID },
     });
     expect(ownHelper.status).toBe(429);
