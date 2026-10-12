@@ -1,5 +1,7 @@
-//! The secret methods (`hub/secrets.rs`), before peer forwarding: a secret
-//! never travels to another daemon, and only a session of this one asks.
+//! The secret methods (`hub/secrets.rs`), routed before every other method
+//! (`chats.rs`), so before peer forwarding: a secret never travels to another
+//! daemon, and only a session of this one asks. Each method checks its own
+//! caller: the unix socket asks and spends, the person answers.
 
 use super::{Conn, Origin, str_param};
 use crate::hub::Hub;

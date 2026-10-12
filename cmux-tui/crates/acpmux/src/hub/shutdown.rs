@@ -103,7 +103,6 @@ impl Hub {
             }
             self.revoke_permission_chat(s);
             self.cancel_pending_permissions(s);
-            self.cancel_pending_secrets(s);
             children.extend(taken);
             if ends {
                 self.settle_cancelled(s);

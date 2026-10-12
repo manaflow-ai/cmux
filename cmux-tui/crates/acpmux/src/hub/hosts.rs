@@ -624,7 +624,7 @@ impl Hub {
                 let state = s.permissions.lock().unwrap();
                 if state.pending.is_empty()
                     && s.status() == SessionStatus::Waiting
-                    && !self.secrets.waiting_in(&s.id)
+                    && !hub.secrets.waiting_in(&s.id)
                 {
                     let next = if s.turn().is_some() {
                         SessionStatus::Running

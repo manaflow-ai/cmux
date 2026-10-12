@@ -56,7 +56,6 @@ impl Hub {
                         *slot = None;
                     }
                     self.cancel_pending_permissions(&session);
-                    self.cancel_pending_secrets(&session);
                     self.revoke_permission_chat(&session);
                     // A new agent holds no grant and no undeclared mode.
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
@@ -689,6 +688,8 @@ impl Hub {
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
+        // A secret card waits on the same turn (`secrets.rs`).
+        self.cancel_pending_secrets(session);
     }
 }
 
