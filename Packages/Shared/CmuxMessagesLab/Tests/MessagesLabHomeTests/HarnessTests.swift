@@ -297,7 +297,7 @@ enum LayerDump {
             let p = "row[\(key)]"
             out += [(p + "/cell", cell.layer), (p + "/content", cell.contentView.layer), (p + "/bitmap", cell.bitmap),
                     (p + "/fill", cell.fillContainer), (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
-                    (p + "/typing", cell.typingContainer), (p + "/receiptOld", cell.receiptOld)]
+                    (p + "/typing", cell.typingContainer), (p + "/typingBody", cell.typingBody), (p + "/receiptOld", cell.receiptOld)]
             for (i, d) in cell.dots.enumerated() {
                 out.append((p + "/dot\(i)", d))
                 if let hi = d.sublayers?.first { out.append((p + "/dot\(i)/hi", hi)) } // as MessagesLab's harness names it
