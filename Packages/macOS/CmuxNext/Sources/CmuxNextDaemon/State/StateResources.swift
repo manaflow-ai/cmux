@@ -9,7 +9,8 @@ import Foundation
 /// The daemon keeps the newest 50; `closed.reopen` recreates one.
 public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     public enum Kind: String, Sendable, Hashable, Decodable {
-        case tab, screen, workspace
+        /// `window`: a window the app closed (`window-records-v1`); it has no member.
+        case tab, screen, workspace, window
     }
 
     /// What reopening recreates for one tab (`ClosedTabRecord`).
@@ -102,9 +103,12 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     public var memberScreens: [[Screen]]
     /// Set when the item is a deleted personal workspace group.
     public var group: Group?
+    /// The window record (`install/window`) the group left, or, for a
+    /// `window` item, the closed window itself; nil when no window listed it.
+    public var window: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, index, screens, members, group
+        case id, kind, name, index, screens, members, group, window
         case workspaceID = "workspace_id"
         case paneID = "pane_id"
         case closedAtMs = "closed_at_ms"
@@ -141,6 +145,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
         memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
         group = try c.decodeIfPresent(Group.self, forKey: .group)
+        window = try c.decodeIfPresent(String.self, forKey: .window)
     }
 
     /// Every tab the item would recreate, in order: every member's (one
