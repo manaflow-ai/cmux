@@ -619,6 +619,42 @@ export function visibleLayoutRange(
   const last = Math.min(layoutModel.tops.length, upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan);
   return { first, last };
 }
+
+export type RowRange = { first: number; last: number };
+
+/// Sorted, non-overlapping ranges covering every row of `ranges`.
+export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
+  const merged: RowRange[] = [];
+  for (const range of [...ranges].filter((each) => each.last > each.first).sort((a, b) => a.first - b.first)) {
+    const previous = merged.at(-1);
+    if (previous && range.first <= previous.last) previous.last = Math.max(previous.last, range.last);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
+/// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
+/// `steps` scrolls of motion ahead of it, as one range while that lead fits in `maxLead`. Past it (a
+/// fling or a scrollbar drag that moves several viewports a frame) the view and each view the next
+/// `steps` frames show, with a margin for uneven frames: the rows scrolled past between them are
+/// never on screen, so they are not built (cx-j33s4).
+export function scrollLeadRanges(
+  layoutModel: ConversationLayout,
+  scrollTop: number,
+  delta: number,
+  viewportHeight: number,
+  steps: number,
+  maxLead: number,
+): RowRange[] {
+  const lead = Math.abs(delta) * steps;
+  if (lead <= maxLead)
+    return [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
+  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
+  const ranges = [visibleLayoutRange(layoutModel, scrollTop, viewportHeight)];
+  for (let step = 1; step <= steps; step += 1)
+    ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
+  return mergeRowRanges(ranges);
+}
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
