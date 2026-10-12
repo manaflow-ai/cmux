@@ -4259,7 +4259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         alert.informativeText = String(
             localized: "dialog.sessionRestoreOmitted.message",
-            defaultValue: "This session reached cmux’s workspace safety limit, so some workspaces were left out of the saved snapshot and will not be restored automatically."
+            defaultValue: "This session reached cmux’s workspace limit, so some workspaces were not saved and will not be restored automatically."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         _ = alert.runCmuxModal()

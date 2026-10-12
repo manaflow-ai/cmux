@@ -9,28 +9,47 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct SessionSnapshotLimitTests {
-    @Test func selectedWorkspace129IsRetainedWithin130WorkspaceBound() throws {
-        let retention = SessionPersistencePolicy.boundedWorkspaceRetention(
-            restorableWorkspaceCount: 130,
-            selectedRestorableWorkspaceIndex: 129
-        )
-        #expect(retention.retainedIndices.count == 128)
-        #expect(retention.retainedIndices.last == 129)
-        #expect(retention.selectedWorkspaceIndex == 127)
-        #expect(retention.omittedWorkspaceCount == 2)
+    @Test func selectedWorkspace129IsRetainedWithin130WorkspaceSnapshot() throws {
+        let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
+        for _ in 1..<130 {
+            _ = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        }
+        let selected = manager.tabs[129]
+        manager.selectWorkspace(selected)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.workspaces.count == 128)
+        #expect(snapshot.omittedWorkspaceCount == 2)
+        let selectedIndex = try #require(snapshot.selectedWorkspaceIndex)
+        #expect(snapshot.workspaces[selectedIndex].workspaceId == selected.id)
+        #expect(snapshot.workspaces.map(\.workspaceId) == manager.tabs.prefix(127).map { Optional($0.id) } + [selected.id])
+
+        let restored = TabManager()
+        defer { restored.closeWorkspacesForTesting() }
+        restored.restoreSessionSnapshot(snapshot)
+        #expect(restored.tabs.count == 128)
+        #expect(restored.selectedTabId == selected.id)
     }
 
-    @Test func mixedTabsFilterBeforeApplyingTheSameBound() {
-        let restorableRawIndices = Array(1...129)
-        let retention = SessionPersistencePolicy.boundedWorkspaceRetention(
-            restorableWorkspaceCount: restorableRawIndices.count,
-            selectedRestorableWorkspaceIndex: restorableRawIndices.count - 1
-        )
-        let retainedRawIndices = retention.retainedIndices.map { restorableRawIndices[$0] }
-        #expect(retainedRawIndices.count == 128)
-        #expect(retainedRawIndices.last == 129)
-        #expect(retention.selectedWorkspaceIndex == 127)
-        #expect(retention.omittedWorkspaceCount == 1)
+    @Test func mixedRestorableTabsShareSnapshotAndFingerprintBoundary() {
+        let manager = TabManager()
+        defer { manager.closeWorkspacesForTesting() }
+        manager.tabs[0].isRemoteTmuxAuthLogin = true
+        for _ in 1..<129 {
+            _ = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        }
+        let boundaryWorkspace = manager.tabs[128]
+        manager.selectWorkspace(manager.tabs[1])
+
+        let before = manager.sessionAutosaveFingerprint()
+        boundaryWorkspace.setCustomTitle("Changed at the restorable boundary")
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        #expect(snapshot.workspaces.count == 128)
+        #expect(snapshot.omittedWorkspaceCount == nil)
+        #expect(snapshot.workspaces.last?.customTitle == "Changed at the restorable boundary")
+        #expect(manager.sessionAutosaveFingerprint() != before)
     }
 
     @Test func omissionSignalRoundTripsForRestoreNotice() throws {

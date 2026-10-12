@@ -671659,55 +671659,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This session reached cmux’s workspace safety limit, so some workspaces were left out of the saved snapshot and will not be restored automatically."
+            "value": "This session reached cmux’s workspace limit, so some workspaces were not saved and will not be restored automatically."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بلغت هذه الجلسة حد الأمان لمساحات العمل في cmux، لذلك لم تُدرج بعض مساحات العمل في اللقطة المحفوظة ولن تتم استعادتها تلقائيًا."
+            "value": "بلغت هذه الجلسة حد مساحات العمل في cmux، لذلك لم تُحفظ بعض مساحات العمل ولن تتم استعادتها تلقائيًا."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Sitzung hat das Sicherheitslimit für Arbeitsbereiche von cmux erreicht. Daher wurden einige Arbeitsbereiche aus dem gespeicherten Schnappschuss ausgelassen und werden nicht automatisch wiederhergestellt."
+            "value": "Diese Sitzung hat das Arbeitsbereichslimit von cmux erreicht. Daher wurden einige Arbeitsbereiche nicht gespeichert und werden nicht automatisch wiederhergestellt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta sesión alcanzó el límite de seguridad de espacios de trabajo de cmux, por lo que algunos se excluyeron de la instantánea guardada y no se restaurarán automáticamente."
+            "value": "Esta sesión alcanzó el límite de espacios de trabajo de cmux, por lo que algunos no se guardaron y no se restaurarán automáticamente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette session a atteint la limite de sécurité des espaces de travail de cmux. Certains espaces de travail ont donc été exclus de l’instantané enregistré et ne seront pas restaurés automatiquement."
+            "value": "Cette session a atteint la limite d’espaces de travail de cmux. Certains espaces de travail n’ont donc pas été enregistrés et ne seront pas restaurés automatiquement."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このセッションは cmux のワークスペース安全上限に達したため、一部のワークスペースが保存されたスナップショットから除外され、自動的には復元されません。"
+            "value": "このセッションは cmux のワークスペース上限に達したため、一部のワークスペースは保存されず、自動的には復元されません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 세션이 cmux 작업 공간 안전 한도에 도달하여 일부 작업 공간이 저장된 스냅샷에서 제외되었고 자동으로 복원되지 않습니다."
+            "value": "이 세션이 cmux 작업 공간 한도에 도달하여 일부 작업 공간이 저장되지 않았고 자동으로 복원되지 않습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此会话已达到 cmux 的工作区安全上限，因此部分工作区未包含在已保存的快照中，也不会自动恢复。"
+            "value": "此会话已达到 cmux 的工作区上限，因此部分工作区未保存，也不会自动恢复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此工作階段已達到 cmux 的工作區安全上限，因此部分工作區未包含在已儲存的快照中，也不會自動還原。"
+            "value": "此工作階段已達到 cmux 的工作區上限，因此部分工作區未儲存，也不會自動還原。"
           }
         }
       }
