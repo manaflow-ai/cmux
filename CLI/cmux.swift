@@ -6397,7 +6397,7 @@ struct CMUXCLI {
                 if let nameOpt { params["name"] = nameOpt }
                 let response: [String: Any]
                 do {
-                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
                 } catch let error as CLIError {
                     // A definitive backend failure is replayed under its key; only an
                     // in-flight or unknown outcome keeps the key for the retry.

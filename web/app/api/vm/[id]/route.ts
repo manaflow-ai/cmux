@@ -116,7 +116,7 @@ export async function PATCH(
         teamIds: user.teamIds,
         providerVmId: id,
         displayName,
-      }), { request });
+      }), { request, deadline: { operation: "rename" } });
       if (!run.ok) return run.response;
       const vm = run.value;
       return jsonResponse({

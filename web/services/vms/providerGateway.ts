@@ -43,6 +43,7 @@ import {
   type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 import { VmProviderReadDeadline } from "./routeDeadline";
 import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
@@ -263,8 +264,20 @@ function providerEffect<A>(
 }
 
 export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
+  // Bounded by the provider create deadline even when the SDK polls past it,
+  // so a create answered "in progress" (routeDeadline.ts) reaches createVm's
+  // failure path (credit refund, row failed) inside the route's reserve.
   create: (provider, options) =>
-    providerEffect(provider, "create", () => getProvider(provider).create(options)),
+    providerEffect(provider, "create", () => getProvider(provider).create(options)).pipe(
+      Effect.timeoutFail({
+        duration: VM_PROVIDER_CREATE_TIMEOUT_MS,
+        onTimeout: () => new VmProviderOperationError({
+          provider,
+          operation: "create",
+          cause: new Error(`provider create did not answer within ${VM_PROVIDER_CREATE_TIMEOUT_MS / 60_000} minutes`),
+        }),
+      }),
+    ),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
   deleteHomeVolume: (provider, volumeName) =>

@@ -4260,6 +4260,7 @@
 		CC1B8A02F5C016F54077FA5A /* VMClientReadCoalescingTests+ExplicitTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5071BE1E5928573201D563E9 /* VMClientReadCoalescingTests+ExplicitTeam.swift */; };
 		C13151C00000000000000033 /* VMClientReadCoalescingTests+Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */; };
 		9D44FE10A33B02E0D4C891B1 /* VMClientReadCoalescingTests+ListRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F21D96D760755C4BDC2B1B /* VMClientReadCoalescingTests+ListRecovery.swift */; };
+		36FE0F3F72F372A81FA59EE1 /* VMClientReadCoalescingTests+RequestBudget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB0D1641E591BA0B8366E65 /* VMClientReadCoalescingTests+RequestBudget.swift */; };
 		C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000001 /* VMClientReadCoalescingTests.swift */; };
 		ECB6A18DEC5D08DC2383081D /* VMClientSocketCommands+AgentUpdates.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5D0E225AB84528426A1B821 /* VMClientSocketCommands+AgentUpdates.swift */; };
 		3AC7AE496E2A88ED7A2750F4 /* VMClientSocketCommands+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */; };
@@ -8769,6 +8770,7 @@
 		5071BE1E5928573201D563E9 /* VMClientReadCoalescingTests+ExplicitTeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+ExplicitTeam.swift"; sourceTree = "<group>"; };
 		C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+Identity.swift"; sourceTree = "<group>"; };
 		06F21D96D760755C4BDC2B1B /* VMClientReadCoalescingTests+ListRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+ListRecovery.swift"; sourceTree = "<group>"; };
+		7EB0D1641E591BA0B8366E65 /* VMClientReadCoalescingTests+RequestBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+RequestBudget.swift"; sourceTree = "<group>"; };
 		C12625000000000000000001 /* VMClientReadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMClientReadCoalescingTests.swift; sourceTree = "<group>"; };
 		B5D0E225AB84528426A1B821 /* VMClientSocketCommands+AgentUpdates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+AgentUpdates.swift"; sourceTree = "<group>"; };
 		FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Network.swift"; sourceTree = "<group>"; };
@@ -13800,6 +13802,7 @@
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
 				4D7B132532B469F533014740 /* TerminalFocusTestFixture.swift */,
 				0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */,
+				7EB0D1641E591BA0B8366E65 /* VMClientReadCoalescingTests+RequestBudget.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18915,6 +18918,7 @@
 				CC1B8A02F5C016F54077FA5A /* VMClientReadCoalescingTests+ExplicitTeam.swift in Sources */,
 				C13151C00000000000000033 /* VMClientReadCoalescingTests+Identity.swift in Sources */,
 				9D44FE10A33B02E0D4C891B1 /* VMClientReadCoalescingTests+ListRecovery.swift in Sources */,
+				36FE0F3F72F372A81FA59EE1 /* VMClientReadCoalescingTests+RequestBudget.swift in Sources */,
 				C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
 				B81607322100000000000003 /* VMMachineTerminalResolution.swift in Sources */,

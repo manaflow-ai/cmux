@@ -2129,7 +2129,14 @@ class TerminalController {
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
-            return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
+            // The CLI's own wait (cloud_client_timeout_ms) is transport
+            // metadata, not a method param: strip it before any handler
+            // validates params, and bind it so every control-plane request the
+            // handler makes states the earliest budget (CloudRequestBudget).
+            let budget = Self.socketWorkerVMDispatch(request.params)
+            return CloudRequestBudget.withBudgetSync(seconds: budget.seconds) {
+                socketWorkerCloudVMResponse(method: method, id: request.id, params: budget.params)
+            }
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
@@ -3962,9 +3969,12 @@ class TerminalController {
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var result: Result<[String: Any], Error>?
+        // Control-plane requests inside `work` state the earliest of this
+        // worker's limit and the socket client's budget the dispatcher bound
+        // (the Task inherits it), so the server answers before either gives up.
         let task = Task {
             do {
-                result = .success(try await work())
+                result = .success(try await CloudRequestBudget.withBudget(seconds: timeoutSeconds) { try await work() })
             } catch {
                 result = .failure(error)
             }

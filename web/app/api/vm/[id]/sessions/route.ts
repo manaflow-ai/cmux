@@ -14,6 +14,10 @@ import {
   parseLenientObjectBody,
 } from "../../../../../services/vms/routeInput";
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 960;
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -34,7 +38,7 @@ export async function GET(
         callerPlanId: account.entitlements.planId,
         teamIds: user.teamIds,
         providerVmId: id,
-      }), { request });
+      }), { request, deadline: { operation: "sessionList" } });
       if (!run.ok) return run.response;
       return jsonResponse({ sessions: run.value.map(sessionPayload) });
     },
@@ -80,7 +84,7 @@ export async function POST(
         attachmentId,
         title,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "sessionOpen" } });
       if (!run.ok) return run.response;
       const result = run.value;
       return jsonResponse({
