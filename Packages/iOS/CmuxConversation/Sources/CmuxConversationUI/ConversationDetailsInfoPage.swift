@@ -8,13 +8,17 @@ import UIKit
 /// one to one), Photos and Links.
 ///
 /// Measured in MobileSMS (iOS 26.5, 440 pt): cards 20 pt from the edges in
-/// the tertiary fill, 52 pt rows, 20 pt between sections.
+/// the tertiary fill, 52 pt rows, 20 pt between sections. The cards sit on
+/// the header's side margin: 20 pt at 440 pt, 16 at 402 (iOS 27.0, rows
+/// x 16 wide 370, titles at x 32).
 final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITableViewDelegate {
     private let store: ConversationStore
     private var info: ConversationInfo
     private let meID: String?
     private let media: ConversationSharedMediaModel
     static let photoColumns = 3
+    private static let toggleTag = 0x7461
+    static let toggleTrailingInset: CGFloat = 16
     static let photoPage = 6
     static let linkPage = 3
     let table = UITableView(frame: .zero, style: .insetGrouped)
@@ -46,6 +50,12 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
     /// The other members, as the group grid shows them.
     private var members: [ConversationParticipant] {
         info.participants.filter { !$0.isMe && $0.id != meID }
+    }
+
+    /// The cards' distance from the screen edges, the header's side margin.
+    func setSideMargin(_ margin: CGFloat) {
+        guard table.layoutMargins.left != margin || table.layoutMargins.right != margin else { return }
+        table.layoutMargins = UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
     }
 
     /// Where the cards start: under the header at rest.
@@ -165,6 +175,7 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         let cell = tableView.dequeueReusableCell(withIdentifier: "p", for: indexPath)
         var content = cell.defaultContentConfiguration()
         cell.accessoryView = nil
+        cell.viewWithTag(Self.toggleTag)?.removeFromSuperview()
         cell.selectionStyle = .none
         cell.accessibilityIdentifier = nil
         if isSeeAll(indexPath) {
@@ -190,7 +201,19 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
                     toggle.addTarget(self, action: #selector(receiptsToggled(_:)), for: .valueChanged)
                     toggle.accessibilityIdentifier = "conversation.details.readReceipts"
                 }
-                cell.accessoryView = toggle
+                // Messages ends the switch 14 pt before the card's drawn edge
+                // (iOS 27.0: track 309...372, card ending at 386, 16 pt in
+                // from the cell's own edge); an accessory view sat 6 pt
+                // further in.
+                toggle.tag = Self.toggleTag
+                toggle.translatesAutoresizingMaskIntoConstraints = false
+                // On the cell itself: the content configuration replaces the
+                // content view.
+                cell.addSubview(toggle)
+                NSLayoutConstraint.activate([
+                    toggle.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -Self.toggleTrailingInset),
+                    toggle.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                ])
             case .members:
                 break  // its own cell
             case .links:
