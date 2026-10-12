@@ -41,7 +41,8 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
-    static func boundedWorkspaceRetention(
+    /// Computes the bounded restorable workspace set and its selected index.
+    nonisolated static func boundedWorkspaceRetention(
         restorableWorkspaceCount: Int,
         selectedRestorableWorkspaceIndex: Int?,
         maximum: Int = maxWorkspacesPerWindow
@@ -232,7 +233,8 @@ enum SessionPersistencePolicy {
     }
 }
 
-struct SessionWorkspaceRetention: Equatable, Sendable {
+/// Describes the restorable workspaces retained in a bounded session snapshot.
+nonisolated struct SessionWorkspaceRetention: Equatable, Sendable {
     let retainedIndices: [Int]
     let selectedWorkspaceIndex: Int?
     let omittedWorkspaceCount: Int?
