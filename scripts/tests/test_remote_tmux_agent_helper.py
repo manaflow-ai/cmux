@@ -34,6 +34,10 @@ if 'show-options' in args and '@cmux_agent_owner' in args:
     print(os.environ.get('TMUX_OWNER', 'owner'))
 elif 'show-options' in args and 'default-shell' in args:
     print('/bin/sh')
+elif 'list-panes' in args:
+    print('%7\\tbash\\t0')
+elif 'capture-pane' in args:
+    print(os.environ.get('TMUX_PROMPT', 'user@host:~$ '))
 """,
         )
         self._write_executable(
@@ -58,7 +62,7 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         path.write_text(source)
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
-    def _run(self, *args, owner="owner"):
+    def _run(self, *args, owner="owner", extra_env=None):
         env = os.environ.copy()
         env.update(
             PATH=str(self.bin) + os.pathsep + os.defpath,
@@ -69,6 +73,8 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
             TMUX=f"{self.root}/server,123,0",
             TMUX_PANE="%7",
         )
+        if extra_env:
+            env.update(extra_env)
         (self.root / "home").mkdir(exist_ok=True)
         return subprocess.run(
             [sys.executable, str(HELPER), *args], env=env, capture_output=True, text=True
@@ -146,6 +152,18 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self._tmux_calls()
         self.assertTrue(any("set-option" in call and "default-command" in call for call in calls))
+        self.assertTrue(any("send-keys" in call and "init.sh" in " ".join(call) for call in calls))
+
+    def test_install_does_not_inject_into_busy_shell_input(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run(
+            "--install", "$1", payload,
+            extra_env={"TMUX_PROMPT": "user@host:~$ codex --prompt"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))
 
     def test_management_commands_pass_through(self):
         module_source = HELPER.read_text()

@@ -433,13 +433,13 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
                 guard let self, self.windowIdSet.contains(windowId) else { return }
                 for o in self.observers.values { o.onActivePaneChanged?(windowId, paneId) }
             },
-            onPaneAgent: { [weak self] paneId, rawValue in
-                guard let self, self.ownsPane(paneId) else { return }
-                for o in self.observers.values { o.onPaneAgent?(paneId, rawValue) }
-            },
             onSessionChanged: { _, _ in
                 // The shared stream's %session-changed describes the hidden view session,
                 // not this real session; per-session rename is driven by the coordinator.
+            },
+            onPaneAgent: { [weak self] paneId, rawValue in
+                guard let self, self.ownsPane(paneId) else { return }
+                for o in self.observers.values { o.onPaneAgent?(paneId, rawValue) }
             },
             // `onAuthRequired` is deliberately NOT fanned. The host's login offer is made once by the
             // view coordinator, which registers it on the shared stream itself

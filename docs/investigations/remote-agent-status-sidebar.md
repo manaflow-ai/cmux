@@ -53,9 +53,10 @@ directory. The owner token ignores late events from a previous invocation.
 
 ## Scope and limitations
 
-- New panes use the managed default command. Existing panes need to source the
-  installed `~/.local/share/cmux/tmux-agent/init.sh` once before launching an
-  agent; custom tmux `default-command` values are preserved and are not wrapped.
+- New panes use the managed default command. On attach, an existing pane is
+  updated when it is an idle, recognizable shell at an empty prompt; running
+  programs and panes with custom tmux `default-command` values are left alone.
+  An already-running agent still needs to be restarted for launch-time hooks.
 - A read-only home, missing Python 3, or a malformed install leaves no hook
   status for that launch.
 - An agent already running when the mirror attaches does not emit SessionStart

@@ -96,7 +96,7 @@ import Testing
         source.firePaneAgent(8, #"{"agent":"claude","state":"working"}"#)
         #expect(received.count == 1)
         #expect(received.first?.0 == 7)
-        #expect(RemoteTmuxAgentStatus.parse(received.first?.1 ?? "")?.agent == "codex")
+        #expect(RemoteTmuxAgentStatus.parse(received.first?.1 ?? "")?.agent.rawValue == "codex")
     }
 }
 

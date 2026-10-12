@@ -167,6 +167,44 @@ def install(session, encoded):
     command = shlex.join([sys.executable, str(script), '--shell', shell])
     tmux_call(context, 'set-option', '-t', session, 'default-command', command)
     tmux_call(context, 'set-option', '-t', session, '@cmux_agent_default_command', command)
+    source_existing_shells(context, session, shell, stable, bin_dir)
+
+
+def source_existing_shells(context, session, shell, stable, bin_dir):
+    """Add the shim to idle shells that predate the mirror attachment.
+
+    A tmux session's environment only reaches processes started later, so
+    changing `default-command` cannot update the shell already occupying the
+    initial pane. Restrict the one-shot source to a pane whose foreground
+    command is a known shell and whose last line still looks like an empty
+    prompt; never interrupt a running program or a line with user input.
+    """
+    shell_name = Path(shell).name
+    shell_names = {shell_name, 'bash', 'zsh', 'sh', 'dash', 'fish', 'ksh'}
+    try:
+        rows = tmux_call(
+            context, 'list-panes', '-s', '-F',
+            '#{pane_id}\t#{pane_current_command}\t#{pane_dead}',
+        ).splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return
+    for row in rows:
+        pane, current, dead = (row.split('\t', 2) + ['', '', ''])[:3]
+        if not re.fullmatch(r'%[0-9]+', pane) or dead == '1' or Path(current).name not in shell_names:
+            continue
+        try:
+            capture = tmux_call(context, 'capture-pane', '-p', '-J', '-t', pane, '-S', '-1')
+        except (OSError, subprocess.SubprocessError):
+            continue
+        line = re.sub(r'\x1b\[[0-9;]*m', '', capture.rstrip('\r\n').splitlines()[-1] if capture.strip() else '')
+        if not re.search(r'(?:[$%#>]|❯|➜)\s*$', line):
+            continue
+        if shell_name == 'fish' or Path(current).name == 'fish':
+            source = 'set -gx PATH ' + shlex.quote(str(bin_dir)) + ' $PATH'
+        else:
+            source = '. ' + shlex.quote(str(stable))
+        tmux_call(context, 'send-keys', '-t', pane, '-l', source)
+        tmux_call(context, 'send-keys', '-t', pane, 'Enter')
 
 
 def shell_launch(shell):
