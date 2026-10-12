@@ -13,4 +13,16 @@ extension AppDelegate {
             }
         )
     }
+
+    /// Selects a local workspace from a Cloud tree row.
+    /// - Parameters:
+    ///   - workspaceID: The local workspace the row resolved to.
+    ///   - panelManager: The manager of the window whose Cloud tree was used.
+    /// - Returns: Whether a manager selected the workspace.
+    @discardableResult
+    func selectCloudTreeLocalWorkspace(_ workspaceID: UUID, from panelManager: TabManager?) -> Bool {
+        guard let panelManager, panelManager.workspacesById[workspaceID] != nil else { return false }
+        panelManager.selectedTabId = workspaceID
+        return true
+    }
 }

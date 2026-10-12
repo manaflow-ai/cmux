@@ -5858,7 +5858,9 @@ struct ContentView: View {
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { self.tabManager.selectedTabId },
-            selectLocalWorkspace: { workspaceID in self.tabManager.selectedTabId = workspaceID },
+            selectLocalWorkspace: { workspaceID in
+                AppDelegate.shared?.selectCloudTreeLocalWorkspace(workspaceID, from: self.tabManager)
+            },
             onDidMutate: {},
             onFailure: { _ in NSSound.beep() },
             refresh: {},

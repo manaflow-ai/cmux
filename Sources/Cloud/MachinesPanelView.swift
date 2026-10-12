@@ -447,8 +447,8 @@ struct MachinesPanelView: View {
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                tabManager?.selectedTabId = workspaceID
+            selectLocalWorkspace: { [weak tabManager] workspaceID in
+                AppDelegate.shared?.selectCloudTreeLocalWorkspace(workspaceID, from: tabManager)
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
