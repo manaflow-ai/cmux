@@ -138,6 +138,56 @@ fn reopened_page_tab_keeps_its_page() {
     mux.shutdown();
 }
 
+/// Recently Closed leaves out a tab that reopens as nothing (Leo 2026-10-11: it filled with
+/// "about:blank about:blank" rows). `closed.list` marks `empty` an untouched New Tab page (a chat
+/// tab with no session yet) and a browser on `about:blank`; a chat, a page, a browser on an
+/// address and a terminal are never empty, so a closed chat with no title yet still reopens.
+#[test]
+fn closed_list_marks_tabs_that_reopen_empty() {
+    let mux = test_mux("closed-empty");
+    let (_, pane) = terminal_pane(&mux);
+    let agent = |session: Value| {
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"install:a","session":session,"harness":"claude"}})
+    };
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    let tabs = [
+        ("new tab page", agent(Value::Null)),
+        ("chat", agent(json!("ses-1"))),
+        ("blank browser", browser("about:blank")),
+        ("browser", browser("https://example.com/")),
+        ("page", json!({"cmd":"new-conversation-tab","pane":pane,"page":"settings"})),
+        ("terminal", json!({"cmd":"new-tab","pane":pane})),
+    ];
+    let ids = |closed: &Value| -> Vec<String> {
+        closed.as_array().unwrap().iter().map(|item| item["id"].as_str().unwrap().to_string()).collect()
+    };
+    let mut marks = Vec::new();
+    for (name, request) in tabs {
+        let before = ids(&resource(&mux, "closed.list", json!({}), None));
+        let created = run(&mux, request).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+        let closed = resource(&mux, "closed.list", json!({}), None);
+        let item = closed.as_array().unwrap().iter().find(|item| !before.contains(&item["id"].as_str().unwrap().to_string()));
+        let item = item.unwrap_or_else(|| panic!("{name}: no closed item in {closed}"));
+        let top = item["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
+        let member = item["members"][0]["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
+        marks.push(format!("{name}: {top} {member}"));
+    }
+    assert_eq!(
+        marks,
+        [
+            "new tab page: true true",
+            "chat: false false",
+            "blank browser: true true",
+            "browser: false false",
+            "page: false false",
+            "terminal: false false",
+        ]
+    );
+    mux.shutdown();
+}
+
 /// A page id is 1 to 64 lowercase letters, digits or '-', '_', '.'; a page
 /// and another source together are refused.
 #[test]
