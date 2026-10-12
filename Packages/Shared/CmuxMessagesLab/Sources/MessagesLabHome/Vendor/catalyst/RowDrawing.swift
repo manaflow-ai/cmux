@@ -119,7 +119,7 @@ enum RowDraw {
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
-            drawTypingBubble(ctx, top: top + 4)
+            drawTypingBubble(ctx, top: top + typingBubble.minY - margin)
         case let .threadPreview(pv):
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
@@ -143,23 +143,29 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots and tail discs (layers that animate).
-    static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest (the lossless
+    /// typing stills and send-typed-media-take1 at the bottom of each breath, fitted with the same capsule model as
+    /// a capture of ours): 43.69 x 27.19 pt, its left edge 20.14 pt, its bottom where ours was
+    /// (tools/evidence/ANIMATIONS.md section 6, cx-3cb typing-breath).
+    static let typingBubble = CGRect(x: 20.14, y: margin + 4.31, width: 43.69, height: 27.19)
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
     /// The bubble's two tail discs (row coordinates), large then small: layers of their own
-    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears).
-    static let typingDiscs = [CGRect(x: 20.5, y: typingBubble.maxY - 7, width: 9, height: 9),
-                              CGRect(x: 16.5, y: typingBubble.maxY + 1, width: 5, height: 5)]
+    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears). Messages at rest: the
+    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.40 pt above the bubble's bottom; the
+    /// small one d 4.75 pt at 19.00 pt, 3.23 pt below it (section 6, cx-3cb typing-breath).
+    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.40 - 4.59, width: 9.18, height: 9.18),
+                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.23 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
-        let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
+        let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
         Fixture.incoming.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble
-        return CGPoint(x: b.minX + 12.25 + CGFloat(i) * 9.5, y: b.midY)
+        // Messages at rest: 32.25, 41.75, 51.25 pt, 0.335 pt above the bubble's centre (section 6).
+        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.335)
     }
 }
 

@@ -474,6 +474,8 @@ final class RowCell: UICollectionViewCell {
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
     let typingDiscs = [CALayer(), CALayer()]
+    /// The typing row's insert time (RowSpec model time) that its dots and breathing run from (-inf: none).
+    var typingInsertedAt = -Double.infinity
     let receiptOld = CALayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
@@ -617,6 +619,7 @@ final class RowCell: UICollectionViewCell {
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
+        typingInsertedAt = -.infinity
     }
 
     /// VoiceOver text, computed when asked (no per-configure work).
@@ -1208,22 +1211,23 @@ final class RowCell: UICollectionViewCell {
         CATransaction.commit()
     }
 
-    /// Typing dots: a Gaussian brightness pulse per dot, 0.247 s apart, every
-    /// second, as one repeating keyframe animation each (render server).
-    /// Phase from two lossless macOS 27 takes (typing-unfocused-take1,
-    /// send-typed-media-take1): the first dot peaks 0.29-0.35 s after the dots
-    /// become visible (ours was 0.20), the next ones 0.246 and 0.248 s later,
-    /// period 1.0 s. The dots become visible about 0.15 s after `begin`, so the
-    /// first peak sits 0.45 s after it.
+    /// Typing dots: a Gaussian brightness pulse per dot (1/e half width 0.223 s),
+    /// 0.251 s apart, every second, as one repeating keyframe animation each
+    /// (render server). Fitted on every frame of the indicator at rest in the
+    /// lossless send-typed-media-take1 (249 frames, 2.25 s, rms 0.96 levels) and
+    /// typing-unfocused-take1 (51 frames): the first dot peaks 0.461 / 0.453 s
+    /// after the rows begin (the insert's begin; `begin` here is 0.05 s later,
+    /// Springs.typingDotsPhase), the others 0.250 / 0.252 s apart, period
+    /// 1.001 s, width 0.223 / 0.224 s (ANIMATIONS.md section 6, cx-3cb typing-breath).
     func startTypingDots(begin: CFTimeInterval) {
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
             let n = 60
             var values: [NSNumber] = []
             for k in 0...n {
-                var x = Double(k) / Double(n) - 0.45 - Double(i) * 0.247
+                var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
                 x -= x.rounded()
-                values.append(NSNumber(value: exp(-(x / 0.22) * (x / 0.22))))
+                values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
             }
             let a = CAKeyframeAnimation(keyPath: "opacity")
             a.values = values
@@ -1232,8 +1236,64 @@ final class RowCell: UICollectionViewCell {
             a.beginTime = begin
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
+            if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
             hi.add(a, forKey: "dots")
         }
+    }
+
+    /// Messages' indicator breathes while it shows (Springs.typingBreathBody, typingBreathDiscs): the bubble
+    /// with its dots about Springs.typingBreathAnchor, each tail disc about its centre, from the insert's begin
+    /// (layer time). A still scene (--typing-phase) keeps them at rest. macOS only (no iOS reference).
+    func startTypingBreath(insert: CFTimeInterval) {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        guard Springs.typingStillPhase == nil else { return }
+        let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
+        // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
+        // fixed point to b: e x (a - b).
+        let body = Springs.typingBreathBody
+        Self.breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
+        Self.breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
+        Self.breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
+        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { Self.breathe(l, "transform.scale", w, gain: 1, begin: insert) }
+#endif
+    }
+
+    /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
+    var needsTypingBreath: Bool {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
+#else
+        false
+#endif
+    }
+
+    /// The first dot's peak, s after `begin` of startTypingDots (0.457 s after the insert's begin).
+    static let typingDotPeak = 0.407
+
+    /// The reply replaces the indicator: Messages shows it at rest from the arrival's first frame on
+    /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
+    func stopTypingBreath() {
+        for l in [typingContainer] + typingDiscs {
+            for k in l.animationKeys() ?? [] where k.hasPrefix("breath.") { l.removeAnimation(forKey: k) }
+        }
+    }
+
+    /// One additive repeating wave on `keyPath` (Springs.Breath): gain x amplitude x (1 - cos(2 pi u)) / 2,
+    /// u = (t - start) / period, from `begin + start` on (61 linear keyframes per period; render server).
+    private static func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
+        guard w.amplitude > 0, w.period > 0, abs(gain) > 1e-9 else { return }
+        let n = 60
+        var values: [NSNumber] = []
+        for k in 0...n { values.append(NSNumber(value: gain * w.amplitude * (1 - cos(2 * .pi * Double(k) / Double(n))) / 2)) }
+        let a = CAKeyframeAnimation(keyPath: keyPath)
+        a.values = values
+        a.duration = w.period
+        a.repeatCount = .infinity
+        a.beginTime = begin + w.start
+        a.isAdditive = true
+        a.isRemovedOnCompletion = false
+        a.calculationMode = .linear
+        l.add(a, forKey: "breath.\(keyPath)")
     }
 }
 

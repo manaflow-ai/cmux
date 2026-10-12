@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// The owner never answered: say so and show the command that starts it.
 /// The app does not start the owner itself yet (daemon supervision is a
@@ -25,7 +26,7 @@ struct OwnerNotRunningView: View {
                     Icon(.actionCopy, size: 12)
                 }
                 .buttonStyle(.plain).foregroundStyle(colors.secondary)
-                .help(TasksStrings.copyCommand)
+                .themedHelp(TasksStrings.copyCommand)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 7).fill(colors.hover))

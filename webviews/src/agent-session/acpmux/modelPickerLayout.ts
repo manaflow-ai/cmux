@@ -8,7 +8,8 @@ import type { Choice, Combo } from "./ComposerPickers";
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
 export type ModelPickerProps = {
-  catalog: AcpmuxSnapshot["catalog"];
+  /// `top`: the harness's curated models, listed first (topModels/); the rest fold under More models.
+  catalog: (AcpmuxSnapshot["catalog"][number] & { top?: readonly string[] })[];
   harness?: string;
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
@@ -48,7 +49,7 @@ export type ModelPickerProps = {
   /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
   /// from the click or key handler itself: the host's confirmation needs the gesture.
   onHarnessEnable?(folder: string, id: string): void;
-  /// The rail's + (Add agent…): the app's agent.harness.add, which opens Settings > Agents > Add.
+  /// The rail's + (Add agent…): the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
