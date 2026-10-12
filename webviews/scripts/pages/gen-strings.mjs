@@ -69,7 +69,19 @@ export const PAGES = {
   diff: {
     splitLocales: true,
     out: "webviews/src/pages/diff/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/diff/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/diff/Localizable.xcstrings" },
+      // The changes view's Stage, Commit and Push, which the viewer reuses (cx-ueuc8, diff-viewer/git.ts).
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              key.startsWith("git.") ||
+              ["changes.stageFile", "changes.unstageFile", "changes.stageFailed"].includes(key),
+          ),
+      },
+    ],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
