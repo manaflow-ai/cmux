@@ -94,12 +94,38 @@ struct CmuxToastSurfaceTests {
         second.dismiss()
     }
 
+    /// Toasts stay clear of the Home composer; when it grows, a shown toast slides up with it
+    /// instead of jumping there in one frame (motion pass, 2026-10-12).
+    @Test func aToastSlidesClearOfAGrowingAvoidedView() async throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
+        try #require(window.contentView).addSubview(composer)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved"), in: window)
+        let toast = try #require(Self.toastViews(in: window).first)
+        toast.layer?.removeAllAnimations() // its arrival is done
+        let before = toast.convert(toast.bounds, to: nil).minY
+
+        composer.frame.size.height = 160
+        NotificationCenter.default.post(name: .cmuxToastAvoidanceDidChange, object: composer)
+        for _ in 0..<50 where toast.convert(toast.bounds, to: nil).minY == before { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(toast.convert(toast.bounds, to: nil).minY >= before + 99, "the toast moved clear of the composer")
+        #expect(toast.layer?.animation(forKey: "transform.translation.y") != nil, "the toast jumped there in one frame")
+        handle.dismiss()
+    }
+
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         func walk(_ view: NSView) -> [CmuxToastView] {
             (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
         }
         return (window.contentView?.superview ?? window.contentView).map(walk) ?? []
     }
+}
+
+@MainActor
+private final class AvoidedView: NSView, CmuxToastAvoiding {
+    var toastAvoidanceRect: NSRect { bounds }
 }
 
 @MainActor
