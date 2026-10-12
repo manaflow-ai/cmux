@@ -1,7 +1,7 @@
 // The math behind the per-token theme editor (cx-wqn5): the contrast floor each token keeps, the
 // colors it snaps to (its own theme's and the nearest of every other theme's), and the lift that
 // brings a color back over its floor. Pure, so the page and its tests share it.
-import { fit } from "./appTheme";
+import { deriveAppTheme, fit } from "./appTheme";
 import { contrast, fromOklch, parseHex, toHex, toOklch, type OKLCH, type RGB } from "./color";
 import type { GhosttyTheme } from "./ghosttyTheme";
 import type { ThemeEditToken } from "./themeEdits";
@@ -40,6 +40,9 @@ export function tokenColor(theme: GhosttyTheme, token: ThemeEditToken): string {
       return theme.cursorColor ?? theme.foreground;
     case "selection":
       return theme.selectionBackground ?? toHex(mixRgb(theme.background, theme.foreground, 0.25));
+    case "accent":
+      // Without its own accent, the one the app derives for the theme (neutral by default).
+      return theme.accent ?? deriveAppTheme(theme).tokens.accent;
     default:
       return theme.palette[Number(token)] ?? theme.foreground;
   }
