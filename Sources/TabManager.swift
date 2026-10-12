@@ -4593,20 +4593,11 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
-    /// Previous/Next (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab, the View menu): steps
-    /// the focused pane's tabs when it holds two or more, wrapping inside the pane; otherwise moves
-    /// to the previous or next sidebar workspace, wrapping at the ends (Leo 2026-10-09, rapid
-    /// switching). `dock` is the focused Dock, whose pane follows the same rule. Next/Previous Tab
-    /// in Pane and Next/Previous Workspace stay explicit.
-    func stepTabOrWorkspace(forward: Bool, dock: DockSplitStore? = nil) {
-        if let dock {
-            if dock.focusedPaneHasTabsToStep {
-                _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
-                return
-            }
-        } else if selectedWorkspace?.stepFocusedPaneTab(forward: forward) == true {
-            return
-        }
+    /// Previous/Next, the Chrome tab keys (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab,
+    /// the View menu): moves to the previous or next sidebar workspace,
+    /// what Chrome calls a tab, wrapping at the ends, whatever pane, Dock or panel has focus
+    /// (Leo 2026-10-12). Next/Previous Tab in Pane stays explicit.
+    func stepTabOrWorkspace(forward: Bool) {
         if forward { selectNextTab() } else { selectPreviousTab() }
     }
 
