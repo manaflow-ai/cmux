@@ -20,6 +20,7 @@ import Testing
         let root = try #require(window.contentView)
         scope.root(root)
         let expected = scope.tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor
+        #expect(Self.same(scope.perform { Palette.popupSurface }, expected))
 
         // The palette's, a hover card's or popover's, and a find bar's.
         for radius in [Metrics.panelCornerRadius, PopupStyle.standard.cornerRadius, 6] {

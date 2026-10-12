@@ -84,5 +84,28 @@ export default componentEntry<ModelPickerProps>({
       props: { ...base },
       play: numericSearch,
     },
+    // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
+    // square), and its rail tab its initial.
+    "profile-without-mark": {
+      props: {
+        ...base,
+        catalog: [
+          {
+            id: "vercel-ai-gateway",
+            name: "Vercel AI Gateway",
+            icon: "/icons/vercel-ai-gateway.svg",
+            folder: { folder: "/Users/me/app", state: "enabled" },
+            models: [{ id: "apex", name: "Apex" }],
+          },
+          ...catalog,
+        ],
+        harness: "vercel-ai-gateway",
+        model: "apex",
+        label: "Apex",
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+      },
+    },
   },
 });

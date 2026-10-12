@@ -6,9 +6,12 @@ public import AppKit
 /// follows Reduce Transparency live (`ReduceTransparency`) and re-reads
 /// theme colors whenever its effective appearance or theme scope changes.
 /// Content goes in `contentView`, above the material, and may size the
-/// surface through constraints. Every floating glass panel (palette, hover
-/// card, find and prompt bars, drop overlay) is one of these, made with
-/// `Glass.makeOverlayPanel`; raw `Glass.makePanel` has no fallback.
+/// surface through constraints. Every floating panel that carries text
+/// (palette, dialogs, hover cards, find and prompt bars, page info,
+/// popovers) is one of these, made with `Glass.makeOverlayPanel`, which pins
+/// it to the solid popup surface (`Palette.popupSurface`); glass would let
+/// the text under it show through. Overlays without text (the drop overlay,
+/// dock backdrop) follow this Mac's material.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
@@ -149,8 +152,7 @@ public final class OverlaySurfaceView: NSView {
                 tintView?.layer?.backgroundColor = overlayTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
-                let fill = themeTokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
-                materialView?.layer?.backgroundColor = fill.cgColor
+                materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
                 materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
             }
         }

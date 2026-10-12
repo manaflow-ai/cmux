@@ -1,6 +1,7 @@
 // Tooltips over Base UI Tooltip. A tooltip only repeats a control's accessible name (rule 4): the
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
-// focus, and Escape closes it.
+// focus, and Escape closes it. It looks like the native tooltip and the title tooltip
+// (pages/shared/desktop.css): the solid popup surface, primary ink, an optional shortcut hint.
 import type { ReactElement, ReactNode } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePortalContainer } from "./UiProvider";
@@ -21,16 +22,21 @@ export interface TooltipProps {
   /** The control it describes (its `render` target). */
   children: ReactElement;
   side?: "top" | "bottom";
+  /** A keyboard shortcut shown after the label in the secondary ink (`⌘T`), as on native tooltips. */
+  shortcut?: string;
 }
 
-export function Tooltip({ label, children, side = "bottom" }: TooltipProps) {
+export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipProps) {
   const container = usePortalContainer();
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger render={children} />
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup className="ui-tooltip">{label}</BaseTooltip.Popup>
+          <BaseTooltip.Popup className="ui-tooltip">
+            {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
+            {label}
+          </BaseTooltip.Popup>
         </BaseTooltip.Positioner>
       </BaseTooltip.Portal>
     </BaseTooltip.Root>

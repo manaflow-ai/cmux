@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AgentMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -527,7 +527,8 @@ export function ModelPicker(props: ModelPickerProps) {
   // The chip draws one harness: the one a switch to another harness is starting, else the running
   // one. Browsing another harness in the open menu changes neither its mark nor its name.
   const switchingTo = switching && !current?.ids.includes(switching.harness) ? switching : undefined;
-  const chipHarness = switchingTo?.harness ?? current?.id ?? harness;
+  // A folder profile draws its own mark (its icon or family), as its rail tab does, not its id's.
+  const chipHarness = switchingTo?.harness ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
@@ -658,7 +659,14 @@ export function ModelPicker(props: ModelPickerProps) {
                   }}
                   active={index === activeHarness}
                 >
-                  <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                  {agentBrand(entry.mark ?? entry.id) ? (
+                    <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                  ) : (
+                    // A harness without a mark: its initial, never an empty tab.
+                    <span aria-hidden="true" className="text-control font-medium">
+                      {entry.name.trim().charAt(0).toUpperCase()}
+                    </span>
+                  )}
                   <span className="sr-only">{entry.name}</span>
                 </PickerOption>,
               ])}

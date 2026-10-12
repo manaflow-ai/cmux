@@ -4,6 +4,8 @@
 // once when the pointer moves on from a tooltip just shown (along a rail or a toolbar), and kept
 // inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
+// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
+// Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 
 /// Hover time before the first tooltip.
 export const TOOLTIP_DELAY = 500;
@@ -14,6 +16,22 @@ const EDGE = 6;
 const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
+
+/// The standard tooltip's widest, the native one's (TooltipPanel.maxWidth).
+const MAX_WIDTH = 320;
+/// The narrowest a truncated element's tooltip may wrap at, so a cut-off chip's text is not a column.
+const TRUNCATED_MIN_MAX = 480;
+
+/// The tooltip's min and max width for an element `width` px wide in a `view` px window. A tooltip
+/// for text the element cuts off shows it in full, wrapping, up to the element's width (at least
+/// 480 px) and never narrower than the element's line; any other tooltip wraps at 320 px. Both stay
+/// inside the window's edges.
+export function tooltipWidth({ width, truncated, view }: { width: number; truncated: boolean; view: number }) {
+  const room = Math.max(0, view - 2 * EDGE);
+  if (!truncated) return { min: 0, max: Math.min(MAX_WIDTH, room) };
+  const line = Math.ceil(width);
+  return { min: Math.min(line, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+}
 
 /// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
 /// there is no room below, and shifted to stay inside the edges.
@@ -60,9 +78,27 @@ export function installTooltips(doc: Document): () => void {
     if (!target?.isConnected) return;
     const text = textOf(target);
     if (!text) return;
-    tip.textContent = text;
+    const shortcut = target.getAttribute("data-tooltip-shortcut");
+    const label = doc.createElement("span");
+    label.className = "ui-tooltip-text";
+    label.textContent = text;
+    // The hint floats to the top right, so it comes first.
+    if (shortcut) {
+      const hint = doc.createElement("span");
+      hint.className = "ui-tooltip-hint";
+      hint.textContent = shortcut;
+      tip.replaceChildren(hint, label);
+    } else tip.replaceChildren(label);
+    const anchor = target.getBoundingClientRect();
+    const width = tooltipWidth({
+      width: anchor.width,
+      truncated: target.scrollWidth > target.clientWidth,
+      view: doc.documentElement.clientWidth,
+    });
+    tip.style.minWidth = `${width.min}px`;
+    tip.style.maxWidth = `${width.max}px`;
     tip.hidden = false;
-    const position = tooltipPosition(target.getBoundingClientRect(), tip.getBoundingClientRect(), {
+    const position = tooltipPosition(anchor, tip.getBoundingClientRect(), {
       width: doc.documentElement.clientWidth,
       height: doc.documentElement.clientHeight,
     });

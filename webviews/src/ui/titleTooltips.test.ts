@@ -41,7 +41,9 @@ function page(body: string) {
 }
 
 test("hovering a truncated row shows its full text as wide as the row", async () => {
-  const doc = page(`<div id="row" title="A long chat title that the sidebar row cuts off with an ellipsis">A long…</div>`);
+  const doc = page(
+    `<div id="row" title="A long chat title that the sidebar row cuts off with an ellipsis">A long…</div>`,
+  );
   const row = doc.getElementById("row")!;
   Object.defineProperty(row, "scrollWidth", { value: 900 });
   Object.defineProperty(row, "clientWidth", { value: 600 });
