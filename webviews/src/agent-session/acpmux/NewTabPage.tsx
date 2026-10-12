@@ -76,7 +76,6 @@ export const NEW_TAB_LABELS = {
 /// What the host's handshake says about a tab opened as a new tab page.
 export type NewTabHost = {
   inputToken?: string;
-  tools?: { id: string; title: string; symbol: string; shortcut?: string; menu: string[] }[];
   hotkeys: Partial<Record<TabKind, string>>;
   initialKind: TabKind;
   cwd?: string;
@@ -122,24 +121,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
-  const tools = Array.isArray(object.tools)
-    ? object.tools.flatMap((tool) => {
-        if (typeof tool !== "object" || tool === null) return [];
-        const value = tool as Record<string, unknown>;
-        const id = typeof value.id === "string" ? value.id : "";
-        const title = typeof value.title === "string" ? value.title : "";
-        const symbol = typeof value.symbol === "string" ? value.symbol : "square.grid.2x2";
-        if (!id || !title) return [];
-        const menu = Array.isArray(value.menu)
-          ? value.menu.filter((entry): entry is string => typeof entry === "string")
-          : [];
-        return [
-          { id, title, symbol, ...(typeof value.shortcut === "string" ? { shortcut: value.shortcut } : {}), menu },
-        ];
-      })
-    : [];
   return {
-    ...(tools.length ? { tools } : {}),
     hotkeys,
     initialKind,
     ...(cwd ? { cwd } : {}),
