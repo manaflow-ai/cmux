@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Regression: a deep split chain must not pin the main thread (#10311, #16393).
 
-Every Bonsplit pane is its own NSHostingView, so each split nests another
-hosting view. Rebuilding the window's key view loop asks every nested host
-for its focusable items, and the work roughly doubles with each level: a
-16-deep chain held the main thread for about 30 s the first time it was shown.
+Bonsplit used to host each split level in its own NSHostingView, so a chain
+nested one hosting view per level. Rebuilding the window's key view loop asks
+every nested host for its focusable items, and the work roughly doubled with
+each level: a 16-deep chain held the main thread for about 30 s the first time it was shown.
 Agent teams build exactly this shape (each teammate splits the previous pane).
 
 The test opens a workspace holding a 16-deep chain of downward splits, shows
@@ -34,15 +34,28 @@ def chain(depth: int) -> dict:
     return node
 
 
+def is_timeout(error: cmuxError) -> bool:
+    """True for a request that timed out, on the client or at the main-actor deadline."""
+    text = str(error)
+    return text.startswith("timeout:") or text == "Timed out waiting for response"
+
+
 def main_actor_stall(c: cmux, workspace: str):
-    """Seconds until a main-actor request on the workspace answers, or None after GIVE_UP_S."""
+    """Seconds until a main-actor request on the workspace answers, or None after GIVE_UP_S.
+
+    Only timeouts are retried; any other error is a real failure and is raised.
+    """
     start = time.monotonic()
     while time.monotonic() - start < GIVE_UP_S:
         try:
             panes = (c._call("pane.list", {"workspace_id": workspace}) or {}).get("panes") or []
             return time.monotonic() - start, len(panes)
-        except cmuxError:
-            pass
+        except cmuxError as error:
+            if not is_timeout(error):
+                raise
+            # A late reply to the timed-out request would answer the next one.
+            c.close()
+            c.connect()
     return None, 0
 
 
