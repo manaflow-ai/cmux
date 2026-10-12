@@ -31,9 +31,9 @@ declare namespace Cmux {
   type ClientToken = string
   type ClientTransport = "unix" | "websocket"
   type ClosedDeleteResult = { deleted: Array<Cmux.StateId>; updated: Array<Cmux.StateId> }
-  type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
+  type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
   type ClosedMemberRecord = { kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; screens: Array<Cmux.ClosedScreenRecord> }
-  type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
+  type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; window?: string | null; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
   type ClosedScreenRecord = { name: string | null; tabs: Array<Cmux.ClosedTabRecord> }
   type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean; page?: string | null }
   type ClosedWorkspaceGroupRecord = { id: Cmux.StateId; name: string; color: string | null; icon?: string | null }
