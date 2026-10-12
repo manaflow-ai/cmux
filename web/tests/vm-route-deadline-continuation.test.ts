@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as TestClock from "effect/TestClock";
+import * as TestContext from "effect/TestContext";
 import * as Layer from "effect/Layer";
 
 // The #19405 stats stalls (production 2026-10-11) were never reproduced, and
@@ -71,36 +74,41 @@ function layerFor(providerVmId: string) {
 
 describe("mutation continuations and live reads", () => {
   test("reads reach their provider call and answer while 20 hung pauses continue after their responses", async () => {
-    // 20 pauses answer "in progress" and keep running through the real after().
-    const pauses = await Promise.all(Array.from({ length: 20 }, (_, index) => {
-      const id = `vm-pause-${index}`;
-      return Effect.runPromise(Effect.either(withVmAnswerDeadline(
-        pauseVm({ userId: "owner", providerVmId: id }).pipe(Effect.provide(layerFor(id))),
-        { answerWithinMs: 50, onDeadline: () => Effect.fail("in progress" as const), continueForMs: 2_000, label: "/api/vm/[id]/pause" },
-      )));
-    }));
-    expect(pauses.every((answer) => answer._tag === "Left" && answer.left === "in progress")).toBe(true);
-    expect(afterCallbacks).toHaveLength(20);
-    expect(backgroundContinuations.running).toBe(20);
-
-    // 60 stats reads through the real route path while those continue.
+    backgroundContinuations.resetForTests();
     const ids = Array.from({ length: 60 }, (_, index) => `vm-read-${index}`);
     const elapsedMs = VM_READ_ROUTE_DEADLINES.stats.clientTimeoutMs - 5_000 - 5_000;
-    const reads = await Promise.all(ids.map((id) => runVmRoute(
-      getVmStats({ userId: "owner", providerVmId: id }).pipe(Effect.provide(layerFor(id))),
-      { locale: "en", readDeadline: { operation: "stats", elapsedMs } },
-    )));
-    for (const [index, read] of reads.entries()) {
+    // The pauses and their continuations run on the fake clock; the reads run
+    // on the live route runtime, as in production.
+    const outcome = await Effect.runPromise(Effect.gen(function* () {
+      const pauseFibers = yield* Effect.forEach(Array.from({ length: 20 }, (_, index) => `vm-pause-${index}`), (id) => Effect.fork(Effect.either(withVmAnswerDeadline(
+        pauseVm({ userId: "owner", providerVmId: id }).pipe(Effect.provide(layerFor(id))),
+        { answerWithinMs: 50, onDeadline: () => Effect.fail("in progress" as const), continueForMs: 2_000, label: "/api/vm/[id]/pause" },
+      ))));
+      // The provider calls start, then the deadline passes.
+      for (let step = 0; step < 5; step += 1) yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      yield* TestClock.adjust(50);
+      const pauses = yield* Effect.forEach(pauseFibers, (fiber) => Fiber.join(fiber));
+      const runningDuringReads = backgroundContinuations.running;
+      const reads = yield* Effect.promise(() => Promise.all(ids.map((id) => runVmRoute(
+        getVmStats({ userId: "owner", providerVmId: id }).pipe(Effect.provide(layerFor(id))),
+        { locale: "en", readDeadline: { operation: "stats", elapsedMs } },
+      ))));
+      const runningAfterReads = backgroundContinuations.running;
+      // Each continuation ends by its window and gives its slot back.
+      yield* TestClock.adjust(2_000);
+      yield* Effect.promise(() => Promise.all(afterCallbacks));
+      return { pauses, reads, runningDuringReads, runningAfterReads };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+
+    expect(outcome.pauses.every((answer) => answer._tag === "Left" && answer.left === "in progress")).toBe(true);
+    expect(afterCallbacks).toHaveLength(20);
+    expect(outcome.runningDuringReads).toBe(20);
+    expect(outcome.runningAfterReads).toBe(20);
+    for (const [index, read] of outcome.reads.entries()) {
       expect(read.ok).toBe(true);
       expect(fetches.some((entry) => entry.method === "GET" && entry.path === `/v5/vms/${ids[index]}`)).toBe(true);
     }
-    // The continuations were still running the whole time.
-    expect(backgroundContinuations.running).toBe(20);
-
-    // Each continuation ends by its window and gives its slot back.
-    await Promise.all(afterCallbacks);
     expect(backgroundContinuations.running).toBe(0);
-    const pauseRequests = fetches.filter((entry) => entry.method === "POST" && entry.path.endsWith("/pause"));
-    expect(pauseRequests).toHaveLength(20);
+    expect(fetches.filter((entry) => entry.method === "POST" && entry.path.endsWith("/pause"))).toHaveLength(20);
   });
 });

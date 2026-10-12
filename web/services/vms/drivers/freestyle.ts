@@ -608,6 +608,7 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
   if (state === "paused") return "paused";
   if (state === "pausing" || state === "starting") return "in_progress";
+  if (state === "stopped") return "stopped";
   return "not_paused";
 }
 

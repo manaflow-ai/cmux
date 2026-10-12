@@ -5,9 +5,11 @@ import * as Effect from "effect/Effect";
 import * as FiberRef from "effect/FiberRef";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
+import * as Runtime from "effect/Runtime";
 import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./drivers/types";
 import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
+import { scrubErrorForLog } from "../observability/report";
 import { currentVmRequestContext } from "./requestContext";
 
 /**
@@ -218,6 +220,11 @@ export const backgroundContinuations = (() => {
     get running(): number {
       return running;
     },
+    /** Tests only: forget every continuation (each test starts from none). */
+    resetForTests(): void {
+      running = 0;
+      keys.clear();
+    },
   };
 })();
 
@@ -228,12 +235,10 @@ export function logContinuationResult(label: string, outcome: string, detail: Re
   else console.error("[vm-route-deadline] continuation", line);
 }
 
-function summarizeCause(cause: unknown): string {
-  try {
-    return String(Cause.pretty(cause as Cause.Cause<unknown>)).slice(0, 500);
-  } catch {
-    return "unknown";
-  }
+/** The failure's name and message, credential-scrubbed (no stacks, no provider bodies). */
+function summarizeCause(cause: Cause.Cause<unknown>): string {
+  const failure = Cause.squash(cause);
+  return scrubErrorForLog(failure).slice(0, 300);
 }
 
 export type VmAnswerDeadlineOptions<A, E, R> = {
@@ -281,6 +286,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       }),
     );
     if (Option.isSome(exit)) return yield* exit.value;
+    const log = continuationLogContext(options);
     if (options.continueForMs <= 0) {
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
@@ -288,36 +294,57 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     if (options.continuationKey !== undefined && backgroundContinuations.hasKey(options.continuationKey)) {
       // The same re-entrant operation on the same machine is already running
       // in the background: this retry adds no second continuation.
-      logContinuationResult(options.label, "superseded", { key: options.continuationKey });
+      logContinuationResult(options.label, "superseded", log);
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
     if (!backgroundContinuations.tryAcquire(options.continuationKey)) {
       // Past the cap the request does not answer "in progress" for work it
-      // would then have to stop: it waits for the work inline instead, up to
-      // the route's maxDuration, as before this deadline existed.
-      logContinuationResult(options.label, "answered_inline_at_cap", { cap: VM_MAX_BACKGROUND_CONTINUATIONS });
-      return yield* Fiber.join(fiber);
+      // would then have to stop: it waits for the work inline, up to the
+      // time the work would have had in the background.
+      const inline = yield* Fiber.await(fiber).pipe(Effect.timeout(options.continueForMs), Effect.option);
+      if (Option.isNone(inline)) {
+        logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS });
+        yield* Fiber.interruptFork(fiber);
+        return yield* options.onDeadline();
+      }
+      logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
+        ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS,
+        ...(inline.value._tag === "Failure" ? { cause: summarizeCause(inline.value.cause) } : {}),
+      });
+      return yield* inline.value;
     }
     // Each continuation owns only its own fiber: it holds no lock or permit a
     // foreground request waits on, it is never on a request's read deadline,
     // and it ends by the route's maxDuration. Its result is always logged.
+    // It runs on the caller's runtime (clock and services).
     const key = options.continuationKey;
     const bounded = Fiber.await(fiber).pipe(
       Effect.timeout(options.continueForMs),
       Effect.matchCauseEffect({
         onSuccess: (finished) => Effect.sync(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
+          ...log,
           ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
         })),
-        onFailure: () => Fiber.interrupt(fiber).pipe(
-          Effect.andThen(Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { continueForMs: options.continueForMs }))),
-        ),
+        onFailure: () => Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
+          .pipe(Effect.andThen(Fiber.interruptFork(fiber))),
       }),
       Effect.ensuring(Effect.sync(() => backgroundContinuations.release(key))),
     );
-    (options.continueInBackground ?? continueAfterResponse)(Effect.runPromise(bounded), options.label);
+    const runtime = yield* Effect.runtime<never>();
+    (options.continueInBackground ?? continueAfterResponse)(Runtime.runPromise(runtime)(bounded), options.label);
     return yield* options.onDeadline();
   });
+}
+
+/** The identifiers a continuation's result log carries (never request bodies or provider text). */
+function continuationLogContext(options: { readonly continuationKey?: string }): Record<string, unknown> {
+  const context = currentVmRequestContext();
+  return {
+    ...(options.continuationKey !== undefined ? { key: options.continuationKey } : {}),
+    ...(context?.vmId ? { vmId: context.vmId } : {}),
+    ...(context?.operationId ? { operationId: context.operationId } : {}),
+  };
 }
 
 /** Whether a VM workflow failure is a provider call that was never answered. */
@@ -338,12 +365,6 @@ export type VmRouteDeadline = {
   readonly operation: VmRouteDeadlineOperation;
   /** The client's stated budget ({@link vmClientTimeoutMsFromRequest}). */
   readonly clientTimeoutMs?: number;
-  /**
-   * Answer by the legacy budget even when the client states one. A create
-   * without an Idempotency-Key sets this: its retry cannot reach the same
-   * create, so a short stated budget must not make it answer early.
-   */
-  readonly ignoreClientBudget?: boolean;
   /** Overrides the request-context elapsed time (tests, non-route callers). */
   readonly elapsedMs?: number;
   /** See {@link VmAnswerDeadlineOptions.continuationKey}. */
@@ -367,7 +388,7 @@ export function withVmRouteDeadline<A, R>(
   const elapsedMs = deadline.elapsedMs ?? (context === undefined ? 0 : performance.now() - context.startedAtMs);
   const { answerWithinMs, continueForMs } = vmRouteDeadlinePlan(deadline.operation, {
     elapsedMs,
-    clientTimeoutMs: deadline.ignoreClientBudget ? undefined : deadline.clientTimeoutMs,
+    clientTimeoutMs: deadline.clientTimeoutMs,
   });
   const deadlineError = (cause?: unknown) => new VmOperationDeadlineError({
     operation: deadline.operation, mutating: entry.mutating, waitedMs: answerWithinMs, ...(cause === undefined ? {} : { cause }),
@@ -437,4 +458,13 @@ export function withVmReadDeadline<A, E, R>(
   const elapsedMs = deadline.elapsedMs ?? (startedAtMs === undefined ? 0 : performance.now() - startedAtMs);
   const answerWithinMs = vmReadAnswerBudgetMs(deadline.operation, elapsedMs);
   return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => Effect.locally(program, VmProviderReadDeadline, nowMs + answerWithinMs));
+}
+
+/**
+ * A create's answer deadline, only with an Idempotency-Key. Without one a
+ * retry cannot reach the same create, so it never answers "in progress"
+ * without a machine id: it waits for the create inline.
+ */
+export function createRouteAnswerDeadline(idempotencyKey: string | null | undefined): { deadline?: VmRouteDeadline } {
+  return idempotencyKey ? { deadline: { operation: "create" } } : {};
 }

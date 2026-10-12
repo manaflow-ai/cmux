@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
@@ -9,7 +9,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_MAX_BACKGROUND_CONTINUATIONS, VM_ROUTE_DEADLINES, backgroundContinuations, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
+import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_MAX_BACKGROUND_CONTINUATIONS, VM_ROUTE_DEADLINES, backgroundContinuations, createRouteAnswerDeadline, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
 // on a Freestyle background request that then failed 502, long after the
@@ -81,10 +81,10 @@ describe("VM route answer deadlines", () => {
   });
 
   test("the window is measured from the request's start, with a floor", async () => {
-    const late = await underDeadline("resize", Effect.never, 200_000);
-    expect(late.virtualMs).toBeLessThanOrEqual(10_250);
-    const early = await underDeadline("resize", Effect.never, 30_000);
-    expect(early.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000 + 250);
+    const late = await underDeadline("resize", Effect.never, 200_000, undefined, 1_000);
+    expect(late.virtualMs).toBeLessThanOrEqual(11_000);
+    const early = await underDeadline("resize", Effect.never, 30_000, undefined, 1_000);
+    expect(early.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000 + 1_000);
     expect(early.virtualMs).toBeGreaterThan(70_000);
   });
 });
@@ -105,9 +105,12 @@ describe("remaining VM routes", () => {
     ["create", 25_000, true],
   ];
   test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
-    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never, 0, undefined, 1_000);
+    // Virtual-time steps scale with the budget so a 955 s budget stays a
+    // hundred steps (CI runs these under a 5 s per-test limit).
+    const stepMs = Math.max(1_000, Math.ceil(budgetMs / 100 / 1_000) * 1_000);
+    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never, 0, undefined, stepMs);
     expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
-    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 1_000);
+    expect(virtualMs).toBeLessThanOrEqual(budgetMs + stepMs);
     const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
     expect(error?._tag).toBe("VmOperationDeadlineError");
     expect(error?.mutating).toBe(mutating);
@@ -129,24 +132,11 @@ describe("remaining VM routes", () => {
     expect(vmRouteDeadlinePlan("create", { elapsedMs: 2_000 }).continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS);
   });
 
-  test("a create without an Idempotency-Key ignores a shorter stated budget", async () => {
-    const keyed = await underDeadline("create", Effect.never, 0, 15_000, 1_000);
-    expect(keyed.virtualMs).toBeLessThanOrEqual(10_000);
-    const background: Promise<unknown>[] = [];
-    const unkeyed = await Effect.runPromise(Effect.gen(function* () {
-      const fiber = yield* Effect.fork(withVmRouteDeadline(Effect.never as Effect.Effect<string, VmWorkflowError>, {
-        operation: "create", elapsedMs: 0, clientTimeoutMs: 15_000, ignoreClientBudget: true,
-        continueInBackground: (work) => { background.push(work); },
-      }).pipe(Effect.either));
-      let virtualMs = 0;
-      while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 60_000) {
-        yield* TestClock.adjust(1_000);
-        virtualMs += 1_000;
-        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-      }
-      return virtualMs;
-    }).pipe(Effect.provide(TestContext.TestContext)));
-    expect(unkeyed).toBeGreaterThanOrEqual(25_000);
+  test("a create without an Idempotency-Key gets no answer deadline; with one it does", () => {
+    expect(createRouteAnswerDeadline(undefined)).toEqual({});
+    expect(createRouteAnswerDeadline(null)).toEqual({});
+    expect(createRouteAnswerDeadline("")).toEqual({});
+    expect(createRouteAnswerDeadline("key-1")).toEqual({ deadline: { operation: "create" } });
   });
 
   test("a create whose provider hangs into a gateway 502 answers in progress, not an outage", async () => {
@@ -247,7 +237,7 @@ describe("Freestyle raw pause state", () => {
     ["pausing", "in_progress"],
     ["starting", "in_progress"],
     ["running", "not_paused"],
-    ["stopped", "not_paused"],
+    ["stopped", "stopped"],
   ])("maps %s to %s", async (state, expected) => {
     expect(await providerWith(async () => ({ state })).getPauseState("vm-1")).toBe(expected);
   });
@@ -267,6 +257,8 @@ describe("Freestyle raw pause state", () => {
 // progress" for work it would then stop, and a retry of a re-entrant
 // operation must not add a second continuation for the same machine.
 describe("continuation limits", () => {
+  beforeEach(() => backgroundContinuations.resetForTests());
+  afterEach(() => backgroundContinuations.resetForTests());
   const onTestClock = <A>(program: Effect.Effect<A, string>) => Effect.runPromise(Effect.gen(function* () {
     const fiber = yield* Effect.fork(program.pipe(Effect.either));
     for (let step = 0; step < 40 && Option.isNone(yield* Fiber.poll(fiber)); step += 1) {
@@ -278,7 +270,7 @@ describe("continuation limits", () => {
 
   test("past the cap the request waits for its work inline instead of answering in progress", async () => {
     for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.tryAcquire();
-    try {
+    {
       const background: Promise<unknown>[] = [];
       const answer = await onTestClock(withVmAnswerDeadline(
         Effect.sleep("3 seconds").pipe(Effect.as("paused")),
@@ -287,14 +279,12 @@ describe("continuation limits", () => {
       ));
       expect(answer._tag === "Right" ? answer.right : null).toBe("paused");
       expect(background).toHaveLength(0);
-    } finally {
-      for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.release();
     }
   });
 
   test("a retry for a machine whose attach already continues adds no second continuation", async () => {
     expect(backgroundContinuations.tryAcquire("attach:vm-1")).toBe(true);
-    try {
+    {
       let interrupted = false;
       const background: Promise<unknown>[] = [];
       const answer = await onTestClock(withVmAnswerDeadline(
@@ -307,8 +297,60 @@ describe("continuation limits", () => {
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(interrupted).toBe(true);
       expect(backgroundContinuations.running).toBe(1);
+    }
+  });
+
+  test("a continuation for another machine is not blocked by one already running", async () => {
+    expect(backgroundContinuations.tryAcquire("attach:vm-1")).toBe(true);
+    const background: Promise<unknown>[] = [];
+    const answer = await onTestClock(withVmAnswerDeadline(
+      Effect.never as Effect.Effect<string, string>,
+      { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "attach",
+        continuationKey: "attach:vm-2", continueInBackground: (work) => { background.push(work); } },
+    ));
+    expect(answer._tag).toBe("Left");
+    expect(background).toHaveLength(1);
+    expect(backgroundContinuations.running).toBe(2);
+    expect(backgroundContinuations.hasKey("attach:vm-2")).toBe(true);
+  });
+
+  // Every continuation's result is logged with its route, outcome, and a
+  // scrubbed cause, and its slot is released whether it finished, failed or
+  // was stopped at maxDuration.
+  test.each([
+    ["completed", Effect.sleep("2 seconds").pipe(Effect.as("done")), "completed"],
+    ["failed", Effect.sleep("2 seconds").pipe(Effect.andThen(Effect.fail(new Error("provider said Bearer abcdefghijklmnop")))), "failed"],
+    ["stopped", Effect.never, "stopped_at_max_duration"],
+  ] as const)("a %s continuation is logged and releases its slot", async (_label, work, outcome) => {
+    const lines: string[] = [];
+    const info = spyOn(console, "info").mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(" ")); });
+    const error = spyOn(console, "error").mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(" ")); });
+    try {
+      const background: Promise<unknown>[] = [];
+      await Effect.runPromise(Effect.gen(function* () {
+        const fiber = yield* Effect.fork(withVmAnswerDeadline(
+          (work as Effect.Effect<string, unknown>),
+          { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 5_000, label: "/api/vm/[id]/pause",
+            continuationKey: "pause:vm-9", continueInBackground: (promise) => { background.push(promise); } },
+        ).pipe(Effect.either));
+        yield* TestClock.adjust(1_000);
+        yield* Fiber.join(fiber);
+        expect(backgroundContinuations.running).toBe(1);
+        for (let step = 0; step < 10; step += 1) {
+          yield* TestClock.adjust(1_000);
+          yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+        }
+        yield* Effect.promise(() => Promise.all(background));
+      }).pipe(Effect.provide(TestContext.TestContext)));
+      expect(backgroundContinuations.running).toBe(0);
+      const line = lines.find((entry) => entry.includes("continuation"));
+      expect(line).toContain(`"outcome":"${outcome}"`);
+      expect(line).toContain('"route":"/api/vm/[id]/pause"');
+      expect(line).toContain('"key":"pause:vm-9"');
+      expect(line).not.toContain("abcdefghijklmnop");
     } finally {
-      backgroundContinuations.release("attach:vm-1");
+      info.mockRestore();
+      error.mockRestore();
     }
   });
 });

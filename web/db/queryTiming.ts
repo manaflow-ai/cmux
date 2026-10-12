@@ -40,15 +40,20 @@ export function observePostgresJsQueryTiming(query: unknown, now: () => number =
   const createdAt = now();
   let sentAt: number | undefined;
   let statement = target.statement;
-  Object.defineProperty(target, "statement", {
-    configurable: true,
-    enumerable: true,
-    get: () => statement,
-    set: (next: unknown) => {
-      if (sentAt === undefined && next) sentAt = now();
-      statement = next;
-    },
-  });
+  try {
+    Object.defineProperty(target, "statement", {
+      configurable: true,
+      enumerable: true,
+      get: () => statement,
+      set: (next: unknown) => {
+        if (sentAt === undefined && next) sentAt = now();
+        statement = next;
+      },
+    });
+  } catch {
+    // A query shape this hook cannot observe runs untimed, never broken.
+    return;
+  }
   let settled = false;
   const settle = (failed: boolean) => {
     if (settled) return;

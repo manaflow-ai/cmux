@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { pauseVm, resumeVm } from "../services/vms/workflows";
+import { VmProviderOperationError } from "../services/vms/errors";
 
 // `cmux vm pause` / `cmux vm resume`: park a machine and wake it through the
 // same suspended-resume path every open and exec uses. Fake repository and
@@ -56,7 +57,7 @@ function fakes(options: {
   providerStatus?: "running" | "paused";
   /** Successive getStatus answers; the last one repeats. */
   providerStatuses?: Array<"creating" | "running" | "paused">;
-  pauseState?: "paused" | "in_progress" | "not_paused" | "destroyed";
+  pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails";
   withPause?: boolean;
   withResume?: boolean;
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
@@ -98,7 +99,11 @@ function fakes(options: {
       diskTotalMb: options.stats?.diskTotalMb ?? 32768,
     }),
     ...(options.pauseState
-      ? { getPauseState: () => Effect.succeed(options.pauseState) }
+      ? {
+        getPauseState: () => options.pauseState === "probe_fails"
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getPauseState", cause: new Error("Status: 500") }))
+          : Effect.succeed(options.pauseState),
+      }
       : {}),
     ...(options.withPause === false
       ? {}
@@ -199,11 +204,29 @@ describe("pauseVm", () => {
     expect(recorded.statuses).toEqual([]);
   });
 
-  test("a powered-off machine is not a finished pause: it is paused", async () => {
+  // Freestyle refuses to pause a stopped machine: it is recorded as parked
+  // (its compute is already off) without a pause call.
+  test("a powered-off machine is recorded as parked without a pause the provider would refuse", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "stopped" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
+    expect(recorded.events).toEqual([{ eventType: "vm.paused", metadata: { source: "provider_stopped" } }]);
+  });
+
+  test("a running machine is paused", async () => {
     const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused" });
     const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "fs-1", status: "paused" });
     expect(recorded.paused).toEqual(["fs-1"]);
+  });
+
+  test("a state probe that cannot tell answers in progress and never pauses a second time", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "probe_fails" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
   });
 
   test("a provider without pause fails with the unsupported error (the route's 501)", async () => {

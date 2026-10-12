@@ -79,7 +79,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
-import type { VmRouteDeadline } from "../../../services/vms/routeDeadline";
+import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -109,15 +109,6 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
     resources: resourceReservation,
     resourceReservation,
   };
-}
-
-/**
- * The create's answer deadline (routeDeadline.ts), only with an
- * Idempotency-Key. Without one a retry cannot reach this create, so it never
- * answers "in progress" without a machine id: it waits for the create inline.
- */
-function createAnswerDeadline(idempotencyKey: string | null | undefined): { deadline?: VmRouteDeadline } {
-  return idempotencyKey ? { deadline: { operation: "create" } } : {};
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -422,7 +413,7 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
-        ...createAnswerDeadline(idempotencyKey),
+        ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;

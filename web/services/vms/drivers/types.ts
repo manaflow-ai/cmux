@@ -21,8 +21,13 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
  * the route's answer.
  */
 export type ProviderReadOptions = { readonly signal?: AbortSignal };
-/** A provider's raw pause state, see `VMProvider.getPauseState`. */
-export type VmPauseState = "paused" | "in_progress" | "not_paused" | "destroyed";
+
+/**
+ * A provider's raw pause state, see `VMProvider.getPauseState`. `stopped` is
+ * a powered-off machine: not a finished pause (memory is gone) and not
+ * pausable either (the provider refuses to pause it).
+ */
+export type VmPauseState = "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed";
 
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.

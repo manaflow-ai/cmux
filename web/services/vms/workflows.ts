@@ -2227,19 +2227,22 @@ export function pauseVm(input: {
     // A pause the route answered as in progress (routeDeadline.ts) may have
     // finished at the provider without reaching the row. A retry reconciles
     // on the provider's raw pause state instead of pausing twice: a finished
-    // pause is recorded (with its usage event), a pause still under way is
-    // in progress, and anything else (running, powered off) is paused now.
-    const observed = providers.getPauseState
-      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.succeed(null)))
+    // pause is recorded (with its usage event), a pause still under way or a
+    // probe that could not tell answers in progress (never a second pause), a
+    // powered-off machine is recorded as parked without a pause the provider
+    // would refuse, and only a running machine is paused now.
+    const probed = providers.getPauseState
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.either)
       : null;
-    if (observed === "in_progress") {
+    if (probed?._tag === "Left" || (probed?._tag === "Right" && probed.right === "in_progress")) {
       return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
     }
+    const observed = probed?._tag === "Right" ? probed.right : null;
     // Gone at the provider: the same not-found answer as a destroyed row.
     if (observed === "destroyed") {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
-    if (observed !== "paused") {
+    if (observed !== "paused" && observed !== "stopped") {
       if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
       yield* pause(vm.provider, providerVmId);
     }
@@ -2255,7 +2258,7 @@ export function pauseVm(input: {
       eventType: "vm.paused",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { source: "user" },
+      metadata: { source: observed === "stopped" ? "provider_stopped" : "user" },
     }).pipe(Effect.catchAll(() => Effect.void));
     return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
   });
