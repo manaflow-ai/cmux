@@ -78,7 +78,7 @@ struct CloudMove {
     private func perform(tab: TabModel, invocation: ActionInvocation, _ body: @escaping @MainActor () async throws -> String) {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
-        let registry = services.registry, retries = services.cloud.moveRetries
+        let retries = services.cloud.moveRetries
         toast(toastID, CloudMoveStrings.moving, duration: .seconds(600))
         let work: ActionWork = Task { @MainActor in
             do {
@@ -87,20 +87,27 @@ struct CloudMove {
                 toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
                 return nil
             } catch {
-                let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)))
-                services.cloud.logger.error("cloud move failed: \(failure.message, privacy: .public)")
-                retries[tabID] = failure.retry
-                var arguments = invocation.arguments
-                if case .move(let machineID) = failure.retry { arguments["machine"] = .string(machineID) }
-                let retry: (@MainActor () -> Void)? = failure.retry == nil ? nil : {
-                    _ = registry.perform(Self.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments,
-                                                                                   origin: .user))
-                }
-                toast(toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry)
-                return ActionWorkFailure(failure.message)
+                return stopped(error, tab: tabID, toast: toastID, invocation: invocation)
             }
         }
-        registry.track(work)
+        services.registry.track(work)
+    }
+
+    /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
+    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)))
+        services.cloud.logger.error("cloud move failed: \(failure.message, privacy: .public)")
+        services.cloud.moveRetries[tabID] = failure.retry
+        var retry: (@MainActor () -> Void)?
+        if let next = failure.retry {
+            var arguments = invocation.arguments
+            if case .move(let machineID) = next { arguments["machine"] = .string(machineID) }
+            let registry = services.registry
+            let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
+            retry = { _ = registry.perform(Self.action, invocation: again) }
+        }
+        toast(toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry)
+        return ActionWorkFailure(failure.message)
     }
 
     /// The move, after the synchronous checks. Returns the machine's name.
