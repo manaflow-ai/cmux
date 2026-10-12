@@ -6,7 +6,21 @@ import { useSettingsState, useStore } from "../context";
 import type { BrowserProfile, HostListRow, HostLists } from "../ops";
 import { t } from "../strings";
 
-function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
+const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
+
+/**
+ * A mark's content: a stored image or SVG as the host's PNG of it (`icon/<ref>`, cx-qno.2.3), an
+ * emoji as itself, else the name's initial (an SF Symbol name is not drawable here).
+ */
+function IconMark({ icon, name }: { icon: string | null | undefined; name: string }) {
+  if (icon && ASSET_ICON.test(icon)) {
+    return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
+  }
+  if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
+  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+}
+
+function ListRows({ rows, empty, marks = false }: { rows: HostListRow[]; empty: string; marks?: boolean }) {
   if (rows.length === 0) {
     return (
       <div className="row">
@@ -17,6 +31,11 @@ function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
   return rows.map((row) => (
     <div className="row" key={row.id} data-host-row={row.id}>
       <div className="row-main">
+        {marks && (
+          <span className="host-avatar" aria-hidden="true">
+            <IconMark icon={row.icon} name={row.title} />
+          </span>
+        )}
         <div className="row-label">
           <div className="row-title">{row.title}</div>
           {row.subtitle && (
@@ -40,7 +59,7 @@ export function SpacesSection() {
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
         {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} />
+          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
         ) : (
           <div className="row">
             <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
@@ -101,12 +120,6 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
   );
 }
 
-function avatarText(profile: BrowserProfile): string {
-  // An SF Symbol name is not drawable here; an emoji is.
-  if (profile.icon && !/^[a-z0-9.]+$/.test(profile.icon)) return profile.icon;
-  return profile.name.slice(0, 1).toUpperCase() || "?";
-}
-
 function ProfileRow({
   profile,
   colors,
@@ -120,7 +133,9 @@ function ProfileRow({
 }) {
   const store = useStore();
   const target = `browser-profile:${profile.id}`;
-  const fill = colors.find((color) => color.name === profile.color)?.fill;
+  // The color fills the mark's disc; a stored image draws with none.
+  const asset = profile.icon != null && ASSET_ICON.test(profile.icon);
+  const fill = asset ? undefined : colors.find((color) => color.name === profile.color)?.fill;
   // Drafts reset to the profile's values whenever it changes (keyed by the profile's state).
   const [draft, setDraft] = useState({
     for: `${profile.name}\u0000${profile.icon ?? ""}`,
@@ -136,7 +151,7 @@ function ProfileRow({
     <div className="row" data-profile={profile.id}>
       <button type="button" className="row-main host-toggle" aria-expanded={expanded} onClick={onToggle}>
         <span className="host-avatar" style={fill ? { background: fill } : undefined}>
-          {avatarText(profile)}
+          <IconMark icon={profile.icon} name={profile.name} />
         </span>
         <span className="row-label">
           <span className="row-title">{profile.name}</span>

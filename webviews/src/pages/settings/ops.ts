@@ -65,7 +65,8 @@ export type GhosttyDiagnostic = {
 };
 
 /** One space or machine row (`cmux.settings.host.lists`). */
-export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+/** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
+export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
 
 /** One browser profile row. */
 export type BrowserProfile = {
