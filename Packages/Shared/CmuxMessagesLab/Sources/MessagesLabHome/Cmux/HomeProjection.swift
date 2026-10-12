@@ -538,6 +538,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
+    func rowsPlaced() {
+        video.place()
+    }
+
     func scrolled() {
         video.place()
         if let previews = linkPreviews?.previews {

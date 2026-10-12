@@ -13,6 +13,7 @@ extension HostView {
         let p = demo.windowPlace
         lastWindowPlace = (p.origin, p.axis)
         demo.refreshWindowPlace()
+        controller?.intents?.rowsPlaced()  // the video layers follow the rows' snapped content
     }
 
     /// The rows read their place only when it moved since they last did (two layer conversions otherwise).
