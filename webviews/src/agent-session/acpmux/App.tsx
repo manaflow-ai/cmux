@@ -159,7 +159,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
+import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -2499,6 +2499,14 @@ function AcpmuxPane() {
     },
     [requestFolder],
   );
+  /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
+  const [worktreeError, setWorktreeError] = useState<string | undefined>();
+  const startInWorktree = useCallback((cwd: string) => {
+    setWorktreeError(undefined);
+    void newWorktree(callNative, cwd, (folder) => {
+      if (freshRef.current) setProjectDraft(folder);
+    }).catch((error: unknown) => setWorktreeError(errorMessage(error) || String(error)));
+  }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -3789,6 +3797,9 @@ function AcpmuxPane() {
           />
         )
       )}
+      {worktreeError && freshChat && !snapshot.sessionId && (
+        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
+      )}
       {aside && (
         <SideQuestion
           state={aside}
@@ -3885,6 +3896,7 @@ function AcpmuxPane() {
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
+          onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>
             void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(

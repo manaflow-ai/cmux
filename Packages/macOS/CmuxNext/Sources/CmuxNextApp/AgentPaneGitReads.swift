@@ -176,8 +176,9 @@ extension AgentPaneGitRequest {
 }
 
 extension AgentPaneGitWrite {
-    /// The session host's params: `cwd` (the pane's session's folder) as
-    /// `path`; the key travels in the envelope, not in the params.
+    /// The session host's params: `cwd` (the pane's session's folder, or a
+    /// new chat's folder for a worktree) as `path`; the key travels in the
+    /// envelope, not in the params.
     func sessionHostParams(cwd: String) -> [String: JSONValue] {
         switch self {
         case .commit(_, let message, let all, let includeUntracked, let expectedHead, _):
@@ -190,8 +191,10 @@ extension AgentPaneGitWrite {
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .worktree:
-            return ["path": .string(cwd)]
+        case .worktree(_, let name, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if let name { params["name"] = .string(name) }
+            return params
         }
     }
 }

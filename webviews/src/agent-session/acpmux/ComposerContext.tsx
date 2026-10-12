@@ -41,6 +41,7 @@ export function ComposerContext({
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   localName,
   movedTo,
   onMove,
@@ -124,6 +125,7 @@ export function ComposerContext({
             current={currentFolder}
             onPick={(cwd) => onProject?.(cwd)}
             onBrowse={onBrowseProject}
+            onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
             localName={localName}
             peers={peers}
           />
@@ -357,6 +359,7 @@ function FolderMenu({
   current,
   onPick,
   onBrowse,
+  onNewWorktree,
   localName,
   peers,
 }: {
@@ -367,6 +370,8 @@ function FolderMenu({
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  /// New Worktree of the current folder.
+  onNewWorktree?(): void;
   localName?: string;
   peers?: string[];
 }) {
@@ -402,8 +407,20 @@ function FolderMenu({
                   ))}
                 </MenuRadioGroup>
               </div>
-              {onBrowse && <MenuSeparator />}
+              {(onBrowse || onNewWorktree) && <MenuSeparator />}
             </>
+          )}
+          {onNewWorktree && (
+            <MenuItem
+              className="acpmux-menu-item acpmux-location-choose"
+              onSelect={() => {
+                setOpen(false);
+                onNewWorktree();
+              }}
+            >
+              <span className="ui-menu-check" aria-hidden="true" />
+              <span className="acpmux-menu-label">{t("worktree.new")}</span>
+            </MenuItem>
           )}
           {onBrowse && (
             <MenuItem
