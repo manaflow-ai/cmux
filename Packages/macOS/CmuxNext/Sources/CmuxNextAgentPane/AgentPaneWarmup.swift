@@ -20,6 +20,7 @@ public enum AgentPaneWarmup {
 
     public static func start() {
         guard view == nil else { return }
+        if let page = AgentPaneView.bundledPage { AgentPanePageFiles.prefetch(root: page.deletingLastPathComponent()) }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.processPool = AgentPaneView.processPool

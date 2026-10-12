@@ -50,6 +50,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
+        if let data = AgentPanePageFiles.cached(file) { return Self.answer(task, url: url, file: file, data: data) }
         let id = ObjectIdentifier(task)
         active.insert(id)
         // task-owner: one file read per scheme task; a stopped task is never answered
@@ -60,14 +61,15 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
                 task.didFailWithError(URLError(.fileDoesNotExist))
                 return
             }
-            let response = HTTPURLResponse(
-                url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                headerFields: Self.headers(for: file, length: data.count)
-            )
-            task.didReceive(response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil))
-            task.didReceive(data)
-            task.didFinish()
+            Self.answer(task, url: url, file: file, data: data)
         }
+    }
+
+    private static func answer(_ task: any WKURLSchemeTask, url: URL, file: URL, data: Data) {
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers(for: file, length: data.count))
+        task.didReceive(response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil))
+        task.didReceive(data)
+        task.didFinish()
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {
