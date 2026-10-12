@@ -56,7 +56,7 @@ extension Workspace {
     var canHostLocalTerminal: Bool {
         guard !isRemoteWorkspace, !isRemoteTmuxMirror, cloudVMBinding == nil else { return false }
         let hasCloudProjection = panels.keys.contains { cloudDirectoryProvenanceRequired(panelId: $0) }
-        return !hasCloudProjection || panels.keys.contains { machineOwningSurface($0).isLocal }
+        return !hasCloudProjection || panels.keys.contains { machineOwningSurface($0)?.isLocal == true }
     }
 
     /// Returns whether a panel's directory belongs to a Cloud machine rather than this Mac.
