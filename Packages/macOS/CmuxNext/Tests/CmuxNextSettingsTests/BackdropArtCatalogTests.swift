@@ -63,7 +63,7 @@ import Testing
         #expect(rep.pixelsWide == 1600 && rep.pixelsHigh == 1000, "\(art.rawValue): \(rep.pixelsWide)×\(rep.pixelsHigh)")
     }
 
-    @Test func aStarterSetOfDarkWorksShipsInTheApp() {
+    @MainActor @Test func aStarterSetOfDarkWorksShipsInTheApp() {
         let bundled = BackdropArt.allCases.filter(\.isBundled)
         #expect((12...24).contains(bundled.count))
         #expect(bundled.allSatisfy { $0.metadata.tone == .dark })

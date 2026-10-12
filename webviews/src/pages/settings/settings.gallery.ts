@@ -177,7 +177,8 @@ Object.assign(variants, {
         {
           id: "goya-saturn",
           title: "Saturn Devouring His Son — Francisco Goya",
-          attribution: "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
+          attribution:
+            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
           collection: "darkArt",
           collection_title: "Dark Art",
         },
@@ -205,28 +206,32 @@ Object.assign(variants, {
         {
           id: "hokusai-great-wave",
           title: "The Great Wave off Kanagawa — Katsushika Hokusai",
-          attribution: "The Great Wave off Kanagawa · Katsushika Hokusai · c. 1830–32 · Metropolitan Museum of Art, New York (JP1847) · Public domain",
+          attribution:
+            "The Great Wave off Kanagawa · Katsushika Hokusai · c. 1830–32 · Metropolitan Museum of Art, New York (JP1847) · Public domain",
           collection: "museumIcons",
           collection_title: "Museum Icons",
         },
         {
           id: "friedrich-wanderer",
           title: "Wanderer above the Sea of Fog — Caspar David Friedrich",
-          attribution: "Wanderer above the Sea of Fog · Caspar David Friedrich · c. 1818 · Hamburger Kunsthalle · Public domain",
+          attribution:
+            "Wanderer above the Sea of Fog · Caspar David Friedrich · c. 1818 · Hamburger Kunsthalle · Public domain",
           collection: "museumIcons",
           collection_title: "Museum Icons",
         },
         {
           id: "dahl-dresden-moonlight",
           title: "View of Dresden by Moonlight — Johan Christian Dahl",
-          attribution: "View of Dresden by Moonlight · Johan Christian Dahl · 1839 · Galerie Neue Meister, Dresden · Public domain",
+          attribution:
+            "View of Dresden by Moonlight · Johan Christian Dahl · 1839 · Galerie Neue Meister, Dresden · Public domain",
           collection: "calm",
           collection_title: "Calm",
         },
         {
           id: "friedrich-monk-by-the-sea",
           title: "The Monk by the Sea — Caspar David Friedrich",
-          attribution: "The Monk by the Sea · Caspar David Friedrich · 1808–1810 · Alte Nationalgalerie, Berlin · Public domain",
+          attribution:
+            "The Monk by the Sea · Caspar David Friedrich · 1808–1810 · Alte Nationalgalerie, Berlin · Public domain",
           collection: "calm",
           collection_title: "Calm",
         },
@@ -240,7 +245,8 @@ Object.assign(variants, {
         {
           id: "dore-paradise-lost-book-vi",
           title: "Paradise Lost, Book VI — Gustave Doré",
-          attribution: "Paradise Lost, Book VI · Gustave Doré · 1866 · Book illustration (wood engraving) · Public domain",
+          attribution:
+            "Paradise Lost, Book VI · Gustave Doré · 1866 · Book illustration (wood engraving) · Public domain",
           collection: "dore",
           collection_title: "Doré",
         },
