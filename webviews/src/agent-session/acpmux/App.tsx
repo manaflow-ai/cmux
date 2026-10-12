@@ -77,6 +77,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
@@ -1958,6 +1959,7 @@ function AcpmuxPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
   }, [findTarget?.rowId, findTarget?.occurrence]);
   const findRef = useRef(find);
+  const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
   findRef.current = find;
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
@@ -2567,10 +2569,13 @@ function AcpmuxPane() {
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
-        if (name === "find") findRef.current.show();
-        if (name === "findNext") findRef.current.next();
-        if (name === "findPrevious") findRef.current.previous();
-        if (name === "hideFind") findRef.current.hide();
+        // With the keyboard in the changes view (or the view covering the transcript) they find there.
+        const diff = diffFindRef.current;
+        const target = diff?.owns() ? diff.find : findRef.current;
+        if (name === "find") target.show();
+        if (name === "findNext") target.next();
+        if (name === "findPrevious") target.previous();
+        if (name === "hideFind") target.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -4414,6 +4419,7 @@ function AcpmuxPane() {
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
                     onAddressThread={addressThread}
+                    findHandle={diffFindRef}
                   />
                 )}
               </div>
