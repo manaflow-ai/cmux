@@ -90,7 +90,9 @@ async function mount(cwd: string, startCwd?: string) {
 // (screenActions onAsk). The chip names that folder, or asks for a project; never the home ~.
 test("a Cmd-N New Tab's project chip names the folder its chat starts in, not ~", async () => {
   expect(await mount("/Users/you")).toBe("Choose project");
-  act(() => root?.unmount());
+});
+
+test("a Cmd-N New Tab whose host names a start folder shows that folder", async () => {
   expect(await mount("/Users/you", "/Users/you/src/app")).toBe("app");
 });
 

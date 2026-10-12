@@ -5,7 +5,8 @@ import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
-import { isAgentHome, projectLabel } from "../sessionList";
+import { isAgentHome } from "../sessionList";
+import { projectName } from "../EmptyState";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -138,6 +139,9 @@ export function NewTabScreen(props: Props) {
   );
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
+  // The project chip names that folder too, as a new chat's hero does: never the home ~ a fresh
+  // workspace's tab inherits, nor the private agent-home folder (cx-7fje0, cx-nn3e).
+  const chatFolderName = projectName(chatFolder);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -438,7 +442,7 @@ export function NewTabScreen(props: Props) {
             <ProjectChooser
               projects={props.projects ?? []}
               current={project}
-              {...(project ? { currentLabel: projectLabel(project) } : {})}
+              {...(chatFolderName ? { currentLabel: chatFolderName } : {})}
               icon={<FolderIcon />}
               onPick={pickProject}
               {...(browseProject ? { onBrowse: browseProject } : {})}
