@@ -95,6 +95,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
+import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
@@ -538,6 +539,12 @@ const PlanRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const BackgroundTaskRow = memo(
+  function BackgroundTaskRow({ row }: RowProps) {
+    return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -604,6 +611,7 @@ const defaultRegistry: NativeRegistry = {
   turnSummary: SummaryRow,
   notice: NoticeRow,
   plan: PlanRow,
+  backgroundTask: BackgroundTaskRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,

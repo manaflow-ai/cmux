@@ -123,6 +123,17 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        if name == "Bash"
+                            && input.get("run_in_background") == Some(&Value::Bool(true))
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            let command =
+                                input.get("command").and_then(Value::as_str).unwrap_or("");
+                            self.background_shells
+                                .lock()
+                                .await
+                                .insert(id.to_owned(), command.to_owned());
+                        }
                         let mut call = json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
@@ -444,6 +455,9 @@ impl Translator {
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
             }
             "system" if sub.starts_with("task_") => {
+                if let Some(ended) = self.background_shell_task(sub, line).await {
+                    out.push(upd(ended));
+                }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
                 }
@@ -464,6 +478,45 @@ impl Translator {
         let looped = self.loop_model.lock().await.clone();
         let configured = self.model.lock().await.clone();
         usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
+    }
+
+    /// Claude's task events for a background shell (cx-ncc.84): a `local_bash`
+    /// task_started records one Claude moved to the background itself, and its
+    /// `task_notification` returns a `background_task_update` saying how it
+    /// ended (`completed`, `failed` or `stopped`), with Claude's reason or
+    /// summary when it gave one.
+    async fn background_shell_task(&self, sub: &str, line: &Value) -> Option<Value> {
+        let tool = line.get("tool_use_id").and_then(Value::as_str)?;
+        let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        if sub == "task_started" {
+            if text("task_type") == Some("local_bash") {
+                let command = text("description").unwrap_or("").to_owned();
+                self.background_shells.lock().await.entry(tool.to_owned()).or_insert(command);
+            }
+            return None;
+        }
+        if sub != "task_notification" {
+            return None;
+        }
+        let command = self.background_shells.lock().await.remove(tool)?;
+        let state = match text("status") {
+            Some("failed") => "failed",
+            Some("killed" | "stopped") => "stopped",
+            _ => "completed",
+        };
+        let mut update = json!({
+            "sessionUpdate": "background_task_update",
+            "taskId": text("task_id").unwrap_or(""),
+            "toolCallId": tool,
+            "command": command,
+            "state": state,
+        });
+        for key in ["reason", "summary"] {
+            if let Some(value) = text(key) {
+                update[key] = json!(value);
+            }
+        }
+        Some(update)
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`

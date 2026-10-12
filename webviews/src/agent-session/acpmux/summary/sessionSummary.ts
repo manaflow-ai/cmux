@@ -12,12 +12,18 @@ export type SummaryPullRequest = { url: string; repo: string; number: number; ti
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
+export type SummaryBackgroundTask = {
+  id: string;
+  command: string;
+  state: "running" | "completed" | "failed" | "stopped";
+};
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
   outputs: TurnFile[];
   subagents: SummarySubagent[];
   sources: SummarySource[];
+  backgroundTasks: SummaryBackgroundTask[];
 };
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
@@ -131,6 +137,23 @@ function sources(all: readonly Tool[]): SummarySource[] {
 /// The chat's pull requests alone (the composer's PR bars, PullRequestDock.tsx).
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows));
 
+/// Shells the agent ran in the background (Claude's Bash `run_in_background`, cx-ncc.84): running
+/// until a background task row says how it ended.
+function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
+  const ended = new Map(
+    rows.flatMap((row) =>
+      row.backgroundTask ? [[row.backgroundTask.toolCallId, row.backgroundTask.state] as const] : [],
+    ),
+  );
+  return all
+    .filter((tool) => input(tool).run_in_background === true)
+    .map((tool) => ({
+      id: tool.id,
+      command: field(input(tool).command) ?? tool.title,
+      state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+    }));
+}
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {
@@ -139,6 +162,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
     sources: sources(all),
+    backgroundTasks: backgroundTasks(rows, all),
   };
 }
 

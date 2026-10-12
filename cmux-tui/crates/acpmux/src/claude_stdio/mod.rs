@@ -247,6 +247,10 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
+    /// Shells running in the background (Bash `run_in_background`, or a
+    /// `local_bash` task): tool_use id -> their command, until their
+    /// `task_notification` ends them (cx-ncc.84).
+    background_shells: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +291,7 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             loop_model: Mutex::new(String::new()),

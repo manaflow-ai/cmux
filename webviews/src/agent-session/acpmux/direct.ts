@@ -2,6 +2,7 @@ import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
   AcpmuxPermission,
+  AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -1502,6 +1503,14 @@ export class AcpmuxDirectClient {
       });
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
+    } else if (event.kind === "background_task_update") {
+      const task = backgroundTask(update);
+      if (!task) return;
+      // Noted where it ended: the text and tool fold before it close, as a tool call's would.
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      const id = `bgtask-${event.seq}`;
+      this.rows.set(id, { id, version: 1, at: event.at, kind: "backgroundTask", backgroundTask: task });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -2289,6 +2298,18 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
 }
 
 /// An ACP `plan` update's entries as a todo list; an entry without text is left out.
+/// A `background_task_update`'s shell and how it ended; undefined when it names neither.
+function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
+  const state = update.state;
+  if (typeof update.toolCallId !== "string" || !["completed", "failed", "stopped"].includes(state)) return undefined;
+  return {
+    toolCallId: update.toolCallId,
+    command: typeof update.command === "string" ? update.command : "",
+    state,
+    ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+  };
+}
+
 function planEntries(entries: unknown): AcpmuxPlanEntry[] {
   if (!Array.isArray(entries)) return [];
   return entries.flatMap((entry) => {
