@@ -87,7 +87,7 @@ enum DebugKey {
             let decision = router.decide(event, focus: controller.focus.state, keyWindow: .content,
                                          facts: router.facts(in: window, controller: controller))
             var action: JSONValue = .null
-            if case .run(let candidate) = decision { action = .string(candidate.id) }
+            if case .run(let candidate) = decision { action = .string(candidate.id.rawValue) }
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
