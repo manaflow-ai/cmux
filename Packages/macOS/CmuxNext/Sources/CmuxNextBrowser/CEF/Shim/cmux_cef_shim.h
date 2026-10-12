@@ -542,6 +542,10 @@ CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
 // submitted one. Returns 0 for a gone or answered prompt, or a fork without
 // the prompt handler (API 20).
 CMUX_SHIM_EXPORT int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username);
+// Chromium suggests generated passwords without a Google account (fork API
+// 20; Chromium's default needs sync). Still only where saving and filling
+// are on. Returns 0 when the fork lacks it. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_set_password_generation_enabled(int enabled);
 // 1 when an import reply lists the conflicting rows ("conflicts": indices
 // into the entries) and those can be replaced (API 20).
 CMUX_SHIM_EXPORT int cmux_shim_password_replace_available(void);
