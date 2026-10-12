@@ -2752,12 +2752,13 @@ jobs:
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}" \
-            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" <<'PY'
+            "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" \
+            "${{ needs.decide.outputs.sign_channel }}" <<'PY'
           import json
           import pathlib
           import sys
 
-          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha, tip_sha, behind, behind_hours = sys.argv[1:]
+          state_path, actual_sha, dmg_path, app_path, channel, variant, release_tag, build, head_sha, short_sha, tip_sha, behind, behind_hours, sign_channel = sys.argv[1:]
           state = {}
           for line in pathlib.Path(state_path).read_text(encoding="utf-8").splitlines():
               if not line:
@@ -2777,7 +2778,9 @@ jobs:
           for key in ("immutable_path", "release_tag", "dmg_prefix", "variant", "channel"):
               if not state.get(key):
                   raise SystemExit(f"notarization state is missing {key}")
-          if state["channel"] != channel or state["variant"] != variant or state["release_tag"] != release_tag:
+          # The state file records the signing channel (cmux NEXT signs as `next`);
+          # the manifest keeps the release channel for check-manifest.
+          if state["channel"] != sign_channel or state["variant"] != variant or state["release_tag"] != release_tag:
               raise SystemExit("notarization state metadata does not match the build")
           if state.get("dmg_path", "").split("/")[-1] != pathlib.Path(dmg_path).name:
               raise SystemExit("notarization state points at a different DMG")
@@ -3924,11 +3927,15 @@ jobs:
             --head "$HEAD_SHA" --since "$since" --out notes
           # Extend the published index only when its signature verifies.
           previous=""
-          if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "${NIGHTLY_NEXT_FEED_BASE}/notes/index.json" \
-             && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "${NIGHTLY_NEXT_FEED_BASE}/notes/index.json.sig" \
-             && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
-            previous=notes/previous-index.json
-          fi
+          # The first cmux NEXT build carries the history over from the old feed.
+          for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do
+            if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json "$base/notes/index.json" \
+               && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig "$base/notes/index.json.sig" \
+               && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
+              previous=notes/previous-index.json
+              break
+            fi
+          done
           python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
             ${previous:+--previous "$previous"} --out notes/index.json
           rm -f notes/previous-index.json notes/previous-index.json.sig

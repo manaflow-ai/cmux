@@ -94,7 +94,7 @@ def test_a_pending_notarization_keeps_its_recovery_artifact():
 
 
 def test_release_notes_history_carries_over_from_the_old_feed():
-    assert '"${NIGHTLY_NEXT_LEGACY_FEED_BASE}/notes/index.json"' in WORKFLOW
+    assert 'for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do' in WORKFLOW
 
 
 def main() -> int:
