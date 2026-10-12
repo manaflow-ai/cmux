@@ -147,7 +147,7 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
 test("numeric model search input is not treated as a row shortcut", async () => {
   const { picks, search } = await mount();
   await act(async () => {
-    search.value = "gpt";
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "gpt");
     search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
   const digit = new dom.window.KeyboardEvent("keydown", {
