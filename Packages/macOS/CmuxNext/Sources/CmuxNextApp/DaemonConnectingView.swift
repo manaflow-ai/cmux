@@ -125,9 +125,15 @@ final class DaemonConnectingView: NSView {
             statusDue = true
             titleLabel.alphaValue = 1
             if !mark.isRevealed { mark.reveal() }
-            titleLabel.stringValue = Strings.daemonServiceUnavailable
-            detailLabel.stringValue = Self.plainReason(error)
-            detailLabel.isHidden = false
+            if case .sessionRestoreTimedOut = error {
+                // The service started; it is still restoring terminals.
+                titleLabel.stringValue = RefusalStrings.daemonRestoreTimedOut
+                detailLabel.stringValue = ""
+            } else {
+                titleLabel.stringValue = Strings.daemonServiceUnavailable
+                detailLabel.stringValue = Self.plainReason(error) ?? ""
+            }
+            detailLabel.isHidden = detailLabel.stringValue.isEmpty
             failureDetails = String(describing: error)
             copyDetailsButton.isHidden = false
         }
@@ -136,13 +142,16 @@ final class DaemonConnectingView: NSView {
 
     var titleText: String { titleLabel.stringValue }
 
-    /// What the user can expect, in plain words: a message the daemon wrote for people as is, a
-    /// version or install problem as "reinstall", anything else as the retry in progress.
-    private static func plainReason(_ error: DaemonError) -> String {
+    /// What the user can expect, in plain words, or nil when no advice would be true (another
+    /// app serves the socket, a bad launch tag): Copy Details carries the specifics.
+    private static func plainReason(_ error: DaemonError) -> String? {
         switch error {
+        case .binaryNotFound: Strings.daemonReinstall
+        case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
         case .missingCapabilities, .sessionRestoreTimedOut: RefusalStrings.describe(error)
         case .endpointBlocked(let reason): reason
-        default: DaemonStartup.shared.isPermanent(error) ? Strings.daemonReinstall : Strings.daemonRetrying
+        case .wrongApp, .invalidSessionName: nil
+        default: DaemonStartup.shared.isPermanent(error) ? nil : Strings.daemonRetrying
         }
     }
 

@@ -9,6 +9,7 @@ import Testing
 @MainActor
 struct DaemonUnavailableScreenTests {
     private func screen(_ error: DaemonError) -> DaemonConnectingView {
+        _ = NSApplication.shared // performClick dispatches through NSApp
         let view = DaemonConnectingView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
         view.apply(.unavailable(error))
         return view
@@ -22,6 +23,9 @@ struct DaemonUnavailableScreenTests {
         DaemonError.connectFailed(path: "/tmp/cmux-501/tui.sock", errno: ECONNREFUSED),
         DaemonError.binaryNotFound(searched: ["/Applications/cmux.app/Contents/Resources/bin/cmux-tui"]),
         DaemonError.launchFailed("exit status 1"),
+        DaemonError.wrongApp("cmux-proxy"),
+        DaemonError.unsupportedProtocol(9),
+        DaemonError.sessionRestoreTimedOut("restore exceeded 120s"),
     ])
     func saysWhatHappenedInPlainWords(_ error: DaemonError) {
         let shown = screen(error).accessibilityLabel() ?? ""

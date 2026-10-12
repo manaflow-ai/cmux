@@ -287,7 +287,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux nije mogao pokrenuti svoju pozadinsku uslugu."
+            "value": "cmux nije mogao pokrenuti svoj pozadinski servis."
           }
         },
         "da": {
@@ -323,7 +323,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux មិនអាចចាប់ផ្ដើមសេវាកម្មផ្ទៃខាងក្រោយរបស់វាបានទេ។"
+            "value": "cmux មិនអាចចាប់ផ្តើមសេវាផ្ទៃខាងក្រោយរបស់វាបានទេ។"
           }
         },
         "ko": {
@@ -377,7 +377,7 @@
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux không thể khởi động dịch vụ chạy nền."
+            "value": "cmux không thể khởi động dịch vụ nền."
           }
         },
         "zh-Hans": {
