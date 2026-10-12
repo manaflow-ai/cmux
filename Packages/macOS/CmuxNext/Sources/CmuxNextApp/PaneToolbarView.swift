@@ -141,3 +141,13 @@ private final class PaneToolbarToggle: NSObject {
         self.shown = shown
     }
 }
+
+// Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
+// between or around the buttons moves the window; a button never does.
+extension PaneToolbarView: TitlebarPressDeciding {
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        let point = convert(windowPoint, from: nil)
+        let onButton = (buttons + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
+        return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
+    }
+}

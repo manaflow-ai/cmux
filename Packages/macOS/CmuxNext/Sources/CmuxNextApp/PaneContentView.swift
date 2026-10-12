@@ -123,6 +123,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
+        toolbar?.view.isHidden = shown <= 0
         if !isBandActive {
             let tools = toolbarWidth(shown: shown)
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools, height: shown)

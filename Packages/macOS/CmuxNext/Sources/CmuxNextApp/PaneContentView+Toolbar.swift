@@ -5,16 +5,19 @@ import AppKit
 // (R109) they pin beside it.
 extension PaneContentView {
     func installToolbar(replacing old: PaneToolbar?) {
+        // Pins to a browser's band name the toolbar: they are made again for the new one.
+        let pinned = isBandActive
+        if pinned { releaseBand() }
         old?.view.removeFromSuperview()
         if let view = toolbar?.view { addSubview(view, positioned: .above, relativeTo: stripView) }
+        if pinned { updateBand() }
         needsLayout = true
     }
 
-    /// The buttons' width beside a strip `shown` tall: none while the strip is hidden.
+    /// The buttons' width beside a strip `shown` tall (`layout()` hides them with the strip).
     func toolbarWidth(shown: CGFloat) -> CGFloat {
-        guard let view = toolbar?.view else { return 0 }
-        view.isHidden = shown <= 0
-        return view.isHidden ? 0 : min(view.intrinsicContentSize.width, bounds.width / 2)
+        guard let view = toolbar?.view, shown > 0 else { return 0 }
+        return min(view.intrinsicContentSize.width, bounds.width / 2)
     }
 
     /// The buttons' pins beside a strip pinned to a browser's band.
