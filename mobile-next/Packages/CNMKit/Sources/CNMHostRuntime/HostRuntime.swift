@@ -142,7 +142,12 @@ public final class HostRuntime {
         }
     }
 
+    /// Forgets this Mac's pairing here and on the server.
     public func unpair() {
+        if let token = identity?.hostToken {
+            let backend = backend
+            Task { try? await backend.unpairHost(token: token) }
+        }
         stop()
         try? FileManager.default.removeItem(at: identityURL)
         identity = nil
@@ -155,6 +160,7 @@ public final class HostRuntime {
         tasks = []
         signaling?.close()
         signaling = nil
+        server?.shutdown()
         server = nil
         signalingUp = false
         phones = 0

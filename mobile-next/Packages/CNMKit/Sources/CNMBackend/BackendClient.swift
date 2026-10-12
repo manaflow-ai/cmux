@@ -221,6 +221,11 @@ public struct BackendClient: Sendable {
         return try await send("GET", "v1/pairing/\(start.pairingID)?poll_secret=\(secret)")
     }
 
+    /// The Mac removes itself from the account (its token stops working).
+    public func unpairHost(token: String) async throws {
+        _ = try await send("DELETE", "v1/host/me", token: token) as EmptyReply
+    }
+
     public func approvePairing(_ start: PairingStart) async throws {
         _ = try await send("POST", "v1/pairing/\(start.pairingID)/approve", body: ["poll_secret": start.pollSecret]) as EmptyReply
     }

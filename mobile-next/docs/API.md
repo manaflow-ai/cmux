@@ -67,6 +67,7 @@ A Mac already signed in can also call `POST /v1/hosts/register { host_name, plat
 | `PATCH /v1/hosts/:id` | user | `{ name }` → `Host` |
 | `DELETE /v1/hosts/:id` | user | `{ ok: true }` revokes the host token and closes its signaling sockets (close code 4001). |
 | `GET /v1/host/me` | host | `{ host: Host, user: User }` |
+| `DELETE /v1/host/me` | host | `{ ok: true }`: the Mac unpairs itself (host removed, token revoked). |
 
 `Host = { id, name, platform, app_version, created_at, last_seen_at, online }` (`online` from the signaling room).
 

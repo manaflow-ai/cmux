@@ -617,6 +617,15 @@ async function hostMe(ctx: Ctx) {
   return json({ host: hostJson(host, online), user: userJson(user) });
 }
 
+/** A Mac unpairing itself: removes the host and revokes its token. */
+async function hostMeDelete(ctx: Ctx) {
+  const p = await requirePrincipal(ctx, ["host"]);
+  if (p.kind !== "host") throw new HttpError(401, "unauthorized");
+  await ctx.deps.db.exec("DELETE FROM hosts WHERE id = ? AND user_id = ?", [p.hostId, p.userId]);
+  await ctx.deps.disconnect(p.userId, p.hostId);
+  return json({ ok: true });
+}
+
 // ---------------------------------------------------------------- ice and signaling
 
 async function ice(ctx: Ctx) {
@@ -690,6 +699,7 @@ const router = new Router<Ctx>()
   .on("PATCH", "/v1/hosts/:id", hostsPatch)
   .on("DELETE", "/v1/hosts/:id", hostsDelete)
   .on("GET", "/v1/host/me", hostMe)
+  .on("DELETE", "/v1/host/me", hostMeDelete)
   .on("GET", "/v1/ice", ice)
   .on("GET", "/v1/signal", signal);
 

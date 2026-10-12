@@ -256,6 +256,15 @@ final class AgentManager: @unchecked Sendable {
         for waiter in waiters { waiter.resume(returning: nil) }
     }
 
+    /// Stops every running agent (the host is shutting down).
+    func shutdown() {
+        let all = lock.withLock { Array(sessions.values) }
+        for session in all {
+            resumeWaiters(session)
+            session.process?.terminate()
+        }
+    }
+
     func archive(_ id: String) {
         guard let session = lock.withLock({ sessions[id] }) else { return }
         resumeWaiters(session)

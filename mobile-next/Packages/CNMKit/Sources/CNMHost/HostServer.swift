@@ -37,6 +37,20 @@ public final class HostServer: @unchecked Sendable {
 
     public var connectedPeerCount: Int { lock.withLock { peers.count } }
 
+    /// Closes every phone link and ends every shell and agent this host started.
+    public func shutdown() {
+        let (links, shells): ([RPCPeer], [PTYTerminal]) = lock.withLock {
+            defer {
+                peers.removeAll()
+                viewers.removeAll()
+            }
+            return (Array(peers.values), Array(terminals.values))
+        }
+        for peer in links { peer.close() }
+        for shell in shells { shell.terminate() }
+        agents.shutdown()
+    }
+
     /// Serves one link until it closes.
     public func serve(_ link: PeerLink) {
         let peer = RPCPeer(link: link)
