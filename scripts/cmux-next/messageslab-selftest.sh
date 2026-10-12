@@ -91,7 +91,10 @@ for s in steps:
     if not s["pass"]: print("  FAIL", s["step"], "->", s["error"])
 m = d.get("measures") or {}
 link = [s for s in steps if s["step"].startswith("link fallback:")]
-full = True
+# A normal run must have the link step (a renamed step would otherwise pass unchecked); a key run has none.
+full = bool(link) or sys.argv[2] == "--key"
+if not full:
+    print("link fallback: step missing (renamed upstream?)")
 if link:
     # The self-test build serves a local page (fallbackPageRequests); a release-like build skips it.
     full = "fallbackSkipped" not in m and int(m.get("fallbackPageRequests") or 0) > 0
