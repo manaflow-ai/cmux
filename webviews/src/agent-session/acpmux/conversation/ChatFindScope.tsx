@@ -1,7 +1,7 @@
 // Find in Chat's state (cx-ncc.86): it lives here, under the pane, so a keystroke in the find bar
 // renders the transcript alone, not the composer and header beside it. The pane's page actions
 // reach it through `findRef`.
-import { type ReactNode, type RefObject, useLayoutEffect } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect } from "react";
 import type { AcpmuxRow } from "../model";
 import { type ChatFind, isFindRow, useChatFind } from "./chatFind";
 import { WORKED } from "./turns";
@@ -24,6 +24,13 @@ export function ChatFindScope({
 }) {
   const find = useChatFind(rows);
   findRef.current = find;
+  // A view without the transcript (New Tab, replay) has no Find; the page actions then do nothing.
+  useEffect(
+    () => () => {
+      findRef.current = undefined;
+    },
+    [findRef],
+  );
   // A match in a turn's closed "Worked for" opens it, so the transcript draws the row. Before
   // paint, so the transcript scrolls to the match in the same frame.
   const target = find.open ? find.matches[find.active] : undefined;
