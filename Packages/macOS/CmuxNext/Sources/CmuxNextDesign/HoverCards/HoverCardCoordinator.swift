@@ -263,7 +263,8 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive() else { return nil }
         let point = currentPointer()
-        let top = windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
+            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -271,6 +272,17 @@ public final class HoverCardCoordinator {
             return hit
         }
         return nil
+    }
+
+    /// The front one of this app's windows under a screen point. A
+    /// no-activate run (a capture slot) is never frontmost and sits under
+    /// other runs' windows, so the system's topmost window there is often
+    /// not ours.
+    private func ownTopWindowNumber(at point: CGPoint) -> Int? {
+        let card = panel?.windowNumber
+        return ownWindows().first {
+            $0.isVisible && !$0.ignoresMouseEvents && $0.windowNumber != card && $0.frame.contains(point)
+        }?.windowNumber
     }
 
     private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {
