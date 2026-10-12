@@ -74,6 +74,11 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.openInBackground(url)
     }
 
+    /// The person's click in the import step: the same run as the palette's Import from Another Browser….
+    func importFromFiles(into profile: String?) {
+        BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
+    }
+
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
     /// palette action and Settings show). The step shows whenever Computer
     /// Use may run: off, it says so and Allow turns it on. A DEBUG launch
