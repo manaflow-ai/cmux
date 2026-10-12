@@ -35,7 +35,7 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         table.contentInsetAdjustmentBehavior = .never
         table.dataSource = self
         table.delegate = self
-        table.rowHeight = 52
+        table.estimatedRowHeight = 52
         table.sectionHeaderTopPadding = 0
         table.cellLayoutMarginsFollowReadableWidth = false
         table.insetsLayoutMarginsFromSafeArea = false
@@ -147,8 +147,29 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         }
         // A link row carries its site under the title.
         if sections[indexPath.section] == .links, !isSeeAll(indexPath) { return UITableView.automaticDimension }
-        return 52
+        // Larger text grows (and wraps) the others.
+        let isToggle = sections[indexPath.section] == .toggles && !isSeeAll(indexPath)
+        let title = isSeeAll(indexPath) ? Self.seeAllTitle : (indexPath.row == 0 ? Self.hideAlertsTitle : Self.readReceiptsTitle)
+        let width = tableView.bounds.width - tableView.layoutMargins.left - tableView.layoutMargins.right - 16 - (isToggle ? Self.toggleReserve : 16)
+        let font = UIListContentConfiguration.cell().textProperties.font
+        let text = (title as NSString).boundingRect(with: CGSize(width: max(width, 1), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font], context: nil).height
+        let scale = max(tableView.traitCollection.displayScale, 1)
+        return Self.rowHeight(textHeight: (text * scale).rounded(.up) / scale)
     }
+
+    /// Messages pads a text row 15 pt above and below its text, never
+    /// shorter than 52 pt (iOS 27.0: 52 at Large; 78 for one 40 pt line and
+    /// 126 for two at AX3).
+    private static func rowHeight(textHeight: CGFloat) -> CGFloat {
+        max(52, textHeight + 30)
+    }
+
+    /// Room a switch row keeps clear of its text: the switch, its inset and 8 pt.
+    private static let toggleReserve: CGFloat = toggleTrailingInset + 63 + 8
+
+    private static var seeAllTitle: String { String(localized: "conversation.details.seeAll", defaultValue: "See All", bundle: .module) }
+    private static var hideAlertsTitle: String { String(localized: "conversation.details.hideAlerts", defaultValue: "Hide Alerts", bundle: .module) }
+    private static var readReceiptsTitle: String { String(localized: "conversation.details.readReceipts", defaultValue: "Send Read Receipts", bundle: .module) }
 
     private func isSeeAll(_ indexPath: IndexPath) -> Bool {
         switch sections[indexPath.section] {
@@ -180,7 +201,7 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         cell.accessibilityIdentifier = nil
         if isSeeAll(indexPath) {
             // SEARCH_SHOW_MORE
-            content.text = String(localized: "conversation.details.seeAll", defaultValue: "See All", bundle: .module)
+            content.text = Self.seeAllTitle
             content.textProperties.color = .tintColor
             cell.accessibilityIdentifier = section == .photos ? "conversation.details.photos.more" : "conversation.details.links.more"
             cell.selectionStyle = .default
@@ -190,13 +211,13 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
                 let toggle = UISwitch()
                 if indexPath.row == 0 {
                     // DETAILS_VIEW_HIDE_ALERTS_TOGGLE_TITLE
-                    content.text = String(localized: "conversation.details.hideAlerts", defaultValue: "Hide Alerts", bundle: .module)
+                    content.text = Self.hideAlertsTitle
                     toggle.isOn = info.listState.muted
                     toggle.addTarget(self, action: #selector(alertsToggled(_:)), for: .valueChanged)
                     toggle.accessibilityIdentifier = "conversation.details.hideAlerts"
                 } else {
                     // READ_RECEIPTS
-                    content.text = String(localized: "conversation.details.readReceipts", defaultValue: "Send Read Receipts", bundle: .module)
+                    content.text = Self.readReceiptsTitle
                     toggle.isOn = info.listState.sendReadReceipts
                     toggle.addTarget(self, action: #selector(receiptsToggled(_:)), for: .valueChanged)
                     toggle.accessibilityIdentifier = "conversation.details.readReceipts"
@@ -229,6 +250,10 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
             case .photos:
                 break
             }
+        }
+        if cell.viewWithTag(Self.toggleTag) != nil {
+            // Wrapped text stops short of the switch.
+            content.directionalLayoutMargins.trailing = Self.toggleReserve
         }
         cell.contentConfiguration = content
         cell.backgroundConfiguration = Self.cardBackground

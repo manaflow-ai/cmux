@@ -251,8 +251,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.setImage(UIImage(systemName: "mic", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)), for: .normal)
         micButton.tintColor = ConversationTheme.composerMicTint
         // Pin the 17 pt symbol (Messages' microphone ink is 11.3 x 17.3 pt at
-        // every text size); left alone the button drew it 1.3x larger.
-        micButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17, weight: .regular, scale: .medium), forImageIn: .normal)
+        // every text size); left alone the button drew it 1.3x larger. Only
+        // the size: the record waveform keeps its own semibold weight.
+        micButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17), forImageIn: .normal)
         micButton.isUserInteractionEnabled = false
         micButton.isAccessibilityElement = false
         fieldGlass.contentView.addSubview(micButton)
