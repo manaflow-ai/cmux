@@ -22,6 +22,7 @@ struct DebugNumberField: View {
                 .frame(width: Metrics.sidebarWidth * 0.8)
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(width: Metrics.tabMinWidth * 2)
