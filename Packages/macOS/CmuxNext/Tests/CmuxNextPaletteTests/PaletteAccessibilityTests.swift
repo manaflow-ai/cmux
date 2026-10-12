@@ -54,7 +54,7 @@ struct PaletteAccessibilityTests {
         for _ in 0..<200 where palette.model.rows.count < 3 || palette.model.selectedItem == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
-        let panel = try #require(NSApp.windows.first { $0 is PalettePanel })
+        let panel = try #require(palette.visiblePanel)
         panel.contentView?.layoutSubtreeIfNeeded()
         let selected = try #require(palette.model.selectedItem)
         let tree = Self.node(panel)
@@ -74,5 +74,27 @@ struct PaletteAccessibilityTests {
         let chosen = rows.filter(\.selected)
         #expect(chosen.count == 1 && chosen.first?.spoken.contains(selected.title) == true,
                 "the selected row (\(selected.title)) is not the one selected element:\n\(dump)")
+        // The table reports the same row as its selection, and follows the selection as it moves.
+        let table = try #require(Self.table(in: panel.contentView))
+        #expect(Self.reads(table, only: selected.title))
+        palette.model.moveSelection(by: 1, wrap: false)
+        let next = try #require(palette.model.selectedItem)
+        #expect(next.title != selected.title)
+        for _ in 0..<100 where !Self.reads(table, only: next.title) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(Self.reads(table, only: next.title))
+    }
+
+    private static func table(in view: NSView?) -> PaletteTableView? {
+        guard let view else { return nil }
+        if let table = view as? PaletteTableView { return table }
+        return view.subviews.lazy.compactMap { table(in: $0) }.first
+    }
+
+    /// Whether the table's selection, as VoiceOver asks for it, is one row that reads `title`.
+    private static func reads(_ table: PaletteTableView, only title: String) -> Bool {
+        let rows = (table.accessibilitySelectedRows() ?? []).map { node($0).spoken }
+        return rows.count == 1 && rows[0].contains(title)
     }
 }
