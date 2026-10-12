@@ -65,6 +65,11 @@ nonisolated enum AcpmuxStatusClient {
                            params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
     }
 
+    /// `_acpmux/markUnread {sessionId}`: marks a session unread until it is shown again.
+    @concurrent static func markUnread(socketPath: String, sessionId: String, deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/markUnread", params: ["sessionId": sessionId], deadline: deadline)
+    }
+
     /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
     /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
     /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when

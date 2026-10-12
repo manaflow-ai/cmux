@@ -204,6 +204,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.archive":
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
+        case "chat.markUnread":
+            self = .markUnread
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)

@@ -3,7 +3,8 @@ public import AppKit
 /// Add Files to Project's open panel (cx-ncc.67): a sheet on the pane's window for files, several
 /// at a time. None when the user cancels or the pane has no window. The model asks for it only
 /// after a real gesture.
-public enum AgentPaneFilePicker {
+public struct AgentPaneFilePicker {
+    public init() {}
     @MainActor public static func pick(window: NSWindow?) async -> [URL] {
         guard let window else { return [] }
         let panel = NSOpenPanel()

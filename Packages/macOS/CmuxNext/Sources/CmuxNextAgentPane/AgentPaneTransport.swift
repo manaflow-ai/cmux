@@ -122,6 +122,11 @@ import CmuxNextCompat
         throw AcpmuxStatusClient.Failure.closed
     }
 
+    /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
+    public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
+
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
 
@@ -137,6 +142,10 @@ import CmuxNextCompat
         tagSession = { [weak self] session, set, remove in
             guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
             try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
+        }
+        markUnread = { [weak self] session in
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            try await AcpmuxStatusClient.markUnread(socketPath: path, sessionId: session)
         }
         harnessEnablePrompt = { [weak self] folder, id in
             guard let path = self?.socketPath else { return nil }
