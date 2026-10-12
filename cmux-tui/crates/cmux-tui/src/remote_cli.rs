@@ -61,6 +61,7 @@ const MAX_RPC_STDIN_LINE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_CLIENT_RELAY_ROUTES: usize = 4;
 const DETACHED_TERM_GRACE: Duration = Duration::from_millis(500);
 const DETACHED_KILL_GRACE: Duration = Duration::from_secs(1);
+const FORWARD_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
@@ -1053,7 +1054,11 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             }
         }
         forward.shutdown().await;
-        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = tokio::time::timeout(
+            FORWARD_CLEANUP_TIMEOUT,
+            client.request(WorkspaceRequest::CloseRoute { route }),
+        )
+        .await;
         if let Some(error) = wait_error {
             return Err(error.into());
         }
