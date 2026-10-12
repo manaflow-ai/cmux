@@ -163,8 +163,16 @@ pub(super) fn status_line(
 /// socket is this state directory's own socket, so a link of another state
 /// folder that shares the registration folder is never reported or stopped.
 pub(super) fn live(state: &LinkState) -> Option<registration::Registration> {
-    registration::read_live(&state.registration_dir())
-        .filter(|live| live.socket == state.socket_path())
+    registration::read_live(&state.registration_dir()).filter(|live| owns(state, &live.socket))
+}
+
+/// Whether `socket` is `state`'s own link socket. The socket's name comes
+/// from the state directory (`link-<12 hex>.sock`); its folder comes from
+/// the runtime base (`TMPDIR`) of the process that started the link, which
+/// a CLI caller may not share with the app, so only the name is compared.
+/// `read_live` has already checked that the registered pid serves it.
+fn owns(state: &LinkState, socket: &Path) -> bool {
+    socket.file_name().is_some() && socket.file_name() == state.socket_path().file_name()
 }
 
 /// `<state>/link.ensure.lock`, held by `ensure` and `stop` while they run,
@@ -385,7 +393,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
 /// error (`stop_timeout`), never a stopped or a running link.
 fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
     let Some((live, mut stream)) = registration::connect_live(&state.registration_dir())
-        .filter(|(live, _)| live.socket == state.socket_path())
+        .filter(|(live, _)| owns(state, &live.socket))
     else {
         return Ok(false);
     };
