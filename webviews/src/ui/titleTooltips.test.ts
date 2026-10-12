@@ -4,7 +4,7 @@
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installTooltips, TOOLTIP_DELAY, tooltipWidth } from "./titleTooltips";
+import { installTooltips, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
   // Untruncated: the standard tooltip width.
@@ -26,10 +26,9 @@ afterEach(() => {
   dom = undefined;
 });
 
-/** Hovers `element` and waits out the first tooltip's delay. */
+/** Hovers `element`. */
 async function hover(element: Element) {
   element.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, TOOLTIP_DELAY + 50));
 }
 
 function page(body: string) {

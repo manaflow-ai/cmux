@@ -9,10 +9,12 @@ public extension WindowOverlayHost {
         nextID += 1
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
         let container = panel.container(for: options.effectiveLayer)
+        var scrim: OverlayScrimView?
         if options.dimsContent, !isAppHost {
-            let scrim = OverlayScrimView(frame: container.bounds)
-            scrim.identifier = NSUserInterfaceItemIdentifier("overlay-scrim-\(handle.id)")
-            container.addSubview(scrim)
+            let view = OverlayScrimView(frame: container.bounds)
+            view.identifier = NSUserInterfaceItemIdentifier("overlay-scrim-\(handle.id)")
+            container.addSubview(view)
+            scrim = view
         }
         content.removeFromSuperview()
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
@@ -39,11 +41,22 @@ public extension WindowOverlayHost {
         }
         syncPanel()
         layout(handle)
+        if options.kind == .dialog { fadeIn([scrim, content].compactMap(\.self)) }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
         updateEscapeMonitor()
         onBlockingChange?()
         return handle
+    }
+
+    /// A dialog and its scrim fade in (POLISH: no flash): shown in one frame, the whole window
+    /// darkened at once. The fade-in token, which Reduce Motion keeps.
+    private func fadeIn(_ views: [NSView]) {
+        for view in views {
+            view.wantsLayer = true
+            guard let layer = view.layer else { continue }
+            Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+        }
     }
 
     /// 0 for `.pane`, 1 for `.window`, 2 for `.modal` (bottom to top).

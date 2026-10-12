@@ -1,16 +1,11 @@
 // Tooltips for plain `title` attributes, for pages (the agent pane) whose controls carry them. A
 // native `title` tooltip in a web view waits about a second, draws where the pointer happens to
-// be, and can run past the view's edge. Each `title` shows here instead: after a short hover, at
-// once when the pointer moves on from a tooltip just shown (along a rail or a toolbar), and kept
-// inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
+// be, and can run past the view's edge. Each `title` shows here instead: at once, with no hover
+// delay (POLISH), and kept inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 
-/// Hover time before the first tooltip.
-export const TOOLTIP_DELAY = 500;
-/// How long after one hides the next shows without the delay.
-export const TOOLTIP_WARM = 400;
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
 const EDGE = 6;
 const GAP = 6;
@@ -78,8 +73,6 @@ export function installTooltips(doc: Document): () => void {
   tip.hidden = true;
   doc.body.append(tip);
   let target: Element | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let hiddenAt = Number.NEGATIVE_INFINITY;
 
   const textOf = (element: Element) => {
     // A title React set or changed since the last hover moves over first.
@@ -95,7 +88,6 @@ export function installTooltips(doc: Document): () => void {
     return element.getAttribute("data-tooltip") ?? "";
   };
   const show = () => {
-    timer = undefined;
     if (!target?.isConnected) return;
     const text = textOf(target);
     if (!text) return;
@@ -137,9 +129,6 @@ export function installTooltips(doc: Document): () => void {
     tip.style.top = `${position.top}px`;
   };
   const hide = () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
-    if (!tip.hidden) hiddenAt = performance.now();
     tip.hidden = true;
     target = undefined;
   };
@@ -147,22 +136,21 @@ export function installTooltips(doc: Document): () => void {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
     if (element === target) return;
-    const warm = !tip.hidden || performance.now() - hiddenAt < TOOLTIP_WARM;
     hide();
     if (!element || !textOf(element)) return;
     target = element;
-    if (warm) show();
-    else timer = setTimeout(show, TOOLTIP_DELAY);
+    show();
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
     if (target && !target.contains(event.relatedTarget as Node | null)) hide();
   };
-  // A click, a key, a scroll or the window losing focus puts the tooltip away, and the next
-  // one waits again.
+  // A click, a key, a scroll or the window losing focus puts the tooltip away; the element under
+  // the pointer shows it again only once the pointer leaves it and comes back.
   const dismiss = () => {
+    const under = target;
     hide();
-    hiddenAt = Number.NEGATIVE_INFINITY;
+    target = under;
   };
   doc.addEventListener("pointerover", onOver);
   doc.addEventListener("pointerout", onOut);
