@@ -5,6 +5,8 @@
 use super::*;
 
 /// `extra.program_status` of the harness's only terminal.
+/// Without `updated_at_ms`: the host and the daemon each stamp a report
+/// when their own parser reads it.
 fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
@@ -15,7 +17,11 @@ fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     );
     let terminals = terminals.as_array().unwrap();
     assert_eq!(terminals.len(), 1, "expected one terminal: {terminals:?}");
-    terminals[0]["extra"]["program_status"].clone()
+    let mut status = terminals[0]["extra"]["program_status"].clone();
+    for record in status.as_array_mut().into_iter().flatten() {
+        record.as_object_mut().unwrap().remove("updated_at_ms");
+    }
+    status
 }
 
 fn wait_for_program_status(harness: &RecoveryHarness, records: usize) -> serde_json::Value {
@@ -32,6 +38,7 @@ fn wait_for_program_status(harness: &RecoveryHarness, records: usize) -> serde_j
 
 #[test]
 fn program_status_records_survive_a_daemon_restart() {
+    let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("program-status-restart");
     let created = request(
         &harness.socket,
@@ -45,7 +52,7 @@ fn program_status_records_survive_a_daemon_restart() {
                     // "Plan" asks "Apply?"; a finished build sits beside it.
                     "printf '\\033]7501;state=blocked:kind=permission:id=plan:app=terraform:title=UGxhbg==:msg=QXBwbHk/\\033\\\\'; ",
                     "printf '\\033]7501;state=done:id=build:app=make\\033\\\\'; ",
-                    "printf 'reported\\r\\n'; sleep 30",
+                    "printf 'reported\\r\\n'; sleep 600",
                 ),
             ],
             "new_workspace": true,
