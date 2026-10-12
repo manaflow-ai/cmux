@@ -116,8 +116,13 @@ All notable changes to cmux are documented here.
 - `cmux vpn` rejects invalid or trailing arguments before connecting ([#19253](https://github.com/manaflow-ai/cmux/pull/19253), [#18704](https://github.com/manaflow-ai/cmux/pull/18704)) -- thanks @soyeladice-svg!
 - Remote tmux (beta): New Workspace can be routed to the host, origin colors and host suffixes are repaired, and detach no longer adds a second replacement terminal ([#19112](https://github.com/manaflow-ai/cmux/pull/19112), [#19096](https://github.com/manaflow-ai/cmux/pull/19096), [#19148](https://github.com/manaflow-ai/cmux/pull/19148))
 - Custom sidebars (beta) autofocus only after a user gesture, and `clipboard.write` is gesture-gated and write-only ([#19372](https://github.com/manaflow-ai/cmux/pull/19372), [#19333](https://github.com/manaflow-ai/cmux/pull/19333))
+- Terminals restored after hibernation reaps an agent no longer keep that agent's mouse reporting or alternate-screen modes ([#19806](https://github.com/manaflow-ai/cmux/pull/19806)) -- thanks @russell7 for the report!
+- Claude Code and Codex status shows in remote `ssh-tmux` mirrored workspaces ([#19104](https://github.com/manaflow-ai/cmux/pull/19104))
+- My Devices keeps your account's Macs listed when you switch teams ([#18518](https://github.com/manaflow-ai/cmux/pull/18518)) -- thanks @azooz2003-bit!
+- cmux Cloud (beta): Cloud machines connect on the first try, a dead tunnel is re-enrolled instead of timing out on every machine, New Machine is created faster, sign-out only affects its own build, and Cloud workspaces open in the window that owns them ([#19961](https://github.com/manaflow-ai/cmux/pull/19961), [#19977](https://github.com/manaflow-ai/cmux/pull/19977), [#18700](https://github.com/manaflow-ai/cmux/pull/18700), [#19970](https://github.com/manaflow-ai/cmux/pull/19970))
+- cmux Cloud (beta): CodeRouter account setup runs in a persisted local workspace ([#19954](https://github.com/manaflow-ai/cmux/pull/19954)) -- thanks @azooz2003-bit!
 
-### Thanks to 67 contributors!
+### Thanks to 68 contributors!
 
 - [@AdamDureyAtWillship](https://github.com/AdamDureyAtWillship)
 - [@aidaodedjl](https://github.com/aidaodedjl)
@@ -173,6 +178,7 @@ All notable changes to cmux are documented here.
 - [@pipitmart](https://github.com/pipitmart)
 - [@roypadina](https://github.com/roypadina)
 - [@RuslanTar](https://github.com/RuslanTar)
+- [@russell7](https://github.com/russell7)
 - [@s4ff0x](https://github.com/s4ff0x)
 - [@samuelpatro](https://github.com/samuelpatro)
 - [@scs0209](https://github.com/scs0209)
@@ -186,7 +192,6 @@ All notable changes to cmux are documented here.
 - [@xybio](https://github.com/xybio)
 - [@zelig81](https://github.com/zelig81)
 - [@zhechenzhu](https://github.com/zhechenzhu)
-
 
 ## [0.65.0] - 2026-10-05
 
