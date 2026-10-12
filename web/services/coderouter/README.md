@@ -109,8 +109,13 @@ Removing a pool grant takes effect on the next request, including existing
 sessions. An empty pool returns `no_usable_account` rather than routing through
 another team or a private account. Requests already sent upstream may finish.
 
-New account API writes explicitly set private visibility and their importing user.
-The database default remains shared for compatibility with older servers during
+New account API writes always record their importing user and an explicit
+visibility. A request may name `private` or `team`. When it names neither, as
+`cr add codex`, `cr add opencode` and the cmux sidebar do, an import into an
+organization is shared with the team, so every machine the organization runs
+can use it; an import into a personal scope is private (`defaultImportVisibility`).
+Accounts imported before this default changed keep their visibility until
+someone shares them. The database default remains shared for compatibility with older servers during
 a rolling deployment; old writes must not create ownerless private accounts. Human route tokens can
 use that user's private accounts and the selected team's shared accounts. A
 `crk_` API key is a team credential: in an organization it uses only the team's
@@ -119,9 +124,9 @@ in a personal scope keeps its owner's private accounts. Each key has its own
 sticky-session namespace. An organization VM never inherits its creator's
 private access.
 Private accounts in a personal scope (`team_id = created_by`) are available to
-that user's personal VMs. Importing privately into an organization, even a
-one-person organization, does not grant its VMs access until the account is
-explicitly shared.
+that user's personal VMs. An account imported into an organization with an explicit
+`private` visibility, even in a one-person organization, does not grant its VMs
+access until the account is shared.
 
 The default pool contains that team's shared accounts. Its membership follows
 explicit sharing changes. Custom pools have the same composite foreign-key

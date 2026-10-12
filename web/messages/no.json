@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Språk",
     "assets": "Ressurser",
+    "art": "Kunst",
     "openSource": "Åpen kildekode",
     "guides": "Veiledninger",
     "compare": "Sammenlign"
@@ -1132,7 +1133,7 @@
       "transferUnavailableError": "Overføringer er midlertidig utilgjengelige, eller kontoen oppdateres. Prøv igjen om et øyeblikk.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gjør privat",
-      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "privateImportHint": "I en organisasjon deles nye kontoer med teamet og teamets Cloud-VM-er. I det personlige teamet ditt forblir de private. Bruk Gjør privat eller Del med teamet for å endre en konto.",
       "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
       "cancelAction": "Avbryt",
       "apiKeysTitle": "API-nøkler",
@@ -3209,8 +3210,8 @@
       "cloudLink": "Slik konfigureres agenter på Cloud-maskiner",
       "teamsTitle": "Team og deling",
       "teamsScope": "Kontoer tilhører teamet du er logget inn på. cr org list viser teamene dine, og cr org switch bytter teamet som cr bruker. cmux coderouter-kommandoer tar --team '<id>'.",
-      "teamsPrivate": "En ny konto er privat for personen som la den til. I dashbordet gjør \"Del med teamet\" den tilgjengelig for alle medlemmer og for teamets Cloud-maskiner, og \"Gjør privat\" reverserer det.",
-      "teamsPersonal": "I det personlige teamet ditt betjener de private kontoene dine også dine egne Cloud-maskiner. En organisasjons Cloud-maskiner bruker bare delte kontoer, så del en konto før du forventer at en maskin bruker den.",
+      "teamsPrivate": "En konto som legges til i en organisasjon, deles med teamet, slik at alle medlemmer og teamets Cloud-maskiner kan bruke den. I dashbordet begrenser Gjør privat den til personen som la den til, og Del med teamet opphever det.",
+      "teamsPersonal": "I det personlige teamet ditt er nye kontoer private, og de private kontoene dine betjener også dine egne Cloud-maskiner. En organisasjons Cloud-maskiner bruker bare delte kontoer, så en privat konto må deles før en maskin kan bruke den.",
       "teamsManage": "Alle teammedlemmer kan legge til, gi nytt navn til, deaktivere, overføre og fjerne teamets delte kontoer. cr transfer flytter en konto til et annet team etter at du bekrefter.",
       "usageTitle": "Forbruk og grenser",
       "usageLimits": "Hver leverandør måler forbruket på kontoen som betjente en forespørsel, etter den kontoens egen plan og grenser. CodeRouter fordeler arbeidet på kontoer, men hever ikke grensen for noen enkelt konto.",
@@ -3329,6 +3330,23 @@
   "wallOfLove": {
     "title": "Kjærlighetsveggen",
     "description": "Hva folk sier om cmux."
+  },
+  "art": {
+    "metaTitle": "Kunst til cmux-bakgrunner",
+    "metaDescription": "Bla gjennom de offentlig eide maleriene cmux tilbyr som vindusbakgrunner: Van Gogh, Friedrich, Goya, Doré og flere, med kilder og lisenser.",
+    "title": "Kunst",
+    "description": "Berømte malerier og trykk i det fri som du kan legge bak terminalene dine. Alle kunstnerne døde for over 70 år siden, og hvert verk ble utgitt før 1931.",
+    "howToUse": "Kommer snart til cmux: bruk et av disse verkene som bakgrunn bak terminalene dine.",
+    "loading": "Laster inn samlingen…",
+    "unavailable": "Samlingen kunne ikke lastes inn. Prøv igjen om noen minutter.",
+    "collectionsLabel": "Samlinger",
+    "source": "Fritt tilgjengelig · Kilde",
+    "collections": {
+      "darkArt": "Mørk kunst",
+      "museumIcons": "Museumsikoner",
+      "calm": "Rolig",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Nok en dag, nok et libghostty-basert prosjekt, denne gangen en macOS-terminal med vertikale faner, bedre organisering/varsler, innebygd/skriptbar nettleser spesifikt rettet mot folk som bruker mange terminalbaserte agent-arbeidsflyter.",
