@@ -46,3 +46,14 @@ owner-handoff (written up for the owning agent).
 | O6 | Diff | `git.diff` reports `truncated` (untracked file cap, size cap) but the phone ignores it, so a cut diff looks complete. Proposal: return `(text, truncated)` from `gitDiffText` and show a note row. | S3 | diff (unowned) |
 | O7 | QA infra | The build Mac ran out of memory (swap 22.6/23.5 GB, load ~800, about 32 booted simulators); `simctl install/launch/list` hung for every agent. Items 12-18 are compile-checked by review only, and `ComposerQuotingTests` / `FilePreviewTextSniffTests` have not run yet: run `remote-build.sh test` once the Mac recovers. | - | QA |
 | O8 | Push / privacy | Sign out never unregisters the APNs token (the Worker has `/v1/push/register` only) and doesn't revoke the session server-side, so a signed-out phone keeps getting alerts with terminal text for that account. Proposal: `DELETE /v1/push/register` (or `/v1/auth/logout` that drops the device's push rows and the session) called from `AppModel.signOut`. | S2 | push |
+
+## Improvement ideas (vs Claude, ChatGPT, Grok)
+
+| # | Idea | Why | Cost |
+| --- | --- | --- | --- |
+| I1 | Attachment chips show their own upload ring and a retry badge on failure (ChatGPT, Claude). Today one progress bar sits in the text box. | Several attachments: which one is slow or failed. | S |
+| I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. | Managing many agents from the phone. | S |
+| I3 | Feed post "..." menu with a timestamp header, Copy, Open terminal, Mark unread (ChatGPT answer menu). | Parity with the answer menus in REFERENCES.md. | S |
+| I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). | A cut diff currently looks complete. | S |
+| I5 | Composer: send without Return (long-press the send arrow), for building a command over several sends. | Terminal users stage commands; chat apps don't need it. | S |
+| I6 | Reconnect: show the last known screen of each terminal while reconnecting, read-only, with the status capsule (cached tree already shows). | ChatGPT/Claude keep the transcript visible offline. | M |
