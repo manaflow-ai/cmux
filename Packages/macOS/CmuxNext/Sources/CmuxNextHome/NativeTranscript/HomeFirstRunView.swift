@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).
@@ -80,6 +81,7 @@ final class HomeFirstRunView: NSView {
             // The status word is the row's trailing text and VoiceOver's value, not a shortcut.
             let word = HomeStrings.firstRunAgentStatus(glance.status)
             row.shortcut = word
+            row.activity.configure(glance.status.indicator)
             row.setAccessibilityHelp(nil)
             row.setAccessibilityValue(word)
             row.applyScale(scale)
@@ -203,6 +205,8 @@ final class HomeFirstRunRow: NSView {
     /// The row's cmux icon.
     let icon: IconName
     let shortcutLabel = NSTextField(labelWithString: "")
+    /// An agent row's state in the shared indicator, before its status word.
+    let activity = StatusIndicatorView()
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
     /// The row's width (the panel's column).
@@ -240,7 +244,7 @@ final class HomeFirstRunRow: NSView {
         shortcutLabel.font = .systemFont(ofSize: 12)
         shortcutLabel.alignment = .right
         shortcutLabel.isHidden = true
-        for view in [glyph, label, shortcutLabel] { addSubview(view) }
+        for view in [glyph, label, activity, shortcutLabel] { addSubview(view) }
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(title)
@@ -289,10 +293,14 @@ final class HomeFirstRunRow: NSView {
         let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)
         shortcutLabel.frame = CGRect(x: bounds.width - inset - shortcutWidth, y: (bounds.height - shortcutHeight) / 2,
                                      width: shortcutWidth, height: shortcutHeight)
+        let indicator: CGFloat = 13 * scale
+        activity.frame = CGRect(x: shortcutLabel.frame.minX - indicator - 4 * scale, y: (bounds.height - indicator) / 2,
+                                width: indicator, height: indicator)
+        let trailing = activity.showsGlyph ? activity.frame.minX : shortcutLabel.frame.minX
         let textX = glyph.frame.maxX + 10 * scale
         let textHeight = ceil(label.intrinsicContentSize.height)
         label.frame = CGRect(x: textX, y: (bounds.height - textHeight) / 2,
-                             width: max(0, shortcutLabel.frame.minX - 8 * scale - textX), height: textHeight)
+                             width: max(0, trailing - 8 * scale - textX), height: textHeight)
     }
 
     override func updateTrackingAreas() {

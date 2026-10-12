@@ -1,4 +1,5 @@
 public import CmuxNextIcons
+import CmuxNextDesign
 
 /// One of the user's agents as the empty Chief conversation lists it
 /// (`HomeFirstRunView`): its tab, the name its tab shows, and one word for
@@ -39,5 +40,18 @@ public nonisolated struct HomeAgentGlance: Sendable, Equatable {
     public static func shortlist(_ agents: [HomeAgentGlance], limit: Int = 5) -> [HomeAgentGlance] {
         Array(agents.enumerated().sorted { ($0.element.status, $0.offset) < ($1.element.status, $1.offset) }
             .prefix(limit).map(\.element))
+    }
+}
+
+extension HomeAgentGlance.Status {
+    /// The status in the shared indicator, as the agent's sidebar row draws it.
+    var indicator: StatusIndicatorState {
+        switch self {
+        case .needsYou: .waiting(kind: nil)
+        case .failed: .error
+        case .done: .success
+        case .idle: .idle
+        case .working: .working(progress: nil)
+        }
     }
 }

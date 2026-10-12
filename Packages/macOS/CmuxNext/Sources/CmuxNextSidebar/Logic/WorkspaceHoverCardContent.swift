@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextResources
 import Foundation
@@ -18,6 +19,9 @@ struct WorkspaceHoverCardContent: Equatable {
     /// How long ago the workspace was last active ("4w"); nil without activity.
     var age: String?
     var facts: [Fact]
+    /// The workspace's merged status and its style hint (the row's indicator).
+    var activity: StatusIndicatorState = .idle
+    var activityStyle: StatusIndicatorStyle?
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -33,7 +37,8 @@ struct WorkspaceHoverCardContent: Equatable {
         if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
-            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts)
+            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
+            activity: workspace.activity, activityStyle: workspace.activityStyle)
     }
 
     /// The one resource line, or nil while the workspace is quiet.

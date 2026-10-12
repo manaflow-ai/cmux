@@ -24,6 +24,10 @@ final class TabHoverCardView: NSView {
     private var detailTop: NSLayoutConstraint?
     private var detailCollapsed: NSLayoutConstraint?
     private let thumbnail = NSView()
+    /// The tab's status in the shared indicator, trailing the title's first line.
+    private let activity = StatusIndicatorView()
+    private var titleTrailing: NSLayoutConstraint?
+    private static var indicatorSize: CGFloat { 13 }
     /// CPU and memory of the hovered tab (tab cards only).
     let resources = ResourceSummaryView()
     private var resourcesCollapsed: NSLayoutConstraint?
@@ -53,7 +57,7 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
 
-        for view in [titleLabel, subtitleLabel, detailLabel, resources, thumbnail] {
+        for view in [titleLabel, subtitleLabel, detailLabel, resources, thumbnail, activity] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -62,14 +66,17 @@ final class TabHoverCardView: NSView {
             content.widthAnchor.constraint(equalToConstant: Self.cardWidth),
             titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            subtitleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            detailLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
+            activity.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
+            activity.centerYAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor, constant: -Self.indicatorSize / 3),
+            activity.widthAnchor.constraint(equalToConstant: Self.indicatorSize),
+            activity.heightAnchor.constraint(equalToConstant: Self.indicatorSize),
             resources.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: Metrics.space1),
             resources.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            resources.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            resources.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
@@ -79,7 +86,9 @@ final class TabHoverCardView: NSView {
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
         let detail = detailLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor)
         let subtitle = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1)
-        NSLayoutConstraint.activate([top, height, detail, subtitle])
+        let trailing = titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p)
+        NSLayoutConstraint.activate([top, height, detail, subtitle, trailing])
+        titleTrailing = trailing
         subtitleTop = subtitle
         // A hidden label keeps its line in Auto Layout; an empty subtitle gives it up.
         subtitleCollapsed = subtitleLabel.heightAnchor.constraint(equalToConstant: 0)
@@ -112,6 +121,7 @@ final class TabHoverCardView: NSView {
                 .compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
             setDetail(item.statusDetail)
+            setActivity(item.indicator, style: item.busyStyle)
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
             setResourcesVisible(true)
         case .group(let group, let titles):
@@ -124,9 +134,18 @@ final class TabHoverCardView: NSView {
                 lines: lines.count
             )
             setDetail(nil)
+            setActivity(.idle, style: nil)
             setResourcesVisible(false)
             setThumbnailVisible(false)
         }
+    }
+
+    /// Shows the tab's state trailing the title, which gives up the indicator's width only while it draws.
+    private func setActivity(_ state: StatusIndicatorState, style: StatusIndicatorStyle?) {
+        activity.configure(state, style: style)
+        let inset = Self.padding + (activity.isHidden ? 0 : Self.indicatorSize + Metrics.space2)
+        titleTrailing?.constant = -inset
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - Self.padding - inset
     }
 
     private func configure(title: String, subtitle: String?, lines: Int) {
