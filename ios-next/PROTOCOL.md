@@ -164,8 +164,9 @@ LayoutTab  {id, kind:"terminal"|"browser"|"agent"|"conversation"|"other",
   `browser.mac.v1` on and a target the Mac app maps to that tab (`refId` = the
   `browser.*` tabId); otherwise `reason` says why (setting off, build without
   the setting or the mapping, ...).
-- `visibleOnMac` (browser tabs): the Mac shows this tab right now (selected in its
-  pane, on the active screen of the active workspace). A hidden tab sends no
+- `visibleOnMac` (browser tabs): the Mac shows this tab right now. For a mapped Mac
+  tab this is the page's own visibility in the Mac window; otherwise the tab
+  selected in its pane, on the active screen of the active workspace. A hidden tab sends no
   frames: offer "Show on Mac", which calls `layout.focusTab {paneId, tabId}`.
 - `active` (pane): the Mac's focused pane, only in the active workspace.
 - `layout.get {}` -> `{layout}`
@@ -234,6 +235,8 @@ With `browser.mac.v1` (host bridged to the cmux-next app):
   sends it (the opt-in setting "Bring tabs forward on Mac automatically"); never
   by default.
 - Switching state drops the current tabs (`browser.closed`) and lists the new ones.
+- event `browser.macVisibility {tabId, visible}`: a Mac tab was shown or hidden on the
+  Mac (also reflected in the next `layout.changed`).
 - Mac panes and targets are paired only through the mapping the Mac app publishes
   (`devtools.json` `targets:[{tabId, targetId}]` or a target id in the daemon's tab
   state); never by URL or title.

@@ -300,6 +300,9 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
           cdp.send("Runtime.enable", {}, sessionId).catch(() => {}),
           cdp.send("Runtime.runIfWaitingForDebugger", {}, sessionId).catch(() => {}),
         ]);
+        // The Mac's own tabs: track whether the Mac shows each one (a
+        // hidden page sends no frames), for layout visibleOnMac.
+        if (this.mirroring) await this.watchMacVisibility(cdp, t, sessionId);
         this.scheduleRefresh(t);
         return sessionId;
       })().finally(() => {
@@ -373,7 +376,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
         return;
       case "Runtime.bindingCalled":
         if (params.name === VISIBILITY_BINDING && typeof params.payload === "string") {
-          t.hidden = params.payload === "hidden";
+          this.setHidden(t, params.payload === "hidden");
           return;
         }
         if (params.name === SCROLL_BINDING && typeof params.payload === "string") {
@@ -636,6 +639,33 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
   }
 
   /** Reports document.visibilityState changes (cached for input; see ensureVisible). */
+  /**
+   * Whether the Mac shows this tab right now (document.visibilityState),
+   * known for the Mac's own tabs while mirroring; undefined otherwise.
+   */
+  macVisible(tabId: string): boolean | undefined {
+    if (!this.mirroring) return undefined;
+    const t = this.tabs.get(tabId);
+    return t?.hidden === undefined ? undefined : !t.hidden;
+  }
+
+  private async watchMacVisibility(cdp: CdpConnection, t: TabState, sid: string): Promise<void> {
+    await cdp.send("Runtime.addBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
+    await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: VISIBILITY_SCRIPT }, sid).catch(() => {});
+    const r = await cdp
+      .send<{ result?: { value?: string } }>("Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true }, sid, 3_000)
+      .catch(() => null);
+    const v = r?.result?.value;
+    if (v === "visible" || v === "hidden") this.setHidden(t, v === "hidden");
+    await cdp.send("Runtime.evaluate", { expression: VISIBILITY_SCRIPT }, sid).catch(() => {});
+  }
+
+  private setHidden(t: TabState, hidden: boolean): void {
+    if (t.hidden === hidden) return;
+    t.hidden = hidden;
+    if (this.mirroring) this.emit("event", "browser.macVisibility", { tabId: t.tab.id, visible: !hidden });
+  }
+
   private async installVisibilityReporter(cdp: CdpConnection, sid: string, cast: Cast): Promise<void> {
     await cdp.send("Runtime.addBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
     const r = await cdp
@@ -678,10 +708,11 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Page.stopScreencast", {}, sid).catch(() => {});
     if (cast?.scrollScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.scrollScriptId }, sid).catch(() => {});
     if (cast?.meta) await cdp.send("Runtime.removeBinding", { name: SCROLL_BINDING }, sid).catch(() => {});
+    // The Mac's tabs keep their visibility watch (macVisible) for the layout.
+    if (this.mirroring) return; // nothing was overridden on the Mac's tab
     if (cast?.visibilityScriptId) await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: cast.visibilityScriptId }, sid).catch(() => {});
     await cdp.send("Runtime.removeBinding", { name: VISIBILITY_BINDING }, sid).catch(() => {});
     t.hidden = undefined;
-    if (this.mirroring) return; // nothing was overridden on the Mac's tab
     // New navigations on the Mac use its desktop user agent again. The loaded
     // document keeps the mode it was loaded with (docMode is not reset), so
     // the next attach does not reload it needlessly.

@@ -139,6 +139,13 @@ describe("Mac browser setting file", () => {
       { id: "t5", focused: true, kind: "browser", title: "Example", visibleOnMac: true, url: "https://example.com/", refId: "CEF1", streamable: true },
       { id: "t6", focused: false, kind: "browser", title: "Other", visibleOnMac: false, url: "https://other/", refId: "CEF2", streamable: true },
     ]);
+    // A mapped tab's page visibility wins over the daemon's selected tab
+    // (the app's window can show another tab than the daemon reports).
+    const byPage = mapDaemonLayout(tree as any, (t) => (map[t.surface] ? { refId: map[t.surface]!, visible: t.surface === 6 } : { reason: "unmapped" }));
+    expect(byPage.workspaces[0]!.panes[0]!.tabs.map((t) => [t.id, t.focused, t.visibleOnMac])).toEqual([
+      ["t5", true, false],
+      ["t6", false, true],
+    ]);
     // Selected in its pane but its workspace is not the one shown on the Mac.
     expect(layout.workspaces[1]!.panes[0]!.tabs[0]).toMatchObject({ focused: true, visibleOnMac: false });
     expect(mapDaemonLayout(tree as any).workspaces[0]!.panes[0]!.tabs[0]).toMatchObject({ streamable: false, reason: expect.any(String) });

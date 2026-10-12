@@ -273,8 +273,8 @@ interface MacTab {
  * state). `openTargets` is the target list of the connected CEF endpoint
  * (null while not connected).
  */
-export function macBrowserResolver(mac: MacBrowser, openTargets: () => string[] | null) {
-  return (tab: MacTab): { refId: string } | { reason: string } => {
+export function macBrowserResolver(mac: MacBrowser, openTargets: () => string[] | null, visibleOf: (targetId: string) => boolean | undefined = () => undefined) {
+  return (tab: MacTab): { refId: string; visible?: boolean } | { reason: string } => {
     const st = mac.current;
     if (st.state === "off") return { reason: `Turn on 'Allow cmux on iPhone to view browser tabs' in cmux Settings on ${st.hostName}${st.restartRequired ? ", then restart cmux" : ""}` };
     if (st.state === "unsupported") return { reason: "This cmux build cannot share browser tabs with the phone" };
@@ -283,6 +283,7 @@ export function macBrowserResolver(mac: MacBrowser, openTargets: () => string[] 
     if (!target) return { reason: mac.publishesTargets ? "cmux has not linked this tab to a browser target yet" : "This cmux build does not say which browser target each tab is" };
     const open = openTargets();
     if (open && !open.includes(target)) return { reason: "This tab is not open in the Mac's browser" };
-    return { refId: target };
+    const visible = visibleOf(target);
+    return visible === undefined ? { refId: target } : { refId: target, visible };
   };
 }

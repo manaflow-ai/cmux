@@ -74,7 +74,7 @@ function parseNum(prefix: string, id: string): number {
 }
 
 /** How a Mac browser tab maps to browser.* (refId) or why it cannot (reason). */
-export type BrowserRef = { refId: string } | { reason: string };
+export type BrowserRef = { refId: string; visible?: boolean } | { reason: string };
 export type BrowserResolver = (tab: DTab) => BrowserRef;
 
 export function layoutTab(t: DTab, focused: boolean, visibleOnMac = focused, resolveBrowser?: BrowserResolver): LayoutTab {
@@ -95,7 +95,10 @@ export function layoutTab(t: DTab, focused: boolean, visibleOnMac = focused, res
       // (layout.focusTab or browser.attach bringForward:true).
       const ref: BrowserRef = resolveBrowser ? resolveBrowser(t) : { reason: "Browser tabs on the Mac cannot be viewed from the phone" };
       const common = { ...base, kind: "browser" as const, title: title || t.url || "Browser", visibleOnMac, ...(t.url ? { url: t.url } : {}) };
-      return "refId" in ref ? { ...common, refId: ref.refId, streamable: true } : { ...common, streamable: false, reason: ref.reason };
+      // For a mapped tab the page's own visibility (what the Mac window really
+      // shows) wins over the daemon's selected tab, which can lag the app.
+      if ("refId" in ref) return { ...common, refId: ref.refId, streamable: true, ...(ref.visible !== undefined ? { visibleOnMac: ref.visible } : {}) };
+      return { ...common, streamable: false, reason: ref.reason };
     }
     case "conversation": {
       const a = t.conversation?.agent_session;

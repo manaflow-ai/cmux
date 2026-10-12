@@ -29,6 +29,8 @@ async function main(): Promise<void> {
       "skip-echo": { type: "boolean", default: false },
       layout: { type: "boolean", default: false },
       focus: { type: "string" },
+      "browser-attach": { type: "string" },
+      "bring-forward": { type: "boolean", default: false },
       "agent-prompt": { type: "string" },
       "agent-mode": { type: "string" },
       permission: { type: "string", default: "allow" },
@@ -142,6 +144,34 @@ async function main(): Promise<void> {
       const after = await Promise.race([changed, new Promise((r) => setTimeout(() => r(null), 3000))]);
       log(`after focus: ${after ? JSON.stringify((after as any).workspaces.flatMap((w: any) => w.panes.map((p: any) => ({ pane: p.id, active: p.active, focusedTabId: p.focusedTabId })))) : "no layout.changed"}`);
     }
+  }
+  if (values["browser-attach"]) {
+    // Attach a browser tab, count frames, scroll it, count again.
+    try {
+      const status = await client.request("browser.macStatus").catch(() => null);
+      log(`macStatus: ${JSON.stringify(status)}`);
+    } catch {}
+    const { tabs } = await client.request("browser.list", {}, 60_000);
+    log(`browser tabs: ${JSON.stringify(tabs.map((t: any) => ({ id: t.id, title: t.title, url: t.url })))}`);
+    const tabId = values["browser-attach"];
+    const { streamId } = await client.request("browser.attach", { tabId, width: 390, height: 844, scale: 2, mobile: true, ...(values["bring-forward"] ? { bringForward: true } : {}) }, 30_000);
+    let frames = 0;
+    let lastSeq = 0;
+    let firstSize = "";
+    client.onStream(streamId, (p) => {
+      frames++;
+      const v = new DataView(p.buffer, p.byteOffset, p.byteLength);
+      lastSeq = v.getUint32(0, false);
+      if (!firstSize) firstSize = `css ${v.getUint16(4, false)}x${v.getUint16(6, false)} px ${v.getUint16(8, false)}x${v.getUint16(10, false)}`;
+      void client.request("browser.ack", { streamId, seq: lastSeq }).catch(() => {});
+    });
+    await new Promise((r) => setTimeout(r, 3000));
+    const before = frames;
+    await client.request("browser.scroll", { tabId, x: 100, y: 300, dx: 0, dy: 600 }).catch((err) => log(`scroll failed: ${(err as Error).message}`));
+    await new Promise((r) => setTimeout(r, 3000));
+    report.browserAttach = { tabId, framesBeforeInput: before, framesAfterScroll: frames - before, firstSize };
+    log(`browser ${tabId}: ${before} frames in 3 s, ${frames - before} more after a scroll; first frame ${firstSize || "none"}`);
+    await client.request("browser.detach", { streamId });
   }
   const { sessions } = await client.request("agent.list");
   report.sessions = sessions;

@@ -243,7 +243,12 @@ async function run(opts: RunOptions): Promise<void> {
         : {}),
     },
   });
-  if (mac) browserResolver = macBrowserResolver(mac, () => (core.browser.isMirroring ? core.browser.currentTabs().map((t) => t.id) : null));
+  if (mac)
+    browserResolver = macBrowserResolver(
+      mac,
+      () => (core.browser.isMirroring ? core.browser.currentTabs().map((t) => t.id) : null),
+      (id) => core.browser.macVisible(id),
+    );
   if (mac?.current.state === "on") void core.browser.connect().catch(() => {});
   const api = new ApiClient(apiBase, cfg.hostToken);
   const agent: HostAgent = new HostAgent({
