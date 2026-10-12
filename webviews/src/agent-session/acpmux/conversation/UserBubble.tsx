@@ -1,17 +1,19 @@
 // A prompt's bubble, with Copy and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
-// before (`editableTurns`), so it is never dead.
+// before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
+// it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
 import { useContext, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "../model";
 import { useT } from "../i18n";
 import { copyText } from "./clipboard";
-import { Copy, Pencil } from "./icons";
+import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
-  const { edit } = useContext(TurnActionsContext);
+  const { edit, branches } = useContext(TurnActionsContext);
+  const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -35,7 +37,37 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
     <>
       <div className="cv-user__bubble selectable">{text}</div>
       {text && !row.failed && !row.queued && (
-        <div className="cv-user__actions">
+        <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
+          {branch && branches && (
+            <span className="cv-user__versions">
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact"
+                aria-label={t("message.previousVersion")}
+                title={t("message.previousVersion")}
+                disabled={branch.index === 0}
+                onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
+              >
+                <ChevronLeft size={12} />
+              </button>
+              <span
+                className="cv-user__version-count"
+                aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
+              >
+                {branch.index + 1}/{branch.sessions.length}
+              </span>
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact"
+                aria-label={t("message.nextVersion")}
+                title={t("message.nextVersion")}
+                disabled={branch.index === branch.sessions.length - 1}
+                onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
+              >
+                <ChevronRight size={12} />
+              </button>
+            </span>
+          )}
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"

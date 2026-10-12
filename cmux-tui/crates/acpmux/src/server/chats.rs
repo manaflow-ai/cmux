@@ -258,7 +258,13 @@ fn transcript_turns(
     let family = match entry.harness {
         AdapterKind::ClaudeCode => "claude",
         AdapterKind::Codex => "codex",
-        kind => return cmux_chat_index::transcript::read_turns(kind, &entry.source_path),
+        kind => {
+            return cmux_chat_index::transcript::read_turns(
+                kind,
+                &entry.source_path,
+                &entry.session_id,
+            );
+        }
     };
     // adopt's reader answers an unreadable file with no turns.
     std::fs::File::open(&entry.source_path)

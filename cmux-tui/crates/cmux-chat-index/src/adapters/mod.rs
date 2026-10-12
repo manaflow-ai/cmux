@@ -16,6 +16,7 @@ mod grok;
 mod grok_cli;
 mod kimi;
 mod opencode;
+pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
 mod qwen;

@@ -9,13 +9,19 @@ type Props = {
   disabled?: boolean;
   /** The target in the stage's bottom-right corner, as the agent pane's composer is. */
   edge?: boolean;
+  /** A link-length first row, as the agent pane's Open Link item has. */
+  longLabel?: boolean;
 };
 
-function ContextMenuGallery({ selection = "native", disabled = false, edge = false }: Props) {
+function ContextMenuGallery({ selection = "native", disabled = false, edge = false, longLabel = false }: Props) {
   const [receipt, setReceipt] = useState("Ready");
   const items = useMemo<ContextMenuItem[]>(
     () => [
-      { id: "open", label: "Open", onSelect: () => setReceipt("Opened") },
+      {
+        id: "open",
+        label: longLabel ? "Open https://example.com/docs/guides/a-very-long-path/that-would-widen-the-menu" : "Open",
+        onSelect: () => setReceipt("Opened"),
+      },
       {
         id: "rename",
         label: "Rename",
@@ -30,7 +36,7 @@ function ContextMenuGallery({ selection = "native", disabled = false, edge = fal
         onSelect: () => setReceipt("Deleted"),
       },
     ],
-    [disabled],
+    [disabled, longLabel],
   );
   return (
     <div className={`context-menu-gallery-stage${edge ? " context-menu-gallery-stage--edge" : ""}`}>
@@ -62,6 +68,17 @@ const keyboard: Play = async (ctx) => {
     () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Renamed",
   );
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
+};
+
+const pointerFocus: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.click({ role: "menuitem", name: "Open" });
+  await ctx.waitFor(
+    () => ctx.document.querySelector('[data-testid="context-menu-gallery-receipt"]')?.textContent === "Opened",
+  );
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
 };
 
 const escapeFocus: Play = async (ctx) => {
@@ -90,6 +107,17 @@ const edgeOpen: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   if (menu.bottom > view.innerHeight || menu.right > view.innerWidth || menu.top < 0 || menu.left < 0)
     throw new Error(`the menu leaves the window: ${JSON.stringify(menu)} in ${view.innerWidth}x${view.innerHeight}`);
+};
+
+/** A link-length label ends in an ellipsis; the menu stays at most 360 px wide. */
+const longLabelOpen: Play = async (ctx) => {
+  await open(ctx);
+  const menu = ctx.find({ role: "menu" });
+  const width = menu.getBoundingClientRect().width;
+  if (width > 360) throw new Error(`the menu grew to ${width}px for one long label`);
+  if (menu.scrollWidth > menu.clientWidth) throw new Error("the menu scrolls sideways instead of truncating");
+  const label = menu.querySelector<HTMLElement>(".ui-menu-label");
+  if (!label || label.scrollWidth <= label.clientWidth) throw new Error("the long label is not truncated");
 };
 
 const disabledItem: Play = async (ctx) => {
@@ -134,6 +162,7 @@ export default componentEntry<Props>({
     closed: { props: {} },
     open: { props: {}, play: open },
     keyboard: { props: {}, play: keyboard },
+    "pointer-focus": { props: {}, play: pointerFocus },
     "escape-focus": { props: {}, play: escapeFocus },
     "selection-menu": { props: { selection: "menu" }, play: selectionMenu },
     "selection-native": {
@@ -142,5 +171,6 @@ export default componentEntry<Props>({
     },
     disabled: { props: { disabled: true }, play: disabledItem },
     edge: { props: { edge: true }, play: edgeOpen },
+    "long-label": { props: { longLabel: true }, play: longLabelOpen },
   },
 });

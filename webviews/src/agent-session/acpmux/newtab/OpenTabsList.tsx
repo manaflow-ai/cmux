@@ -2,6 +2,7 @@
 // a button that moves the tab into the page's pane (the host closes the page once it has).
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { OmnibarContext } from "../omnibar";
+import { RowGlyph } from "./RowGlyph";
 import { useNt } from "./strings";
 
 export function OpenTabsList({ tabs, onMoveHere }: { tabs: OmnibarContext["tabs"]; onMoveHere(id: string): void }) {
@@ -21,7 +22,7 @@ export function OpenTabsList({ tabs, onMoveHere }: { tabs: OmnibarContext["tabs"
             {tab.icon ? (
               <img className="nt-row-glyph nt-row-favicon" src={tab.icon} alt="" draggable={false} />
             ) : (
-              <span className="nt-row-glyph" data-kind={tab.kind} />
+              <RowGlyph kind={tab.kind} />
             )}
             <span className="nt-row-title">{tab.title}</span>
             {tab.detail && <span className="nt-row-detail">{tab.detail}</span>}

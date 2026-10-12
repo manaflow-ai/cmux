@@ -2744,7 +2744,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Duplicate Workspace without Browser Tabs",
+      "title" : "Duplicate Workspace Without Browser Tabs",
       "title_key" : "action.workspace.duplicateTerminalsOnly",
       "title_table" : "WorkspaceActions"
     },
@@ -4893,7 +4893,8 @@
       "cli_name" : "workspace set-theme",
       "context_menu" : "offered",
       "context_menus" : [
-        "workspaceRow"
+        "workspaceRow",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -7858,7 +7859,13 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "palette.toggleTabPin",
       "mcp" : "offered",
       "palette" : "offered",
@@ -11395,9 +11402,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "terminal find",
-      "context_menu" : "liveInput",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -17680,9 +17687,161 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Create checkpoint",
+      "title" : "Create Checkpoint",
       "title_key" : "action.agentPane.createCheckpoint",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-search-files",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.searchFiles",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Search Files…",
+      "title_key" : "action.agentPane.searchFiles",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-copy-last-code-block",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : ";",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.copyLastCodeBlock",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Last Code Block",
+      "title_key" : "action.agentPane.copyLastCodeBlock",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-archive-chat",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "a",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "agentPane.archiveChat",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Chat",
+      "title_key" : "action.agentPane.archiveChat",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action agent-pane-git-commit",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.git.commit",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Commit Changes…",
+      "title_key" : "action.agentPane.git.commit",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action agent-pane-git-push",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.git.push",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Push Branch",
+      "title_key" : "action.agentPane.git.push",
+      "title_table" : "Localizable"
     },
     {
       "cli" : "guiOnly",
@@ -17806,7 +17965,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Allow once",
+      "title" : "Allow Once",
       "title_key" : "action.agentPane.permission.allowOnce",
       "title_table" : "ActionCatalog"
     },
@@ -17839,7 +17998,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Allow for this chat",
+      "title" : "Allow for This Chat",
       "title_key" : "action.agentPane.permission.allowChat",
       "title_table" : "ActionCatalog"
     },
@@ -17905,7 +18064,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Expand permission details",
+      "title" : "Expand Permission Details",
       "title_key" : "action.agentPane.permission.expand",
       "title_table" : "ActionCatalog"
     },
@@ -17932,7 +18091,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Check and retry permission",
+      "title" : "Check and Retry Permission",
       "title_key" : "action.agentPane.permission.retry",
       "title_table" : "ActionCatalog"
     },
@@ -17959,7 +18118,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Revoke chat permission",
+      "title" : "Revoke Chat Permission",
       "title_key" : "action.agentPane.permission.revoke",
       "title_table" : "ActionCatalog"
     },
@@ -17986,7 +18145,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Refresh permissions",
+      "title" : "Refresh Permissions",
       "title_key" : "action.agentPane.permission.refresh",
       "title_table" : "ActionCatalog"
     },
@@ -21643,9 +21802,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -21670,9 +21829,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings decrease-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -21697,9 +21856,9 @@
     {
       "cli" : "stepAdjust",
       "cli_name" : "settings reset-interface-size",
-      "context_menu" : "offered",
+      "context_menu" : "stepAdjust",
       "context_menus" : [
-        "agentChat"
+
       ],
       "default_aliases" : [
 
@@ -26406,53 +26565,101 @@
           }
         },
         {
+          "choices" : {
+            "argument" : "theme",
+            "more_opens_palette" : true,
+            "values" : [
+              {
+                "title" : "Use Ghostty Config",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "config"
+              },
+              {
+                "title" : "Rose Pine",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine"
+              },
+              {
+                "title" : "Rose Pine Moon",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine Moon"
+              },
+              {
+                "title" : "Catppuccin Mocha",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Catppuccin Mocha"
+              },
+              {
+                "title" : "TokyoNight",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "TokyoNight"
+              },
+              {
+                "title" : "Gruvbox Dark",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Gruvbox Dark"
+              },
+              {
+                "title" : "Nord",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Nord"
+              },
+              {
+                "title" : "Vesper",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Vesper"
+              },
+              {
+                "title" : "Rose Pine Dawn",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Rose Pine Dawn"
+              },
+              {
+                "title" : "Catppuccin Latte",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Catppuccin Latte"
+              },
+              {
+                "title" : "GitHub Light Default",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "GitHub Light Default"
+              }
+            ]
+          },
+          "enabled_when" : "can_perform",
+          "id" : "workspace.setTheme",
+          "kind" : "choices",
+          "label" : "Theme",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 1
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.increase",
-          "kind" : "action",
-          "order" : 2,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.decrease",
-          "kind" : "action",
-          "order" : 3,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "appearance.interfaceSize.reset",
-          "kind" : "action",
-          "order" : 4,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "order" : 2
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
-          "order" : 5,
+          "label" : "Zoom In",
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26465,7 +26672,8 @@
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomOut",
           "kind" : "action",
-          "order" : 6,
+          "label" : "Zoom Out",
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26478,12 +26686,31 @@
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomReset",
           "kind" : "action",
-          "order" : 7,
+          "label" : "Actual Size",
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
             "requires" : [
               "agentPaneFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "find",
+          "kind" : "action",
+          "label" : "Find in Chat…",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
             ]
           }
         },

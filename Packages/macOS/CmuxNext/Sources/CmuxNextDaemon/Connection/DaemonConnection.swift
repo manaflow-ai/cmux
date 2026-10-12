@@ -58,6 +58,8 @@ public actor DaemonConnection {
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(_, _, let allowed) = phase { allowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
+    /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
+    var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
     public init(
         configuration: Configuration = Configuration(),

@@ -5,20 +5,56 @@
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
 import { useState } from "react";
 import { useT } from "../i18n";
-import { previewHtml, type Artifact } from "./artifactPreview";
+import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
-import { Close, Copy } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
-export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClose(): void }) {
+/// Saves a document through the host's save panel (`pane.saveFile`): "saved", "cancelled" when the user
+/// dismissed the panel (or one is already up), "unavailable" when no host could write it; the panel
+/// then copies the document instead, as the inspector's Export does.
+export type SaveDocument = (
+  text: string,
+  suggestedName: string,
+  kind: ArtifactKind,
+) => Promise<"saved" | "cancelled" | "unavailable">;
+
+export function ArtifactPanel({
+  artifact: opened,
+  versions = [opened],
+  onClose,
+  onSave,
+}: {
+  artifact: Artifact;
+  /// The document's versions in the chat (cx-ncc.64, `artifactVersions`), with the opened one: the
+  /// header steps between them.
+  versions?: readonly Artifact[];
+  onClose(): void;
+  /// Unset where the page has no host save panel (a gallery, a test): no Save.
+  onSave?: SaveDocument;
+}) {
   const t = useT();
+  // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
+  const [shown, setShown] = useState(opened.code);
+  // A shown version that left the list falls back to the opened one's place, then to it alone.
+  const at = (code: string) => versions.findIndex((version) => version.code === code);
+  const found = at(shown) >= 0 ? at(shown) : at(opened.code);
+  const list = found >= 0 ? versions : [opened];
+  const index = Math.max(0, found);
+  const artifact = list[index]!;
   const previews = artifact.kind === "markdown" || canRender();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const step = (to: number) => {
+    setShown(list[to]!.code);
+    setCopied(false);
+    setSaved(false);
+  };
   const title = languageLabel(artifact.lang, t);
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
@@ -34,6 +70,36 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
     >
       <div className="acpmux-artifact-bar">
         <span className="acpmux-artifact-title">{title}</span>
+        {list.length > 1 && (
+          <span className="acpmux-artifact-versions">
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.previousVersion")}
+              title={t("artifact.previousVersion")}
+              disabled={index === 0}
+              onClick={() => step(index - 1)}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span
+              className="acpmux-artifact-version"
+              title={t("artifact.versionCount", { index: index + 1, total: list.length })}
+            >
+              {`${index + 1}/${list.length}`}
+            </span>
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.nextVersion")}
+              title={t("artifact.nextVersion")}
+              disabled={index === list.length - 1}
+              onClick={() => step(index + 1)}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </span>
+        )}
         {previews && (
           <span className="acpmux-artifact-tabs">
             <button
@@ -66,6 +132,22 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
           >
             <Copy size={14} />
           </button>
+          {onSave && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={saved ? t("artifact.saved") : t("artifact.save")}
+              title={saved ? t("artifact.saved") : t("artifact.save")}
+              onClick={() =>
+                void onSave(artifact.code, documentName(artifact), artifact.kind).then((outcome) => {
+                  setSaved(outcome === "saved");
+                  if (outcome === "unavailable") void copyText(artifact.code).then(() => setCopied(true));
+                })
+              }
+            >
+              {saved ? <Check size={14} /> : <SaveTray size={14} />}
+            </button>
+          )}
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"
@@ -85,7 +167,9 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
             <Markdown>{artifact.code}</Markdown>
           </div>
         ) : (
-          <ArtifactFrame html={previewHtml(artifact)} title={title} />
+          // Each version is its own frame: a frame draws the first document it is sent, and a
+          // version with script waits for Run again.
+          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} />
         )}
       </div>
     </aside>

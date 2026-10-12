@@ -5,12 +5,12 @@
    (composer 10, popovers 10, hover card 8, buttons 6). Rows never move when their actions show. */
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
-  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-token, Canvas));
+  --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, Canvas));
   --hc-rail-bg: var(--cmux-app-sidebar, color-mix(in srgb, var(--page-text) 3%, transparent));
   --hc-danger: var(--cmux-app-danger, #e5484d);
   /* Ink on a text-colored fill: the opaque surface (the page background is clear in a translucent
      window). */
-  --hc-on-text: var(--cmux-surface-token, Canvas);
+  --hc-on-text: var(--cmux-surface-solid, Canvas);
   --hc-fill: color-mix(in srgb, var(--page-text) 4%, transparent);
   --hc-fill-strong: color-mix(in srgb, var(--page-text) 8%, transparent);
   --hc-line-strong: color-mix(in srgb, var(--page-text) 24%, transparent);
@@ -91,7 +91,7 @@ body,
   border-color: transparent;
   background: var(--hc-danger);
   /* Danger is fitted against the app theme's window, so that is its ink. */
-  color: var(--cmux-app-window, var(--cmux-surface-token, Canvas));
+  color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
 }
 
 /* ---------- Rail ---------- */
@@ -394,7 +394,7 @@ body,
 }
 .hc-members-faces > .hc-avatar,
 .hc-thread-faces > .hc-avatar {
-  box-shadow: 0 0 0 2px var(--cmux-surface-token, Canvas);
+  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
 }
 .hc-members-faces > .hc-avatar + .hc-avatar {
   margin-inline-start: -6px;
@@ -477,8 +477,8 @@ body,
   position: relative;
   padding: 0 12px;
   border: 1px solid var(--page-separator);
-  border-radius: 999px;
-  background: var(--cmux-surface-token, Canvas);
+  border-radius: 6px;
+  background: var(--cmux-surface-solid, Canvas);
   color: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 600;
@@ -685,7 +685,7 @@ body,
 .hc-thread-link:hover,
 .hc-thread-link:focus-visible {
   border-color: var(--page-separator);
-  background: var(--cmux-surface-token, Canvas);
+  background: var(--cmux-surface-solid, Canvas);
 }
 .hc-thread-count {
   font-weight: 700;
@@ -738,7 +738,7 @@ body,
   height: 24px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--hc-fill-strong);
   color: var(--page-text);
   font: inherit;
@@ -887,7 +887,7 @@ body,
 }
 .hc-composer.hc-edit {
   margin: 4px 0;
-  background: var(--cmux-surface-token, Canvas);
+  background: var(--cmux-surface-solid, Canvas);
 }
 
 /* Composer popovers (ui/Popover places them on the dropdown layer). */
@@ -899,6 +899,11 @@ body,
   padding: 8px;
   overflow: hidden;
 }
+/* The search's Return key wrapper (ui/KeyboardScope) adds no box. */
+.hc-emoji-search-keys {
+  display: contents;
+}
+
 .hc-emoji-search,
 .hc-link-field {
   box-sizing: border-box;
@@ -1022,7 +1027,7 @@ body,
 }
 .hc-thread-more:hover:not(:disabled),
 .hc-thread-more:focus-visible {
-  background: var(--cmux-surface-token, Canvas);
+  background: var(--cmux-surface-solid, Canvas);
   color: var(--page-text);
 }
 .hc-thread-heading {

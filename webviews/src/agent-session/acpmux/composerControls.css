@@ -89,6 +89,25 @@
   pointer-events: none;
   transition: left 160ms ease;
 }
+/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
+   the recommended level on its own centred line under them: a narrow panel never cuts it. */
+.acpmux-effort-ends {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 8px;
+  margin-top: 6px;
+  direction: ltr;
+  font-size: var(--text-detail);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+.acpmux-effort-recommended {
+  order: 3;
+  flex-basis: 100%;
+  text-align: center;
+  direction: initial;
+}
 .acpmux-effort-range {
   position: absolute;
   inset: 0;

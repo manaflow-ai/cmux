@@ -84,7 +84,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
     /// style): the kind's icon when the user set none, a dim second line
-    /// (the agent's status line, else the folder and branch), the time
+    /// (the agent chat's last message, else the agent's status line, else
+    /// the folder and branch), the time
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
     /// time reads in days; a change today shows its time.
@@ -93,7 +94,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
         self.init(
             icon: ws.icon ?? .symbol(ws.kind.symbol),
-            detail: Self.nonEmpty(ws.status) ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            detail: Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: ws.progress,
             showsWorking: ws.agentWorking

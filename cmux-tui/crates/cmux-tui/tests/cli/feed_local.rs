@@ -230,6 +230,20 @@ fn cmux_next_feed_selecting_a_tab_keeps_unread_and_the_ack_clears_it() {
     assert!(!unread(&daemon.tree(), second));
 }
 
+/// `server stop` returns when the owner is gone, so an `ensure` right after
+/// it starts the next owner every time (it used to find the session still
+/// owned now and then: "detached session owner did not become ready").
+#[test]
+fn cmux_next_feed_an_ensure_right_after_a_stop_starts_the_next_owner() {
+    let daemon = Daemon::start("restarts");
+    let surface = new_workspace(&daemon);
+    daemon.notify("on a tab", Some(surface));
+    for _ in 0..30 {
+        daemon.restart();
+        assert_eq!(daemon.items().len(), 1);
+    }
+}
+
 /// A tab ack that leaves an item unread (moved to the cloud owner) keeps
 /// the ring, and a restart keeps it too.
 #[test]

@@ -48,7 +48,8 @@ enum ChatOpenRoute: Equatable {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(let adopt, let cwd, _):
             return openTab(adopt).map { .reveal(tab: $0) }
-                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
+                                 command: nil, env: [:])
         case .terminal(_, _, let cwd):
             return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd,
                                  seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])
@@ -88,7 +89,7 @@ final class ChatsOpenCoordinator {
             return await self.reopen(chat, in: url.path)
         }
         // A fresh chat opened for a chat that cannot resume here shows its past (cx-khns1).
-        AgentPanePastChat.reader = { [weak self] chat in
+        AgentPanePastTurn.reader = { [weak self] chat in
             guard let services = self?.services, let environment = QuitAgents.environment(services) else { return [] }
             return (try? await environment.chatTranscript(key: chat)) ?? []
         }

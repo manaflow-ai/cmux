@@ -134,6 +134,24 @@ impl Mux {
         }
     }
 
+    /// The owner's last step after `shutdown`: free the session for the
+    /// next owner, the writer lease and then the session guard a new owner
+    /// takes first, then remove the control socket. `server stop` reports a
+    /// stop when this owner's connection closes, which is the process exit;
+    /// the kernel could close that socket before these lock files, so an
+    /// owner started right after the stop found the session still owned
+    /// (feed_local, "detached session owner did not become ready"). The
+    /// leases go first: this owner keeps listening until it exits, so no new
+    /// owner binds the socket before it is removed here.
+    pub fn release_ownership(&self, socket_path: &Path) {
+        {
+            let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            drop(registry.lease.take());
+            drop(registry.session_guard.take());
+        }
+        crate::server::cleanup(socket_path);
+    }
+
     /// Stop the terminal readers and the journal writer; with
     /// `screen_checkpoint`, checkpoint the terminal screens in between.
     pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {

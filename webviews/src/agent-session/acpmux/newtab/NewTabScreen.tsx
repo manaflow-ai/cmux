@@ -20,6 +20,7 @@ import {
   stepSelection,
   type ScreenRow,
 } from "./screenModel";
+import { RowGlyph } from "./RowGlyph";
 import { useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
@@ -384,9 +385,7 @@ export function NewTabScreen(props: Props) {
               {rowFavicon(row) ? (
                 <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
               ) : (
-                <span className="nt-row-glyph" data-kind={row.type}>
-                  {rowIcon(row)}
-                </span>
+                <RowGlyph kind={row.type} />
               )}
               <span className="nt-row-title">{rowTitle(row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
@@ -578,19 +577,6 @@ function rowKey(row: ScreenRow): string {
       return `history:${row.url}`;
     default:
       return row.type;
-  }
-}
-
-function rowIcon(row: ScreenRow): string {
-  switch (row.type) {
-    case "tab":
-      return "▣";
-    case "history":
-      return "◷";
-    case "open":
-      return "↗";
-    case "search":
-      return "⌕";
   }
 }
 

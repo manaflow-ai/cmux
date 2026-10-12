@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -177,6 +178,8 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -185,6 +188,8 @@ export interface MenuPopupProps {
    * field (a picker's search) returns focus there.
    */
   finalFocus?: boolean | RefObject<HTMLElement | null>;
+  /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
+  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }
 
@@ -197,9 +202,11 @@ export function MenuPopup({
   label,
   className,
   side = "bottom",
+  flip = true,
   align = "start",
   anchor,
   finalFocus,
+  onKeyDown,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -209,6 +216,7 @@ export function MenuPopup({
         className="ui-positioner"
         anchor={anchor}
         side={side}
+        collisionAvoidance={flip ? undefined : { side: "none" }}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
@@ -217,6 +225,7 @@ export function MenuPopup({
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
           finalFocus={finalFocus}
+          onKeyDown={onKeyDown}
         >
           <PopupSurface value={className}>{children}</PopupSurface>
         </BaseMenu.Popup>

@@ -41,6 +41,23 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// The summary's `lastMessage`, one sidebar line: the last line of words in
+/// the agent's reply, or the prompt while the turn has not answered yet.
+/// Null before the first prompt.
+fn last_message(m: &SessionMeta) -> Value {
+    let reply = m
+        .preview
+        .as_deref()
+        .and_then(|p| p.lines().rev().find(|l| l.chars().any(char::is_alphanumeric)));
+    if let Some(line) = reply {
+        return json!({"role": "agent", "text": short_text(line, 160)});
+    }
+    match m.last_prompt.as_deref().filter(|p| !p.trim().is_empty()) {
+        Some(prompt) => json!({"role": "user", "text": short_text(prompt, 160)}),
+        None => Value::Null,
+    }
+}
+
 /// What limits a session's agent as far as acpmux can tell. `policy` is
 /// always the acpmux permission policy (the session's own, else
 /// `default_policy`), so sessions on different harnesses compare; the
@@ -92,9 +109,12 @@ impl Hub {
             "eventCount": m.event_count,
             "turnCount": m.turn_count,
             "parentId": m.parent_id,
+            // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
+            "forkSeq": m.fork_seq,
             "title": m.title,
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),
+            "lastMessage": last_message(&m),
             "queued": session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             "queuePaused": session.queue_paused(),

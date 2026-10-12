@@ -1,0 +1,177 @@
+// l10n-allow-file: test fixture prompts, replies and mode names, not shipped UI.
+// The permission mode menu's number keys (cx-ncc.83, Claude parity): while the menu is open, 1 to 9
+// pick the mode in that place, each row shows its number, and the pick goes to acpmux as
+// `session/set_mode`. The page is the pane's dev entry with its browser host, talking JSON-RPC to a
+// stand-in acpmux daemon.
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-mode-keys: skipping (run `bunx playwright install chromium`)");
+    describe.skip("mode keys", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+
+  const CHAT = "0190a000-0000-7000-8000-0000000000d1";
+  const START = Date.UTC(2026, 9, 11, 9, 0, 0);
+  const say = (text: string) => ({
+    method: "session/update",
+    params: { sessionId: "agent-1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+  });
+  type Step = [dir: string, kind: string, msg: Record<string, unknown>];
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "Add retry to the uploader" }],
+    ["mux", "turn_started", {}],
+    ["in", "agent_message_chunk", say("Retry added.")],
+    ["mux", "turn_result", { status: "completed" }],
+  ];
+  const events = steps.map(([dir, kind, msg], index) => ({
+    sessionId: CHAT,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const session = {
+    sessionId: CHAT,
+    cwd: "/home/dev/uploader",
+    title: "Uploader retry",
+    harness: "claude",
+    family: "claude",
+    status: "idle",
+    turnCount: 1,
+    updatedAt: START,
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Ask permissions", description: "Ask before edits and commands" },
+        { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking" },
+        { id: "plan", name: "Plan mode", description: "Read and plan, no edits" },
+        { id: "dontAsk", name: "Don't ask", description: "Run allowed tools without asking" },
+      ],
+    },
+  };
+  const calls: { method: string; params: Record<string, any> }[] = [];
+
+  function answer(method: string, params: Record<string, any>): unknown {
+    calls.push({ method, params });
+    switch (method) {
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      case "_acpmux/watch":
+        return { sessions: [session] };
+      case "_acpmux/attach":
+        return { session, lastSeq: events.length, events };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, lastSeq: events.length };
+      default:
+        return null;
+    }
+  }
+  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  const url = (session: string) => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
+  };
+  beforeAll(async () => {
+    daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          if (message.id !== undefined)
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
+        },
+      },
+    });
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
+    // again if it stalls, so the test times only the menu.
+    for (let attempt = 1; ; attempt++) {
+      const warm = await browser.newPage();
+      try {
+        await warm.goto(url(CHAT));
+        await warm.getByText("Retry added.").waitFor({ timeout: 25_000 });
+        await warm.close();
+        break;
+      } catch (error) {
+        await warm.close();
+        if (attempt === 3) throw error;
+      }
+    }
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+    await daemon?.stop(true);
+  });
+
+  test("number keys pick a mode while the menu is open", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(CHAT));
+    await page.getByText("Retry added.").waitFor();
+    await page.locator(".acpmux-access-trigger").click();
+    const menu = page.locator(".acpmux-access-menu");
+    await menu.waitFor();
+    // Plan mode is its own toggle; the permission modes are numbered in their order.
+    const rows = await menu
+      .locator(".acpmux-access-item")
+      .evaluateAll((items) =>
+        items.map((item) => [
+          item.querySelector(".acpmux-menu-label")?.textContent,
+          item.querySelector(".ui-menu-shortcut")?.textContent,
+        ]),
+      );
+    expect(rows).toEqual([
+      ["Ask permissions", "1"],
+      ["Accept edits", "2"],
+      ["Don't ask", "3"],
+    ]);
+    await page.keyboard.press("3");
+    await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {
+      timeout: 5_000,
+    });
+    expect(calls.filter((call) => call.method === "session/set_mode").map((call) => call.params.modeId)).toEqual([
+      "dontAsk",
+    ]);
+    // A number with no mode in its place does nothing.
+    await page.locator(".acpmux-access-trigger").click();
+    await menu.waitFor();
+    await page.keyboard.press("7");
+    // The current mode's number closes the menu without sending it again.
+    await page.waitForTimeout(200);
+    expect(await menu.isVisible()).toBe(true);
+    await page.keyboard.press("3");
+    await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {
+      timeout: 5_000,
+    });
+    expect(calls.filter((call) => call.method === "session/set_mode")).toHaveLength(1);
+    await page.close();
+  });
+});

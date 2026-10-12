@@ -94,6 +94,14 @@ enum DebugAgentPane {
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
             return .object(fields)
         }
+        #if DEBUG
+        if action == "remote_approvals" {
+            // cx-kvmz T2: the "Remote approvals are off" notice as a person sees it; `press` clicks its restart.
+            let pressed = params["press"]?.boolValue == true ? view.pressRemoteApprovalsRestart() : false
+            guard let notice = view.remoteApprovalsNoticeLines else { return .object(["pane": .string(pane), "notice": .null, "pressed": .bool(pressed)]) }
+            return .object(["pane": .string(pane), "notice": .array(notice.lines.map(JSONValue.string)), "restart": .bool(notice.restart), "pressed": .bool(pressed)])
+        }
+        #endif
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])

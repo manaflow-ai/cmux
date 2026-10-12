@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb";
+pub const ir_sha256 = "2a0c7150bfd53de3d63c4aa438c3f1be1fdfda063c9a28418ffed3cd7975f5be";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1510,7 +1510,7 @@ pub const SavedTabGroupMember = struct {
 };
 
 pub const SavedTabGroupRecord = struct {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     id: []const u8,
     members: []const SavedTabGroupMember,
@@ -2031,7 +2031,7 @@ pub const TabGroupOutcome = struct {
 
 pub const TabGroupRecord = struct {
     collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     id: []const u8,
     /// May be empty: the group shows only its color.
@@ -2042,7 +2042,7 @@ pub const TabGroupRecord = struct {
 
 pub const TabGroupRun = struct {
     collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     count: u64,
     id: []const u8,
