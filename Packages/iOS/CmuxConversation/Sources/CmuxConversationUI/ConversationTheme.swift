@@ -208,6 +208,15 @@ enum ConversationTheme {
         return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
 
+    /// The composer's dictation microphone: lighter than the secondary
+    /// label. Messages draws it (180,184,191) on its white field and
+    /// (99,100,102) on the dark one (iOS 26.5).
+    static let composerMicTint = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: 0.36)
+            : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: 0.37)
+    }
+
     /// Captions straight over a conversation background (timestamps, status,
     /// system lines): ChatKit overrides their gray (`overrideTextColor`) so
     /// they stay legible on any color; near-white or near-black by the
@@ -225,6 +234,9 @@ enum ConversationTheme {
     static let composerFieldGap: CGFloat = ComposerBarGeometry.plusToFieldGap
     /// One line plus `composerTextPadding` above and below (40.3 pt at Large).
     static var composerMinHeight: CGFloat { lineHeight + 2 * composerTextPadding }
+    /// The field's corner radius at every text size (ChatKit's entry clip
+    /// view: 20 pt, continuous), half the 40.33 pt one-line field at Large.
+    static let composerFieldCornerRadius: CGFloat = 20
 
     // MARK: Colors
 
