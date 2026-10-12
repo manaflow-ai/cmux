@@ -115,12 +115,15 @@ def private_sources(body: str, root: Path) -> list[Path]:
     return found
 
 
-def public_sources(body: str) -> list[str]:
+def public_sources(body: str, live_url: str) -> list[str]:
+    gallery_hostname = urllib.parse.urlparse(live_url).hostname
     seen: set[str] = set()
     out: list[str] = []
     for url in PUBLIC_RE.findall(body):
         url = url.rstrip(".,")
         if "cmux-app-screenshots" in url:
+            continue
+        if gallery_hostname and urllib.parse.urlparse(url).hostname == gallery_hostname:
             continue
         if url not in seen:
             seen.add(url)
@@ -184,17 +187,40 @@ def public_markdown(urls: list[str]) -> str:
     return "\n".join(lines)
 
 
-def showcase_section(markdown: str, live_url: str) -> str:
+def body_gallery_path(live_url: str) -> str:
+    """Return a host-free gallery path suitable for a public PR body."""
+    path = urllib.parse.urlparse(live_url).path or "/live/"
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return path
+
+
+def scrub_gallery_host(text: str, live_url: str, body_path: str) -> str:
+    """Remove the private gallery host from prose outside the Showcase marker."""
+    parsed = urllib.parse.urlparse(live_url)
+    if not parsed.netloc:
+        return text
+    hostname = parsed.hostname
+    if not hostname:
+        return text
+    host = re.escape(hostname)
+    absolute = re.compile(rf"https?://{host}(?::\d+)?[^\s)]*", re.IGNORECASE)
+    text = absolute.sub(body_path, text)
+    return re.sub(rf"(?<![\w.-]){host}(?::\d+)?(?![\w.-])", body_path, text, flags=re.IGNORECASE)
+
+
+def showcase_section(markdown: str, gallery_path: str) -> str:
     body = markdown.strip()
     lines = ["<!-- cmux-showcase:start -->", "## Showcase", ""]
     if body:
         lines.extend([body, ""])
-    lines.extend([f"[Open the live gallery]({live_url})", "", "<!-- cmux-showcase:end -->"])
+    lines.extend([f"[Open the live gallery]({gallery_path})", "", "<!-- cmux-showcase:end -->"])
     return "\n".join(lines)
 
 
-def update_body(pr: int, body: str, section: str, *, dry_run: bool) -> str:
-    updated = MARKER_RE.sub("", body).rstrip()
+def update_body(pr: int, body: str, section: str, live_url: str, *, dry_run: bool) -> str:
+    gallery_path = body_gallery_path(live_url)
+    updated = scrub_gallery_host(MARKER_RE.sub("", body), live_url, gallery_path).rstrip()
     # Keep the repository's generated-by trailer as the final line. GitHub
     # renders it as attribution, and moving it below Showcase makes reruns
     # change unrelated prose at the end of the PR body.
@@ -257,7 +283,7 @@ def main() -> int:
         raise SystemExit("--pr must be positive")
     body = pr_body(args.pr)
     args.media = [*args.media_pos, *args.media]
-    public = public_sources(body) if args.from_body else []
+    public = public_sources(body, args.live_url) if args.from_body else []
     files: list[Path] = []
     for entry in args.media:
         files.extend(collect_local(entry))
@@ -287,8 +313,8 @@ def main() -> int:
     stills, videos = media_urls(feed_markdown, [])
     if not media_markdown and not public:
         raise SystemExit("no public or local showcase media found")
-    section = showcase_section(media_markdown, args.live_url)
-    updated = update_body(args.pr, body, section, dry_run=args.dry_run)
+    section = showcase_section(media_markdown, body_gallery_path(args.live_url))
+    updated = update_body(args.pr, body, section, args.live_url, dry_run=args.dry_run)
     if args.dry_run:
         print(updated)
     if not args.no_feed:

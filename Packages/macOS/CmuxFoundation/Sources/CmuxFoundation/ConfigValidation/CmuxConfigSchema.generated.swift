@@ -189,6 +189,22 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "windowHints": {
+      "x-cmux-scopes": ["global"],
+      "title": "windowHints",
+      "description": "Click by Hint (hint mode) settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it." }
+          }
+        }
+      }
+    },
     "cloud": {
       "x-cmux-scopes": ["global"],
       "title": "cloud",
@@ -222,7 +238,21 @@ enum CmuxEmbeddedConfigSchema {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "originColors": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Tint each remote workspace's sidebar row with a stable per-host color." }
+              }
+            },
+            "originHostTitles": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Show a remote workspace's host after its title when another workspace has the same title." }
+              }
+            }
           }
         },
         "multiplexer": {
@@ -2510,6 +2540,8 @@ enum CmuxEmbeddedConfigSchema {
               "markOldestUnreadAndJumpNext",
               "markAllNotificationsRead",
               "clearAllNotifications",
+              "focusSidebar",
+              "showWindowHints",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
@@ -2555,6 +2587,8 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "previousAgentTurn",
+              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
@@ -2573,6 +2607,7 @@ enum CmuxEmbeddedConfigSchema {
               "focusDown",
               "focusPreviousPane",
               "focusNextPane",
+              "focusPaneByNumber",
               "splitRight",
               "splitDown",
               "newPaneAutoLayout",

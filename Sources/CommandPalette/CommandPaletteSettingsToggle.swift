@@ -857,7 +857,7 @@ enum CommandPaletteSettingsToggleCommands {
                 didSet: { _, _, notificationCenter in
                     notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
                 }
-            ),
+            ), ClickByHintPreview.paletteToggle,
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",

@@ -406,6 +406,40 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("A local path that names no file opens nothing (cx-do47)")
+    @MainActor
+    func missingLocalPathOpensNothing() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-\(UUID().uuidString)/reports.")
+        var externallyOpened: [URL] = []
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in LocalLinkContainer() },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        let handled = coordinator.open(
+            TerminalLinkOpenRequest(
+                rawValue: missing.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: UUID(),
+                workingDirectory: nil
+            )
+        )
+
+        #expect(!handled)
+        #expect(fileOpener.opened.isEmpty)
+        #expect(externallyOpened.isEmpty)
+    }
+
     @Test("Explicit file URLs with locations keep the URL handler route")
     @MainActor
     func explicitFileURLWithLocationDoesNotUsePreferredEditor() throws {

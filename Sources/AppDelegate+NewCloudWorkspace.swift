@@ -37,12 +37,14 @@ extension AppDelegate {
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
-        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
-            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+        // Hold the window context weakly: it owns the TabManager strongly, and a
+        // create in flight must not keep a closed window's manager alive.
+        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager, weak context] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager, weak context] in
                 guard let self, !Task.isCancelled else { return }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: self.resolvedWindow(for: context),
+                    preferredWindow: context.flatMap { self.resolvedWindow(for: $0) },
                     debugSource: "\(debugSource).fallback"
                 )
             }
@@ -134,10 +136,15 @@ extension AppDelegate {
 
     /// Returns the workspace it selected, which the window's Cloud tree then reveals.
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
-        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+        guard let manager,
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
+        // Cmd-Y selects its pre-admitted reservation itself, which advances the
+        // selection revision. A workspace that is still selected was not
+        // navigated away from, so it keeps its reveal.
+        if manager.selectedTabId == workspace.id { return workspace }
+        guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil
     }
