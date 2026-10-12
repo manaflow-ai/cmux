@@ -63,7 +63,16 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
     browser = await engine!.launch({ headless: true });
-  }, 120_000);
+    // The first loads compile the gallery and can run Vite's dependency optimizer, which reloads
+    // the page: with a cold server, whichever test came first timed out in `goto` or lost its page
+    // (CI, 2026-10-12). Every entry loads once here, so the tests start on a warm server.
+    const warm = await browser.newPage();
+    try {
+      for (const entry of ENTRIES) await load(warm, entry, THEMES[0]!.theme, THEMES[0]!.colorScheme);
+    } finally {
+      await warm.close();
+    }
+  }, 360_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -100,7 +109,8 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
     });
   }
 
-  async function stage(page: Page, entry: string, theme: string, colorScheme: string) {
+  /** Opens the entry's first variant and waits for the gallery, through a reload of the page. */
+  async function load(page: Page, entry: string, theme: string, colorScheme: string) {
     const variant = Object.keys(entries.get(entry)!.variants)[0]!;
     const params = new URLSearchParams({
       entry,
@@ -111,10 +121,29 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
       width: "760",
       height: "640",
     });
-    await page.goto(`${base}/gallery/frame.html?${params}`);
-    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", null, {
-      timeout: 120_000,
-    });
+    const url = `${base}/gallery/frame.html?${params}`;
+    const deadline = Date.now() + 120_000;
+    const left = () => Math.max(1, deadline - Date.now());
+    let navigated = false;
+    for (;;) {
+      try {
+        if (!navigated) await page.goto(url, { waitUntil: "commit", timeout: left() });
+        navigated = true;
+        // "1" when the stage drew, "error" when it failed (its message is the page's text).
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, {
+          timeout: left(),
+        });
+        if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) === "1") return;
+        throw new Error(`gallery ${entry}: ${await page.evaluate(() => document.body.textContent?.trim())}`);
+      } catch (error) {
+        // An optimizer reload destroys the page's context (or interrupts the navigation): wait again.
+        if (Date.now() >= deadline || !/context was destroyed|navigat|ERR_ABORTED/i.test(String(error))) throw error;
+      }
+    }
+  }
+
+  async function stage(page: Page, entry: string, theme: string, colorScheme: string) {
+    await load(page, entry, theme, colorScheme);
     return page.getByRole("button", { name: TRIGGERS[entry], exact: true }).first();
   }
 
@@ -131,6 +160,12 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await page.mouse.move(1, 1);
             await trigger.click();
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
+            // The popup takes focus as it opens: read it once it has.
+            await page
+              .waitForFunction(() => document.querySelector('[role="menu"]')?.contains(document.activeElement), null, {
+                timeout: 5_000,
+              })
+              .catch(() => undefined);
             const byMouse = await openMenu(page);
             await page.keyboard.press("Escape");
             await page.locator('[role="menu"]').first().waitFor({ state: "detached" });
@@ -138,10 +173,16 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await trigger.focus();
             await page.keyboard.press("ArrowDown");
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
+            // WebKit highlights the first item before the popup takes focus: read once both have.
             await page
-              .waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]') !== null, null, {
-                timeout: 2_000,
-              })
+              .waitForFunction(
+                () => {
+                  const menu = document.querySelector('[role="menu"]');
+                  return !!menu?.querySelector("[data-highlighted]") && menu.contains(document.activeElement);
+                },
+                null,
+                { timeout: 5_000 },
+              )
               .catch(() => undefined);
             const byKeyboard = await openMenu(page);
             expect({ byMouse, byKeyboard }).toEqual({

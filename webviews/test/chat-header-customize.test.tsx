@@ -47,6 +47,7 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
     root!.render(
       <ChatHeaderTools
         onTerminal={() => {}}
+        onSplitDown={() => {}}
         onBrowser={() => {}}
         onCustomize={(list) => {
           lists.push(list.map(({ id, mode }) => `${id}:${mode}`).join(" "));
@@ -71,18 +72,24 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   };
   rightClick("Browser");
   pick("Move Left");
-  expect(lists.at(-1)).toBe("browser:toggle terminal:toggle changes:toggle preview:toggle newTab:toggle");
+  expect(lists.at(-1)).toBe(
+    "terminal:toggle browser:toggle splitDown:toggle changes:toggle preview:toggle newTab:toggle",
+  );
   rightClick("Browser");
   pick("Click Opens Another");
-  expect(lists.at(-1)).toBe("browser:open terminal:toggle changes:toggle preview:toggle newTab:toggle");
+  expect(lists.at(-1)).toBe(
+    "terminal:toggle browser:open splitDown:toggle changes:toggle preview:toggle newTab:toggle",
+  );
   rightClick("Terminal");
   pick("Hide Terminal");
-  expect(lists.at(-1)).toBe("browser:open changes:toggle preview:toggle newTab:toggle");
+  expect(lists.at(-1)).toBe("browser:open splitDown:toggle changes:toggle preview:toggle newTab:toggle");
   expect(host.querySelector('button[aria-label="Terminal"]')).toBeNull();
   rightClick("Browser");
   pick("Show Terminal");
   // A shown button takes its default place: Terminal is first by default.
-  expect(lists.at(-1)).toBe("terminal:toggle browser:open changes:toggle preview:toggle newTab:toggle");
+  expect(lists.at(-1)).toBe(
+    "terminal:toggle browser:open splitDown:toggle changes:toggle preview:toggle newTab:toggle",
+  );
   // The menu lives on the buttons: hiding the last one always shown would leave nothing to right-click.
   configureQuickActions({ quickActions: ["browser", "changes"] });
   rightClick("Browser");
@@ -92,5 +99,7 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   expect(hideBrowser?.disabled).toBe(true);
   rightClick("Browser");
   pick("Reset Buttons");
-  expect(lists.at(-1)).toBe("terminal:toggle browser:toggle changes:toggle preview:toggle newTab:toggle");
+  expect(lists.at(-1)).toBe(
+    "terminal:toggle splitDown:toggle browser:toggle changes:toggle preview:toggle newTab:toggle",
+  );
 });

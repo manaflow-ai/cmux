@@ -6,7 +6,7 @@ public import AppKit
 /// of its edge that faces the control, so it reads as coming out of that
 /// control; it closes faster, fading and shrinking toward the same point.
 /// A reopen during the close continues from what is on screen. Reduce
-/// Motion keeps the fades only (`Motion.set` snaps the scale).
+/// Motion keeps the fades only, at the popup's size.
 @MainActor
 public extension NSWindow {
     /// The point the popup grows from, in its content view: the middle of
