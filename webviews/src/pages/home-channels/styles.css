@@ -633,7 +633,7 @@ body,
   gap: 0;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
-  background: var(--page-elevated);
+  background: var(--surface-popup);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
 }
 .hc-tool.ui-toolbar-button,
@@ -1065,7 +1065,7 @@ body,
   flex-direction: column;
   border: 1px solid var(--page-separator);
   border-radius: 12px;
-  background: var(--page-elevated);
+  background: var(--surface-popup);
   box-shadow: 0 16px 48px rgb(0 0 0 / 0.28);
   overflow: hidden;
 }

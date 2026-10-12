@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// The icon picker's floating panel: a child of the cmux window it opens over,
-/// beside its anchor (the workspace's sidebar row), with the system popover
-/// material in the popup style (`PopupStyle`). It takes the keys only while the app is active (``ActiveAppKeyPanel``),
+/// beside its anchor (the workspace's sidebar row), on the solid popup surface
+/// (`Glass.makeOverlayPanel`) in the popup style (`PopupStyle`). It takes the keys only while the app is active (``ActiveAppKeyPanel``),
 /// so a picker opened by a socket or CLI call never captures another app's typing.
 /// A panel, not an NSPopover: a transient popover closed itself when the app was
 /// not active (nxdog34), and `debug.popups` lists panels.
@@ -19,18 +19,9 @@ final class IconPickerPanel: ActiveAppKeyPanel {
         level = .floating
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-        let material = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        material.material = .popover
-        material.blendingMode = .behindWindow
-        material.state = .active
-        material.wantsLayer = true
-        material.layer?.cornerRadius = PopupStyle.standard.cornerRadius
-        material.layer?.cornerCurve = .continuous
-        material.layer?.masksToBounds = true
-        content.frame = material.bounds
-        content.autoresizingMask = [.width, .height]
-        material.addSubview(content)
-        adoptPopupStyle(card: material)
+        let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
+        card.frame = NSRect(origin: .zero, size: size)
+        adoptPopupStyle(card: card)
         onKeyElsewhere = { [weak self] in self?.onDismiss?() }
     }
 
