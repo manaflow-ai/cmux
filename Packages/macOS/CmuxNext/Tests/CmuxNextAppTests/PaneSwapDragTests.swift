@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextLayout
-import CmuxNextTabs
+@testable import CmuxNextTabs
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
@@ -26,7 +26,7 @@ struct PaneSwapDragTests {
         let root: LayoutRootView
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        private(set) var swaps: [(PaneID, PaneID)] = []
+        var swaps: [(PaneID, PaneID)] = []
         private var drags: [PaneSwapDrag] = []
 
         init() {
@@ -73,6 +73,16 @@ struct PaneSwapDragTests {
         let window = Window()
         window.drag(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+    }
+
+    /// The press decides, not where the pan begins: a drag from a tab is the tab's own drag.
+    @Test func aDragFromATabSwapsNothing() throws {
+        let window = Window()
+        let strip = try #require(window.provider.strips["p1"])
+        let cell = try #require(strip.cells[TabID("p1-tab")])
+        let tab = strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip)
+        window.drag(from: strip.convert(tab, to: nil), to: try window.center("p2"))
+        #expect(window.swaps.isEmpty)
     }
 
     @Test func aDropOnItsOwnPaneSwapsNothing() throws {

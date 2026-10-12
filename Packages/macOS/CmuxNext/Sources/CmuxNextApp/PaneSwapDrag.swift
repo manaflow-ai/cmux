@@ -4,14 +4,18 @@ import CmuxNextLayout
 import CmuxNextTabs
 
 /// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
-/// press starts on empty strip space that does not move the window (the top row's does); tabs,
-/// chips and + keep their own presses. The pane under the pointer is outlined, and the drop swaps.
+/// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
+/// row, where a plain press moves the window, Option-drag drags the pane. The pane under the pointer
+/// is outlined, the drop swaps, and Escape cancels.
 @MainActor
 final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private weak var strip: TabStripView?
     private let pane: LayoutPaneID
     private let layout: () -> LayoutRootView?
     private let swap: (LayoutPaneID, LayoutPaneID) -> Void
+    /// The last mouse-down starts a pane drag (decided at the press, not where the pan begins).
+    private var armed = false
+    private var escapeMonitor: Any?
 
     init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
@@ -35,32 +39,64 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
                   })
     }
 
-    func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool {
-        guard let strip else { return false }
-        let point = recognizer.location(in: nil)
-        return strip.titlebarHit(at: strip.convert(point, from: nil)) == .empty && strip.titlebarPress(atWindowPoint: point) == .staysPut
+    /// Whether `event`, a mouse-down on `strip`, drags its pane: on empty strip space, with no
+    /// modifier but Option, and in the top row only with Option.
+    static func starts(_ event: NSEvent, on strip: TabStripView) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .shift]).isEmpty else { return false }
+        let point = event.locationInWindow
+        guard strip.titlebarHit(at: strip.convert(point, from: nil)) == .empty else { return false }
+        return event.modifierFlags.contains(.option) || strip.titlebarPress(atWindowPoint: point) == .staysPut
     }
+
+    /// An Option-press in the top row that drags a pane: the window must not move for it.
+    static func claims(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard event.modifierFlags.contains(.option), let frame = window.contentView?.superview else { return false }
+        var view = frame.hitTest(frame.convert(event.locationInWindow, from: nil))
+        while let current = view, !(current is TabStripView) { view = current.superview }
+        guard let strip = view as? TabStripView, strip.gestureRecognizers.contains(where: { $0.delegate is PaneSwapDrag }) else { return false }
+        return starts(event, on: strip)
+    }
+
+    func gestureRecognizer(_ recognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
+        if event.type == .leftMouseDown { armed = strip.map { Self.starts(event, on: $0) } ?? false }
+        return true
+    }
+
+    func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
 
     @objc private func pan(_ recognizer: NSPanGestureRecognizer) {
         guard let layout = layout() else { return }
-        let target = other(at: recognizer.location(in: layout), in: layout)
+        let target = layout.visiblePane(at: recognizer.location(in: layout)).flatMap { $0.pane == pane ? nil : $0 }
         switch recognizer.state {
         case .began, .changed:
-            if let target, let frame = layout.frame(of: target), let window = layout.window {
-                layout.showTabDragOutline(screenRect: window.convertToScreen(layout.convert(frame, to: nil)))
+            if recognizer.state == .began { watchEscape(recognizer) }
+            if let target, let window = layout.window {
+                layout.showTabDragOutline(screenRect: window.convertToScreen(layout.convert(target.frame, to: nil)))
             } else {
                 layout.hideTabDragHighlight()
             }
         case .ended:
-            layout.cancelTabDrag()
-            if let target { swap(pane, target) }
+            end(layout)
+            if let target { swap(pane, target.pane) }
         default:
-            layout.cancelTabDrag()
+            end(layout)
         }
     }
 
-    /// The pane under `point` (layout coordinates) when it is not this one.
-    private func other(at point: CGPoint, in layout: LayoutRootView) -> LayoutPaneID? {
-        layout.navigationFrames.keys.first { $0 != pane && layout.frame(of: $0)?.contains(point) == true }
+    /// Escape cancels the drag: the recognizer turned off and on ends it as cancelled.
+    private func watchEscape(_ recognizer: NSPanGestureRecognizer) {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak recognizer] event in
+            guard event.keyCode == 53, let recognizer else { return event }
+            recognizer.isEnabled = false
+            recognizer.isEnabled = true
+            return nil
+        }
+    }
+
+    private func end(_ layout: LayoutRootView) {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
+        armed = false
+        layout.cancelTabDrag()
     }
 }
