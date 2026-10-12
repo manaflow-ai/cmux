@@ -3,7 +3,8 @@ import Foundation
 /// Chromium permission requests cmux asks about in the prompt bar
 /// (location; PERMISSION_PROMPT, `CEFShim/src/shim_permissions.mm`), decided
 /// with the shared store like WebKit's (`SitePermissionRequest`). Chromium
-/// remembers Allow and Block itself as well.
+/// remembers Allow and Block itself as well. The notice of a refused agent
+/// passkey request reaches the prompt bar through here too (`CEFAgentPasskeys`).
 struct CEFPermissionPrompts {
     /// `CEF_PERMISSION_TYPE_GEOLOCATION`.
     static let geolocation: Int64 = 1 << 8
@@ -22,6 +23,9 @@ struct CEFPermissionPrompts {
             // Chromium shows one prompt per tab at a time; its question is gone.
             guard Self.waiting.remove(token) != nil else { return }
             for prompt in tab.pendingPrompts where prompt.kind == .permission(.location) { prompt.respond(.cancel) }
+        case .webAuthnRefused:
+            // Not a question Chromium waits on: cmux's notice of a refused agent passkey request.
+            CEFAgentPasskeys.refused(tab)
         default:
             break
         }

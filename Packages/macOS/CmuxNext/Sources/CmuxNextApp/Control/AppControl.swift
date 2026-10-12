@@ -326,7 +326,7 @@ final class AppControl {
             },
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
-            },
+            }.withDeadline(.fixed(DebugExtensions.devToolsDeadline)),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in

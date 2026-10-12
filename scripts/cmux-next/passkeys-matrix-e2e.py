@@ -113,13 +113,16 @@ def scenario(engine, tab, name, spec):
     authenticator = None
     note = ""
     if engine == "cef" and not opts.no_virtual_authenticator:
+        # An agent-driven tab refuses WebAuthn (passkeys.md 3.5); mode virtual lets it reach the
+        # virtual authenticator until WebAuthn.disable below.
+        rpc("debug.cef.webauthn_virtual", {"on": True})
         devtools("WebAuthn.enable", {"enableUI": False})
         added = devtools("WebAuthn.addVirtualAuthenticator",
                          {"options": {"automaticPresenceSimulation": True, **(spec.get("authenticator") or {})}})
         authenticator = added.get("authenticatorId")
         # The socket gives async methods ~2 s; a DevTools call past that still runs (`not_run`
         # false), so a timed-out add can still have attached the authenticator.
-        if not authenticator and "not_run': False" not in str(added):
+        if not authenticator and "not_run': False" not in str(added) and "timedOut" not in str(added):
             return "FAIL", f"no virtual authenticator: {added}"
         note = "" if authenticator else "authenticator add timed out (sent); "
     started = js(tab, "(() => { window.__pk = null; runPasskeyScenario(" + json.dumps(name) + ")"

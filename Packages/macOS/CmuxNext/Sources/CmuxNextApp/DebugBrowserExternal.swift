@@ -14,6 +14,9 @@ enum DebugBrowserExternal {
         #if DEBUG
         router?.register([
             .mainActor("debug.browser.external_opens") { call in .value(opens(call.params)) },
+            .mainActor("debug.cef.webauthn_virtual") { [weak services] call in
+                .value(DebugExtensions.webAuthnVirtual(call.params, services))
+            },
             .mainActor("debug.browser.prompts") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(prompts(call.params, services: services))

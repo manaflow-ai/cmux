@@ -61,6 +61,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// The fork refused a WebAuthn request of a tab an agent drives, before
+    /// any system UI (WEBAUTHN_REFUSED, fork API 23).
+    case webAuthnRefused(browser: Int32)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -134,6 +137,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
+        case 43: self = .webAuthnRefused(browser: browser)
         default: self = .unknown(kind: kind)
         }
     }

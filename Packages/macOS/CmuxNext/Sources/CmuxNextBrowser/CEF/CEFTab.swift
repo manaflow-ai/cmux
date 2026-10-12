@@ -132,7 +132,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
-        applyPasswordFill()
+        applyAgentSwitches()
         leaveAutomaticDownloadsToCmux(browser)
         agentRelay.browserAttached()
         let zoom = machine.state.zoom

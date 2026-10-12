@@ -19519,6 +19519,399 @@
           }
         }
       }
+    },
+    "browser.agentPasskey.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked an agent’s passkey sign-in on %@. Only you can sign in with a passkey."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ でのエージェントによるパスキーでのサインインをブロックしました。パスキーでサインインできるのはあなただけです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat die Passkey-Anmeldung eines Agenten auf %@ blockiert. Nur du kannst dich mit einem Passkey anmelden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a bloqué la connexion d’un agent avec une clé d’accès sur %@. Vous seul pouvez vous connecter avec une clé d’accès."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حظر cmux تسجيل دخول وكيل باستخدام مفتاح المرور على %@. يمكنك أنت فقط تسجيل الدخول باستخدام مفتاح مرور."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bloqueó el inicio de sesión de un agente con llave de acceso en %@. Solo tú puedes iniciar sesión con una llave de acceso."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已封鎖代理程式在 %@ 上使用密鑰登入。只有你可以使用密鑰登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已阻止代理在 %@ 上使用通行密钥登录。只有你本人可以使用通行密钥登录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에서 에이전트의 패스키 로그인을 차단했습니다. 패스키로는 본인만 로그인할 수 있습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao prijavu agenta pristupnim ključem na %@. Samo se vi možete prijaviti pristupnim ključem."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede en agents login med adgangsnøgle på %@. Kun du kan logge ind med en adgangsnøgle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato l’accesso di un agente con passkey su %@. Solo tu puoi accedere con una passkey."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានទប់ស្កាត់ការចូលដោយ Passkey របស់ភ្នាក់ងារនៅលើ %@។ មានតែអ្នកទេដែលអាចចូលដោយ Passkey បាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte en agents pålogging med passnøkkel på %@. Bare du kan logge på med en passnøkkel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował logowanie agenta kluczem dostępu w %@. Tylko Ty możesz zalogować się kluczem dostępu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou o login de um agente com chave-senha em %@. Só você pode entrar com uma chave-senha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал вход агента с ключом доступа на %@. Входить с ключом доступа можете только вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการลงชื่อเข้าด้วยพาสคีย์ของเอเจนต์บน %@ มีเพียงคุณที่ลงชื่อเข้าด้วยพาสคีย์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, bir ajanın %@ üzerinde geçiş anahtarıyla oturum açmasını engelledi. Geçiş anahtarıyla yalnızca siz oturum açabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував вхід агента з ключем доступу на %@. Входити з ключем доступу можете лише ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn tác nhân đăng nhập bằng mã khóa trên %@. Chỉ bạn mới có thể đăng nhập bằng mã khóa."
+          }
+        }
+      }
+    },
+    "browser.agentPasskey.refused.thisPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux blocked an agent’s passkey sign-in on this page. Only you can sign in with a passkey."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのページでのエージェントによるパスキーでのサインインをブロックしました。パスキーでサインインできるのはあなただけです。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat die Passkey-Anmeldung eines Agenten auf dieser Seite blockiert. Nur du kannst dich mit einem Passkey anmelden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a bloqué la connexion d’un agent avec une clé d’accès sur cette page. Vous seul pouvez vous connecter avec une clé d’accès."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حظر cmux تسجيل دخول وكيل باستخدام مفتاح المرور على هذه الصفحة. يمكنك أنت فقط تسجيل الدخول باستخدام مفتاح مرور."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bloqueó el inicio de sesión de un agente con llave de acceso en esta página. Solo tú puedes iniciar sesión con una llave de acceso."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已封鎖代理程式在此頁面上使用密鑰登入。只有你可以使用密鑰登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已阻止代理在此页面上使用通行密钥登录。只有你本人可以使用通行密钥登录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 페이지에서 에이전트의 패스키 로그인을 차단했습니다. 패스키로는 본인만 로그인할 수 있습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux je blokirao prijavu agenta pristupnim ključem na ovoj stranici. Samo se vi možete prijaviti pristupnim ključem."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokerede en agents login med adgangsnøgle på denne side. Kun du kan logge ind med en adgangsnøgle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ha bloccato l’accesso di un agente con passkey su questa pagina. Solo tu puoi accedere con una passkey."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux បានទប់ស្កាត់ការចូលដោយ Passkey របស់ភ្នាក់ងារនៅលើទំព័រនេះ។ មានតែអ្នកទេដែលអាចចូលដោយ Passkey បាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blokkerte en agents pålogging med passnøkkel på denne siden. Bare du kan logge på med en passnøkkel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zablokował logowanie agenta kluczem dostępu na tej stronie. Tylko Ty możesz zalogować się kluczem dostępu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux bloqueou o login de um agente com chave-senha nesta página. Só você pode entrar com uma chave-senha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокировал вход агента с ключом доступа на этой странице. Входить с ключом доступа можете только вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux บล็อกการลงชื่อเข้าด้วยพาสคีย์ของเอเจนต์ในหน้านี้ มีเพียงคุณที่ลงชื่อเข้าด้วยพาสคีย์ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, bir ajanın bu sayfada geçiş anahtarıyla oturum açmasını engelledi. Geçiş anahtarıyla yalnızca siz oturum açabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux заблокував вхід агента з ключем доступу на цій сторінці. Входити з ключем доступу можете лише ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux đã chặn tác nhân đăng nhập bằng mã khóa trên trang này. Chỉ bạn mới có thể đăng nhập bằng mã khóa."
+          }
+        }
+      }
+    },
+    "browser.agentPasskey.signInYourself": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in yourself"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分でサインイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selbst anmelden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Me connecter moi-même"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول بنفسك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión yo mismo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自行登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自行登录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 로그인"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se sami"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind selv"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi tu"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលដោយខ្លួនឯង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på selv"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się samodzielnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrar por conta própria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войти самостоятельно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendiniz oturum açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійти самостійно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự đăng nhập"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -141,6 +141,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passwordImportAvailable: @convention(c) () -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
+    /// WebAuthn refused in one tab (an agent drives it; fork API 23).
+    let setWebAuthnMode: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
     let passkeysAvailable: @convention(c) () -> Int32
     let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
@@ -316,6 +318,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordEntrySize = try r("cmux_shim_password_entry_size")
         passwordImportAvailable = try r("cmux_shim_password_import_available")
         setPasswordFill = try r("cmux_shim_set_password_fill")
+        setWebAuthnMode = try r("cmux_shim_set_webauthn_mode")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
         passkeyDelete = try r("cmux_shim_passkey_delete")

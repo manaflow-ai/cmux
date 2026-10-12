@@ -50,6 +50,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallForkObserver();
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
+    InstallWebAuthnRefusedHandler();
     InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }

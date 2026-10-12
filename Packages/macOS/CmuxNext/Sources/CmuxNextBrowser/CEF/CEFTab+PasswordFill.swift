@@ -4,18 +4,18 @@ import os
 extension CEFTab {
 
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {
-        if passwordFill.setAllowedByProfile(allowed) { applyPasswordFill() }
+        if passwordFill.setAllowedByProfile(allowed) { applyAgentSwitches() }
     }
 
     public func markAgentDriven() {
         guard !isAgentDriven else { return }
         isAgentDriven = true
-        applyPasswordFill()
+        applyAgentSwitches()
         CEFAgentURLGuard.applyShimGuard(self)
         CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }
 
-    func applyPasswordFill() { CEFPasswordFill.apply(self) }
+    func applyAgentSwitches() { CEFPasswordFill.apply(self); CEFAgentPasskeys.applyMode(self) }
 }
 
 /// Sends a tab's `PasswordFillState` decision through the fork's

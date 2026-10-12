@@ -67,6 +67,10 @@ class StartPasskeysWhenReady : public CefCompletionCallback {
   IMPLEMENT_REFCOUNTING(StartPasskeysWhenReady);
 };
 
+void WebAuthnRefusedTrampoline(void*, int browser_id) {
+  Emit(CMUX_SHIM_WEBAUTHN_REFUSED, browser_id);
+}
+
 int StartPasskeyRequest(const char* profile_cache_path, std::string credential_id, int reply) {
   if (!profile_cache_path || !*profile_cache_path || IsOffTheRecordKey(profile_cache_path)) return 0;
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path);
@@ -78,7 +82,21 @@ int StartPasskeyRequest(const char* profile_cache_path, std::string credential_i
 
 }  // namespace
 
+namespace cmux_shim {
+
+void InstallWebAuthnRefusedHandler() {
+  if (fork_api().set_webauthn_refused_handler) {
+    fork_api().set_webauthn_refused_handler(WebAuthnRefusedTrampoline, nullptr);
+  }
+}
+
+}  // namespace cmux_shim
+
 extern "C" {
+
+int cmux_shim_set_webauthn_mode(int browser_id, int mode) {
+  return fork_api().tab_set_webauthn_mode ? fork_api().tab_set_webauthn_mode(browser_id, mode) : 0;
+}
 
 int cmux_shim_passkeys_available(void) {
   return fork_api().profile_passkeys_list && fork_api().profile_passkey_delete ? 1 : 0;

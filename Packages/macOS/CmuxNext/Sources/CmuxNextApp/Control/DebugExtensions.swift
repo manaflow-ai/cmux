@@ -11,6 +11,23 @@ import CmuxNextSettings
 /// choose one by title or dismiss it.
 @MainActor
 enum DebugExtensions {
+    /// DevTools answers can pass the default socket deadline on a busy page.
+    static let devToolsDeadline: Duration = .seconds(15)
+
+    /// `{on}`: WebAuthn of the focused Chromium tab, which the call marks
+    /// agent-driven, runs (`true`) for the passkey matrix's DevTools virtual
+    /// authenticator, or is refused again (`false`), as every agent-driven
+    /// tab's is (plans/cmux-next/passkeys.md 3.5, mode virtual).
+    static func webAuthnVirtual(_ params: [String: JSONValue], _ services: AppServices?) -> JSONValue {
+        guard let services, case .browser(let entry)? = ActionScope(services: services, invocation: ActionInvocation()).pane?.currentContent,
+              let tab = entry.tab as? CEFTab else {
+            return .object(["error": .string("no focused Chromium tab")])
+        }
+        tab.markAgentDriven()
+        CEFAgentPasskeys.setVirtual(tab, params["on"]?.boolValue ?? true)
+        return .object(["virtual": .bool(params["on"]?.boolValue ?? true)])
+    }
+
     static func devTools(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services, case .browser(let entry)? = ActionScope(services: services, invocation: ActionInvocation()).pane?.currentContent,
               let tab = entry.tab as? CEFTab, let method = params["method"]?.stringValue else {
@@ -23,6 +40,9 @@ enum DebugExtensions {
         if AppBrowserPage.showsRefusedPage(tab) || target.map(AgentURLPolicy.refuses) == true {
             return .object(["error": .string("forbidden: agents cannot use Chromium's own pages")])
         }
+        // Leaving the virtual authenticator puts the agent's tab back to refusing
+        // WebAuthn (plans/cmux-next/passkeys.md 3.5 rule 4).
+        if method == "WebAuthn.disable" { CEFAgentPasskeys.setVirtual(tab, false) }
         var arguments: [String: any Sendable] = [:]
         for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = foundation(value) }
         do {
