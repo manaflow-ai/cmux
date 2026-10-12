@@ -130,13 +130,11 @@ pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
     Some(daemon_socket(None, &daemon_acpmux_home()?, uid))
 }
 
-/// The socket for a configured `ACPMUX_SOCKET` or an acpmux home.
+/// The socket for a configured `ACPMUX_SOCKET` or an acpmux home, by the rule
+/// acpmux and every host share (cmux-agent-pane-policy `socket_path`).
 #[cfg(unix)]
 fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
-    match configured {
-        Some(socket) => PathBuf::from(socket),
-        None => socket_in_home(home, uid),
-    }
+    PathBuf::from(cmux_agent_pane_policy::environment::socket_path(configured, home, uid))
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
@@ -201,22 +199,6 @@ fn daemon_acpmux_home() -> Option<PathBuf> {
 #[cfg(unix)]
 fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
-}
-
-/// acpmux `config::socket_path` for `home`: `<home>/acpmux.sock`, or, for a
-/// long home path, `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock`.
-#[cfg(unix)]
-fn socket_in_home(home: &Path, uid: u32) -> PathBuf {
-    let preferred = home.join("acpmux.sock");
-    if preferred.as_os_str().len() < 96 {
-        return preferred;
-    }
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in home.to_string_lossy().bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}.sock"))
 }
 
 /// `cmux harness run ID --tab`: a new tab in the current pane whose process
@@ -383,9 +365,9 @@ mod tests {
     #[test]
     fn the_daemon_finds_the_acpmux_socket_where_acpmux_puts_it() {
         let home = Path::new("/Users/me/.cmux/brains/chief/acpmux");
-        assert_eq!(socket_in_home(home, 501), home.join("acpmux.sock"));
+        assert_eq!(daemon_socket(None, home, 501), home.join("acpmux.sock"));
         let long = PathBuf::from(format!("/Users/me/{}", "d".repeat(100)));
-        let socket = socket_in_home(&long, 501);
+        let socket = daemon_socket(None, &long, 501);
         assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
         assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
     }

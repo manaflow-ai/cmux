@@ -20,7 +20,8 @@ use std::time::{Duration, Instant};
 
 use crate::cli::env;
 
-/// `ACPMUX_SOCKET`, else `$ACPMUX_HOME/acpmux.sock`, else `~/.acpmux/acpmux.sock`.
+/// `ACPMUX_SOCKET`, else `$ACPMUX_HOME/acpmux.sock`, else `~/.acpmux/acpmux.sock`
+/// (a long path maps to a short alias: [`socket_path_for`]).
 pub fn socket_path() -> PathBuf {
     let user = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -35,20 +36,45 @@ pub fn socket_path() -> PathBuf {
     )
 }
 
-/// [`socket_path`] for a configured socket, acpmux home, user home and uid.
+/// [`socket_path`] for a configured socket, acpmux home, user home and uid, by
+/// the rule acpmux and every host share (cmux-agent-pane-policy
+/// `environment::socket_path`, whose tests/cases/environment.json this crate's
+/// tests run): an absolute `ACPMUX_SOCKET` past the Unix socket limit (a long
+/// TMPDIR), and a long home, map to `/tmp/acpmux-<uid>/<fnv1a64>.sock`.
 pub fn socket_path_for(
     configured: Option<&str>,
     home: Option<&str>,
     user_home: &Path,
-    _uid: u32,
+    uid: u32,
 ) -> PathBuf {
+    let alias = |key: &str| PathBuf::from(format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(key)));
     if let Some(socket) = configured {
+        if socket.starts_with('/') && socket.len() > MAX_SOCKET_PATH_BYTES {
+            return alias(socket);
+        }
         return socket.into();
     }
-    if let Some(home) = home {
-        return PathBuf::from(home).join("acpmux.sock");
+    let home = home
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home.join(".acpmux"));
+    let preferred = home.join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
     }
-    user_home.join(".acpmux").join("acpmux.sock")
+    alias(&home.to_string_lossy())
+}
+
+/// The longest Unix socket path every host binds (cmux-agent-pane-policy
+/// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
+const MAX_SOCKET_PATH_BYTES: usize = 103;
+
+fn fnv1a64(text: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
 }
 
 /// Whether something accepts connections on the socket.

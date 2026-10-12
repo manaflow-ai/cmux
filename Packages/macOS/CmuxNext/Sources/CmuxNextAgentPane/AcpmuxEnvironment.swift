@@ -81,18 +81,31 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).
+    /// The longest Unix socket path every host binds (cmux-agent-pane-policy
+    /// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
+    static let maxSocketPathBytes = 103
+
     /// The acpmux daemon socket every host and client resolves (cmux-agent-pane-policy
-    /// `environment::socket_path`): `configured` (`ACPMUX_SOCKET`) when set, else
-    /// ``defaultSocketPath(home:uid:)``.
+    /// `environment::socket_path`, tests/cases/environment.json): `configured`
+    /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
+    /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
     static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
-        if let configured { return configured }
-        return defaultSocketPath(home: home, uid: uid)
+        guard let configured else { return defaultSocketPath(home: home, uid: uid) }
+        if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {
+            return shortAlias(configured, uid: uid)
+        }
+        return configured
+    }
+
+    /// `/tmp/acpmux-<uid>/<fnv1a64(key)>.sock`.
+    static func shortAlias(_ key: String, uid: UInt32) -> String {
+        "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(key))).sock"
     }
 
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
         let preferred = home.appendingPathComponent("acpmux.sock").path
         if preferred.utf8.count < 96 { return preferred }
-        return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
+        return shortAlias(home.path, uid: uid)
     }
 
     static func fnv1a64(_ text: String) -> UInt64 {

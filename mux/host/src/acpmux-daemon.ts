@@ -60,7 +60,8 @@ export async function ensureAcpmuxDaemon(env: Record<string, string | undefined>
   if (await socketReachable(socket)) return undefined;
   const bin = env.ACPMUX_BIN;
   if (!bin) throw new Error(`acpmux is not reachable at ${socket} and ACPMUX_BIN is not set`);
-  const home = env.ACPMUX_HOME ?? dirname(socket);
+  // The configured socket's folder, not the short alias a long one resolves to (acpmuxSocketPath).
+  const home = env.ACPMUX_HOME ?? dirname(env.ACPMUX_SOCKET || socket);
   mkdirSync(home, { recursive: true });
   const out = openSync(join(home, "daemon.log"), "a");
   // The daemon writes one line to fd 3 once its socket listens (acpmux --ready-fd): a
