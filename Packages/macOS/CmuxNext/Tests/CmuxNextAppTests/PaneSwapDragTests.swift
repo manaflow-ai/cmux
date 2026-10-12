@@ -26,12 +26,14 @@ struct PaneSwapDragTests {
         let root: LayoutRootView
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        var swaps: [(PaneID, PaneID)] = []
+        private(set) var swaps: [(PaneID, PaneID)] = []
         private var drags: [PaneSwapDrag] = []
 
         init() {
             root = LayoutRootView(model: model, contentProvider: provider)
             window.contentView = root
+            // Gesture recognizers only see the events of a window on screen.
+            window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             for (pane, strip) in provider.strips {
                 drags.append(PaneSwapDrag(strip: strip, pane: pane, layout: { [root] in root },
@@ -71,6 +73,7 @@ struct PaneSwapDragTests {
 
     @Test func draggingAPaneByItsTabBarOntoAnotherSwapsThem() throws {
         let window = Window()
+        defer { window.window.orderOut(nil) }
         window.drag(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
     }
@@ -78,6 +81,7 @@ struct PaneSwapDragTests {
     /// The press decides, not where the pan begins: a drag from a tab is the tab's own drag.
     @Test func aDragFromATabSwapsNothing() throws {
         let window = Window()
+        defer { window.window.orderOut(nil) }
         let strip = try #require(window.provider.strips["p1"])
         let cell = try #require(strip.cells[TabID("p1-tab")])
         let tab = strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip)
@@ -87,6 +91,7 @@ struct PaneSwapDragTests {
 
     @Test func aDropOnItsOwnPaneSwapsNothing() throws {
         let window = Window()
+        defer { window.window.orderOut(nil) }
         window.drag(from: try window.emptyStripPoint("p2"), to: try window.center("p2"))
         #expect(window.swaps.isEmpty)
     }
