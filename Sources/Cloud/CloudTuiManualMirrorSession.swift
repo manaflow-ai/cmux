@@ -893,7 +893,12 @@ final class CloudTuiManualMirrorSession {
         guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
         defer { scheduleFidelityCheck() }
         #if DEBUG
-        cmuxDebugLog("cloud.split.attach.answer terminal=\(terminalID) kind=\(String(describing: kind)) ok=\(ok)")
+        switch kind {
+        case .identify, .clientInfo, .attach:
+            cmuxDebugLog("cloud.split.attach.answer terminal=\(terminalID) kind=\(String(describing: kind)) ok=\(ok)")
+        default:
+            break
+        }
         #endif
         manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
