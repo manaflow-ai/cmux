@@ -42,6 +42,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     fast?: boolean;
+    release?: string;
   }[];
   unavailable?: string;
   acpmuxHarness?: string;
@@ -61,6 +62,8 @@ type ModelChoice = {
   unavailable?: string;
   efforts?: string[];
   fast?: boolean;
+  /** The catalog release an alias row stands for, which the curated list names. */
+  release?: string;
 };
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -86,6 +89,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         unavailable: model.unavailable,
         efforts: model.efforts,
         fast: model.fast,
+        ...(model.release ? { release: model.release } : {}),
       },
     ];
   });
@@ -105,7 +109,7 @@ function curatedSections(
   const all = [...sections.latest, ...sections.older];
   const latest: ModelChoice[] = [];
   for (const id of top) {
-    const model = all.find((choice) => choice.id === id);
+    const model = all.find((choice) => choice.id === id || choice.release === id);
     if (!model) continue;
     const variants = all.filter(
       (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
