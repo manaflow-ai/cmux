@@ -5,6 +5,9 @@
 //! opens the tab, as for any notification on a tab; the daemon reads them
 //! again when acpmux says a pane showed the chat or the question was answered.
 //!
+//! A chat muted from its tab's menu (the acpmux session tag
+//! `notifications: muted`, so every window and device sees it) posts nothing.
+//!
 //! Each test runs a real daemon and its acpmux with the test agent, and talks
 //! to acpmux the way a pane in a hidden tab does (`visible: false`), so no
 //! client shows the chat while its turn runs.
@@ -177,4 +180,29 @@ fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing() {
         Vec::<Value>::new(),
         "a turn the person watched notified"
     );
+}
+
+#[test]
+fn a_muted_chat_posts_nothing_until_unmuted() {
+    let daemon = machine("notice-muted");
+    let (surface, session) = chat(&daemon);
+    let (other_surface, other_session) = chat(&daemon);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    let muted = acpmux
+        .call("_acpmux/tag", json!({"sessionId": session, "set": {"notifications": "muted"}}));
+    assert!(muted.get("error").is_none(), "{muted}");
+    acpmux.prompt(&session, "fail-after-update: while muted");
+    acpmux.prompt(&session, "hello while muted");
+
+    // acpmux tells the daemon of every chat in order on one watch, so once
+    // the other chat's later turn notified, the muted turns were passed over.
+    Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello there");
+    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
+    assert_eq!(notices(&daemon, surface), Vec::<Value>::new(), "a muted turn notified");
+
+    let unmuted =
+        acpmux.call("_acpmux/tag", json!({"sessionId": session, "remove": ["notifications"]}));
+    assert!(unmuted.get("error").is_none(), "{unmuted}");
+    acpmux.prompt(&session, "hello again");
+    notice(&daemon, surface, |row| row["body"].as_str().is_some_and(|b| b.contains("hello again")));
 }

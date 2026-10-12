@@ -141,7 +141,7 @@ extension AgentPaneGitStage {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        if let message = await run(request, roots: model.roots() + model.transport.addedRoots) {
+        if let message = await run(request, roots: model.fileOpenRoots()) {
             return AgentPaneReply.failure(code: "git.failed", message: message)
         }
         return AgentPaneReply.success()
