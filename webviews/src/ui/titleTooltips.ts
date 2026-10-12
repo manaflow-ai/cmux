@@ -8,6 +8,9 @@
 
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
 const EDGE = 6;
+/// After a scroll, how long the page stays still before the element under the pointer shows its
+/// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
+const SCROLL_QUIET = 150;
 const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
@@ -132,9 +135,16 @@ export function installTooltips(doc: Document): () => void {
     tip.hidden = true;
     target = undefined;
   };
+  let quiet: ReturnType<typeof setTimeout> | undefined;
+  // The element under the pointer while a scroll is under way.
+  let pending: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
+    if (quiet !== undefined) {
+      pending = element;
+      return;
+    }
     if (element === target) return;
     hide();
     if (!element || !textOf(element)) return;
@@ -143,7 +153,9 @@ export function installTooltips(doc: Document): () => void {
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
-    if (target && !target.contains(event.relatedTarget as Node | null)) hide();
+    const into = event.relatedTarget as Node | null;
+    if (target && !target.contains(into)) hide();
+    if (pending && !pending.contains(into)) pending = undefined;
   };
   // A click, a key, a scroll or the window losing focus puts the tooltip away; the element under
   // the pointer shows it again only once the pointer leaves it and comes back.
@@ -152,11 +164,27 @@ export function installTooltips(doc: Document): () => void {
     hide();
     target = under;
   };
+  const onScroll = () => {
+    // The first scroll event puts the tooltip away; the rest only push back the end of the scroll.
+    if (quiet === undefined) {
+      dismiss();
+      pending = undefined;
+    } else clearTimeout(quiet);
+    quiet = setTimeout(() => {
+      quiet = undefined;
+      const element = pending;
+      pending = undefined;
+      if (!element?.isConnected || element === target || !textOf(element)) return;
+      hide();
+      target = element;
+      show();
+    }, SCROLL_QUIET);
+  };
   doc.addEventListener("pointerover", onOver);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", dismiss, true);
   doc.addEventListener("keydown", dismiss, true);
-  doc.addEventListener("scroll", dismiss, true);
+  doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("blur", dismiss);
   return () => {
     dismiss();
@@ -164,7 +192,8 @@ export function installTooltips(doc: Document): () => void {
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);
     doc.removeEventListener("keydown", dismiss, true);
-    doc.removeEventListener("scroll", dismiss, true);
+    doc.removeEventListener("scroll", onScroll, true);
+    if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
     tip.remove();
   };

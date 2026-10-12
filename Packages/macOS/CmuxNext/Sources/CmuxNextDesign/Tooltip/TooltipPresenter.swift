@@ -22,6 +22,9 @@ public final class TooltipPresenter {
     static let scrollQuiet: Duration = .milliseconds(150)
 
     private let checker: DemandTimer
+    private let quiet: DemandTimer
+    /// A scroll is under way: rows pass under the pointer, and none shows its tooltip.
+    private var scrolling = false
     private(set) lazy var panel = TooltipPanel()
     /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
     private var inside: [TooltipTracker] = []
@@ -33,6 +36,7 @@ public final class TooltipPresenter {
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         checker = DemandTimer(owner: "tooltip-check", clock: clock)
+        quiet = DemandTimer(owner: "tooltip-scroll", clock: clock)
     }
 
     /// The pointer entered a tooltip's view or region.
@@ -63,14 +67,26 @@ public final class TooltipPresenter {
         hide()
     }
 
-    /// A scroll-wheel event: the tooltip goes.
+    /// A scroll-wheel event: the tooltip goes, and the rows that pass under the pointer show none
+    /// (shown at once, each flashed by). Once the scrolling stops, the row under the pointer shows its.
     func scrolled() {
-        dismiss()
+        if !scrolling {
+            dismiss()
+            scrolling = true
+            watch()
+        }
+        quiet.schedule(after: Self.scrollQuiet) { @MainActor [weak self] in
+            guard let self else { return }
+            scrolling = false
+            resolve()
+            if inside.isEmpty, !scrolling { unwatch() }
+        }
     }
 
     /// Picks the deepest tooltip under the pointer and shows it at once.
     private func resolve() {
         inside.removeAll { $0.view == nil || $0.text == nil }
+        guard !scrolling else { return }
         let target = inside.max { $0.depth < $1.depth }
         guard target !== current else { return }
         hide()
@@ -98,7 +114,7 @@ public final class TooltipPresenter {
         if shown != nil { panel.orderOut(nil) }
         shown = nil
         current = nil
-        if inside.isEmpty { unwatch() }
+        if inside.isEmpty, !scrolling { unwatch() }
     }
 
     /// While a tooltip shows: its view still in a visible window, not hidden, the app active and the
