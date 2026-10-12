@@ -255,7 +255,8 @@ public final class SidebarView: NSView {
         // A lone space switches nothing, so the footer keeps one control, the
         // profile control (Leo 2026-10-11: its mark and the History dot beside
         // it read as a duplicate switcher). Two or more spaces show the strip.
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
+        // `sidebar.showSpaces` off (cx-wab7m): no strip, wherever it would sit.
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && DesignSettings.shared.sidebarSections.showSpaces
         profileBar.isHidden = !showsProfiles
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
@@ -293,6 +294,13 @@ public final class SidebarView: NSView {
     }
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// A right-click in the bottom band that no piece took (the empty footer row, the strip
+    /// between its dots) opens the band's menu: Show for what is hidden there (cx-wab7m).
+    override public func menu(for event: NSEvent) -> NSMenu? {
+        guard convert(event.locationInWindow, from: nil).y >= footer.frame.minY else { return super.menu(for: event) }
+        return contextMenuProvider?(.footer)
+    }
 
     // MARK: Hover reveal
 
