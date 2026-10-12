@@ -92,7 +92,7 @@ fn cmux_next_git_diff_context_lines_give_the_whole_file() {
         &repo,
         &["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "one"],
     );
-    let mut changed = lines.clone();
+    let mut changed = lines;
     changed[14] = "line 15 changed".into();
     write(&repo, "src/a.txt", &(changed.join("\n") + "\n"));
     write(&repo, "b.txt", "other changed\n");
