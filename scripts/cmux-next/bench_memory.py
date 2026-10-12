@@ -221,6 +221,13 @@ def close_workspace(app: App, workspace: str):
     return response
 
 
+def bound_since(path: str, started: float) -> bool:
+    try:
+        return os.stat(path).st_mtime >= started - 1
+    except OSError:
+        return False
+
+
 def wait_gone(pid: int, seconds: float) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -250,22 +257,28 @@ def launch(bundle: str):
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
     os.makedirs(env["TMPDIR"], exist_ok=True)
     dirs = ["/tmp", env["TMPDIR"]]
-    before = {os.path.join(d, n) for d in dirs for n in os.listdir(d) if n.endswith(".sock")}
+    started = time.time()
     argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
     subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     pid = None
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         pid = pid or next((p for p, _, cmd in process_table() if cmd.startswith(binary)), None)
+        # A socket bound since the launch (an earlier run's app may have left
+        # one at the same path).
         fresh = [os.path.join(d, n) for d in dirs for n in os.listdir(d)
-                 if n.endswith(".sock") and n.startswith("cmux") and os.path.join(d, n) not in before]
+                 if n.endswith(".sock") and n.startswith("cmux") and bound_since(os.path.join(d, n), started)]
         for path in fresh:
             app = App(bundle, path)
             if pid and app.ping():
                 return pid, app.socket, scratch
         time.sleep(1)  # test script: waiting for the launched app's socket
     if pid:
-        os.kill(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGKILL)  # it can ignore SIGTERM
+        wait_gone(pid, 10)
+    for other, _, cmd in process_table():
+        if in_bundle(cmd, bundle) is not None:
+            os.kill(other, signal.SIGTERM)  # its daemons, from this bundle
     raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
 
 
