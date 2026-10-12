@@ -95,7 +95,9 @@ struct CloudMove {
 
     /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
     private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
-        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)))
+        // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)),
+                                                     retry: services.cloud.moveRetries[tabID])
         services.cloud.logger.error("cloud move failed: \(failure.message, privacy: .public)")
         services.cloud.moveRetries[tabID] = failure.retry
         var retry: (@MainActor () -> Void)?
@@ -177,7 +179,12 @@ struct CloudMove {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
             let remote = folder.remote(under: root)
-            last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
+            do {
+                last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
+            } catch {
+                // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
+                throw Failure(message: CloudMoveStrings.syncFailed(machine, String(describing: error)), retry: retry)
+            }
             if last.ok { return remote }
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
