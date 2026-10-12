@@ -62,7 +62,7 @@ struct AgentChatView: View {
                         ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
                             VStack(alignment: .leading, spacing: 14) {
                                 ForEach(turn.items) { item in
-                                    row(item)
+                                    row(item, lastID: transcript.items.last?.id, transcript: transcript)
                                         .id(item.id)
                                         .transition(.opacity)
                                 }
@@ -177,12 +177,12 @@ struct AgentChatView: View {
     }
 
     @ViewBuilder
-    private func row(_ item: TranscriptItem) -> some View {
+    private func row(_ item: TranscriptItem, lastID: String?, transcript: TranscriptBuilder) -> some View {
         switch item {
         case .user(_, let text, _):
             UserBubble(text: text)
-        case .assistant(_, let text):
-            MarkdownView(text: text)
+        case .assistant(let id, let text):
+            MarkdownView(text: text, streaming: working && id == lastID)
                 .textSelection(.enabled)
                 .contextMenu {
                     Button { UIPasteboard.general.string = text } label: { Label("Copy", systemImage: "doc.on.doc") }
@@ -202,12 +202,11 @@ struct AgentChatView: View {
                 .font(.footnote)
                 .foregroundStyle(isError ? CmuxTheme.danger : .secondary)
         case .turnEnd(_, let duration, let reason):
-            TurnEndRow(duration: duration, reason: reason, lastText: lastAssistantText(before: item.id))
+            TurnEndRow(duration: duration, reason: reason, lastText: lastAssistantText(before: item.id, in: transcript.items))
         }
     }
 
-    private func lastAssistantText(before id: String) -> String? {
-        let items = transcript.items
+    private func lastAssistantText(before id: String, in items: [TranscriptItem]) -> String? {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
         for item in items[..<index].reversed() {
             if case .assistant(_, let text) = item { return text }

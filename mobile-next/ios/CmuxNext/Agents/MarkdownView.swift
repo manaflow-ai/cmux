@@ -5,11 +5,19 @@ import SwiftUI
 /// links) uses Foundation's markdown parser.
 struct MarkdownView: View {
     let text: String
+    /// The reply is still arriving: its last paragraph fades new text in.
+    var streaming = false
 
     var body: some View {
+        let blocks = MarkdownBlock.parse(text)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(MarkdownBlock.parse(text).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                if streaming, index == blocks.count - 1, case .paragraph(let paragraph) = block {
+                    inline(paragraph).font(.system(size: 17)).lineSpacing(3)
+                        .modifier(StreamingReveal(length: paragraph.count))
+                } else {
+                    view(for: block)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -48,7 +56,11 @@ struct MarkdownView: View {
         }
     }
 
-    private func inline(_ text: String) -> Text {
+    private func inline(_ raw: String) -> Text {
+        // A reply that is still streaming may have an unclosed `code` or **bold**.
+        var text = raw
+        if text.filter({ $0 == "`" }).count % 2 == 1 { text += "`" }
+        if text.components(separatedBy: "**").count % 2 == 0 { text += "**" }
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         if var attributed = try? AttributedString(markdown: text, options: options) {
             for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true {

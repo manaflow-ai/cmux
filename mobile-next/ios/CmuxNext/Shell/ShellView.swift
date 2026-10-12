@@ -49,7 +49,10 @@ struct ShellView: View {
         DrawerContainer(isOpen: $shell.drawerOpen, gestureEnabled: shell.drawerGestureEnabled) {
             SidebarView()
         } content: {
+            // Swap screens instantly; only the drawer animates (as in ChatGPT).
             mainContent
+                .id(shell.destination)
+                .transition(.identity)
         }
         .environment(shell)
         .sheet(isPresented: $shell.showSettings) { SettingsView() }
