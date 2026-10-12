@@ -111,6 +111,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
     &MODELS
 }
 
+#[cfg(test)]
+mod edit_diff_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
@@ -242,6 +244,9 @@ pub struct Translator {
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
+    /// Running file edits: tool_use id -> their ACP diff content, which their
+    /// completion carries again so the diff outlives the tool's text result.
+    edits: Mutex<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -285,6 +290,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             loop_model: Mutex::new(String::new()),
+            edits: Mutex::new(HashMap::new()),
         })
     }
 
@@ -362,6 +368,32 @@ fn tool_kind(name: &str) -> &'static str {
         "AskUserQuestion" | "ExitPlanMode" => "other",
         _ => "other",
     }
+}
+
+/// A file edit's ACP `diff` content: one diff per Edit or MultiEdit
+/// replacement, and Write as the whole file (no old text). None for any other
+/// tool, or input without a path.
+fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
+    let path = input.get("file_path").and_then(Value::as_str)?;
+    let diff = |old: Option<&Value>, new: Option<&Value>| json!({"type": "diff", "path": path, "oldText": old.cloned().unwrap_or(Value::Null), "newText": new.cloned().unwrap_or_else(|| json!(""))});
+    let diffs: Vec<Value> = match name {
+        "Edit" => vec![diff(input.get("old_string"), input.get("new_string"))],
+        "MultiEdit" => input
+            .get("edits")
+            .and_then(Value::as_array)?
+            .iter()
+            .map(|e| diff(e.get("old_string"), e.get("new_string")))
+            .collect(),
+        "Write" => vec![diff(None, input.get("content"))],
+        _ => return None,
+    };
+    Some(Value::Array(diffs))
+}
+
+/// The file a tool reads or writes, as ACP `locations`.
+fn tool_locations(input: &Value) -> Option<Value> {
+    let path = input.get("file_path").and_then(Value::as_str)?;
+    Some(json!([{"path": path}]))
 }
 
 fn tool_title(name: &str, input: &Value) -> String {

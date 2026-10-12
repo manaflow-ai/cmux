@@ -13,6 +13,11 @@ import Foundation
 /// another repository. (The read-only git requests still take the page's
 /// `cwd`.)
 ///
+/// `git.worktree.create` with `{cwd, name?, idempotency_key}` (cx-lyqio.2) is
+/// a new chat's New Worktree: it has no session yet, so it runs in the `cwd`
+/// the page names, which the model takes only when a chat may start there
+/// (the check a picked folder gets).
+///
 /// The page offers only what its buttons do: no paths, amend, no-verify,
 /// remote or branch. The key is the page's, one per user action, so a
 /// retry of the same action replays its first result instead of committing
@@ -24,9 +29,14 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
     /// The current branch to where `git push` would send it; never forced.
     case push(sessionId: String, expectedHead: String?, key: String)
+    /// A new chat's own worktree of `cwd`, the chat's folder (cx-lyqio.2).
+    case worktree(cwd: String, name: String?, key: String)
 
     /// The page methods that carry a write.
-    public static let methods: Set<String> = ["git.commit", "git.push"]
+    public static let methods: Set<String> = ["git.commit", "git.push", "git.worktree.create"]
+
+    /// The session host's limit on a worktree name.
+    static let maximumNameCharacters = 100
 
     /// The session host's limit on a message, in UTF-8 bytes (64 KiB).
     public static let maximumMessageBytes = 65_536
@@ -36,20 +46,23 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         switch self {
         case .commit: "git.commit"
         case .push: "git.push"
+        case .worktree: "git.worktree.create"
         }
     }
 
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key): key
         }
     }
 
-    /// The session the page read the repository's status for.
-    public var sessionId: String {
+    /// The session the page read the repository's status for; none for a
+    /// new chat's worktree.
+    public var sessionId: String? {
         switch self {
         case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _): sessionId
+        case .worktree: nil
         }
     }
 
@@ -69,8 +82,18 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// `expected_head` must be a hexadecimal commit id; booleans default to
     /// false and anything else of the wrong type refuses.
     init?(method: String, params: [String: Any]?) {
-        guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key),
-              let sessionId = params["session_id"] as? String, Self.isKey(sessionId) else { return nil }
+        guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key) else { return nil }
+        if method == "git.worktree.create" {
+            guard let cwd = params["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") else { return nil }
+            switch params["name"] {
+            case nil, is NSNull: self = .worktree(cwd: cwd, name: nil, key: key)
+            case let name as String where (1...Self.maximumNameCharacters).contains(name.count):
+                self = .worktree(cwd: cwd, name: name, key: key)
+            default: return nil
+            }
+            return
+        }
+        guard let sessionId = params["session_id"] as? String, Self.isKey(sessionId) else { return nil }
         let expectedHead: String?
         switch params["expected_head"] {
         case nil, is NSNull: expectedHead = nil

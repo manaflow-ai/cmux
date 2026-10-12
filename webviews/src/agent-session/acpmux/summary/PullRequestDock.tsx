@@ -41,10 +41,14 @@ function writeDismissed(sessionId: string | undefined, urls: readonly string[]):
   }
 }
 
-/// A bar's state and title: the live ones when the header follows this pull request.
-function shown(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): { state: string; title: string } {
-  if (live?.url === pr.url) return { state: live.state, title: live.title || (pr.title ?? "") };
-  return { state: pr.state, title: pr.title ?? "" };
+/// A bar's state and title: the live ones when the header follows this pull request. Without
+/// them, "open" is only what the chat last saw, so the bar names no state rather than a stale one.
+function shown(
+  pr: SummaryPullRequest,
+  live: HeaderPullRequest | undefined,
+): { state: string; title: string; labeled: boolean } {
+  if (live?.url === pr.url) return { state: live.state, title: live.title || (pr.title ?? ""), labeled: true };
+  return { state: pr.state, title: pr.title ?? "", labeled: pr.state !== "open" };
 }
 
 /// Mount keyed by the chat: dismissals and Show more belong to one chat.
@@ -82,16 +86,18 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
   return (
     <section ref={dock} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
       {visible.map((pr, index) => {
-        const { state, title } = shown(pr, live);
+        const { state, title, labeled } = shown(pr, live);
         const badge = BADGES[state];
         return (
           <div key={pr.url} className="acpmux-pr-dock__row">
             <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state} title={title || undefined}>
               <Icon name="git.pullrequest" size={13} />
               <span className="acpmux-pr-dock__number">#{pr.number}</span>
-              <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
+              <span className="acpmux-pr-dock__repo" title={pr.repo}>
+                {pr.repo.split("/").pop()}
+              </span>
               {title && <span className="acpmux-pr-dock__title">{title}</span>}
-              <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>
+              {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
             </a>
             <button
               type="button"

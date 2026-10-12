@@ -62,6 +62,7 @@
 .acpmux-pr-dock__bar:hover{background:var(--acpmux-composer-hover)}
 .acpmux-pr-dock__bar:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-pr-dock__number,.acpmux-pr-dock__repo{flex:none;color:var(--agent-muted)}
+.acpmux-pr-dock__repo{flex:0 1 auto;min-width:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__state{flex:none;margin-left:auto;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted)}
 .acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}

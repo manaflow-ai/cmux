@@ -153,6 +153,7 @@
     "git.files.search",
     "git.push",
     "git.status",
+    "git.worktree.create",
     "github.issue.comment",
     "home.search",
     "inbox.archive",
