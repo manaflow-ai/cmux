@@ -341,6 +341,15 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+        let navigationIntent: BrowserInsecureHTTPNavigationIntent = shouldOpenInNewTab ? .newTab : .currentTab
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
@@ -348,6 +357,47 @@ import WebKit
            let owner,
            BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
             decisionHandler(.cancel)
+            return
+        }
+
+        // A link, redirect or script navigation to loopback in a managed SSH
+        // workspace goes to the SSH host, never this Mac's same-port service.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           let model = owner.cloudAccess.model,
+           model.route == .loopback,
+           BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+           let serviceURL = owner.sshLoopbackServiceURL(for: url),
+           owner.cloudAccess.owns(serviceURL),
+           let listenerURL = model.url(for: url),
+           listenerURL != url {
+            // A service may redirect back to its canonical localhost origin.
+            // Once this pane owns a live forward, rewrite that request to the
+            // existing listener instead of reconfiguring the route and
+            // reloading the forward indefinitely. Keep the original method,
+            // headers, and body intact. Preserve the service Host as well: a
+            // number of dev servers redirect a loopback listener back to
+            // localhost when the forwarded request presents the listener's
+            // ephemeral host, which would otherwise repeat this interception.
+            var request = navigationAction.request
+            request.url = listenerURL
+            if let host = serviceURL.host {
+                let hostValue = host.contains(":") ? "[\(host)]" : host
+                let port = serviceURL.port.map { ":\($0)" } ?? ""
+                request.setValue(hostValue + port, forHTTPHeaderField: "Host")
+            }
+            decisionHandler(.cancel)
+            requestNavigation?(request, navigationIntent, nil)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           owner.sshLoopbackServiceURL(for: url) != nil {
+            decisionHandler(.cancel)
+            requestNavigation?(navigationAction.request, navigationIntent, nil)
             return
         }
 
@@ -504,13 +554,6 @@ import WebKit
                 openInNewTab?(url)
             }
         }
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
         if navigationAction.targetFrame?.isMainFrame == true {
