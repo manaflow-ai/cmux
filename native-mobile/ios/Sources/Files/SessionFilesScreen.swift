@@ -116,13 +116,15 @@ struct FilesChipTabs: View {
                 } label: {
                     Text(tab.title)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(selected ? Theme.background : Theme.ink)
+                        // ChatGPT Library chips: the selected one is a tinted
+                        // capsule, the others plain secondary text.
+                        .foregroundStyle(selected ? Theme.ink : Theme.secondaryInk)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background {
-                            if selected { Capsule().fill(Theme.ink) }
+                            if selected { Capsule().fill(Color.primary.opacity(0.12)) }
                         }
-                        .glassEffect(selected ? .identity : .regular.interactive(), in: .capsule)
+                        .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selected ? .isSelected : [])

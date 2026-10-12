@@ -61,6 +61,17 @@ enum FilePreviewMarkdown {
 
             if trimmed.isEmpty { flushParagraph(); i += 1; continue }
 
+            // Raw HTML blocks (GitHub READMEs: centered logos, badges) pass
+            // through as written; the preview web view runs no JavaScript.
+            if trimmed.hasPrefix("<"), trimmed.range(of: #"^</?[A-Za-z][A-Za-z0-9-]*[\s>/]"#, options: .regularExpression) != nil {
+                flushParagraph()
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                    html += lines[i] + "\n"
+                    i += 1
+                }
+                continue
+            }
+
             // Fenced code.
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 flushParagraph()

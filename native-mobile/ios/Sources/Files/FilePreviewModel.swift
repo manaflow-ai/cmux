@@ -73,10 +73,14 @@ final class FilePreviewModel {
         progress = 0
         do {
             let limit = max((expectedSize ?? 0) + 1, 64 << 20)
-            let (data, mime) = try await services.read(path: path, limit: limit) { [weak self] value in
+            let (downloaded, mime) = try await services.read(path: path, limit: limit) { [weak self] value in
                 Task { @MainActor in self?.progress = min(1, value) }
             }
             kind = FilePreviewKind.detect(path: path, mime: mime)
+            var data = downloaded
+            if kind == .markdown || kind == .html {
+                data = await inlineRelativeImages(in: data)
+            }
             let url = try writeTemp(data)
             fileURL = url
             let kind = kind
@@ -89,6 +93,34 @@ final class FilePreviewModel {
         } catch {
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Relative images (`img/logo.svg`) live on the Mac: fetch each one
+    /// and embed it as a data URI so the sandboxed preview can show it.
+    private func inlineRelativeImages(in data: Data) async -> Data {
+        var text = String(decoding: data, as: UTF8.self)
+        let folder = (path as NSString).deletingLastPathComponent
+        let pattern = #"(src(?:set)?=["']|!\[[^\]]*\]\()([^"')\s]+)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return data }
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        var replacements: [String: String] = [:]
+        for match in matches.prefix(40) {
+            guard let range = Range(match.range(at: 2), in: text) else { continue }
+            let reference = String(text[range])
+            guard replacements[reference] == nil, !reference.contains("://"), !reference.hasPrefix("data:"),
+                  !reference.hasPrefix("#"), replacements.count < 20 else { continue }
+            let target = reference.hasPrefix("/") ? reference : (folder as NSString).appendingPathComponent(reference)
+            guard let (bytes, mime) = try? await services.read(path: (target as NSString).standardizingPath, limit: 4 << 20),
+                  !bytes.isEmpty else { continue }
+            let type = mime ?? (reference.hasSuffix(".svg") ? "image/svg+xml" : "image/png")
+            replacements[reference] = "data:\(type);base64,\(bytes.base64EncodedString())"
+        }
+        for (reference, uri) in replacements {
+            text = text.replacingOccurrences(of: "\"\(reference)\"", with: "\"\(uri)\"")
+                .replacingOccurrences(of: "'\(reference)'", with: "'\(uri)'")
+                .replacingOccurrences(of: "](\(reference))", with: "](\(uri))")
+        }
+        return Data(text.utf8)
     }
 
     private func writeTemp(_ data: Data) throws -> URL {
