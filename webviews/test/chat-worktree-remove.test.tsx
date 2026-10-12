@@ -190,3 +190,67 @@ test("a chat without a session has nothing to remove yet", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("a Remove anyway that failed retries as the same action, never as a plain Remove", async () => {
+  const calls: [string, boolean][] = [];
+  const answers: (() => Promise<unknown>)[] = [
+    async () => {
+      throw failure("uncommitted_changes", { files: ["a.txt"], count: 1 });
+    },
+    async () => {
+      throw Object.assign(new Error("timed out"), { code: "native.timed_out" });
+    },
+    async () => ({
+      value: { root: WORKTREE, main_root: MAIN, branch: "cmux/fix-login", branch_deleted: true },
+      replayed: true,
+    }),
+  ];
+  const root = await render(async (key, discard) => {
+    calls.push([key, discard]);
+    return answers[calls.length - 1]!();
+  });
+  try {
+    await click("Remove worktree");
+    await click("Remove anyway");
+    expect(popover()?.querySelector("[role=alert]")?.textContent).toBe("Couldn't remove the worktree");
+    // The retry is the discard again, under its key, so the host replays it.
+    expect(button("Remove worktree")).toBeUndefined();
+    await click("Remove anyway");
+    expect(calls.map(([, discard]) => discard)).toEqual([false, true, true]);
+    expect(calls[2]![0]).toBe(calls[1]![0]);
+    expect(popover()?.querySelector("output")?.textContent).toBe("Removed the worktree and its branch cmux/fix-login");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Apply and Remove never run at once", async () => {
+  let finish: (value: unknown) => void = () => {};
+  const root = createRoot(doc().getElementById("root")!);
+  await act(async () =>
+    root.render(
+      <ChatHeaderTools
+        onTerminal={() => {}}
+        onBrowser={() => {}}
+        summary={null}
+        menu={() => []}
+        folder={WORKTREE}
+        readStatus={status}
+        onApplyWorktree={() => new Promise((resolve) => (finish = resolve))}
+        onRemoveWorktree={async () => ({ value: { root: WORKTREE, main_root: MAIN }, replayed: false })}
+      />,
+    ),
+  );
+  await settle();
+  await act(async () => doc().querySelector<HTMLButtonElement>("button.acpmux-header-worktree")!.click());
+  await settle();
+  try {
+    await click("Apply to main checkout");
+    expect(button("Remove worktree")?.disabled).toBe(true);
+    await act(async () => finish({ value: { main_root: MAIN, files: ["a.txt"] }, replayed: false }));
+    await settle();
+    expect(button("Remove worktree")?.disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
