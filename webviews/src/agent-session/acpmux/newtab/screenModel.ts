@@ -33,6 +33,8 @@ export type ScreenAsk = { harness: string; agent: string; model?: string };
 export const MAX_MATCH_ROWS = 4;
 /// Addresses that complete the typed word ("reddit" to reddit.com).
 export const MAX_COMPLETIONS = 3;
+/// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
+const MIN_COMPLETION_LENGTH = 3;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
@@ -92,12 +94,13 @@ export function stepSelection(current: number, step: 1 | -1, count: number): num
 }
 
 function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
-  // Tabs, workspaces and pages compete for the rows (no chat, folder or command).
+  // Tabs, workspaces and pages compete for the rows (no chat, folder or command). A tab or visit
+  // still on a blank page is nowhere to go: it showed as "about:blank workspace-N".
   const navigable: OmnibarContext = {
     ...EMPTY_OMNIBAR,
-    tabs: omnibar.tabs,
+    tabs: omnibar.tabs.filter((tab) => !blankPage(tab.title) && !blankPage(tab.detail)),
     workspaces: omnibar.workspaces,
-    history: omnibar.history,
+    history: omnibar.history.filter((entry) => !blankPage(entry.url)),
   };
   return omnibarRows(query, "browser", navigable)
     .flatMap((row) => screenRow(row))
@@ -106,7 +109,7 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
 
 /// Visited pages, then top sites, whose address starts with the typed word.
 function completions(query: string, omnibar: OmnibarContext): ScreenRow[] {
-  if (query.length < 2 || /\s/.test(query)) return [];
+  if (query.length < MIN_COMPLETION_LENGTH || /\s/.test(query)) return [];
   const needle = bareAddress(query.toLowerCase());
   const visited = omnibar.history
     .filter((entry) => /^https?:/i.test(entry.url) && bareAddress(entry.url.toLowerCase()).startsWith(needle))
@@ -122,6 +125,11 @@ function completions(query: string, omnibar: OmnibarContext): ScreenRow[] {
     text: site,
   }));
   return distinct([...visited, ...sites]).slice(0, MAX_COMPLETIONS);
+}
+
+/// `about:blank` and the other internal pages.
+function blankPage(text: string | undefined): boolean {
+  return !!text && /^about:/i.test(text.trim());
 }
 
 /// `reddit.com/r/x` for `https://www.reddit.com/r/x/`: what two addresses compare by.

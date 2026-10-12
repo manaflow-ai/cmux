@@ -31,9 +31,6 @@ const icon = (value: unknown) => {
   const text = string(value);
   return text?.startsWith("data:image/") ? { icon: text } : {};
 };
-/// A blank or internal page (`about:blank`): a browser tab still showing one, or a visit to one,
-/// is nowhere to go, so the bar never offers it (it showed as "about:blank workspace-N").
-const blankPage = (text: string | undefined) => !!text && /^about:/i.test(text.trim());
 const records = (value: unknown) =>
   (Array.isArray(value) ? value : []).filter(
     (item): item is Record<string, unknown> => typeof item === "object" && item !== null,
@@ -49,8 +46,8 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       .flatMap((tab) => {
         const id = string(tab.id);
         const title = string(tab.title) ?? "";
+        if (!id || !kinds.has(tab.kind as string)) return [];
         const detail = string(tab.detail);
-        if (!id || !kinds.has(tab.kind as string) || blankPage(title) || blankPage(detail)) return [];
         const workspace = string(tab.workspace);
         return [
           {
@@ -83,7 +80,7 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       .flatMap((entry) => {
         const url = string(entry.url);
         const title = string(entry.title);
-        return url && !blankPage(url) ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
+        return url ? [{ url, ...(title ? { title } : {}), ...icon(entry.icon) }] : [];
       })
       .slice(0, MAX_NEW_TAB_ENTRIES),
   };
