@@ -45,8 +45,10 @@ final class CloudAccessAsks {
     func start(services: AppServices) {
         guard loop == nil else { return }
         loop = Task { @MainActor [weak self, weak services] in
+            // wakeup-allow: polls triage only while a moved chat or a revoke waits (the loop then ends); the machine pushes no access request
             while !Task.isCancelled {
                 guard let pause = await self?.poll(services) else { return }
+                // wakeup-allow: the poll's pause (accessPoll, or a machine's backoff), only while the loop above runs
                 try? await Task.sleep(for: pause)
             }
         }
@@ -59,6 +61,7 @@ final class CloudAccessAsks {
         start(services: services)
         guard let binary = services.cloud.move.cli else { return }
         let revokes = revokes
+        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the poll loop
         Task { @MainActor [weak services] in
             guard let services else { return }
             await revokes.run(CloudAccessCLI(binary: binary), services: services)
@@ -194,6 +197,7 @@ final class CloudAccessAsks {
         asks[tab]?.removeAll { $0.card == card }
         render(services: services)
         let logger = services.cloud.logger
+        // task-owner: one person's answer, bounded by the CLI's timeout; `answering` tracks it
         Task { @MainActor [weak self, weak services] in
             let answer: CloudAccessCLI.Answer
             do {
