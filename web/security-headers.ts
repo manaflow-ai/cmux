@@ -30,7 +30,6 @@ const publicMarketingSources = [
   `/${localePrefix}/nightly`,
   `/${localePrefix}/assets`,
   `/${localePrefix}/wall-of-love`,
-  `/${localePrefix}/art`,
 ];
 
 export const securityHeaderRules = [

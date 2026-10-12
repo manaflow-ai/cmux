@@ -3337,7 +3337,7 @@
     "metaDescription": "cmux'ın pencere arka planı olarak sunduğu kamu malı tablolara göz atın: Van Gogh, Friedrich, Goya, Doré ve daha fazlası, kaynakları ve lisanslarıyla birlikte.",
     "title": "Sanat",
     "description": "Terminallerinizin arkasına koyabileceğiniz ünlü kamu malı tablolar ve baskılar. Tüm eserlerin sanatçıları 70 yıldan uzun süre önce öldü ve her eser 1931'den önce yayımlandı.",
-    "howToUse": "cmux'ta Ayarlar → Görünüm → Arka Plan bölümünden birini seçin.",
+    "howToUse": "Yakında cmux'ta: Bu eserlerden herhangi birini terminallerinizin arkasına arka plan olarak koyun.",
     "loading": "Koleksiyon yükleniyor…",
     "unavailable": "Koleksiyon yüklenemedi. Birkaç dakika sonra tekrar deneyin.",
     "collectionsLabel": "Koleksiyonlar",

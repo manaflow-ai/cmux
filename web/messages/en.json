@@ -4962,7 +4962,7 @@
     "metaDescription": "Browse the public-domain paintings cmux offers as window backgrounds: Van Gogh, Friedrich, Goya, Doré and more, with sources and licenses.",
     "title": "Art",
     "description": "Famous public-domain paintings and prints you can put behind your terminals. Every work's artist died over 70 years ago and it was published before 1931.",
-    "howToUse": "In cmux, choose one in Settings → Appearance → Background.",
+    "howToUse": "Coming soon to cmux: set any of these as the background behind your terminals.",
     "loading": "Loading the collection…",
     "unavailable": "The collection could not be loaded. Try again in a few minutes.",
     "collectionsLabel": "Collections",

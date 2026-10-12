@@ -56,7 +56,7 @@ function ArtCard({ work, title, sourceLabel }: { work: ArtWork; title: string; s
       <a
         href={work.source}
         className="text-[12px] text-muted underline decoration-link-underline underline-offset-2"
-        rel="noopener"
+        aria-label={`${sourceLabel}: ${title}`}
       >
         {sourceLabel}
       </a>
