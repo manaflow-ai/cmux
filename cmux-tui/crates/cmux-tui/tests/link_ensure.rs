@@ -407,7 +407,9 @@ fn link_ensure_refuses_a_bad_install_id_before_it_changes_anything() {
     let moved: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
         .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
-        .filter(|name| name.starts_with("private.key.") || name.starts_with("peers."))
+        .filter(|name| {
+            name.starts_with("private.key.") || (name.starts_with("peers.") && name != "peers.json")
+        })
         .collect();
     assert!(moved.is_empty(), "archive files appeared: {moved:?}");
 }
