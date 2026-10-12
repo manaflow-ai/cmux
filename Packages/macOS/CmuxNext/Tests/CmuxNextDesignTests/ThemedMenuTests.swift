@@ -104,13 +104,10 @@ import Testing
         menu.delegate = spy
         menu.themeRows(in: try Self.accentedScope())
         let row = try #require(menu.items[1].view as? ThemedMenuRowView)
-        // Hosted in a window so its dirty state is tracked.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView?.addSubview(row)
-        window.displayIfNeeded()
-        row.needsDisplay = false
+        let other = try #require(menu.items[0].view as? ThemedMenuRowView)
         menu.delegate?.menu?(menu, willHighlight: menu.items[1])
-        #expect(row.needsDisplay)
+        #expect(row.highlightChanges == 1, "the row taking the highlight redraws")
+        #expect(other.highlightChanges == 0)
         #expect(spy.highlighted === menu.items[1])
         menu.delegate?.menuDidClose?(menu)
         #expect(spy.closed)
