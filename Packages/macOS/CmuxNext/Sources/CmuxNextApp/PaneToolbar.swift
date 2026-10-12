@@ -108,7 +108,7 @@ final class PaneToolbar {
         self.target = target
         self.kind = kind
         self.hidden = hidden
-        guard let registry = registry(), let target, let kind, registry.descriptors.isEmpty else { return view.show([], more: false, hidden: []) }
+        guard let registry = registry(), let target, let kind else { return view.show([], more: false, hidden: []) }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
         let ids = Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
         let (shown, more) = Self.arrange(ids, hidden: hidden)

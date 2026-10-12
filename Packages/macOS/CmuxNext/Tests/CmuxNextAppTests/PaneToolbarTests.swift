@@ -28,7 +28,11 @@ struct PaneToolbarTests {
         var more: [String] { view.moreButton.isHidden ? [] : (view.moreMenu?()?.items ?? []).map(\.title) }
 
         func click(_ id: String) {
-            view.buttons[view.shown.firstIndex { $0.id.rawValue == id }!].performClick(nil)
+            guard let index = view.shown.firstIndex(where: { $0.id.rawValue == id }) else {
+                Issue.record("no \(id) button")
+                return
+            }
+            view.buttons[index].performClick(nil)
         }
 
         func choose(_ menu: NSMenu?, _ title: String) {
@@ -66,10 +70,10 @@ struct PaneToolbarTests {
         #expect(bar.view.intrinsicContentSize.width == 0)
     }
 
-    @Test func hideMovesAButtonIntoMoreAndShowBringsItBack() {
+    @Test func hideMovesAButtonIntoMoreAndShowBringsItBack() throws {
         let bar = Bar()
         bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [])
-        let splitDown = bar.view.shown[1]
+        let splitDown = try #require(bar.view.shown.first { $0.id == "splitDown" })
         bar.choose(bar.view.hideMenu(splitDown), "Hide Split Down Button")
         #expect(bar.written == [["splitDown"]])
         #expect(bar.buttons == ["splitRight", "openDiffViewer", "file.open", "toggleSplitZoom"])
