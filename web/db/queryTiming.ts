@@ -43,21 +43,7 @@ export function observePostgresJsQueryTiming(query: unknown, now: () => number =
   if (typeof target.resolve !== "function" || typeof target.reject !== "function") return;
   const createdAt = now();
   let sentAt: number | undefined;
-  let statement = target.statement;
-  try {
-    Object.defineProperty(target, "statement", {
-      configurable: true,
-      enumerable: true,
-      get: () => statement,
-      set: (next: unknown) => {
-        if (sentAt === undefined && next) sentAt = now();
-        statement = next;
-      },
-    });
-  } catch {
-    // A query shape this hook cannot observe runs untimed, never broken.
-    return;
-  }
+  if (!onPostgresJsQuerySent(target, () => { sentAt ??= now(); })) return;
   let settled = false;
   const settle = (failed: boolean) => {
     if (settled) return;
@@ -73,4 +59,35 @@ export function observePostgresJsQueryTiming(query: unknown, now: () => number =
   const reject = target.reject;
   target.resolve = (value: unknown) => { settle(false); return resolve(value); };
   target.reject = (error: unknown) => { settle(true); return reject(error); };
+}
+
+/**
+ * Calls `callback` once, when postgres.js assigns the query a statement on a
+ * connection (it is being sent). Chains any accessor already installed, so
+ * several observers can watch one query. Returns false when the query cannot
+ * be observed (it then runs unobserved, never broken).
+ */
+export function onPostgresJsQuerySent(query: object, callback: () => void): boolean {
+  const target = query as ObservablePostgresJsQuery;
+  const previous = Object.getOwnPropertyDescriptor(target, "statement");
+  let statement = previous?.get ? previous.get.call(target) : target.statement;
+  let sent = false;
+  try {
+    Object.defineProperty(target, "statement", {
+      configurable: true,
+      enumerable: true,
+      get: () => (previous?.get ? previous.get.call(target) : statement),
+      set: (next: unknown) => {
+        if (previous?.set) previous.set.call(target, next);
+        else statement = next;
+        if (!sent && next) {
+          sent = true;
+          try { callback(); } catch { /* An observer never changes the query. */ }
+        }
+      },
+    });
+  } catch {
+    return false;
+  }
+  return true;
 }
