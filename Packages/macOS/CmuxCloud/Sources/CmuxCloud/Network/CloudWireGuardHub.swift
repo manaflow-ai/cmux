@@ -122,9 +122,7 @@ public actor CloudWireGuardHub {
     /// publishes `.running`. Keep that signal until the state transition commits.
     private var pendingStartupExit: (processID: UUID, status: Int32)?
     private var startEnrolled = false // This attempt enrolled; recovery reads it.
-    /// The config the running hub was started with, to tell a re-enrollment
-    /// that changed it (a recreated peer) from one that did not.
-    private var runningConfig: String?
+    private var runningConfig: String? // The running hub's config: a changed one means a recreated peer.
     private var lastUnansweredRefresh: ContinuousClock.Instant?
     private var refreshTask: Task<Ready, Error>?
     private var lastRefresh: ContinuousClock.Instant?
@@ -147,6 +145,8 @@ public actor CloudWireGuardHub {
     /// - Throws: The enrollment's answer, e.g. `403 vm_access_revoked`.
     public func refreshAfterUnansweredRoute() async throws -> Ready? {
         _ = try await ensureRunning()
+        // A route refresh in flight never restarts on a new config; let it end, then ask ourselves.
+        if let refreshTask { _ = try? await refreshTask.value }
         let now = configuration.now()
         if let last = lastUnansweredRefresh, last.duration(to: now) < .seconds(60) { return nil }
         lastUnansweredRefresh = now
@@ -518,8 +518,8 @@ public actor CloudWireGuardHub {
         } else {
             enrollment = try await configuration.enroll()
         }
-        if generation == startGeneration { startEnrolled = true } // A cancelled start's late enroll must not leak.
-        runningConfig = Self.configContents(enrollment)
+        // A cancelled start's late enroll must not leak into the current attempt.
+        if generation == startGeneration { startEnrolled = true; runningConfig = Self.configContents(enrollment) }
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()

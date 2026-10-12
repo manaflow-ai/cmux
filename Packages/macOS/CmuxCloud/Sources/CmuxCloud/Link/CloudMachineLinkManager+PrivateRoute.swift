@@ -2,6 +2,9 @@ import Foundation
 import Network
 
 extension CloudMachineLinkManager {
+    /// The probe budget after a dead tunnel was re-enrolled and its hub restarted.
+    static let unansweredRouteRetryBudget: Duration = .seconds(10)
+
     /// Selects a working family using the same SOCKS connector as port forwards.
     /// The probe sends no daemon request and closes its stream before the real
     /// encrypted link starts. Failed probes propagate to the caller's retry policy,
@@ -78,9 +81,11 @@ extension CloudMachineLinkManager {
             // runs again, and a revoked sign-in surfaces as that answer.
             guard case .handshakeTimedOut = error,
                   let refreshed = try await self.hub?.refreshAfterUnansweredRoute() else { throw error }
+            // The silent probe ran out the caller's budget, so the retry on the
+            // new peer gets its own short one; a live hub answers in milliseconds.
             return try await resolvedPrivateRoute(
                 machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute, addresses: freshAddresses,
-                refreshIfNeeded: false, timeout: deadline.map { Self.remaining(until: $0) }
+                refreshIfNeeded: false, timeout: Self.unansweredRouteRetryBudget
             )
         }
         connected.connection.cancel()
