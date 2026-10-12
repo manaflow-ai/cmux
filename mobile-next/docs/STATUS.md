@@ -11,6 +11,10 @@ Loop log for the agent building this. Updated in place.
 - Terminal: Ghostty (MANUAL IO) renders the remote zsh; key bar; typing works.
 - TURN: Worker secrets set from 1Password (`cmux-next-ios-wrtc` key). Forced relay-only run
   (`-cnm-relay-only`) connected to the distant mini via Cloudflare TURN and ran a terminal command.
+- Two Macs on different networks (2026-10-12, run r21/r22): mini-cmux-austin-mini-0 (office,
+  relay) and Aziz's other MacBook (direct, host/host candidates) connected at once; a Ghostty
+  terminal on the MacBook printed `hi from Abdulaziz's MacBook Pro (2) on 27.2`. The MacBook host is
+  stopped after each run (it is paired to the shared test account).
 - Auth decision (user, 2026-10-12): Apple sign-in only for now. Email codes stay behind
   `-cnm-email-auth` for automated test accounts.
 

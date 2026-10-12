@@ -245,6 +245,32 @@ final class FlowTests: XCTestCase {
         snap(app, "67-list")
     }
 
+    /// Two Macs on different networks: both connect; a terminal runs on the second.
+    func testTwoMacs() throws {
+        let app = launchSignedIn()
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.macs"].tap()
+        let connected = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Connected'"))
+        let deadline = Date().addingTimeInterval(60)
+        while connected.count < 2, Date() < deadline { pause(1) }
+        XCTAssertEqual(connected.count, 2, "both Macs should connect")
+        snap(app, "70-two-macs")
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let news = app.buttons.matching(identifier: "terminals.new")
+        XCTAssertTrue(news.element(boundBy: 1).waitForExistence(timeout: 20))
+        snap(app, "71-terminals-two-macs")
+        news.element(boundBy: 1).tap()
+        pause(4)
+        app.buttons["terminal.keyboard"].tap()
+        pause(1)
+        app.typeText("echo hi from $(scutil --get ComputerName) on $(sw_vers -productVersion)\n")
+        pause(10)
+        snap(app, "72-terminal-other-mac")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
