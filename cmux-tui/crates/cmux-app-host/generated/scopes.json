@@ -609,6 +609,18 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.worktree.apply": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.create": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.remove": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "github.issue.comment": {
       "scope": "github:external",
       "class": "mutation"

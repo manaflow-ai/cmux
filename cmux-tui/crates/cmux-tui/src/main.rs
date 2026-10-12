@@ -2443,7 +2443,7 @@ fn run_server(
     }
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
-    mux.set_acpmux_socket(acp::daemon_socket_path());
+    mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
     mux.set_acpmux_starter(acp::daemon_acpmux_starter());
     #[cfg(unix)]

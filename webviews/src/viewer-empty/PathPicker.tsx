@@ -335,7 +335,15 @@ export function PathPicker({
   };
 
   return (
-    <section ref={mountRef} className="ve-picker" data-mode={mode} data-phase={load.phase} aria-label={title}>
+    <section
+      ref={mountRef}
+      className="ve-picker"
+      data-mode={mode}
+      data-phase={load.phase}
+      data-path-mode={path ? "true" : undefined}
+      data-path-rest={path ? (path.rest === "" ? "empty" : "nonempty") : undefined}
+      aria-label={title}
+    >
       <div className="ve-picker-head">
         <span className="ve-picker-title">{title}</span>
         <Breadcrumbs

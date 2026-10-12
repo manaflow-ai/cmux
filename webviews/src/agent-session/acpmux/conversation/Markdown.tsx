@@ -553,7 +553,7 @@ function Block({
   enter?: boolean;
   /** A code block's stage: still open (plain lines), closed while streaming (highlighted once,
    * faded in), or drawn finished (highlighted). */
-  code?: "open" | "handoff" | "final";
+  code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
 }): ReactNode {
@@ -640,6 +640,7 @@ function Block({
     }
     case "code":
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
@@ -712,6 +713,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** The reveal has shown everything so far and waits for more: the live edge pulses. */
   waiting?: boolean;
+  /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
+  plainCode?: boolean;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -728,6 +731,7 @@ export function Markdown({
   now = 0,
   waiting = false,
   githubRepository,
+  plainCode = false,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -773,7 +777,7 @@ export function Markdown({
         opts={opts}
         depth={0}
         enter={streaming && live}
-        code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+        code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
       />
     );

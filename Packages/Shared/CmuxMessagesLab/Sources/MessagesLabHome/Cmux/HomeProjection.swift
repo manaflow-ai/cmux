@@ -205,10 +205,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     private func install(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder: Bool) {
         let (conv, w) = core.install(conversation, items: items, summary: summary)
-        // cmux: temporary until hq-34's pin moves "me" into the row model (no process-global): my
-        // reactions draw as mine (blue disc, pop) only when PartRenderer.me is this Home's own id.
-        // App-wide, so the last installed Home wins; drop this line at that pin.
-        PartRenderer.me = me.rawValue
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews

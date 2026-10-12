@@ -122,6 +122,9 @@ fn commit_reopen(
     // A deleted personal workspace group (Ungroup, Delete Group) has no
     // member: its reopen forms the group again around its open workspaces.
     let group = record.get("group").filter(|group| group.is_object()).cloned();
+    // A closed window (`window` group) reopens no workspace: the app shows
+    // that window again, with the workspaces it kept.
+    let window = (kind == "window").then(|| record["window_record"].clone());
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
@@ -136,7 +139,9 @@ fn commit_reopen(
         .first()
         .cloned()
         .or_else(|| {
-            active_workspace.filter(|_| room.is_some() || group.is_some()).map(str::to_string)
+            active_workspace
+                .filter(|_| room.is_some() || group.is_some() || window.is_some())
+                .map(str::to_string)
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
@@ -185,6 +190,7 @@ fn commit_reopen(
             "screen_ids": reopened.screens,
             "tab_ids": reopened.tabs,
             "remaining": remaining,
+            "window": window,
         }),
         changes,
     ))

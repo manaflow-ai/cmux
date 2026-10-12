@@ -134,11 +134,11 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
           </button>
           <button
             type="button"
-            className="pw-button pw-import-csv"
+            className="pw-button pw-import-files"
             disabled={disconnected}
-            onClick={() => void store.importCSV()}
+            onClick={() => void store.importFromFiles()}
           >
-            {t("passwords.page.importCSV")}
+            {t("passwords.page.importFiles")}
           </button>
           <button
             type="button"

@@ -23,8 +23,8 @@ extension NewTabPage {
 
     static func split(_ source: PaneController, edge: PaneEdge) {
         let services = source.services
-        let cwd = source.selectedTab?.cwd
-        var page = Self.page(services, selected: source.selectedTab)
+        var page = Self.page(services, selected: source.selectedTab, pane: source)
+        let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
         let opened = SplitPageKey()
         // The page moves to the new pane: its choices act in the pane that shows it now.

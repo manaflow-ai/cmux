@@ -234,13 +234,23 @@ enum Springs {
     /// expressed as springs.
     /// The typing bubble's appearance, macOS (lossless send-typed-take1, send-typed-media-take1,
     /// typing-unfocused-take1; tools/evidence/ANIMATIONS.md section 6): scale 0 -> 1 about
-    /// `RowDraw.typingAnchor`, opacity 0 -> 1, and a drift of `typingDrift` (pt, window) to its place;
+    /// `RowDraw.typingAnchor`, opacity 0 -> 1 (the row's content: bubble, dots and discs fade as one), and
+    /// a drift of `typingDrift` (pt, window) to its place;
     /// time 0 = the insert's begin (the rows' `transcript.typing`).
     static var typingScale: SpringElement { element("typing.scale") }
     static var typingOpacity: SpringElement { element("typing.opacity") }
     static var typingDriftX: SpringElement { element("typing.driftX") }
     static var typingDriftY: SpringElement { element("typing.driftY") }
     static let typingDrift = CGPoint(x: 4.79, y: -7.66)
+    /// The two tail discs (`RowDraw.typingDiscs`, large then small), macOS: each a layer of its own at its
+    /// window place (not in the scaled bubble). Messages shows them from its first frames at 0.5 and 0.8 of
+    /// their size, a few points right of and above their place, and moves them there in about 0.25 s while
+    /// the bubble grows (lossless send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md section 6).
+    /// Offsets in window pt; their opacity is the bubble's (`typingOpacity`, on the row's content).
+    static let typingDiscFrom: [(x: Double, y: Double, scale: Double)] = [(2.531, -8.190, 0.496), (3.643, -10.700, 0.800)]
+    static func typingDiscX(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.x" : "typing.discS.x") }
+    static func typingDiscY(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.y" : "typing.discS.y") }
+    static func typingDiscScale(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.scale" : "typing.discS.scale") }
     /// The dots' pulse phase (Cell.startTypingDots) starts this long after the insert's begin.
     static let typingDotsPhase = 0.05
     /// The iOS app's typing pop and receipt cross-fade (ios/Sources/ChatColumn.swift; the macOS

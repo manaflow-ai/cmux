@@ -97,7 +97,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
-import { SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
+import { SessionCwdContext, SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -127,6 +127,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
   openReportedImage,
@@ -155,7 +156,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { archiveRow } from "./header/archiveRow";
+import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -173,7 +174,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
+import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -307,6 +308,13 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
   }
 };
 
+/// A start the host refused with a typed code: a chat on another machine (`agent_session.*`, the
+/// session daemon's agent-session-start). A trust refusal has its own question.
+function isStartRefusal(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("agent_session.") && !isTrustRefusal(error);
+}
+
 /// The machine a refused handshake names (`details.machineName`), for the composer's chip.
 function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
@@ -393,6 +401,9 @@ const changesSource: ChangesSource = {
   pullRequest: () => callNative("git.pullRequest", {}),
   reviewThreads: () => callNative("git.pullRequest", { action: "threads" }),
 };
+/// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
+/// name it by (the header's worktree pill, cx-lyqio.3b).
+const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
   callNative("git.checkpoint.diff", { from, to, include_patch: true });
@@ -1402,7 +1413,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1489,9 +1500,14 @@ export function VirtualTranscript({
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  // A report that came due while the pane was hidden, sent once it has a viewport again.
+  const anchorDeferred = useRef(false);
   const reportAnchor = () => {
     const node = ref.current;
     if (!node || !onAnchor) return;
+    // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
+    anchorDeferred.current = node.clientHeight === 0;
+    if (anchorDeferred.current) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1502,8 +1518,14 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  useEffect(() => {
+    if (height > 0 && anchorDeferred.current) reportAnchor();
+  });
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
+    // keeps following until the reader scrolls a visible one.
+    if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
     acpmuxPerf.timed("flush.scroll", () =>
@@ -1887,6 +1909,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const forkAny = forksAnyTurn(snapshot.summary?.family);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
@@ -1994,11 +2017,14 @@ function AcpmuxPane() {
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
+  // that would not fit the image cap answers `tooLarge` with its name.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
-      mode,
-    }).catch(() => null);
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
+      "composer.capture",
+      { mode },
+    ).catch(() => null);
+    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
@@ -2285,6 +2311,7 @@ function AcpmuxPane() {
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
+        forkAny,
       }),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -2334,6 +2361,7 @@ function AcpmuxPane() {
       stableBranches,
       forkable,
       forkSeq,
+      forkAny,
       stableEditSeqs,
       connected,
       hunkReview,
@@ -2657,6 +2685,22 @@ function AcpmuxPane() {
     },
     [requestFolder],
   );
+  /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
+  const [worktreeError, setWorktreeError] = useState<string | undefined>();
+  const startInWorktree = useCallback((cwd: string) => {
+    // A newer folder pick wins over this worktree, as between two picks.
+    const pick = ++folderPick.current;
+    setFolderAsk(undefined);
+    setWorktreeError(undefined);
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick !== folderPick.current) return;
+      // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
+      if (freshRef.current) setProjectDraft(folder);
+      else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+    });
+  }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -2817,6 +2861,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
     /// The connected client as the harness switch sees it.
@@ -2853,6 +2898,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           adopt?: unknown;
           surface?: unknown;
@@ -2914,6 +2960,14 @@ function AcpmuxPane() {
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        // A prompt a person's action seeded has a single-use host ticket bound to its promptId
+        // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
+        if (
+          host.prompt &&
+          typeof host.promptTicket?.promptId === "string" &&
+          typeof host.promptTicket.ticket === "string"
+        )
+          pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
@@ -3005,6 +3059,7 @@ function AcpmuxPane() {
           attachments: import("./attachments").ComposerAttachment[] = [],
           accepted?: () => void,
           steer = false,
+          promptId?: string,
         ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
@@ -3021,7 +3076,7 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
             accepted?.();
             return held.catch((error: unknown) =>
@@ -3033,6 +3088,9 @@ function AcpmuxPane() {
           const sessionId = await client.ensureSession().catch((error: unknown) => {
             // A folder harness that waits for Enable or Trust says so on its own card.
             setBlockedHarness(harnessBlock(error));
+            // A refused start (a chat on another machine, cx-k21v) says why in this page's own
+            // view: the host's typed refusal, already localized, under the localized "Not sent".
+            if (isStartRefusal(error)) client.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
@@ -3315,14 +3373,18 @@ function AcpmuxPane() {
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
         const harness = pendingHarness;
+        const ticket = pendingTicket;
         pendingPrompt = undefined;
         pendingHarness = undefined;
+        pendingTicket = undefined;
+        // The seeded prompt goes with its ticket, under the ticket's promptId.
+        if (prompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd);
-          void send(prompt).catch(() => undefined);
-        } else if (prompt) void send(prompt).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -3420,6 +3482,16 @@ function AcpmuxPane() {
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  const markUnread = markUnreadRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived,
+      local: localCwd !== undefined,
+      unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
+    },
+    () => ignoreFailure(callNative("chat.markUnread")),
+    t,
+  );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -3596,6 +3668,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
           key: "close",
@@ -3757,34 +3830,36 @@ function AcpmuxPane() {
           <TurnActionsContext.Provider value={turnActions}>
             <TurnCountsContext.Provider value={turnCountsFor}>
               <SessionEditsContext.Provider value={editRows}>
-                <SubagentNavContext.Provider value={setSubagentView}>
-                  <VirtualTranscript
-                    rows={transcriptRows}
-                    working={snapshot.isWorking}
-                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                    jumpButton={!quick}
-                    focusComposer={() => composerHandle.current?.focus()}
-                    find={quick ? undefined : find}
-                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                    openAt={
-                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                        ? scrollAnchor
-                        : undefined
-                    }
-                    onAnchor={
-                      quick || childRows || !shownSessionId
-                        ? undefined
-                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                    }
-                    expanded={expanded}
-                    registry={registry}
-                    githubRepository={githubRepository}
-                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                    onOpenDiff={quick ? undefined : openDiff}
-                    onToggleActivity={toggleActivity}
-                  />
-                </SubagentNavContext.Provider>
+                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                  <SubagentNavContext.Provider value={setSubagentView}>
+                    <VirtualTranscript
+                      rows={transcriptRows}
+                      working={snapshot.isWorking}
+                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                      jumpButton={!quick}
+                      focusComposer={() => composerHandle.current?.focus()}
+                      find={quick ? undefined : find}
+                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                      canLoadOlder={!childRows && snapshot.canLoadOlder}
+                      openAt={
+                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                          ? scrollAnchor
+                          : undefined
+                      }
+                      onAnchor={
+                        quick || childRows || !shownSessionId
+                          ? undefined
+                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                      }
+                      expanded={expanded}
+                      registry={registry}
+                      githubRepository={githubRepository}
+                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                      onOpenDiff={quick ? undefined : openDiff}
+                      onToggleActivity={toggleActivity}
+                    />
+                  </SubagentNavContext.Provider>
+                </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>
             </TurnCountsContext.Provider>
           </TurnActionsContext.Provider>
@@ -3945,6 +4020,9 @@ function AcpmuxPane() {
           />
         )
       )}
+      {worktreeError && freshChat && !snapshot.sessionId && (
+        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
+      )}
       {aside && (
         <SideQuestion
           state={aside}
@@ -4041,6 +4119,7 @@ function AcpmuxPane() {
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
+          onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>
             void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
@@ -4341,6 +4420,17 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      // A new chat's picked folder too: New Worktree names its branch before the first prompt.
+                      folder={localCwd ?? (remoteChat ? undefined : startFolder)}
+                      readStatus={readFolderStatus}
+                      statusKey={snapshot.isWorking}
+                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                      onApplyWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string) =>
+                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd

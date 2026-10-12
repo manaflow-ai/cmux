@@ -162,6 +162,12 @@ pub enum ResourceOperation {
     GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
+    #[serde(rename = "git.worktree.create")]
+    GitWorktreeCreate,
+    #[serde(rename = "git.worktree.apply")]
+    GitWorktreeApply,
+    #[serde(rename = "git.worktree.remove")]
+    GitWorktreeRemove,
     #[serde(rename = "history.entries.list")]
     HistoryEntriesList,
     #[serde(rename = "history.entries.remove")]

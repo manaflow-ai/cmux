@@ -22,6 +22,9 @@ type HeaderToolsProps = {
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
   expand?: string;
   onExpanded?: () => void;
+  folder?: string;
+  readStatus?: () => Promise<unknown>;
+  onApplyWorktree?: (key: string) => Promise<unknown>;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -98,6 +101,20 @@ const pullRequestChip: Play = async (ctx) => {
     },
   });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+};
+
+// A worktree chat (cx-lyqio.3b): its branch shows once `git.status` answers, beside the PR chip.
+const worktreePill: Play = async (ctx) => {
+  await pullRequestChip(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-worktree"));
+};
+
+// The pill's popover after Apply (cx-lyqio.4): the chat's work landed in the main checkout.
+const worktreeApplied: Play = async (ctx) => {
+  await worktreePill(ctx);
+  await ctx.click({ selector: ".acpmux-header-worktree" });
+  await ctx.click({ role: "button", name: "Apply to main checkout" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-apply output"));
 };
 
 // A click on the chip opens its status: title, state and review, then each check, failing first
@@ -220,6 +237,8 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
     "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
+    "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
+    "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -276,6 +295,41 @@ export default componentEntry<HeaderToolsProps>({
         onMergePullRequest: async () => ({ queued: false }),
       },
       play: pullRequestMerge,
+    },
+    worktree: {
+      note: "A chat started in a worktree names its branch beside the PR chip; the tooltip names the main checkout and the base (cx-lyqio.3b).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+        }),
+      },
+      play: worktreePill,
+    },
+    "worktree-apply": {
+      note: "A click on the worktree pill opens it with Apply, which brought the chat's work to the main checkout (cx-lyqio.4).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        onApplyWorktree: async () => ({
+          value: { main_root: "/Users/me/Projects/cmux", files: ["a.ts", "b.ts", "c.ts"] },
+        }),
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+        }),
+      },
+      play: worktreeApplied,
     },
     "customize-menu": {
       note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",

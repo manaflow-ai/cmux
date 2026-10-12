@@ -1942,6 +1942,15 @@ pre.cv-math-source {
   border-radius: 50%;
   box-sizing: border-box;
 }
+/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.cv-plan__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .cv-plan__item[data-status="completed"] {
   color: var(--cv-text-muted);
   text-decoration: line-through;

@@ -234,6 +234,25 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Save as Ghostty Theme (cx-wqn5.1): the host writes `base` with its edits as the user theme `name`. */
+  async saveThemeFile(name: string, base: string, replace: boolean): Promise<Reply<{ name?: string }>> {
+    return this.themeFileSaved(await this.request("cmux.settings.theme.save", { name, base, replace }));
+  }
+
+  /**
+   * Import Theme File: the host asks for the file in the cmux picker (`{}` when the person left it).
+   * A name in use answers `cmux.settings.theme.exists` with a `token`; `token` and `replace` retry it.
+   */
+  async importThemeFile(retry?: { token: string; replace: boolean }): Promise<Reply<{ name?: string }>> {
+    return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
+  }
+
+  /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
+  private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
+    if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
+    return reply;
+  }
+
   /** Whether `text` is a theme spec the host accepts. */
   async acceptsTheme(text: string): Promise<boolean> {
     const reply = await this.request("cmux.settings.theme.accepts", { text });
