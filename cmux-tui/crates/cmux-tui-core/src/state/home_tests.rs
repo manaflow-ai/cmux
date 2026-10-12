@@ -286,3 +286,29 @@ fn home_raw_tree_names_the_home_workspace() {
     assert_eq!(kind_of(&other), "normal");
     mux.shutdown();
 }
+
+/// The app's hidden home is not one of the user's workspaces: the first one
+/// it names after `ensure_home` is `workspace-1`, not `workspace-2` (a
+/// first launch showed its only workspace as `workspace-2`).
+#[test]
+fn home_does_not_count_toward_workspace_names() {
+    let session = Session::new("names");
+    let mux = session.open();
+    ensure_home(&mux, "connect-1");
+    let name_of = |id: &str| {
+        mux.with_state(|state| {
+            state.workspaces.iter().find(|item| item.public_id.as_str() == id).unwrap().name.clone()
+        })
+    };
+    let create = |key: &str| {
+        send(&mux, "workspace.create", json!({"initial_content": "empty"}), Some(key)).unwrap()["value"]
+            ["workspace_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let first = create("create-first");
+    assert_eq!(name_of(&first), "workspace-1");
+    let second = create("create-second");
+    assert_eq!(name_of(&second), "workspace-2");
+}

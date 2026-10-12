@@ -103,18 +103,7 @@ function Card({
         <div className="acpmux-edited-title">
           <div>{title}</div>
           <div className="acpmux-edited-sub">
-            {reviewable ? (
-              <button
-                type="button"
-                className="acpmux-edited-link"
-                onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-              >
-                {t("edited.view")}
-                <ArrowUpRight />
-              </button>
-            ) : (
-              files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />
-            )}
+            {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
         </div>
@@ -376,21 +365,5 @@ const PlusMinus = () => (
     aria-hidden="true"
   >
     <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
-  </svg>
-);
-
-const ArrowUpRight = () => (
-  <svg
-    width={12}
-    height={12}
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.3}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3.5 8.5l5-5M4.5 3.5h4v4" />
   </svg>
 );

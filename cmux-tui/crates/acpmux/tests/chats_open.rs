@@ -9,6 +9,8 @@
 //! - A chat whose recorded folder is gone or guarded asks for a folder; it
 //!   never falls back to the home folder.
 //! - Adopt finds a chat in the store of the profile that resumes it.
+//! - An OpenCode chat resumes through adopt too (ACP `session/load`), from
+//!   its `opencode.db`, not as a fresh chat in its folder (cx-6edj).
 
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
@@ -237,4 +239,81 @@ async fn a_chat_in_a_store_no_profile_uses_adopts_with_that_store() {
         "adopt": {"harness": "fakecodex", "agentSessionId": "0199a1b2-c3d4-7e5f-8a9b-000000000000"}}}});
     let refused = call(&tx, &mut rx, 202, method::SESSION_NEW, stray).await;
     assert!(refused["error"].is_object(), "{refused}");
+}
+
+const OPENCODE_ID: &str = "ses_6edj0001opencodechat";
+
+/// Runs `script` (Python, `sqlite3` imported) with the database path as `db`.
+fn sqlite(db: &Path, script: &str) {
+    std::fs::create_dir_all(db.parent().expect("parent")).expect("dirs");
+    let code =
+        format!("import sqlite3, sys\ndb = sqlite3.connect(sys.argv[1])\n{script}\ndb.commit()\n");
+    let status = std::process::Command::new("python3")
+        .args(["-c", &code])
+        .arg(db)
+        .status()
+        .expect("python3");
+    assert!(status.success(), "sqlite fixture {}", db.display());
+}
+
+/// An OpenCode 1.2+ chat (`session`, `message`, `part`) in `<data>/opencode/opencode.db`.
+fn write_opencode(h: &Path, cwd: &Path) {
+    let db = h.join(".local/share/opencode/opencode.db");
+    let rows = json!({
+        "session": [OPENCODE_ID, "Name the CLI", cwd, 1_759_395_600_000_i64, 1_759_395_605_000_i64],
+        "message": ["msg_1", OPENCODE_ID, json!({"role": "user"}).to_string()],
+        "part": ["prt_1", "msg_1", OPENCODE_ID, json!({"type": "text", "text": "Name the CLI"}).to_string()],
+    });
+    let script = format!(
+        "import json\nrows = json.loads({rows:?})\n\
+         db.execute('create table session (id text primary key, parent_id text, title text, directory text, time_created integer, time_updated integer, time_archived integer)')\n\
+         db.execute('create table message (id text primary key, session_id text, data text)')\n\
+         db.execute('create table part (id text primary key, message_id text, session_id text, data text)')\n\
+         db.execute('insert into session values (?, null, ?, ?, ?, ?, null)', rows['session'])\n\
+         db.execute('insert into message values (?, ?, ?)', rows['message'])\n\
+         db.execute('insert into part values (?, ?, ?, ?)', rows['part'])",
+        rows = rows.to_string(),
+    );
+    sqlite(&db, &script);
+}
+
+/// An OpenCode chat from All chats resumes over ACP (`session/load` with its id, in its
+/// folder) on the opencode profile; it used to open a fresh chat in its folder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_opencode_chat_opens_by_adopting_it_over_acp() {
+    let h = home("opencode");
+    let project = mkdir(&h.0.join("work/cli"));
+    write_opencode(&h.0, &project);
+    let mut cfg = config(json!({"fopencode": {"argv": ["python3", FAKE], "family": "opencode"}}));
+    cfg.default_harness = Some("fopencode".into());
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_harness_homes(homes(&h.0));
+    let mut sources = ChatSources {
+        home: h.0.clone(),
+        acpmux_home: h.0.join(".acpmux"),
+        env: Arc::new(|_| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    };
+    sources.launch_roots = acpmux::chats::launch_roots(&*hub.config.read().await);
+    hub.start_chats(sources).await.unwrap();
+
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "t"}});
+    call(&tx, &mut rx, 1, method::INITIALIZE, init).await;
+
+    let key = format!("opencode:{OPENCODE_ID}");
+    let plan = call(&tx, &mut rx, 2, "_acpmux/chat_open", json!({"key": key})).await;
+    let plan = &plan["result"];
+    assert_eq!(plan["kind"], "adopt", "{plan}");
+    assert_eq!(plan["adopt"]["harness"], "fopencode", "{plan}");
+    let created = call(&tx, &mut rx, 3, method::SESSION_NEW, plan["sessionNew"].clone()).await;
+    assert!(created.get("error").is_none(), "{created}");
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    assert_eq!(session.meta().agent_session_id.as_deref(), Some(OPENCODE_ID));
+    assert_eq!(session.meta().cwd, project);
 }

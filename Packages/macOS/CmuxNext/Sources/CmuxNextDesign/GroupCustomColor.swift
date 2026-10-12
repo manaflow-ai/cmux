@@ -1,22 +1,22 @@
-import AppKit
-import CmuxNextDesign
+public import AppKit
 import QuartzCore
 
-/// The custom color dot after the palette (cx-25az): icon-only, it opens
-/// the system color panel (wheel, sliders and a hex field). Once a group has
+/// The custom color dot after a group editor's palette dots (cx-25az, tab groups cx-wqn5):
+/// icon-only, it opens the system color panel (wheel, sliders and a hex field). Once a group has
 /// a custom color the dot shows it, with the chosen ring.
-final class SidebarGroupCustomSwatchView: NSView {
-    var isChosen = false { didSet { if oldValue != isChosen { updateColors() } } }
+public final class GroupCustomSwatchView: NSView {
+    public var isChosen = false { didSet { if oldValue != isChosen { updateColors() } } }
     /// The group's custom color; nil draws the eyedropper.
-    var custom: GroupTint? { didSet { if oldValue != custom { updateColors() } } }
-    var onPress: (() -> Void)?
+    public var custom: GroupTint? { didSet { if oldValue != custom { updateColors() } } }
+    public var onPress: (() -> Void)?
     private let fill = CALayer()
     private let ring = CALayer()
     private let glyph = NSImageView()
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    /// `label` names the dot for VoiceOver and its tooltip, from the editor's own catalog.
+    public init(label: String) {
+        super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         ring.borderWidth = Metrics.space1 * 0.75
@@ -29,20 +29,20 @@ final class SidebarGroupCustomSwatchView: NSView {
         addSubview(glyph)
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
-        setAccessibilityLabel(GroupEditorStrings.customColor)
-        toolTip = GroupEditorStrings.customColor
+        setAccessibilityLabel(label)
+        toolTip = label
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override var intrinsicContentSize: NSSize {
+    override public var intrinsicContentSize: NSSize {
         let side = Metrics.iconSize + Metrics.space2
         return NSSize(width: side, height: side)
     }
 
-    override func layout() {
+    override public func layout() {
         super.layout()
         let side = min(bounds.width, bounds.height)
         let outer = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
@@ -55,7 +55,7 @@ final class SidebarGroupCustomSwatchView: NSView {
         updateColors()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
     }
@@ -72,52 +72,59 @@ final class SidebarGroupCustomSwatchView: NSView {
         setAccessibilityValue(isChosen ? 1 : 0)
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-    override func mouseDown(with event: NSEvent) {}
-    override func mouseUp(with event: NSEvent) {
+    override public func mouseEntered(with event: NSEvent) { isHovered = true }
+    override public func mouseExited(with event: NSEvent) { isHovered = false }
+    override public func mouseDown(with event: NSEvent) {}
+    override public func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
     }
 
-    override func accessibilityPerformPress() -> Bool {
+    override public func accessibilityPerformPress() -> Bool {
         onPress?()
         return true
     }
 }
 
-/// The system color panel for one group's custom color (cx-25az). The
-/// editor bubble closes when the panel takes focus, so the group is kept
-/// here; each color the person settles on goes out once (not while dragging).
+/// The system color panel for a group's custom color (cx-25az). A group editor bubble closes
+/// when the panel takes focus, so `open` keeps where the color goes (its `onColor`); each color
+/// the person settles on goes out once (not while dragging). One for the app, like the panel it
+/// borrows: it stays the panel's target after any editor that opened it is gone.
 @MainActor
-final class SidebarGroupColorPanel: NSObject {
-    private var group: GroupID?
-    var onColor: ((GroupID, GroupTint) -> Void)?
+public final class GroupColorPanel: NSObject {
+    public static let shared = GroupColorPanel()
 
+    private var onColor: ((GroupTint) -> Void)?
     /// The shared panel's settings before it was borrowed, put back when it closes.
     private var borrowed: (showsAlpha: Bool, isContinuous: Bool)?
     private var closeObserver: NSObjectProtocol?
 
-    func open(for group: GroupID, current: GroupTint?) {
-        self.group = group
+    override public init() {
+        super.init()
+    }
+
+    public func open(current: GroupTint?, onColor: @escaping (GroupTint) -> Void) {
+        self.onColor = onColor
         let panel = NSColorPanel.shared
-        if borrowed == nil { borrowed = (panel.showsAlpha, panel.isContinuous) }
-        panel.showsAlpha = false
-        panel.isContinuous = false
-        panel.setTarget(self)
-        panel.setAction(#selector(changed(_:)))
-        if let picked = current?.picked { panel.color = picked }
+        if borrowed == nil {
+            borrowed = (panel.showsAlpha, panel.isContinuous)
+        }
         // The panel is shared: once it closes, its colors no longer go to this group.
         if closeObserver == nil {
             closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.release() } // main-proof: queue: .main delivers on the main thread
             }
         }
+        panel.showsAlpha = false
+        panel.isContinuous = false
+        panel.setTarget(self)
+        panel.setAction(#selector(changed(_:)))
+        if let picked = current?.picked { panel.color = picked }
         panel.makeKeyAndOrderFront(nil)
     }
 
     private func release() {
         let panel = NSColorPanel.shared
-        if group != nil {
+        if onColor != nil {
             panel.setTarget(nil)
             panel.setAction(nil)
         }
@@ -126,13 +133,13 @@ final class SidebarGroupColorPanel: NSObject {
             panel.isContinuous = borrowed.isContinuous
         }
         borrowed = nil
-        group = nil
+        onColor = nil
         if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
         closeObserver = nil
     }
 
     @objc private func changed(_ sender: Any?) {
-        guard let group, let tint = GroupTint(picked: NSColorPanel.shared.color) else { return }
-        onColor?(group, tint)
+        guard let onColor, let tint = GroupTint(picked: NSColorPanel.shared.color) else { return }
+        onColor(tint)
     }
 }
