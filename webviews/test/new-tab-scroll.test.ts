@@ -1,7 +1,9 @@
 // New Tab scrolls in one place (Leo 2026-10-12): the page had two scrollbars, the page's own at
 // the window edge and the Chats list's inside it, and the list was cut mid-row right above the
 // template dots. Now, as in Settings (cx-jh7kq), a page with the All chats list scrolls only in
-// that list, the document never scrolls, and the list's edges fade instead of slicing a row.
+// that list, the document never scrolls, and the list's edges fade instead of slicing a row. In a
+// pane too short for two rows of list the page scrolls instead, so nothing is out of reach; the
+// page itself never fades (the composer's model menu opens inside it).
 // This measures the real gallery stages in Chromium in a short window (360 px), where the list's
 // minimum height pushed the page past the window.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -57,8 +59,8 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   });
 
   /** Every element that scrolls now (scrollable overflow and more content than room), and the list's edge mask. */
-  async function look(variant: string) {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 360 } });
+  async function look(variant: string, height = 360) {
+    const page = await browser!.newPage({ viewport: { width: 900, height } });
     await page.goto(url(variant));
     await ready(page);
     await page.locator(".nt-screen").first().waitFor();
@@ -73,10 +75,15 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
         const style = getComputedStyle(node);
         return (style.maskImage || style.getPropertyValue("-webkit-mask-image")).includes("gradient");
       };
+      const screen = document.querySelector<HTMLElement>(".nt-screen")!;
+      const overflowY = getComputedStyle(screen).overflowY;
       return {
         documentScrolls: doc.scrollHeight > doc.clientHeight + 1,
         scrollers: scrollers.map((node) => node.classList[node.classList.length - 1] ?? node.tagName),
         fades: scrollers.map(fades),
+        pageFades: fades(screen),
+        listHeight: document.querySelector<HTMLElement>(".nt-all-list")?.clientHeight ?? 0,
+        reachable: screen.scrollHeight <= screen.clientHeight + 1 || overflowY === "auto" || overflowY === "scroll",
       };
     });
     await page.close();
@@ -84,11 +91,37 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   }
 
   test("with All chats, the list is the page's only scroller and its edges fade", async () => {
-    expect(await look("many-chats")).toEqual({ documentScrolls: false, scrollers: ["nt-all-list"], fades: [true] });
+    expect(await look("many-chats")).toMatchObject({
+      documentScrolls: false,
+      scrollers: ["nt-all-list"],
+      fades: [true],
+      pageFades: false,
+    });
   });
 
-  test("the calm default scrolls in one place, and fades there too", async () => {
-    // The page itself scrolls here (no list of its own): it too ends in a fade, not a cut row.
-    expect(await look("calm-default")).toEqual({ documentScrolls: false, scrollers: ["nt-screen"], fades: [true] });
+  test("in a pane too short for the list, two rows stay and the page scrolls to the rest", async () => {
+    const short = await look("many-chats", 260);
+    expect({
+      rows: short.listHeight >= 58,
+      reachable: short.reachable,
+      documentScrolls: short.documentScrolls,
+    }).toEqual({
+      rows: true,
+      reachable: true,
+      documentScrolls: false,
+    });
+  });
+
+  test("the calm default scrolls in one place at most, and never fades the page", async () => {
+    const calm = await look("calm-default");
+    expect({
+      documentScrolls: calm.documentScrolls,
+      one: calm.scrollers.length <= 1,
+      pageFades: calm.pageFades,
+    }).toEqual({
+      documentScrolls: false,
+      one: true,
+      pageFades: false,
+    });
   });
 });
