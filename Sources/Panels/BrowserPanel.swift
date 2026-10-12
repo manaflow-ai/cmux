@@ -26,135 +26,6 @@ import CommonCrypto
 import Security
 #endif
 
-// MARK: - Element Picker Message Handler
-
-/// Receives Option+Click element selection from the browser JS and sends
-/// sanitized summary to the focused terminal in the workspace.
-///
-/// Security notes (terminal stdin injection):
-/// - A native NSEvent Option+Click must have occurred within 1 second
-///   of receiving the postMessage. This prevents page JS from calling
-///   postMessage directly without a real user click (zero-click attack).
-/// - All text from web content is sanitized before terminal injection.
-/// - Control characters (U+0000–U+001F, U+007F–U+009F) are stripped to
-///   prevent ANSI escape sequence attacks and terminal command injection.
-/// - Newlines are removed so injected text cannot execute shell commands.
-/// - Text is truncated to 200 chars to prevent buffer overflow attempts.
-/// - Sanitization is applied on both the JS side (first pass) and the
-///   Swift side (defense in depth), since page JS can call postMessage
-///   directly with arbitrary payloads.
-/// - The `__cmuxPointedElement` global is defined as non-enumerable to
-///   reduce CAPTCHA/bot-detection fingerprinting surface.
-final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
-    private var workspaceId: UUID
-
-    func updateWorkspaceId(_ newId: UUID) {
-        workspaceId = newId
-    }
-
-    /// Timestamp of last native Option+Click detected via NSEvent monitor.
-    /// Used to validate that postMessage was triggered by a real user click,
-    /// not by malicious page JS calling postMessage directly.
-    private var lastNativeOptionClickTime: TimeInterval = 0
-    private var eventMonitor: Any?
-    /// Weak reference to the associated webView for source validation.
-    /// Ensures clicks in other windows/panels cannot authorize this handler.
-    weak var associatedWebView: WKWebView?
-
-    /// Maximum allowed delay between native click and postMessage arrival.
-    private static let nativeEventWindowSeconds: TimeInterval = 1.0
-
-    init(workspaceId: UUID) {
-        self.workspaceId = workspaceId
-        super.init()
-        // Monitor native mouse clicks with Option modifier.
-        // Only accept clicks that hit our associated webView (checked via hitTest).
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self, event.modifierFlags.contains(.option) else { return event }
-            // Verify the click targets our webView's window and hit-tests within it
-            if let webView = self.associatedWebView,
-               let window = webView.window,
-               event.window === window {
-                let pointInWebView = webView.convert(event.locationInWindow, from: nil)
-                if webView.bounds.contains(pointInWebView) {
-                    self.lastNativeOptionClickTime = ProcessInfo.processInfo.systemUptime
-                }
-            }
-            return event
-        }
-    }
-
-    deinit {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-    }
-
-    /// Strip control characters, newlines, and ANSI escape sequences.
-    /// This is critical for security: web content is untrusted and is
-    /// injected into terminal stdin. Without sanitization, a malicious
-    /// page could embed shell commands via newlines or ANSI sequences.
-    /// Dangerous Unicode scalars: BiDi overrides, zero-width chars
-    private static let dangerousScalars: Set<UInt32> = [
-        0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF,  // zero-width
-        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,            // BiDi overrides
-        0x2066, 0x2067, 0x2068, 0x2069                      // BiDi isolates
-    ]
-
-    private func filtered(_ value: String) -> String {
-        let cleaned = value.unicodeScalars.filter { s in
-            ((s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F)
-            && !Self.dangerousScalars.contains(s.value)
-        }
-        return String(String.UnicodeScalarView(cleaned))
-    }
-
-    /// Sanitize display text: strip control chars + BiDi/zero-width, cap at 200 chars
-    private func sanitizeWebText(_ text: String) -> String {
-        String(filtered(text).prefix(200)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Sanitize xpath: strip control chars + BiDi/zero-width, cap at 2000 chars (preserve selector fidelity)
-    private func sanitizeXPath(_ xpath: String) -> String {
-        String(filtered(xpath).prefix(2000)).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard message.name == "cmuxPointer" else { return }
-        guard let body = message.body as? [String: Any] else { return }
-
-        // Security: verify a real native Option+Click occurred recently.
-        // Reject postMessage calls from page JS without a corresponding native event.
-        let now = ProcessInfo.processInfo.systemUptime
-        let elapsed = now - lastNativeOptionClickTime
-        guard elapsed < Self.nativeEventWindowSeconds else {
-            return  // No recent native Option+Click — likely a spoofed postMessage
-        }
-        // Invalidate the timestamp so each native click can only be used once
-        lastNativeOptionClickTime = 0
-
-        let xpath = sanitizeXPath(body["xpath"] as? String ?? "")
-        let rawText = sanitizeWebText(body["text"] as? String ?? "")
-
-        var summary = "[picked] \(xpath)"
-        if !rawText.isEmpty {
-            summary += " \"\(rawText)\""
-        }
-
-        NotificationCenter.default.post(
-            name: .browserElementPicked,
-            object: nil,
-            userInfo: [
-                "workspaceId": workspaceId,
-                "summary": summary
-            ]
-        )
-    }
-}
-
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -2223,122 +2094,6 @@ final class BrowserPanel: Panel, ObservableObject {
         } catch (_) {}
       });
 
-      // --- Element Picker (Option+Click) ---
-      // Guard against double-injection on SPA navigation
-      if (!window.__cmuxPickerInstalled) {
-        Object.defineProperty(window, '__cmuxPickerInstalled', { value: true, enumerable: false });
-        // Store picked element as non-enumerable to reduce CAPTCHA fingerprinting
-        Object.defineProperty(window, '__cmuxPointedElement', { value: null, writable: true, enumerable: false, configurable: true });
-        (() => {
-          let __overlay = null;
-          const __ensureOverlay = () => {
-            if (__overlay) return __overlay;
-            __overlay = document.createElement('div');
-            __overlay.setAttribute('aria-hidden', 'true');
-            __overlay.setAttribute('role', 'presentation');
-            const s = __overlay.style;
-            s.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #4F46E5;background:rgba(79,70,229,0.1);display:none;border-radius:3px;';
-            // Respect prefers-reduced-motion
-            if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-              s.transition = 'all 0.05s';
-            }
-            (document.body || document.documentElement).appendChild(__overlay);
-            return __overlay;
-          };
-          // Build xpath using previousElementSibling (avoids Array.from allocation)
-          const __siblingIndex = (el) => {
-            let idx = 1;
-            let sib = el.previousElementSibling;
-            while (sib) {
-              if (sib.tagName === el.tagName) idx++;
-              sib = sib.previousElementSibling;
-            }
-            return idx;
-          };
-          const __hasSameTagSibling = (el) => {
-            let sib = el.parentElement ? el.parentElement.firstElementChild : null;
-            while (sib) {
-              if (sib !== el && sib.tagName === el.tagName) return true;
-              sib = sib.nextElementSibling;
-            }
-            return false;
-          };
-          const __xpath = (node) => {
-            const parts = [];
-            let cur = node;
-            while (cur && cur.nodeType === 1) {
-              if (cur === document.body) { parts.unshift('body'); break; }
-              if (cur === document.documentElement) { parts.unshift('html'); break; }
-              const tag = cur.tagName.toLowerCase();
-              if (__hasSameTagSibling(cur)) {
-                parts.unshift(tag + '[' + __siblingIndex(cur) + ']');
-              } else {
-                parts.unshift(tag);
-              }
-              cur = cur.parentElement;
-            }
-            return '/' + parts.join('/');
-          };
-          // Security: sanitize text before sending to terminal stdin.
-          // Strip control chars (U+0000-U+001F, U+007F-U+009F) to prevent:
-          // - Terminal command injection via embedded newlines
-          // - ANSI escape sequence attacks (cursor movement, title change)
-          // - Terminal control character exploitation
-          // This is the first pass; Swift side applies a second sanitization.
-          const __sanitize = (str) => {
-            return str.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
-          };
-          // Use e.altKey directly instead of tracking keydown/keyup state
-          // This avoids stuck-Alt issues from blur, tab-away, IME, etc.
-          document.addEventListener('mouseover', (e) => {
-            if (!e.altKey) {
-              if (__overlay && __overlay.style.display !== 'none') {
-                __overlay.style.display = 'none';
-              }
-              return;
-            }
-            // Use composedPath for shadow DOM support
-            const target = (e.composedPath && e.composedPath()[0]) || e.target;
-            const r = target.getBoundingClientRect();
-            const ov = __ensureOverlay();
-            ov.style.display = 'block';
-            // Reset color to default on each hover (fix: green stuck after click)
-            ov.style.borderColor = '#4F46E5';
-            ov.style.background = 'rgba(79,70,229,0.1)';
-            ov.style.top = r.top + 'px';
-            ov.style.left = r.left + 'px';
-            ov.style.width = r.width + 'px';
-            ov.style.height = r.height + 'px';
-          }, true);
-          document.addEventListener('click', (e) => {
-            if (!e.altKey) return;
-            e.preventDefault();
-            // Use stopPropagation instead of stopImmediatePropagation to avoid breaking page handlers
-            e.stopPropagation();
-            const el = (e.composedPath && e.composedPath()[0]) || e.target;
-            const ov = __ensureOverlay();
-            ov.style.borderColor = '#16A34A';
-            ov.style.background = 'rgba(22,163,74,0.15)';
-            const xpath = __xpath(el);
-            const text = __sanitize(el.textContent || '');
-            const data = { xpath: xpath, text: text, tag: el.tagName, timestamp_ms: Date.now() };
-            window.__cmuxPointedElement = data;
-            try {
-              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPointer) {
-                window.webkit.messageHandlers.cmuxPointer.postMessage(data);
-              }
-            } catch (_) {}
-          }, true);
-          // Reset overlay on blur/visibility change (prevents stuck state)
-          window.addEventListener('blur', () => {
-            if (__overlay) __overlay.style.display = 'none';
-          });
-          document.addEventListener('visibilitychange', () => {
-            if (document.hidden && __overlay) __overlay.style.display = 'none';
-          });
-        })();
-      }
-
       return true;
     })()
     """
@@ -2774,6 +2529,7 @@ final class BrowserPanel: Panel, ObservableObject {
         didSet {
             guard oldValue != isReactGrabActive else { return }
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
+            synchronizeElementPicker()
         }
     }
     /// Owns the toolbar-triggered Design Mode transition so a disappearing
@@ -2808,6 +2564,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// `designModeController` initializer: referencing the property inside
     /// its own initializer is a circular reference.
     private func handleDesignModeActivityChanged() {
+        synchronizeElementPicker()
         reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
         // Design Mode needs the omnibar on screen (pen toggle, URL context);
         // drop browser focus mode when it activates.
@@ -3465,6 +3222,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 in: .page
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: BrowserElementPicker.scriptSource, injectionTime: .atDocumentStart,
+                         forMainFrameOnly: true, in: BrowserElementPicker.contentWorld)
+        )
         // Track the last editable focused element continuously so omnibar exit can
         // restore page input focus even if capture runs after first-responder handoff.
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
@@ -3487,7 +3248,44 @@ final class BrowserPanel: Panel, ObservableObject {
         Self.installMediaPlaybackUserScript(into: configuration)
     }
 
-    private var pickerMessageHandler: BrowserPickerMessageHandler?
+    private var pickerMessageHandler: BrowserElementPicker?
+    private var storedPickedElement: BrowserPickedElement?
+    private(set) var pickedElementSequence: UInt64 = 0
+    private(set) var pickerDocumentGeneration: UInt64 = 0
+
+    var pickedElement: BrowserPickedElement? {
+        guard !isClosingWebViewLifecycle, !isMainFrameProvisionalNavigationActive,
+              pickerMessageHandler?.associatedWebView === webView else { return nil }
+        return storedPickedElement
+    }
+
+    private var isElementPickerEnabled: Bool {
+        !isClosingWebViewLifecycle && !isMainFrameProvisionalNavigationActive
+            && !isReactGrabActive && !designModeController.isActive
+    }
+
+    func clearPickedElement() {
+        invalidatePickedElement()
+        synchronizeElementPicker()
+    }
+
+    private func invalidatePickedElement() {
+        storedPickedElement = nil
+        pickerDocumentGeneration &+= 1
+        pickerMessageHandler?.invalidateAuthorization()
+        NotificationCenter.default.post(name: .browserElementPickerStateDidChange, object: self)
+    }
+
+    func tearDownElementPicker() {
+        invalidatePickedElement()
+        pickerMessageHandler?.detach()
+        pickerMessageHandler = nil
+    }
+
+    private func synchronizeElementPicker() {
+        pickerMessageHandler?.configure(enabled: isElementPickerEnabled, generation: pickerDocumentGeneration)
+    }
+
 
     func bindWebView(_ webView: CmuxWebView) {
         localFileEncodingPolicy = BrowserLocalFileEncodingPolicy(
@@ -3524,18 +3322,24 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             self.goForward(dialogOwner: self.browserDialogOwner)
         }
-        // Clean up previous picker handler from the OLD webView to prevent NSEvent monitor leaks
-        // when bindWebView is called multiple times (profile change, context reset, etc.)
-        if pickerMessageHandler != nil {
-            // Remove from the previous webView (self.webView), not the new one being bound
-            self.webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
-            pickerMessageHandler = nil
+        pickerMessageHandler?.detach()
+        invalidatePickedElement()
+        let picker = BrowserElementPicker(webView: webView) { [weak self, weak webView] element in
+            guard let self, let webView, self.webView === webView,
+                  self.isElementPickerEnabled else { return }
+            self.storedPickedElement = element
+            self.pickedElementSequence &+= 1
+            NotificationCenter.default.post(name: .browserElementPickerStateDidChange, object: self)
+            NotificationCenter.default.post(
+                name: .browserElementPicked,
+                object: self,
+                userInfo: ["workspaceId": self.workspaceId, "element": element,
+                           "generation": self.pickerDocumentGeneration,
+                           "surfaceId": self.id, "webView": webView]
+            )
         }
-        // Register Option+Click element picker message handler on the NEW webView.
-        let handler = BrowserPickerMessageHandler(workspaceId: workspaceId)
-        handler.associatedWebView = webView  // Link for source validation
-        pickerMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: "cmuxPointer")
+        pickerMessageHandler = picker
+        synchronizeElementPicker()
 
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
@@ -3628,6 +3432,8 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL, navigationID: navigation.map(ObjectIdentifier.init))
             self.isMainFrameProvisionalNavigationActive = true
+            self.invalidatePickedElement()
+            self.synchronizeElementPicker()
             self.refreshBackgroundAppearance()
             self.applyMuteState(to: webView, reason: "navigationStart")
         }
@@ -3638,6 +3444,7 @@ final class BrowserPanel: Panel, ObservableObject {
             (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
             WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
             NotificationCenter.default.post(
                 name: .browserMainFrameDidCommit,
@@ -3681,6 +3488,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.cloudAccess.didFinish(url: webView.url)
             }
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.publishCommittedURL(from: webView)
             self.applyMuteState(to: webView, reason: "navigationFinish")
             if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
@@ -3703,6 +3511,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 message: failureMessage
             )
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             if let url = URL(string: failedURL) {
                 self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             }
@@ -3757,6 +3566,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             if isRestoreBookkeepingNavigation {
                 self.navigationDelegate?.clearAttemptedRequest()
             }
@@ -3784,6 +3594,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
             guard isDownload else { return false }
             self.isMainFrameProvisionalNavigationActive = false
+            self.synchronizeElementPicker()
             self.refreshBackgroundAppearance()
             return true
         }
@@ -4709,7 +4520,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
-        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
+        invalidatePickedElement()
+        synchronizeElementPicker()
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
@@ -4724,7 +4536,8 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
+        invalidatePickedElement()
+        synchronizeElementPicker()
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
@@ -5451,6 +5264,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        tearDownElementPicker()
         trustedLocalFileURL = nil
         pendingTrustedLocalFileURL = nil
         automationNavigationCoordinator.invalidate()
@@ -6435,9 +6249,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
-        // Remove picker message handler to break WKUserContentController retain cycle
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
-        pickerMessageHandler = nil
+        let picker = pickerMessageHandler
+        Task { @MainActor in picker?.detach() }
         // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()

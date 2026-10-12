@@ -651019,6 +651019,124 @@
           }
         }
       }
+    },
+    "cli.browser.picked.error.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser selection wait cancelled because the surface changed or closed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُلغي انتظار التحديد في المتصفح لأن السطح تغير أو أُغلق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Warten auf eine Browserauswahl wurde abgebrochen, weil die Oberfläche geändert oder geschlossen wurde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se canceló la espera de selección en el navegador porque la superficie cambió o se cerró"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’attente de sélection dans le navigateur a été annulée, car la surface a changé ou a été fermée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザの画面が変更または閉じられたため、選択の待機をキャンセルしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 화면이 변경되거나 닫혀 요소 선택 대기가 취소되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器界面已更改或关闭，已取消等待选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器畫面已變更或關閉，已取消等待選取"
+          }
+        }
+      }
+    },
+    "cli.browser.picked.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No element picked before timeout"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تحديد أي عنصر قبل انتهاء المهلة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor Ablauf der Wartezeit wurde kein Element ausgewählt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se seleccionó ningún elemento antes de que se agotara el tiempo de espera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun élément n’a été sélectionné avant l’expiration du délai"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウトまでに要素が選択されませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간 내에 요소가 선택되지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待超时前未选择任何元素"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待逾時前未選取任何元素"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

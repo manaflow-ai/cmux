@@ -23,6 +23,7 @@ extension BrowserPanel {
                       self.webViewInstanceID == observedWebViewInstanceID else {
                     return
                 }
+                self.clearPickedElement()
                 let displayURL = Self.remoteProxyDisplayURL(for: url) ?? url
                 self.automationNavigationCoordinator.didFinishSameDocumentNavigation(
                     instanceID: observedWebViewInstanceID,

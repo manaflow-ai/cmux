@@ -7,6 +7,7 @@ extension BrowserPanel {
     func tearDownWebViewBeforeReplacement(_ oldWebView: WKWebView, reason: String) {
         guard oldWebView === webView else { return }
 
+        tearDownElementPicker()
         mobileBrowserDialogBroker.resolveAll()
 
         if let window = oldWebView.window,
