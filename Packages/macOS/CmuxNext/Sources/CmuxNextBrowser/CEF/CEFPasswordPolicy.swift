@@ -15,7 +15,8 @@ enum CEFPasswordPolicy {
     static func apply() {
         let runtime = CEFRuntime.shared
         guard runtime.state == .ready, let shim = runtime.shim else { return }
-        _ = shim.setPasswordGenerationEnabled(generate ? 1 : 0)
+        // Chrome's "Offer to save" off turns generation off too: a generated password would be saved unasked.
+        _ = shim.setPasswordGenerationEnabled(generate && offerToSave ? 1 : 0)
     }
 }
 

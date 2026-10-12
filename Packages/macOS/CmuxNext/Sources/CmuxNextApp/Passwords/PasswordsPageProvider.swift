@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -91,7 +92,8 @@ final class PasswordsPageProvider: PageProvider {
         }
     }
 
-    /// `cmux.passwords.changed {profile, revision}`: one event per change of a profile's store.
+    /// `cmux.passwords.changed {profile, revision}`: one event per change of a profile's store, and
+    /// `{revision}` (no profile) when `browser.passwords.allowExport` changes, so the page re-reads.
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == PasswordOps.changed else { throw PageError.unknownOp(stream) }
@@ -100,7 +102,17 @@ final class PasswordsPageProvider: PageProvider {
             self.revision += 1
             onEvent(["profile": .string(profile), "revision": .number(Double(self.revision))])
         }
-        return PageSubscription { stop() }
+        let gate = Task { [weak self] in
+            var last: Bool?
+            for await allowed in ObservationStream({ [weak self] in self?.allowExport() ?? false }) {
+                let changed = last.map { $0 != allowed } ?? false
+                last = allowed
+                guard changed, let self else { continue }
+                self.revision += 1
+                onEvent(["revision": .number(Double(self.revision))])
+            }
+        }
+        return PageSubscription { stop(); gate.cancel() }
     }
 
     // MARK: Reads

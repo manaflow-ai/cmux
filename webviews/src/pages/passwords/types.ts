@@ -80,6 +80,7 @@ export interface PasswordException {
 }
 
 export interface ChangedEvent {
-  profile: string;
+  /** Absent when a Settings switch the page shows (Allow Password Export) changed. */
+  profile?: string;
   revision: number;
 }
