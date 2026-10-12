@@ -171,9 +171,13 @@ def import_through(browser, filename):
     if not steps:
         return shown
     rpc("debug.dialog", {"press": "choose"})
+    # The picker is the palette; at first launch it can take seconds to open.
+    wait_for(lambda: rpc("debug.focus").get("context", {}).get("palette_open"), "the file picker opens", 20)
     time.sleep(0.8)  # the picker's first listing
     type_text(EXPORTS + "/")
     report = key("return")
+    if "palette_page" not in report:
+        print("note: picker key reply", report, flush=True)
     print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
     type_text(filename.split(".")[0])
     report = key("forwarddelete")
@@ -214,6 +218,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
 print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    to_workspace()  # the picker's keys go to a window's palette, not the first-launch Home page
     import_through("chrome", "passwords.csv")
     summary = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None), "the passwords toast", 60)
     check(summary is not None and "Imported: 1." in summary, f"the throwaway sign-in is saved ({summary})")
