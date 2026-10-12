@@ -263,8 +263,13 @@ const showReviewThreads: Play = async (ctx) => {
   await chooseScope(ctx, "Branch");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-review-thread").length === 5);
   const texts = (selector: string) =>
-    // innerText: a body is Markdown, whose line break is a <br>.
-    [...ctx.document.querySelectorAll<HTMLElement>(`${selector} .acpmux-review-body`)].map((body) => body.innerText);
+    // A body is Markdown, whose line break is a <br>; a folded thread's body isn't rendered, so
+    // read the text with each <br> as a newline rather than innerText.
+    [...ctx.document.querySelectorAll(`${selector} .acpmux-review-body`)].map((body) => {
+      const copy = body.cloneNode(true) as Element;
+      for (const br of copy.querySelectorAll("br")) br.replaceWith("\n");
+      return copy.textContent;
+    });
   const inDiff = texts(".acpmux-diff-pierre");
   const aboveFile = texts(".acpmux-diff-file > .acpmux-review-unplaced");
   const otherFiles = texts(".acpmux-diff-body > .acpmux-review-unplaced");
