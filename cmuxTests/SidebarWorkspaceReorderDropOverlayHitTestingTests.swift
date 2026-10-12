@@ -159,6 +159,9 @@ import Testing
         #expect(bonsplit.prepareForDragOperation(sender))
         #expect(bonsplit.performDragOperation(sender))
         bonsplit.concludeDragOperation(sender)
+        // AppKit sends this to the overlay, which responds to it; the reorder
+        // view beneath does not, so it must not be forwarded there.
+        bonsplit.draggingEnded(sender)
 
         #expect(updatedPoints.count == 2)
         #expect(droppedPoints.count == 1)
