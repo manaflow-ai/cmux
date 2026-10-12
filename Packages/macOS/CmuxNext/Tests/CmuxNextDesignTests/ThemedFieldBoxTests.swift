@@ -51,6 +51,13 @@ import Testing
         let hit = try #require(box.hitTest(box.superview?.convert(padding, from: box) ?? padding))
         hit.mouseDown(with: event)
         #expect(Self.editing(field, in: window), "a click in the padding gives the field the keyboard")
+
+        // A second click there while editing keeps the edit: same editor, caret where it was.
+        let editor = try #require(field.currentEditor())
+        editor.selectedRange = NSRange(location: 0, length: 0)
+        hit.mouseDown(with: event)
+        #expect(field.currentEditor() === editor, "the edit was not restarted")
+        #expect(editor.selectedRange == NSRange(location: 0, length: 0), "the text was not selected all")
     }
 
     @Test func theBoxShowsFocusInTheThemesRing() throws {
