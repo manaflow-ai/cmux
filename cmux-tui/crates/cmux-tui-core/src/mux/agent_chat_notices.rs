@@ -10,12 +10,18 @@
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
 //! focused, the Dock badge, a click that opens the tab, the workspace mute).
-//! When acpmux says a pane showed the chat (`unread` turned false) or the wait
-//! ended, the daemon reads the tab's notifications, so seeing or answering the
-//! chat anywhere clears them. A (re)connect catches up on what it missed: a
-//! turn that ended unseen, a chat that waits or whose agent went away. Each
-//! notice has a key of the chat and the turn (or the record it waits on), so
-//! one that was posted before is not posted again.
+//! An ended turn notifies once acpmux marks the chat unread, which it does
+//! only when no pane showed the chat as the turn ended. When acpmux says a
+//! pane showed the chat (`unread` turned false) or the wait ended, the daemon
+//! reads the tab's notifications, so seeing or answering the chat anywhere
+//! clears them. A reconnect compares acpmux's page with what the watch knew,
+//! so it catches up both ways; after a daemon start, a chat that needs nobody
+//! has its notifications read. Each notice has a key of the chat, the turn
+//! (or the record it waits on) and the tab's durable content, so one that was
+//! posted before, by this daemon or an earlier one, is not posted again.
+//!
+//! Only this machine's chats notify: a session a peer reports (`peer`) is
+//! not followed, so a peer cannot post on, or read, a local chat's tab.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -27,11 +33,14 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{Mux, NotificationLevel, NotificationSource};
+use crate::resource::ContentPublicId;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::{Actor, SurfaceId};
 
 /// Longest acpmux line read; a session summary is far smaller.
 const MAX_LINE_BYTES: u64 = 4 << 20;
+/// Longest chat name in a title, in characters.
+const MAX_NAME_CHARS: usize = 80;
 /// Longest notification body, in characters.
 const MAX_BODY_CHARS: usize = 200;
 
@@ -50,8 +59,8 @@ impl Mux {
         }
     }
 
-    /// The tabs that show `session`.
-    fn agent_chat_tabs(&self, session: &str) -> Vec<SurfaceId> {
+    /// The tabs that show `session`, each with its durable content id.
+    fn agent_chat_tabs(&self, session: &str) -> Vec<(SurfaceId, String)> {
         let surfaces = {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             state.surfaces.iter().map(|(id, surface)| (*id, surface.clone())).collect::<Vec<_>>()
@@ -62,13 +71,17 @@ impl Mux {
                 matches!(self.conversation_tab_of(surface),
                     Some(ConversationTabRecord::AgentSession { session: Some(bound), .. }) if bound == session)
             })
-            .map(|(id, _)| id)
+            .filter_map(|(id, surface)| {
+                let identity = surface.resource_identity()?;
+                let ContentPublicId::Browser(content) = &identity.content_id else { return None };
+                Some((id, content.as_str().to_owned()))
+            })
             .collect()
     }
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
-        for surface in self.agent_chat_tabs(session) {
-            let key = format!("acpmux-{session}-{}-{surface}", notice.key);
+        for (surface, content) in self.agent_chat_tabs(session) {
+            let key = format!("acpmux-{session}-{}-{content}", notice.key);
             let posted = self.create_durable_notification(
                 &Actor::Daemon,
                 &key,
@@ -86,7 +99,7 @@ impl Mux {
     }
 
     fn read_agent_chat_notices(&self, session: &str) {
-        for surface in self.agent_chat_tabs(session) {
+        for (surface, _) in self.agent_chat_tabs(session) {
             if self.acknowledge_tab_notifications(surface).is_err() {
                 self.report_internal_diagnostic("agent chat notification not read");
             }
@@ -139,16 +152,16 @@ fn follow(
         let Ok(message) = serde_json::from_slice::<Value>(&line) else { continue };
         let Some(mux) = mux.upgrade() else { return Ok(()) };
         if message["id"] == 2 {
-            chats.clear();
+            // What the watch knew before this connection: the page is a change from it.
+            let mut before = std::mem::take(chats);
             for summary in message["result"]["sessions"].as_array().into_iter().flatten() {
-                let Some(chat) = Chat::of(summary) else { continue };
-                // An ended turn notifies while nobody has seen it; older ones were read.
-                for notice in chat.notices(None) {
-                    if chat.unread || !notice.ended_turn {
-                        mux.post_agent_chat_notice(&chat.session, &notice);
-                    }
+                let Some(next) = Chat::of(summary) else { continue };
+                let known = before.remove(&next.session);
+                if known.is_none() && next.needs_nobody() {
+                    // After a daemon start: what it posted before was seen or answered.
+                    mux.read_agent_chat_notices(&next.session);
                 }
-                chats.insert(chat.session.clone(), chat);
+                apply(&mux, known.as_ref(), next, chats);
             }
             watching = true;
         } else if watching && message["method"] == "_acpmux/session_changed" {
@@ -158,14 +171,23 @@ fn follow(
 }
 
 fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
+    // A peer's session is not this machine's chat.
+    if !params["peer"].is_null() {
+        return;
+    }
     let Some(session) = params["sessionId"].as_str() else { return };
     if params["kind"] == "purged" {
         chats.remove(session);
         return;
     }
     let Some(next) = Chat::of(&params["session"]) else { return };
-    let before = chats.insert(next.session.clone(), next.clone());
-    let before = before.as_ref();
+    let before = chats.remove(&next.session);
+    apply(mux, before.as_ref(), next, chats);
+}
+
+/// What the chat's change from `before` reads and posts; then the watch knows `next`.
+fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
+    next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
     if read || (waited && next.indicator != "input") {
@@ -174,6 +196,7 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
     for notice in next.notices(before) {
         mux.post_agent_chat_notice(&next.session, &notice);
     }
+    chats.insert(next.session.clone(), next);
 }
 
 /// What the watch knows of one chat.
@@ -185,6 +208,8 @@ struct Chat {
     unread: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// The ended turn already notified (or passed over), so it notifies once.
+    notified_turn: Option<String>,
     last_message: String,
     last_seq: u64,
 }
@@ -192,22 +217,22 @@ struct Chat {
 struct Notice {
     /// Unique per chat; the notification's idempotency key.
     key: String,
-    /// It tells of an ended turn (done or failed).
-    ended_turn: bool,
     title: String,
     body: String,
     level: NotificationLevel,
 }
 
 impl Chat {
+    /// A summary of this machine's acpmux; nil for a peer's session.
     fn of(summary: &Value) -> Option<Self> {
+        if !summary["peer"].is_null() {
+            return None;
+        }
         let session = summary["sessionId"].as_str()?.to_owned();
         let text = |key: &str| summary[key].as_str().filter(|text| !text.trim().is_empty());
-        let name = text("title")
-            .or_else(|| text("name"))
-            .or_else(|| text("harness"))
-            .unwrap_or("Agent")
-            .to_owned();
+        let name =
+            text("title").or_else(|| text("name")).or_else(|| text("harness")).unwrap_or("Agent");
+        let name = short(name, MAX_NAME_CHARS);
         let last_turn = summary["lastTurn"].as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
@@ -220,31 +245,39 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             unread: summary["unread"].as_bool() == Some(true),
             last_turn,
+            notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
         })
     }
 
+    /// Nothing waits for the person: no unseen turn, no question, no lost agent.
+    fn needs_nobody(&self) -> bool {
+        !self.unread && self.indicator != "input" && self.indicator != "lost"
+    }
+
     /// What this change says to the person, given what the chat did before.
-    fn notices(&self, before: Option<&Chat>) -> Vec<Notice> {
+    /// An ended turn notifies once acpmux marks the chat unread (it does when
+    /// no pane showed the chat as the turn ended), and only once.
+    fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
         if let Some((turn, status)) = &self.last_turn
-            && before.and_then(|chat| chat.last_turn.as_ref()).map(|(id, _)| id) != Some(turn)
+            && self.unread
+            && self.notified_turn.as_ref() != Some(turn)
         {
+            self.notified_turn = Some(turn.clone());
             match status.as_str() {
                 "completed" => notices.push(Notice {
                     key: format!("done-{turn}"),
-                    ended_turn: true,
                     title: format!("{name} finished"),
-                    body: short(&self.last_message),
+                    body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Info,
                 }),
                 "failed" => notices.push(Notice {
                     key: format!("failed-{turn}"),
-                    ended_turn: true,
                     title: format!("{name} failed"),
-                    body: short(&self.last_message),
+                    body: short(&self.last_message, MAX_BODY_CHARS),
                     level: NotificationLevel::Error,
                 }),
                 _ => {}
@@ -255,18 +288,16 @@ impl Chat {
             notices.push(Notice {
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
-                ended_turn: false,
                 title: format!("{name} needs input"),
-                body: short(&self.last_message),
+                body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Warning,
             });
         }
         if self.indicator == "lost" && was != "lost" {
             notices.push(Notice {
                 key: format!("lost-{}", self.last_seq),
-                ended_turn: false,
                 title: format!("{name} stopped responding"),
-                body: short(&self.last_message),
+                body: short(&self.last_message, MAX_BODY_CHARS),
                 level: NotificationLevel::Error,
             });
         }
@@ -274,13 +305,13 @@ impl Chat {
     }
 }
 
-/// `text` cut to [`MAX_BODY_CHARS`] characters.
-fn short(text: &str) -> String {
+/// `text` cut to `max` characters.
+fn short(text: &str, max: usize) -> String {
     let text = text.trim();
-    if text.chars().count() <= MAX_BODY_CHARS {
+    if text.chars().count() <= max {
         return text.to_owned();
     }
-    let mut cut = text.chars().take(MAX_BODY_CHARS - 1).collect::<String>();
+    let mut cut = text.chars().take(max - 1).collect::<String>();
     cut.push('…');
     cut
 }
