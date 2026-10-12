@@ -115,6 +115,23 @@ struct CmuxToastSurfaceTests {
         handle.dismiss()
     }
 
+    /// A fourth toast pushes the oldest out: it fades above the stack, clear of the toast that
+    /// moves up into its old slot, instead of the two overlapping while it fades (motion pass).
+    @Test func aToastPushedOutFadesClearOfTheOneTakingItsSlot() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let handles = (1...3).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
+        let oldest = try #require(Self.toastViews(in: window).first { $0.toast.id == "t1" })
+        let fourth = center.show(CmuxToast(id: "t4", message: "Toast 4"), in: window)
+        #expect(handles[0].isDismissed)
+        let leaving = oldest.convert(oldest.bounds, to: nil)
+        for view in Self.toastViews(in: window) where view !== oldest {
+            #expect(!view.convert(view.bounds, to: nil).intersects(leaving), "\(view.toast.id) overlaps the leaving toast")
+        }
+        (handles + [fourth]).forEach { $0.dismiss() }
+    }
+
     private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
         func walk(_ view: NSView) -> [CmuxToastView] {
             (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
