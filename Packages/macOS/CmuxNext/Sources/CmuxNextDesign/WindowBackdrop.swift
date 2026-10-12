@@ -53,6 +53,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The frost radius Ghostty.app uses for the glass styles where Liquid
     /// Glass is missing.
     public static let glassFallbackBlurRadius = 20
+    /// The most a workspace's own tint covers its art: at 1 the window turns opaque and hides it.
+    public static let maximumWorkspaceTint = 0.95
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -92,16 +94,22 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter art: Bundled art below the window's material and tint.
+    /// - Parameter tintOpacity: A workspace's own tint over art (`ThemeScope.backdropTintOpacity`),
+    ///   replacing the work's and the window's; the legibility floor still applies.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
-                texture: BackdropTexture = .default) {
+                texture: BackdropTexture = .default, tintOpacity: Double? = nil) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         // A work's own tint replaces the theme's (dark works show more of themselves); the
         // legibility floor below still keeps text readable over it.
-        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
-            ? tokens.backgroundOpacity
-            : resolvedSelection?.preferredTintOpacity
+        let opacity = if resolvedSelection != nil, let tintOpacity {
+            min(tintOpacity, Self.maximumWorkspaceTint)
+        } else if resolvedSelection == nil || tokens.backgroundOpacity < 1 {
+            tokens.backgroundOpacity
+        } else {
+            resolvedSelection?.preferredTintOpacity
                 ?? max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
+        }
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
         if resolvedSelection != nil, !isOpaque {

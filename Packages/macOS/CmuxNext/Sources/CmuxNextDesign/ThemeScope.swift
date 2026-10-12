@@ -28,6 +28,10 @@ public final class ThemeScope {
         if let shown, shown.pinsBackdrop { return shown.backdropSelection }
         return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
     }
+    /// The glass tint over art a workspace chose (``pinBackdropTint(_:)``): a room reads its shown
+    /// workspace's; nil keeps the work's own tint. The legibility floor still applies on top.
+    public var backdropTintOpacity: Double? { shown?.pinnedTint ?? pinnedTint }
+    private var pinnedTint: Double?
     /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
     private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
     private var isPinned = false
@@ -79,6 +83,16 @@ public final class ThemeScope {
         BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
         // The rooms showing this scope draw its background.
+        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+    }
+
+    /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...0.95 so
+    /// the art always shows; nil follows the work's own tint.
+    public func pinBackdropTint(_ tint: Double?) {
+        let tint = tint.map { min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) }
+        guard pinnedTint != tint else { return }
+        pinnedTint = tint
+        repaintBackdropArt()
         for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
     }
 
@@ -223,12 +237,12 @@ public final class ThemeScope {
             if candidate === self { return }
             next = candidate.shown
         }
-        let backdrop = backdropSelection
+        let backdrop = (backdropSelection, backdropTintOpacity)
         shown?.viewers.remove(self)
         shown = scope
         scope?.viewers.add(self)
         refreshDisplay(animated: animated, repaint: true)
-        if backdropSelection != backdrop { repaintBackdropArt() }
+        if backdropSelection != backdrop.0 || backdropTintOpacity != backdrop.1 { repaintBackdropArt() }
     }
 
     /// Repaints and notifies when `tokens` moved away from what was last
