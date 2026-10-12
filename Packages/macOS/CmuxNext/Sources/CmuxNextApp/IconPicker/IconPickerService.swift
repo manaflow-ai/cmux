@@ -72,14 +72,18 @@ final class IconPickerService {
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
     /// `completion` runs once with the outcome (a cancel when the panel closes without a pick).
-    func pick(current: String?, target: String, at anchor: Anchor, completion: @escaping (IconPickerResult) -> Void) {
-        pick(current: current, target: target, at: anchor, started: .now, completion: completion)
+    /// `assets` is where the object's owner stores an Image or SVG pick; without it those tabs stay off.
+    func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore? = nil,
+              completion: @escaping (IconPickerResult) -> Void) {
+        pick(current: current, target: target, at: anchor, assets: assets, started: .now, completion: completion)
     }
 
-    private func pick(current: String?, target: String, at anchor: Anchor, started: ContinuousClock.Instant,
+    private func pick(current: String?, target: String, at anchor: Anchor, assets: IconAssetStore?, started: ContinuousClock.Instant,
                       completion: @escaping (IconPickerResult) -> Void) {
         guard let catalog else {
-            loadCatalog { [weak self] in self?.pick(current: current, target: target, at: anchor, started: started, completion: completion) }
+            loadCatalog { [weak self] in
+                self?.pick(current: current, target: target, at: anchor, assets: assets, started: started, completion: completion)
+            }
             return
         }
         let catalogReady = ContinuousClock.now
@@ -94,7 +98,7 @@ final class IconPickerService {
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         session.symbolStyle = IconPickerSymbols.style(dark: dark)
-        warm.provider.begin(session) { [weak self] result in
+        warm.provider.begin(session, assets: assets) { [weak self] result in
             self?.close()
             completion(result)
         }
