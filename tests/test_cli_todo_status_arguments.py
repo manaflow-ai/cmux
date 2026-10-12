@@ -161,6 +161,13 @@ class TodoStatusArgumentTests(unittest.TestCase):
         self.assert_sends(["todo", "edit", "1", "-draft"], "workspace.todo.edit", {"index": 0, "text": "-draft"})
         self.assert_rejected(["todo", "check", "-1"], "Invalid todo item: -1", before_resolving=False)
 
+    def test_unknown_subcommands_are_rejected_before_resolving(self) -> None:
+        self.assert_rejected(["todo", "bogus"], "Unknown todo subcommand: bogus")
+        self.assert_rejected(["todo", "bogus", "--typo"], "Unknown todo subcommand: bogus")
+        self.assert_rejected(["workspace", "status", "bogus"], "Unknown workspace status subcommand: bogus")
+        self.assert_rejected(["workspace", "status", "bogus", "--typo"],
+                             "Unknown workspace status subcommand: bogus")
+
     def test_text_after_terminator_is_literal(self) -> None:
         self.assert_sends(["todo", "add", "--", "--json"], "workspace.todo.add", {"text": "--json"})
         self.assert_sends(["todo", "add", "--", "fix", "-v", "flag"], "workspace.todo.add", {"text": "fix -v flag"})
