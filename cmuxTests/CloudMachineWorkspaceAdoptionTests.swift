@@ -92,6 +92,30 @@ struct CloudMachineWorkspaceAdoptionTests {
         }
     }
 
+    @Test("Reserved creation targets its loading card after the user focuses another pane")
+    func reservedCreationDoesNotCloseFocusedUserPane() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false,
+                autoWelcomeIfNeeded: false)
+            let loadingPanels = pending.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
+            let loading = try #require(loadingPanels.count == 1 ? loadingPanels[0] : nil)
+            let pane = try #require(pending.paneId(forPanelId: loading.id))
+            let command = try #require(pending.newTerminalSurface(inPane: pane, focus: true,
+                initialCommand: "echo user-content", autoRefreshMetadata: false))
+            #expect(pending.focusedPanelId == command.id)
+
+            let host = CloudWorkspaceCreationHost(manager: app.manager, reservedWorkspaceID: pending.id)
+            let reservation = try host.reserve(title: "Cloud VM", machine: .cloud("reserved-machine"), focus: false)
+
+            #expect(reservation.panelID != command.id)
+            #expect(pending.panels[command.id] === command)
+            #expect(pending.panels[loading.id] == nil)
+            #expect(pending.panels[reservation.panelID] is TerminalPanel)
+        }
+    }
+
     @Test("A create adopts the reserved workspace and tab once without selecting it")
     func adoptionAndReconnect() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

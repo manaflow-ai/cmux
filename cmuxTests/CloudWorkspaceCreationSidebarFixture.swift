@@ -22,10 +22,8 @@ final class CloudWorkspaceCreationSidebarFixture {
     let windowID = UUID()
     let originalWorkspaceID: UUID
     private let defaults: UserDefaults
-    /// The shared catalog's rename service, restored on close when this
-    /// fixture routes `SurfaceCatalog.shared` bindings to its own manager.
-    private let previousSharedRenameService: CloudWorkspaceRenameService?
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
+    private let previousSharedRenameService: CloudWorkspaceRenameService?
 
     init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
@@ -46,8 +44,8 @@ final class CloudWorkspaceCreationSidebarFixture {
             shared.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: ownerEnvironment))
             catalog = shared
         } else {
-            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: ownerEnvironment))
             previousSharedRenameService = nil
+            catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: ownerEnvironment))
         }
         if let machine {
             provider = CloudWorkspaceCreationSidebarProvider(catalog: catalog, machine: machine)

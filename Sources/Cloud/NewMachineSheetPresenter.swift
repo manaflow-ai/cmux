@@ -100,6 +100,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Runs one create or fork invocation for ``MachineCreateCoordinator``.
     private static func launchCreate(
+        operationID: UUID,
         arguments: [String],
         progress: @escaping @MainActor (String) -> Void,
         completion: @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
@@ -107,6 +108,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         var cancellation: CloudVMActionLauncher.CancellationHandle?
         let didStart = MachineRowActions.openNewMachine(
             arguments: arguments,
+            operationID: operationID,
             onOutput: progress,
             onCompletion: { result in completion(result) },
             onCancellationReady: { cancellation = $0 }

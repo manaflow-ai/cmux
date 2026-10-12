@@ -158,7 +158,6 @@ extension AppDelegate {
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
-
         // Admission selects the loading workspace before provider lookup. That
         // intentional selection advances the navigation fence once; accept it
         // only when it is exactly that admission revision. A later away/back
