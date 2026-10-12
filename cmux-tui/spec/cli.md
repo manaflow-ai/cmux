@@ -344,6 +344,15 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+`workspace create` starts the new workspace's first terminal the same way:
+`--cwd <path>` sets its folder, and exact argv after `--` or `--shell <script>`
+replaces the login shell. Apps need the `workspace:execute` scope for a command.
+
+```bash
+cmux workspace create --name build --cwd ~/src/app -- make watch
+cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
+```
+
 Both run forms accept `--on-exit <close|keep>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
