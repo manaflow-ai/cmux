@@ -11,34 +11,80 @@ import Testing
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
     func aPageMenuCastsThePopupShadowAndOpensAndClosesWithMotion() async throws {
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
-        window.contentView = page
-        window.orderFrontRegardless()
+        let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
-        try #require(window.screen != nil)
         let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
-        let model = try #require(WebPopupHost.Model([
-            "items": [["id": "a", "label": "Apple"], ["id": "b", "label": "Banana"]],
-            "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64], "width": 160,
-        ]))
-
-        let reply = host.show(model)
-        let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+        // The open and the close start with movement on; synchronous inside: the override is process-wide.
+        let (reply, panel, opened) = try { () throws -> ([String: Any], WebPopupPanel, Bool) in
+            Motion.reduceMotionOverride = false
+            defer { Motion.reduceMotionOverride = nil }
+            let reply = host.show(try Self.menu(["a", "b"]))
+            let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+            return (reply, panel, panel.contentView?.layer?.animation(forKey: "sublayerTransform") != nil)
+        }()
         #expect(!panel.hasShadow, "the system window shadow")
         let card = try #require(panel.contentView as? PopupHostView, "no popup shadow").card
         // The reply and `shownFrame` name the menu's card, not its shadow band.
         let frame = try #require(reply["frame"] as? [CGFloat])
         #expect(host.shownFrame == CGRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3]))
         #expect(host.shownFrame?.size == card.frame.size)
-        #expect(panel.contentView?.layer?.animation(forKey: "sublayerTransform") != nil, "opened in one frame")
+        #expect(opened, "opened in one frame")
 
         host.hide()
         #expect(panel.isVisible, "closed in one frame")
         try await Task.sleep(for: .milliseconds(600))
         #expect(!panel.isVisible)
+    }
+
+    static func menu(_ ids: [String]) throws -> WebPopupHost.Model {
+        try #require(WebPopupHost.Model([
+            "items": ids.map { ["id": $0, "label": $0] },
+            "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64], "width": 160,
+        ]))
+    }
+
+    /// A window on screen with a page view, and the page menu panel of `host` once shown.
+    static func page() throws -> (NSWindow, NSView) {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        return (window, page)
+    }
+
+    /// Review of #19944: the page posts an update for the menu it is still closing (a highlight
+    /// as Base UI closes it) after the menu went away here. It must not open again.
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func anUpdateDuringTheCloseDoesNotReopenTheMenu() async throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+        host.show(try Self.menu(["a", "b"]))
+        let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+        host.hide()
+        host.update(try Self.menu(["a", "b", "c"]))
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(!panel.isVisible, "the closed menu opened again")
+        #expect(host.shownFrame == nil)
+    }
+
+    /// Review of #19944: the page's view goes (its tab closed) while its menu fades out. The menu
+    /// still leaves its window.
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func aMenuWhoseHostGoesMidFadeStillLeaves() async throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        var host: WebPopupHost? = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+        weak var gone = host
+        host?.show(try Self.menu(["a", "b"]))
+        let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+        host?.hide()
+        host = nil
+        #expect(gone == nil)
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(!panel.isVisible, "a dead host's menu stayed on its window")
+        #expect(panel.parent == nil)
     }
 }
