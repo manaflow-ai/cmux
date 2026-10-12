@@ -7,6 +7,7 @@ nonisolated enum BrowserSettingsSchema {
         let memory = SettingsText.keyed("settings.group.memory", "Memory")
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
+        let iPhone = SettingsText.keyed("settings.group.iPhone", "iPhone")
         return [
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
@@ -57,6 +58,13 @@ nonisolated enum BrowserSettingsSchema {
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.browserAllowIPhoneAccessPath, section: .browser, group: iPhone,
+                title: SettingsText.keyed("settings.browser.allowIPhoneAccess", "Allow cmux on iPhone to View Browser Tabs"),
+                help: SettingsText.keyed("settings.browser.allowIPhoneAccess.help",
+                                         "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux."),
+                kind: .toggle, default: .bool(false), keywords: ["phone", "mobile", "devtools", "remote debugging"]
             ),
         ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
     }

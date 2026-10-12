@@ -177,6 +177,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // On, any local process can drive every Chromium tab; only the person turns it on.
+        "browser.allowIPhoneAccess": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
