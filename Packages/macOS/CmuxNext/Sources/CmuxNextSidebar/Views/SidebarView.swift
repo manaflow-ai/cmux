@@ -271,8 +271,11 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let showsProfiles = true
-        profileBar.isHidden = false
+        // One switcher in the footer, the profile control (Leo 2026-10-11): the
+        // spaces strip beside it read as a duplicate. Spaces stay reachable as
+        // pinned tiles, the palette and swipe paging.
+        let showsProfiles = false
+        profileBar.isHidden = !showsProfiles
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         // Amendment 3: at the bottom the dots share the footer band's row
