@@ -287,4 +287,52 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
+
+    @Test("Cloud creation actions introduce Cloud while it is off or signed out")
+    func creationGate() {
+        func gate(_ available: Bool, _ enabled: Bool, _ canRun: Bool?, authInProgress: Bool = false) -> CloudCreationGate {
+            CloudCreationGate.resolve(
+                isAvailable: available, isEnabled: enabled,
+                canRunCloudOperations: canRun, isAuthInProgress: authInProgress
+            )
+        }
+        #expect(gate(true, false, false) == .introduceCloud)
+        #expect(gate(true, false, false, authInProgress: true) == .introduceCloud)
+        #expect(gate(true, true, false) == .introduceCloud)
+        #expect(gate(true, true, true) == .proceed)
+        // A session still restoring is not signed out yet.
+        #expect(gate(true, true, false, authInProgress: true) == .proceed)
+        // Before app composition there is no operation answer to act on.
+        #expect(gate(true, true, nil) == .proceed)
+        // Managed policy that disables Cloud keeps the action's own handling.
+        #expect(gate(false, false, false) == .proceed)
+    }
+
+    @Test("Enable from the welcome continues the original action only once Cloud is enabled")
+    @MainActor
+    func resumeAfterEnable() async throws {
+        struct PreparationFailed: Error {}
+        let suiteName = "CloudWelcomeTests.resume.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let succeeding = CloudActivationCoordinator(
+            defaults: defaults, notificationCenter: NotificationCenter(),
+            isAvailable: { true }, prepare: {}, observeChanges: false
+        )
+        succeeding.enable()
+        var resumed = 0
+        await CloudWelcomeWindowController.resume({ resumed += 1 }, after: succeeding)
+        #expect(resumed == 1)
+
+        defaults.removeObject(forKey: CloudActivationCoordinator.activationKey)
+        let failing = CloudActivationCoordinator(
+            defaults: defaults, notificationCenter: NotificationCenter(),
+            isAvailable: { true }, prepare: { throw PreparationFailed() }, observeChanges: false
+        )
+        failing.enable()
+        await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
+        #expect(failing.state == .failed(.serviceUnavailable))
+        #expect(resumed == 1)
+    }
 }

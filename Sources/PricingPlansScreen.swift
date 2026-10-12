@@ -36,8 +36,12 @@ enum ProUpgradePresenter {
            appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
             return
         }
+        let url = appPricingURLForCurrentAppearance(source: source)
+        // A signed-in app loads pricing through the native session exchange,
+        // which a profile-store prewarm cannot serve.
+        guard !BrowserPanel.requiresAppSessionBootstrap(url) else { return }
         BrowserPrewarmedWebViewPool.shared.prewarm(
-            url: appPricingURLForCurrentAppearance(source: source),
+            url: url,
             profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
