@@ -10,8 +10,8 @@
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
 //! focused, the Dock badge, a click that opens the tab, the workspace mute).
-//! An ended turn notifies once acpmux marks the chat unread, which it does
-//! only when no pane showed the chat as the turn ended. When acpmux says a
+//! An ended turn notifies unless a pane showed the chat as it ended (acpmux
+//! `shown`, and `unread` once it ended unseen). When acpmux says a
 //! pane showed the chat (`unread` turned false) or the wait ended, the daemon
 //! reads the tab's notifications, so seeing or answering the chat anywhere
 //! clears them. A reconnect compares acpmux's page with what the watch knew,
@@ -31,6 +31,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::{Mux, NotificationLevel, NotificationSource};
 use crate::resource::ContentPublicId;
@@ -81,7 +82,9 @@ impl Mux {
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
         for (surface, content) in self.agent_chat_tabs(session) {
-            let key = format!("acpmux-{session}-{}-{content}", notice.key);
+            // Hashed: an adopted session's id is the agent's own, of any length.
+            let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
+            let key = format!("acpmux-{digest:x}");
             let posted = self.create_durable_notification(
                 &Actor::Daemon,
                 &key,
@@ -206,6 +209,8 @@ struct Chat {
     name: String,
     indicator: String,
     unread: bool,
+    /// A pane shows the chat now.
+    shown: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
     /// The ended turn already notified (or passed over), so it notifies once.
@@ -244,6 +249,7 @@ impl Chat {
             name,
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             unread: summary["unread"].as_bool() == Some(true),
+            shown: summary["shown"].as_bool() == Some(true),
             last_turn,
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
@@ -257,13 +263,18 @@ impl Chat {
     }
 
     /// What this change says to the person, given what the chat did before.
-    /// An ended turn notifies once acpmux marks the chat unread (it does when
-    /// no pane showed the chat as the turn ended), and only once.
+    /// An ended turn notifies once, unless a pane showed the chat as it ended:
+    /// when it ends while no pane shows the chat, or once acpmux marks the
+    /// chat unread (a turn that failed before it started is never marked so).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
+        // The turn ended in this change (not one the watch saw ended before).
+        let ended_now = |turn: &String| {
+            before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
+        };
         if let Some((turn, status)) = &self.last_turn
-            && self.unread
+            && (self.unread || (!self.shown && ended_now(turn)))
             && self.notified_turn.as_ref() != Some(turn)
         {
             self.notified_turn = Some(turn.clone());
