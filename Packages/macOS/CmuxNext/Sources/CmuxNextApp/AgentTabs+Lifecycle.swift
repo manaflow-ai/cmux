@@ -50,8 +50,8 @@ extension AgentTabStore {
         }
         // A new chat in a pane of another machine runs on that machine: the tab records that
         // machine's store as its host and its session daemon starts the chat there
-        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). An existing session of this
-        // Mac (a link, Duplicate Tab) or an outside chat it resumes stays this Mac's.
+        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). A session, an outside chat or
+        // a past chat of this Mac was refused above.
         let remote = !daemon.isLocal && host == nil
         var seed = seed, spare = spare
         if remote {
