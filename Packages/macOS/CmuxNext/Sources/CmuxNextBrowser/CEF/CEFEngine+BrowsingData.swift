@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension CEFEngine {
     /// Clear Browsing Data (cx-d0d.23) in `profile`'s Chromium store:
