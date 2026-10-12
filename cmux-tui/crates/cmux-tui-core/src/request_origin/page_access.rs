@@ -98,6 +98,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitFilesSearch
         | Op::GitCommit
         | Op::GitPush
+        | Op::GitWorktreeCreate
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet

@@ -5,7 +5,8 @@
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
-//! (`mutation`).
+//! (`mutation`), and so does `git.worktree.create`, a chat's own worktree
+//! (`worktree`).
 
 mod checkpoint;
 mod commit;
@@ -20,6 +21,7 @@ mod push;
 mod run;
 mod target;
 mod user_run;
+mod worktree;
 mod write_run;
 
 use std::collections::BTreeSet;
@@ -52,6 +54,9 @@ pub(crate) const COMMIT_CAPABILITY: &str = "git-commit-v1";
 /// Advertised in identify: the session host owns `git.push`.
 pub(crate) const PUSH_CAPABILITY: &str = "git-push-v1";
 
+/// Advertised in identify: the session host owns `git.worktree.create`.
+pub(crate) const WORKTREE_CAPABILITY: &str = "git-worktree-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -61,6 +66,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitFilesList
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
+            | ResourceOperation::GitWorktreeCreate
     ) || checkpoint::handles(operation)
 }
 
@@ -75,6 +81,7 @@ pub(crate) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
         ResourceOperation::GitPush => return push::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {
