@@ -346,6 +346,11 @@ install_companion() {
         lipo -create "$arm" "$x64" -output "$binary.tmp"
         mv -f "$binary.tmp" "$binary"
       fi
+      # Only the arm64 slice is published signed (the linker signs arm64 ad
+      # hoc; x86_64 it does not), so sign the whole, a cached copy too:
+      # check-bundled-browser-host.sh refuses a companion that fails codesign
+      # --verify. Release signing (sign-cmux-bundle.sh) signs it again.
+      codesign --force --sign - "$binary"
       ;;
   esac
   rm -f "$dest"
