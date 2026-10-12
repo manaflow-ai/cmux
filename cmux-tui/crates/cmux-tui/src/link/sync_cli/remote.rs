@@ -78,6 +78,9 @@ impl Remote {
         let stream = UnixStream::connect(socket)
             .with_context(|| format!("cannot connect to {}", socket.display()))?;
         stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+        // A machine that stops reading must not hold a write (and a
+        // caller's lock) forever either.
+        stream.set_write_timeout(Some(Duration::from_secs(60)))?;
         Ok(Self { reader: BufReader::new(stream), next_id: 1 })
     }
 
