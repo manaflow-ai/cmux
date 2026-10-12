@@ -18,9 +18,8 @@ import os
 /// (`<Application Support>/<bundle id>/devtools.json`, mode 0600) tells the
 /// host which case it is in; it is removed on quit. While the endpoint is
 /// live it also maps each cmux tab id to its page's DevTools target id
-/// (`targets`), asked of each Chromium browser itself
-/// (`Target.getTargetInfo` on its own in-process session), never guessed
-/// from URLs or titles.
+/// (`targets`), asked of each Chromium browser itself on its own in-process
+/// DevTools session, never guessed from URLs or titles.
 final class CEFRemoteDevTools {
     static let shared = CEFRemoteDevTools()
 
@@ -39,8 +38,10 @@ final class CEFRemoteDevTools {
     private var targets: [Int32: CEFRemoteDevToolsTarget] = [:]
     /// Browsers whose target id is being asked for.
     private var asking: Set<Int32> = []
-    /// Browsers whose target id could not be read (not asked again).
-    private var unmapped: Set<Int32> = []
+    /// Failed lookups per browser; a browser is asked again on its next
+    /// event (navigation, load, visibility) until `maxAttempts`.
+    private var failures: [Int32: Int] = [:]
+    static let maxAttempts = 8
 
     init(statusFile: URL = CEFRemoteDevTools.defaultStatusFile()) {
         self.statusFile = statusFile
@@ -66,46 +67,86 @@ final class CEFRemoteDevTools {
         return ["remote-debugging-port=\(picked)"]
     }
 
+    /// Runs one in-process DevTools method on a browser and returns its JSON result.
+    typealias DevToolsCall = (Int32, String) async throws -> String
+
     /// After the runtime handled `event`: context start, and browsers that
     /// appeared, moved to another cmux tab, or closed. Nothing happens unless
     /// the endpoint is live, so with the setting off no DevTools call is made.
     func observe(_ event: CEFShimEvent, runtime: CEFRuntime) {
         if case .contextInitialized = event { contextInitialized() }
-        guard requested, port != nil, started, let browser = event.browserID else { return }
-        if case .beforeClose = event {
-            unmapped.remove(browser)
-            if targets.removeValue(forKey: browser) != nil { publish() }
-            return
+        guard let browser = event.browserID else { return }
+        if case .beforeClose = event { return browserClosed(browser) }
+        browserSeen(browser, tabID: runtime.tabsByBrowser[browser]?.id.rawValue) { [weak runtime] browser, method in
+            guard let runtime else { throw BrowserTabError.closed }
+            return try await runtime.devTools(browser, method: method)
         }
-        guard let tab = runtime.tabsByBrowser[browser] else { return }
-        let tabID = tab.id.rawValue
+    }
+
+    func browserClosed(_ browser: Int32) {
+        failures[browser] = nil
+        if targets.removeValue(forKey: browser) != nil { publish() }
+    }
+
+    /// An event of `browser`, which belongs to cmux tab `tabID` (nil while no
+    /// pane has adopted it). Maps it when it has no target id yet; a failed
+    /// lookup is retried on a later event of the same browser. Returns the
+    /// lookup's task when one started.
+    @discardableResult
+    func browserSeen(_ browser: Int32, tabID: String?, devTools: @escaping DevToolsCall) -> Task<Void, Never>? {
+        guard requested, port != nil, started, let tabID else { return nil }
         if let known = targets[browser] {
             // The browser now belongs to another cmux tab (adopted, duplicated).
             if known.tabID != tabID {
                 targets[browser]?.tabID = tabID
                 publish()
             }
-            return
+            return nil
         }
-        // A tab Chromium opened is adopted by a pane after its creation
-        // event, so any later event of an unmapped browser asks once.
-        guard !asking.contains(browser), !unmapped.contains(browser) else { return }
+        guard !asking.contains(browser), failures[browser, default: 0] < Self.maxAttempts else { return nil }
         asking.insert(browser)
-        // task-owner: one bounded in-process DevTools call (CEFRuntime.devToolsTimeout), keyed by browser in `asking`
-        Task { [weak self, weak runtime] in
-            let json = try? await runtime?.devTools(browser, method: "Target.getTargetInfo")
+        // task-owner: bounded in-process DevTools calls (CEFRuntime.devToolsTimeout each), keyed by browser in `asking`
+        return Task { [weak self] in
+            let result = await Self.lookUpTargetID(browser, devTools: devTools)
             guard let self else { return }
             self.asking.remove(browser)
-            guard let json, let targetID = CEFRemoteDevToolsStatus.targetID(fromTargetInfo: json),
-                  let current = runtime?.tabsByBrowser[browser]?.id.rawValue else {
-                // Never asked again for this browser: a failed call is itself an event.
-                self.unmapped.insert(browser)
-                self.logger.error("devtools.json: no target id for browser \(browser)")
-                return
+            switch result {
+            case .success(let targetID):
+                self.failures[browser] = nil
+                self.targets[browser] = CEFRemoteDevToolsTarget(tabID: tabID, targetID: targetID)
+                self.publish()
+            case .failure(let reason):
+                self.failures[browser, default: 0] += 1
+                self.logger.error("devtools.json: no target id for browser \(browser) (attempt \(self.failures[browser] ?? 0)): \(reason, privacy: .public)")
             }
-            self.targets[browser] = CEFRemoteDevToolsTarget(tabID: current, targetID: targetID)
-            self.publish()
         }
+    }
+
+    /// A page target's id is its main frame's id (`Page.getFrameTree`), which
+    /// page sessions may read; `Target.getTargetInfo` is refused on the
+    /// embedder's page sessions in some Chromium builds, so it is the fallback.
+    static func lookUpTargetID(_ browser: Int32, devTools: DevToolsCall) async -> Result<String, LookupFailure> {
+        var reasons: [String] = []
+        do {
+            let json = try await devTools(browser, "Page.getFrameTree")
+            if let id = CEFDevToolsResult.mainFrameID(json), !id.isEmpty { return .success(id) }
+            reasons.append("Page.getFrameTree: no main frame id")
+        } catch {
+            reasons.append("Page.getFrameTree: \(error)")
+        }
+        do {
+            let json = try await devTools(browser, "Target.getTargetInfo")
+            if let id = CEFRemoteDevToolsStatus.targetID(fromTargetInfo: json) { return .success(id) }
+            reasons.append("Target.getTargetInfo: no targetId")
+        } catch {
+            reasons.append("Target.getTargetInfo: \(error)")
+        }
+        return .failure(LookupFailure(reason: reasons.joined(separator: "; ")))
+    }
+
+    nonisolated struct LookupFailure: Error, CustomStringConvertible {
+        var reason: String
+        var description: String { reason }
     }
 
     /// Chromium's context is initialized (the endpoint, if any, is starting).
