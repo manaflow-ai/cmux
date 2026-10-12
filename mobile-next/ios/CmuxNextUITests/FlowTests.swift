@@ -185,9 +185,18 @@ final class FlowTests: XCTestCase {
         } else {
             snap(app, "51-no-permission")
         }
-        pause(30)
+        pause(25)
         app.swipeDown()
         snap(app, "53-done")
+        let field2 = app.textFields["agent.field"]
+        field2.tap()
+        field2.typeText("Now show me the final greet.py.")
+        snap(app, "54-followup-typed")
+        app.buttons["agent.send"].tap()
+        pause(0.6)
+        snap(app, "55-followup-sent")
+        pause(20)
+        snap(app, "56-followup-reply")
     }
 
     /// Forces TURN relay and checks the Mac connects through it.

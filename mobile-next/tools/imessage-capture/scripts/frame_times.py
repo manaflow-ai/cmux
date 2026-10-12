@@ -6,7 +6,8 @@ closely spaced frames (< 25 ms apart) are animations. Prints each segment's
 start/end time and frame count.
 Usage: frame_times.py video.mp4 [min_frames]
 """
-import subprocess, sys
+import os, subprocess, sys
+os.environ["PATH"] = "/opt/homebrew/bin:" + os.environ.get("PATH", "")
 
 def main():
     v = sys.argv[1]

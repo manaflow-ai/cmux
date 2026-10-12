@@ -14,7 +14,39 @@ struct AgentChatView: View {
     @State private var sending = false
     @State private var showTerminal = false
     @State private var error: String?
+    @State private var pendingPrompt: String?
+    @State private var viewportHeight: CGFloat = 600
     @FocusState private var focused: Bool
+
+    struct Turn: Identifiable {
+        let id: String
+        var items: [TranscriptItem]
+    }
+
+    /// Splits rows into turns, each starting at a user prompt. A prompt that
+    /// is sent but not yet echoed by the Mac shows as its own turn.
+    static func turns(_ items: [TranscriptItem], pending: String?) -> [Turn] {
+        var turns: [Turn] = []
+        for item in items {
+            if case .user = item {
+                turns.append(Turn(id: "turn-" + item.id, items: [item]))
+            } else if turns.isEmpty {
+                turns.append(Turn(id: "turn-start", items: [item]))
+            } else {
+                turns[turns.count - 1].items.append(item)
+            }
+        }
+        let echoed = turns.last?.items.first.map { if case .user(_, let text, _) = $0 { text == pending } else { false } } ?? false
+        if let pending, !echoed {
+            turns.append(Turn(id: "turn-pending", items: [.user(id: "pending", text: pending, at: .now)]))
+        }
+        return turns
+    }
+
+    static func lastUserID(_ items: [TranscriptItem], pending: String?) -> String? {
+        if pending != nil { return "pending" }
+        return items.last { if case .user = $0 { true } else { false } }?.id
+    }
 
     private var info: AgentSessionInfo? { host.agents.first { $0.id == sessionID } }
     private var transcript: TranscriptBuilder { TranscriptBuilder(events: host.agentEvents[sessionID] ?? []) }
@@ -25,26 +57,43 @@ struct AgentChatView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(transcript.items) { item in
-                            row(item)
-                                .id(item.id)
-                                .transition(.opacity.combined(with: .offset(y: 8)))
+                    VStack(alignment: .leading, spacing: 14) {
+                        let turns = Self.turns(transcript.items, pending: pendingPrompt)
+                        ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                            VStack(alignment: .leading, spacing: 14) {
+                                ForEach(turn.items) { item in
+                                    row(item)
+                                        .id(item.id)
+                                        .transition(.opacity)
+                                }
+                                if index == turns.count - 1, working || pendingPrompt != nil,
+                                   !(turn.items.last.map(isStreamingRow) ?? false)
+                                {
+                                    WorkingIndicator(label: workingLabel(transcript))
+                                        .id("working")
+                                        .transition(.opacity)
+                                }
+                            }
+                            // The latest turn fills the screen so its prompt can sit at
+                            // the top while the reply grows under it (ChatGPT, T3).
+                            .frame(minHeight: index == turns.count - 1 && turns.count > 1 ? max(0, viewportHeight - 24) : 0, alignment: .top)
+                            .id(turn.id)
                         }
-                        if working, !(transcript.items.last.map(isStreamingRow) ?? false) {
-                            WorkingIndicator(label: workingLabel(transcript))
-                                .id("working")
-                        }
-                        Color.clear.frame(height: 4).id("bottom")
                     }
                     .padding(.horizontal, 18)
                     .padding(.top, 8)
-                    .animation(.smooth(duration: 0.25), value: transcript.items.count)
+                    .padding(.bottom, 8)
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: transcript.items.count) { _, _ in
-                    withAnimation(.smooth) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: Self.lastUserID(transcript.items, pending: pendingPrompt)) { _, id in
+                    guard let id else { return }
+                    // Measured from ChatGPT: the sent prompt springs to the top in ~430 ms.
+                    withAnimation(.spring(response: 0.35, dampingFraction: 1.0)) { proxy.scrollTo(id, anchor: .top) }
+                }
+                .onChange(of: transcript.items.filter { if case .user = $0 { true } else { false } }.count) { _, _ in
+                    pendingPrompt = nil
                 }
                 .overlay {
                     if transcript.items.isEmpty, !working {
@@ -172,11 +221,13 @@ struct AgentChatView: View {
         guard !text.isEmpty else { return }
         draft = ""
         error = nil
+        pendingPrompt = text
         Task {
             do {
                 try await host.prompt(sessionID, blocks: [["type": "text", "text": .string(text)]])
             } catch {
                 self.error = error.localizedDescription
+                pendingPrompt = nil
                 draft = text
             }
         }

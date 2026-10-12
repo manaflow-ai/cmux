@@ -142,6 +142,23 @@ final class Scenarios: XCTestCase {
         dump("PINNED")
     }
 
+    /// Marks the loopback chat unread to capture the unread dot and back-button badge.
+    func testS9Unread() throws {
+        let row = app.cells.containing(.staticText, identifier: Chat.b).firstMatch
+        row.press(forDuration: 1.2)
+        SMS.pause(1.0)
+        if app.buttons["Mark as Unread"].exists { app.buttons["Mark as Unread"].tap() } else { dismissMenu() }
+        SMS.pause(1.5)
+        still("s9-list-unread")
+        dump("LIST-UNREAD")
+        app.staticTexts[Chat.a].firstMatch.tap()
+        SMS.pause(1.5)
+        still("s9-backbutton-badge")
+        dump("BACK-BADGE")
+        app.navigationBars.buttons["BackButton"].tap()
+        SMS.pause(1.0)
+    }
+
     /// Unpins whatever is pinned (best effort) so later scenarios see the plain list.
     func testS1bUnpin() throws {
         dump("BEFORE-UNPIN")
@@ -353,10 +370,12 @@ final class Scenarios: XCTestCase {
         still("s7-\(mode)-composer-keyboard")
         app.textFields["messageBodyField"].typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 10))
         dismissKeyboardIfNeeded()
-        let received = app.textViews.matching(identifier: "CKBalloonTextView").matching(NSPredicate(format: "value BEGINSWITH %@", "Perfect")).firstMatch
-        received.press(forDuration: 1.0)
-        SMS.pause(1.2)
-        still("s7-\(mode)-tapback-menu")
+        let receivedCells = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "+1"))
+        if let received = receivedCells.allElementsBoundByIndex.last(where: { $0.isHittable }) {
+            received.press(forDuration: 1.0)
+            SMS.pause(1.2)
+            still("s7-\(mode)-tapback-menu")
+        }
         dismissMenu()
         openChat(Chat.b)
         SMS.pause(0.8)

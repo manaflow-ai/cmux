@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// ChatGPT-style side drawer: the main screen slides right to reveal the
-/// sidebar underneath (with a little parallax) and dims; it follows the
+/// sidebar (both move together, no parallax) and dims ~11%; it follows the
 /// finger and settles with a spring that carries the release velocity.
 struct DrawerContainer<Drawer: View, Content: View>: View {
     @Binding var isOpen: Bool
@@ -13,18 +13,19 @@ struct DrawerContainer<Drawer: View, Content: View>: View {
     @State private var dragging = false
     @Environment(\.colorScheme) private var colorScheme
 
-    static var settle: Animation { .spring(response: 0.36, dampingFraction: 0.88) }
+    /// Measured from ChatGPT (docs/ANIMATION-REFERENCE.md): ~280 ms, no overshoot.
+    static var settle: Animation { .spring(response: 0.25, dampingFraction: 1.0) }
 
     var body: some View {
         GeometryReader { geometry in
-            let width = min(geometry.size.width * 0.82, 360)
+            let width = geometry.size.width - 64
             let offset = dragOffset ?? (isOpen ? width : 0)
             let progress = max(0, min(1, offset / width))
 
             ZStack(alignment: .leading) {
                 drawer()
                     .frame(width: width)
-                    .offset(x: -width * 0.22 * (1 - progress))
+                    .offset(x: offset - width)
                     .accessibilityHidden(!isOpen)
 
                 content()
@@ -32,13 +33,12 @@ struct DrawerContainer<Drawer: View, Content: View>: View {
                     .allowsHitTesting(!isOpen && dragOffset == nil)
                     .overlay {
                         Color.black
-                            .opacity((colorScheme == .dark ? 0.45 : 0.22) * progress)
+                            .opacity((colorScheme == .dark ? 0.3 : 0.11) * progress)
                             .ignoresSafeArea()
                             .allowsHitTesting(progress > 0.01)
                             .onTapGesture { withAnimation(Self.settle) { isOpen = false } }
                             .accessibilityHidden(true)
                     }
-                    .shadow(color: .black.opacity(0.12 * progress), radius: 16, x: -2)
                     .offset(x: offset)
             }
             .simultaneousGesture(dragGesture(width: width), including: gestureEnabled || isOpen ? .all : .subviews)
@@ -74,8 +74,8 @@ struct DrawerContainer<Drawer: View, Content: View>: View {
                 let open = projected > width / 2
                 let distance = abs((open ? width : 0) - (dragOffset ?? base))
                 let velocity = abs(value.velocity.width)
-                let response = max(0.24, min(0.42, 0.36 - Double(velocity) / 12000 + Double(distance) / 4000))
-                withAnimation(.spring(response: response, dampingFraction: 0.88)) {
+                let response = max(0.18, min(0.3, 0.25 - Double(velocity) / 16000 + Double(distance) / 6000))
+                withAnimation(.spring(response: response, dampingFraction: 1.0)) {
                     isOpen = open
                     dragOffset = nil
                 }

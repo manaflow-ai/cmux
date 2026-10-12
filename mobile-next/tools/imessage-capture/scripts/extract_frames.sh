@@ -4,5 +4,5 @@
 set -eu
 V="$1"; A="$2"; B="$3"; OUT="$4"; COLS="${5:-10}"
 mkdir -p "$OUT/frames"
-ffmpeg -v error -y -i "$V" -vf "trim=start=$A:end=$B,setpts=PTS-STARTPTS,fps=60" "$OUT/frames/f%04d.png"
-python3 "$(dirname "$0")/contact.py" "$OUT/frames" "$OUT/contact.png" "$COLS"
+ffmpeg -nostdin -v error -y -i "$V" -vf "trim=start=$A:end=$B,setpts=PTS-STARTPTS,fps=60" "$OUT/frames/f%04d.png"
+"${PY:-python3}" "$(dirname "$0")/contact.py" "$OUT/frames" "$OUT/contact.png" "$COLS"
