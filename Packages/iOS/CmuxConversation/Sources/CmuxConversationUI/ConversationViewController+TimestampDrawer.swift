@@ -25,12 +25,17 @@ extension ConversationViewController {
             }
             timestampDrawerEnabled = !isSelecting && !touchBelongsToTextSelection(pan.location(in: collectionView))
             timestampDrawer.begin(translation: translation)
+            timestampDrawerLastMove = (translation, CACurrentMediaTime())
         case .changed:
             guard timestampDrawerEnabled else { return }
+            if translation != timestampDrawerLastMove.translation {
+                timestampDrawerLastMove = (translation, CACurrentMediaTime())
+            }
             timestampDrawer.update(translation: translation)
             setTimestampReveal(timestampDrawer.fraction)
         case .ended, .cancelled, .failed:
-            guard let release = timestampDrawer.end(velocity: pan.velocity(in: collectionView)) else { return }
+            let stillFor = CACurrentMediaTime() - timestampDrawerLastMove.time
+            guard let release = timestampDrawer.end(velocity: pan.velocity(in: collectionView), stillFor: stillFor) else { return }
             startTimestampDrawerRelease(release)
         default:
             break

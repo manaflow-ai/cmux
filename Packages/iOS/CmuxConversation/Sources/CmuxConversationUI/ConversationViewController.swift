@@ -112,6 +112,8 @@ public final class ConversationViewController: UIViewController {
     var timestampDrawer = TimestampDrawerPhysics(maxOffset: 58)
     var timestampDrawerEnabled = false
     var timestampDrawerRelease: TimestampDrawerPhysics.Release?
+    /// The drawer pan's last translation change, to tell a resting release.
+    var timestampDrawerLastMove: (translation: CGPoint, time: CFTimeInterval) = (.zero, 0)
     var timestampDrawerReleaseStart: CFTimeInterval?
     var timestampDrawerLink: CADisplayLink?
     /// A held bubble growing before its menu opens (`MessagePressTiming`).
