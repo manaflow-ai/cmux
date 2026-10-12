@@ -29,6 +29,8 @@ extension DaemonStore {
     }
 
     func recordNotificationText(_ notification: DaemonNotification) {
+        // A newer notification replaces the surface's ledger text, even a blank one.
+        if let surface = notification.surface, ledgerNotificationTexts[surface] != nil { ledgerNotificationTexts[surface] = nil }
         guard let text = Self.notificationText(title: notification.title, body: notification.body) else { return }
         notificationTexts[notification.notification] = text
         if notificationTexts.count > Self.notificationTextLimit,
