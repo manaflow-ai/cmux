@@ -550,37 +550,45 @@ export function NewTabScreen(props: Props) {
         </div>
       )}
       {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
-          browser tab on the new tab page, or this page as an empty chat with the agent Return asks. */}
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-        {props.onCreate && (
-          <>
-            <button
-              type="button"
-              className="nt-tool ui-ghost"
-              data-create="terminal"
-              onClick={() => create("terminal")}
-            >
-              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                <Icon name="terminal" size={14} />
-              </span>
-              <span>{nt("create.terminal")}</span>
-            </button>
-            <button type="button" className="nt-tool ui-ghost" data-create="browser" onClick={() => create("browser")}>
-              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                <Icon name="browser" size={14} />
-              </span>
-              <span>{nt("create.browser")}</span>
-            </button>
-          </>
-        )}
-        <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-          <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-            <Icon name="agent.chat" size={14} />
-          </span>
-          <span>{nt("create.chat")}</span>
-        </button>
-      </div>
+          browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
+          Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
+      {!allChats && (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+          {props.onCreate && (
+            <>
+              <button
+                type="button"
+                className="nt-tool ui-ghost"
+                data-create="terminal"
+                onClick={() => create("terminal")}
+              >
+                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                  <Icon name="terminal" size={14} />
+                </span>
+                <span>{nt("create.terminal")}</span>
+              </button>
+              <button
+                type="button"
+                className="nt-tool ui-ghost"
+                data-create="browser"
+                onClick={() => create("browser")}
+              >
+                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                  <Icon name="browser" size={14} />
+                </span>
+                <span>{nt("create.browser")}</span>
+              </button>
+            </>
+          )}
+          <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+              <Icon name="agent.chat" size={14} />
+            </span>
+            <span>{nt("create.chat")}</span>
+          </button>
+        </div>
+      )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
