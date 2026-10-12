@@ -23,16 +23,16 @@ extension AppDelegate {
     /// - Parameters:
     ///   - workspaceID: The local workspace the row resolved to.
     ///   - panelManager: The manager of the window whose Cloud tree was used.
-    /// - Returns: Whether a live owner selected the workspace.
+    /// - Returns: Whether a live owner, not one closing its window, selected the workspace.
     @discardableResult
     func selectCloudTreeLocalWorkspace(_ workspaceID: UUID, from panelManager: TabManager?) -> Bool {
         let owner = tabManagerFor(tabId: workspaceID)
             ?? panelManager.flatMap { $0.workspacesById[workspaceID] != nil ? $0 : nil }
-        guard let owner else { return false }
+        guard let owner, !owner.isFinalizedForWindowClose else { return false }
         if owner !== panelManager, let windowId = owner.windowId {
             _ = focusMainWindow(windowId: windowId)
         }
-        owner.selectedTabId = workspaceID
+        owner.focusTab(workspaceID, suppressFlash: true, dismissRestoredUnreadOnResume: true)
         return true
     }
 }

@@ -5854,6 +5854,13 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteCloudWorkspace(_ target: CommandPaletteCloudWorkspaceTarget) {
+        // Already open in any window: go there instead of opening a second copy here (#19967).
+        if let shownIn = SurfaceCatalog.shared.localWorkspaceShowing(
+            remoteWorkspaceID: target.workspace.id,
+            placements: target.group.placements
+        ), AppDelegate.shared?.selectCloudTreeLocalWorkspace(shownIn, from: tabManager) == true {
+            return
+        }
         let actions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
