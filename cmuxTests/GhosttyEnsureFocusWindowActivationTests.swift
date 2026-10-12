@@ -44,6 +44,21 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
+    func blocksDeferredActivationWhenApplicationIsInactive() {
+        let manager = TabManager()
+        let targetWindow = NSWindow()
+
+        #expect(!shouldAllowEnsureFocusWindowActivation(
+            activeTabManager: manager,
+            targetTabManager: manager,
+            keyWindow: targetWindow,
+            mainWindow: targetWindow,
+            targetWindow: targetWindow,
+            applicationIsActive: false
+        ))
+    }
+
+    @Test
     func allowsActivationWhenAppHasNoKeyAndNoMainWindow() {
         let targetManager = TabManager()
         let targetWindow = NSWindow()

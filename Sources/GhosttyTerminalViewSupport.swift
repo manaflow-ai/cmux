@@ -283,7 +283,8 @@ func shouldAllowEnsureFocusWindowActivation(
     targetTabManager: TabManager,
     keyWindow: NSWindow?,
     mainWindow: NSWindow?,
-    targetWindow: NSWindow
+    targetWindow: NSWindow,
+    applicationIsActive: Bool = true
 ) -> Bool {
     guard activeTabManager === targetTabManager || (keyWindow == nil && mainWindow == nil) else {
         return false
