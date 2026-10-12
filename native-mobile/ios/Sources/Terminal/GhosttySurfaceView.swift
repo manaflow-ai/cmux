@@ -14,12 +14,14 @@ final class GhosttySurfaceView: UIView {
     private let outputQueue = DispatchQueue(label: "cmux.native.terminal.output", qos: .userInteractive)
     private var gridGeneration: UInt64 = 0
     private var pendingFeeds: [Data] = []
-    private var feeds = 0
+    /// A grid lock that arrived before the surface existed; applied first
+    /// when it is created, in order with the queued output.
+    private var pendingGrid: (cols: UInt16, rows: UInt16)?
+    /// Render state for the debug overlay and the device log.
+    private(set) var stats = TerminalSurfaceStats()
 
     /// Ghostty's scrollbar: total rows, top row of the viewport, viewport rows.
-    var onScrollbar: ((Int, Int, Int) -> Void)? {
-        didSet { actions.onScrollbar = onScrollbar }
-    }
+    var onScrollbar: ((Int, Int, Int) -> Void)?
     /// The surface exists and its cell metrics are known.
     var onReady: (() -> Void)?
 
@@ -30,6 +32,18 @@ final class GhosttySurfaceView: UIView {
         isUserInteractionEnabled = false
         isAccessibilityElement = true
         accessibilityLabel = String(localized: "Terminal")
+        actions.onScrollbar = { [weak self] total, offset, length in
+            guard let self else { return }
+            self.stats.scrollbar = (total, offset, length)
+            self.stats.scrollbarEvents += 1
+            if self.stats.scrollbarEvents == 1 { debugLog("cmux-native: first scrollbar total=\(total) offset=\(offset) len=\(length)") }
+            self.onScrollbar?(total, offset, length)
+        }
+        actions.onRendererHealth = { [weak self] healthy in
+            guard let self, self.stats.rendererHealthy != healthy else { return }
+            self.stats.rendererHealthy = healthy
+            debugLog("cmux-native: renderer health \(healthy ? "healthy" : "UNHEALTHY")")
+        }
     }
 
     @available(*, unavailable)
@@ -58,6 +72,7 @@ final class GhosttySurfaceView: UIView {
         let runtime: GhosttyRuntime
         do { runtime = try GhosttyRuntime.shared() } catch {
             debugLog("cmux-native: ghostty runtime FAILED \(error)")
+            stats.createFailure = "runtime: \(error)"
             return
         }
         self.runtime = runtime
@@ -74,12 +89,25 @@ final class GhosttySurfaceView: UIView {
         config.io_write_cb = { _, _, _ in }
         surface = ghostty_surface_new(runtime.app, &config)
         debugLog("cmux-native: ghostty surface \(surface == nil ? "FAILED" : "created") scale=\(config.scale_factor) bounds=\(bounds)")
-        guard let surface else { return }
+        stats.scale = config.scale_factor
+        guard let surface else {
+            stats.createFailure = "ghostty_surface_new returned nil"
+            return
+        }
+        stats.createdAt = Date()
         ghostty_surface_set_occlusion(surface, true)
         ghostty_surface_set_focus(surface, true)
+        stats.occluded = false
+        stats.focused = true
         syncPixelSize()
-        for data in pendingFeeds { feed(data) }
+        if let grid = pendingGrid {
+            pendingGrid = nil
+            setGrid(cols: Int(grid.cols), rows: Int(grid.rows))
+        }
+        let queued = pendingFeeds
         pendingFeeds.removeAll()
+        stats.pendingFeeds = 0
+        for data in queued { feed(data) }
         onReady?()
     }
 
@@ -114,8 +142,15 @@ final class GhosttySurfaceView: UIView {
     // MARK: Output (one serial queue, in stream order)
 
     func feed(_ data: Data) {
-        guard let surface else { pendingFeeds.append(data); return }
-        feeds += 1
+        guard let surface else {
+            pendingFeeds.append(data)
+            stats.pendingFeeds = pendingFeeds.count
+            return
+        }
+        stats.feeds += 1
+        stats.feedBytes += data.count
+        stats.lastFeed = Date()
+        let feeds = stats.feeds
         if feeds <= 3 || feeds % 50 == 0 { debugLog("cmux-native: feed #\(feeds) \(data.count)B bounds=\(bounds) metrics=\(String(describing: cellSize))") }
         let ref = SurfaceRef(surface: surface)
         outputQueue.async {
@@ -129,12 +164,20 @@ final class GhosttySurfaceView: UIView {
 
     /// Locks the local grid to the Mac's size, in order with output.
     func setGrid(cols: Int, rows: Int) {
-        guard let surface, let c = UInt16(exactly: cols), let r = UInt16(exactly: rows) else { return }
+        guard let c = UInt16(exactly: cols), let r = UInt16(exactly: rows), c > 0, r > 0 else { return }
+        guard let surface else {
+            // Before the surface exists: remember it (it used to be dropped,
+            // leaving the grid unlocked at whatever fit the view).
+            pendingGrid = (c, r)
+            return
+        }
+        stats.gridRequests += 1
         gridGeneration += 1
         let generation = gridGeneration
         let ref = SurfaceRef(surface: surface)
         outputQueue.async {
-            _ = ghostty_surface_set_grid(ref.surface, c, r, generation)
+            let accepted = ghostty_surface_set_grid(ref.surface, c, r, generation)
+            if !accepted { debugLog("cmux-native: set_grid \(c)x\(r) gen \(generation) REFUSED") }
         }
     }
 
@@ -182,7 +225,59 @@ final class GhosttySurfaceView: UIView {
             guard let self, let surface = self.surface else { return }
             ghostty_surface_refresh(surface)
             ghostty_surface_draw(surface)
+            self.stats.draws += 1
+            self.stats.lastDraw = Date()
+            if self.stats.draws == 1 { debugLog("cmux-native: first draw \(self.diagnosticsLines().joined(separator: " | "))") }
         }
+    }
+
+    /// Asks Ghostty to draw again (the debug overlay's redraw button and
+    /// recovery after the view returns to a window).
+    func redraw() { requestFrame() }
+
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if window != nil { requestFrame() }
+    }
+
+    // MARK: Diagnostics
+
+    /// The surface's render state, one fact per line.
+    func diagnosticsLines() -> [String] {
+        var lines: [String] = []
+        if let createdAt = stats.createdAt {
+            lines.append("surface: created \(createdAt.ago) scale \(stats.scale) window \(window != nil ? "yes" : "NO")")
+        } else {
+            lines.append("surface: NOT CREATED \(stats.createFailure ?? "(no window yet)") pending feeds \(stats.pendingFeeds)")
+        }
+        lines.append(String(format: "view: frame %.0f,%.0f %.0fx%.0f hidden %@ alpha %.2f", frame.minX, frame.minY, frame.width, frame.height,
+                            isHidden ? "YES" : "no", alpha))
+        if let surface {
+            let size = ghostty_surface_size(surface)
+            let grid = ghostty_surface_grid(surface)
+            lines.append("px: \(size.width_px)x\(size.height_px) fit \(size.columns)x\(size.rows) cell px \(size.cell_width_px)x\(size.cell_height_px)")
+            lines.append("grid: \(grid.locked ? "locked" : "UNLOCKED") \(grid.columns)x\(grid.rows) gen \(grid.generation) requests \(stats.gridRequests)")
+            var metrics = ghostty_surface_grid_metrics_s()
+            if ghostty_surface_grid_metrics(surface, &metrics) {
+                lines.append(String(format: "cell pt: %.2fx%.2f pad %.1f,%.1f cursor %d,%d %@", metrics.cell_width, metrics.cell_height,
+                                    metrics.padding_left, metrics.padding_top, Int(metrics.cursor_column), Int(metrics.cursor_row),
+                                    metrics.cursor_in_viewport ? "visible" : "off-viewport"))
+            } else {
+                lines.append("cell pt: metrics unavailable")
+            }
+            if let sublayers = layer.sublayers, let hosted = sublayers.first(where: { $0.contents != nil }) ?? sublayers.first {
+                lines.append(String(format: "layer: %.0fx%.0f scale %.1f contents %@ sublayers %d", hosted.bounds.width, hosted.bounds.height,
+                                    hosted.contentsScale, hosted.contents == nil ? "NONE" : "set", sublayers.count))
+            } else {
+                lines.append("layer: NO IOSurface sublayer")
+            }
+        }
+        lines.append("feeds \(stats.feeds) \(ByteCountFormatter.string(fromByteCount: Int64(stats.feedBytes), countStyle: .binary))"
+                     + " last \(stats.lastFeed?.ago ?? "never")")
+        lines.append("draws \(stats.draws) last \(stats.lastDraw?.ago ?? "never") renderer \(stats.rendererHealthy ? "ok" : "UNHEALTHY")")
+        let bar = stats.scrollbar
+        lines.append("scrollbar total \(bar.total) offset \(bar.offset) len \(bar.length) events \(stats.scrollbarEvents)")
+        return lines
     }
 }
 
@@ -194,7 +289,3 @@ enum TerminalPreferences {
     }
 }
 
-/// Unbuffered diagnostics on stderr (visible in `devicectl ... --console`).
-func debugLog(_ message: String) {
-    FileHandle.standardError.write(Data((message + "\n").utf8))
-}

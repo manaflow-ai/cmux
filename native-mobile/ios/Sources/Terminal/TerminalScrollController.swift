@@ -38,6 +38,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     let keyInput = TerminalKeyInputView()
     var onDirectTypingChange: ((Bool) -> Void)?
     private var tuiPanCarry: CGFloat = 0
+    private var debugOverlay: TerminalDebugOverlay?
 
     init(session: TerminalSession) {
         self.session = session
@@ -76,6 +77,14 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         pan.isEnabled = false
         view.addGestureRecognizer(pan)
         tuiPan = pan
+
+        // Hidden diagnostics: three-finger long press shows the render state.
+        let debugPress = UILongPressGestureRecognizer(target: self, action: #selector(debugPressed(_:)))
+        debugPress.numberOfTouchesRequired = 3
+        debugPress.minimumPressDuration = 0.6
+        debugPress.cancelsTouchesInView = false
+        view.addGestureRecognizer(debugPress)
+        if TerminalDebugOverlay.enabled { showDebugOverlay(true) }
 
         surface.onScrollbar = { [weak self] total, offset, length in
             self?.scrollbarChanged(total: total, offset: offset, length: length)
@@ -168,7 +177,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         scrollView.alwaysBounceVertical = overflow
         let rows = max(scrollback.total, session.rows)
         // The grid's bottom sits on the composer; leftover space goes on top.
-        let topPad = max(0, bounds.height - bottomInset - gridHeight)
+        let topPad = TerminalViewportMath.topPad(viewHeight: bounds.height, bottomInset: bottomInset, gridHeight: gridHeight)
         let contentHeight = topPad + CGFloat(rows) * cell.height
         applyingOffset = true
         scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
@@ -187,10 +196,11 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     /// top and moves Ghostty's viewport to the matching row.
     private func placeSurface() {
         let bounds = view.bounds
-        let topPad = max(0, bounds.height - bottomInset - gridHeight)
-        let maxRow = max(0, scrollback.total - max(session.rows, scrollback.length))
-        let offset = min(max(scrollView.contentOffset.y, 0), maxOffset)
-        let row = min(maxRow, Int((offset / cell.height).rounded(.up)))
+        let topPad = TerminalViewportMath.topPad(viewHeight: bounds.height, bottomInset: bottomInset, gridHeight: gridHeight)
+        let (row, maxRow) = TerminalViewportMath.viewportRow(
+            offset: scrollView.contentOffset.y, maxOffset: maxOffset, cellHeight: cell.height,
+            totalRows: scrollback.total, gridRows: session.rows, viewportRows: scrollback.length
+        )
         surface.frame = CGRect(x: 0, y: topPad + CGFloat(row) * cell.height, width: bounds.width, height: gridHeight)
         guard row != lastViewportRow else { return }
         lastViewportRow = row
@@ -249,6 +259,50 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
 
     /// Starts direct typing (the composer's terminal-keyboard button).
     func beginDirectTyping() { keyInput.becomeFirstResponder() }
+
+    // MARK: Debug overlay
+
+    @objc private func debugPressed(_ press: UILongPressGestureRecognizer) {
+        guard press.state == .began else { return }
+        let show = debugOverlay == nil
+        TerminalDebugOverlay.enabled = show
+        showDebugOverlay(show)
+        if show { surface.redraw() }
+        Haptics.soft()
+    }
+
+    private func showDebugOverlay(_ show: Bool) {
+        guard show else {
+            debugOverlay?.removeFromSuperview()
+            debugOverlay = nil
+            return
+        }
+        guard debugOverlay == nil else { return }
+        let overlay = TerminalDebugOverlay()
+        overlay.provider = { [weak self] in self?.diagnosticsLines() ?? [] }
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            overlay.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+        ])
+        debugOverlay = overlay
+    }
+
+    /// Everything the overlay shows: session, surface and placement.
+    func diagnosticsLines() -> [String] {
+        var lines = session.diagnosticsLines()
+        lines += surface.diagnosticsLines()
+        let visible = CGRect(origin: scrollView.contentOffset, size: scrollView.bounds.size)
+        let inView = scrollView.convert(surface.frame, to: view)
+        let fraction = TerminalViewportMath.visibleFraction(of: surface.frame, in: visible)
+        lines.append(String(format: "placement: in view y %.0f..%.0f visible %.0f%% offset %.0f/%.0f content %.0f", inView.minY, inView.maxY,
+                            fraction * 100, scrollView.contentOffset.y, maxOffset, scrollView.contentSize.height))
+        lines.append(String(format: "layout: view %.0fx%.0f top %.0f bottom %.0f cell %.2fx%.2f row %d pinned %@", view.bounds.width, view.bounds.height,
+                            topInset, bottomInset, cell.width, cell.height, lastViewportRow, pinnedToBottom ? "yes" : "no"))
+        return lines
+    }
 
     // MARK: TUI gestures
 

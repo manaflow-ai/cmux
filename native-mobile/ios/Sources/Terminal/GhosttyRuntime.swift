@@ -50,6 +50,10 @@ final class GhosttyRuntime {
                 let value = (Double(size.width), Double(size.height))
                 Task { @MainActor in view.onCellSize?(value.0, value.1) }
                 return true
+            case GHOSTTY_ACTION_RENDERER_HEALTH:
+                let healthy = action.action.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY
+                Task { @MainActor in view.onRendererHealth?(healthy) }
+                return true
             case GHOSTTY_ACTION_RING_BELL:
                 Task { @MainActor in Haptics.soft() }
                 return true
@@ -86,8 +90,15 @@ final class GhosttyRuntime {
         foreground = #d8d9da
 
         """
-        guard (try? Data(text.utf8).write(to: url, options: .atomic)) != nil else { return }
+        do {
+            try Data(text.utf8).write(to: url, options: .atomic)
+        } catch {
+            debugLog("cmux-native: ghostty config write FAILED \(error)")
+            return
+        }
         url.path.withCString { ghostty_config_load_file(config, $0) }
+        let problems = ghostty_config_diagnostics_count(config)
+        if problems > 0 { debugLog("cmux-native: ghostty config has \(problems) diagnostics") }
     }
 
     func tick() {
@@ -109,6 +120,7 @@ final class GhosttyRuntime {
 final class SurfaceActionBox {
     var onScrollbar: ((Int, Int, Int) -> Void)?
     var onCellSize: ((Double, Double) -> Void)?
+    var onRendererHealth: ((Bool) -> Void)?
     var deliverInput: ((Data) -> Void)?
 }
 
