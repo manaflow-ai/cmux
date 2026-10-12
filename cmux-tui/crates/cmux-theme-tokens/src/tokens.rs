@@ -31,6 +31,10 @@ pub struct ThemeInput {
     /// Where the chrome's accent comes from (`appearance.accent` in
     /// cmux.json, not the Ghostty config; `load` leaves it neutral).
     pub accent: ThemeAccent,
+    /// The theme's own accent: its `<theme>/accent` edit in
+    /// `appearance.themeEdits` (set by the app), else the theme file's
+    /// `# cmux-accent = #rrggbb` line (set by `load`). Wins over `accent`.
+    pub accent_color: Option<Rgb>,
 }
 
 /// Ghostty's default ANSI 0...15.
@@ -65,6 +69,7 @@ impl ThemeInput {
         background_blur: 0,
         cursor: None,
         accent: ThemeAccent::Neutral,
+        accent_color: None,
     };
 
     /// This theme with the chrome accent `accent` (`appearance.accent`).
@@ -219,10 +224,10 @@ impl ThemeTokens {
         let color = |token: &str| spec.color(token, &inputs);
         let (text_minimum, mark_minimum) = (spec.minimum_text_contrast, spec.minimum_mark_contrast);
 
-        // The app accent when the setting names one; None keeps the
-        // neutral fills (the spec's formulas).
-        let app = (input.accent != ThemeAccent::Neutral)
-            .then(|| AppTheme::derive(bg, fg, &input.palette, input.accent));
+        // The app accent when the setting or the theme names one; None
+        // keeps the neutral fills (the spec's formulas).
+        let app = (input.accent != ThemeAccent::Neutral || input.accent_color.is_some())
+            .then(|| AppTheme::derive(bg, fg, &input.palette, input.accent, input.accent_color));
         let accent = app.map(|app| app.get(AppToken::Accent));
 
         let hover = color("hoverFill");

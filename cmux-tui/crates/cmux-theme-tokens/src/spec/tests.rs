@@ -4,7 +4,8 @@
 //! the same `isDark`, every token, every composited color and the three pane
 //! ring levels, as the spec's hex (channels rounded half away from zero).
 //! A theme's `input.accent` (`appearance.accent`) and `input.cursor`
-//! (`cursor-color`) cover the hued accent (Swift `AppTheme`) and the caret.
+//! (`cursor-color`) cover the hued accent (Swift `AppTheme`) and the caret;
+//! `input.accentColor` is the theme's own accent (wins over `accent`).
 
 use super::json::{self, Value};
 use super::*;
@@ -90,6 +91,7 @@ fn derive_matches_the_spec_reference_themes() {
             background_opacity: 1.0,
             background_blur: 0,
             cursor: input_of("cursor").and_then(Value::as_str).map(hex),
+            accent_color: input_of("accentColor").and_then(Value::as_str).map(hex),
             accent: input_of("accent").and_then(Value::as_str).map_or(ThemeAccent::Neutral, |a| {
                 ThemeAccent::parse(a).unwrap_or_else(|| panic!("{name}.input.accent {a:?}"))
             }),

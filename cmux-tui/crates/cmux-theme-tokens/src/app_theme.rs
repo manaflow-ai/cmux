@@ -5,7 +5,8 @@
 //! `webviews/src/theme/appTheme.ts` and `color.ts`). Every token is opaque.
 //! Each pair in the contract meets its WCAG 2 minimum (4.5:1 text, 3:1 UI
 //! marks); OKLCH lightness moves keep a color's hue. `ThemeTokens::derive`
-//! reads the accent and onAccent from here when the accent is not neutral.
+//! reads the accent and onAccent from here when the accent is not neutral or
+//! the theme has its own accent color.
 
 use crate::Rgb;
 
@@ -228,21 +229,25 @@ impl AppTheme {
     }
 
     /// The tokens of a terminal palette (alpha ignored) with `accent`. Every
-    /// contract pair meets its minimum.
+    /// contract pair meets its minimum. `accent_color` is the theme's own
+    /// accent (a `<theme>/accent` edit or the theme file's `# cmux-accent`):
+    /// when set it is the accent's starting color, whatever `accent` says.
     pub fn derive(
         background: Rgb,
         foreground: Rgb,
         palette: &[Rgb; 16],
         accent: ThemeAccent,
+        accent_color: Option<Rgb>,
     ) -> Self {
         let (bg, fg) = (background.with_alpha(1.0), foreground.with_alpha(1.0));
         let palette = palette.map(|c| c.with_alpha(1.0));
-        let mut theme = derive_at(bg, fg, &palette, accent, TINT_SCALES[0]);
+        let source = accent_color.map(|c| c.with_alpha(1.0));
+        let mut theme = derive_at(bg, fg, &palette, accent, source, TINT_SCALES[0]);
         for scale in &TINT_SCALES[1..] {
             if !theme.fails() {
                 break;
             }
-            theme = derive_at(bg, fg, &palette, accent, *scale);
+            theme = derive_at(bg, fg, &palette, accent, source, *scale);
         }
         theme
     }
@@ -257,8 +262,12 @@ fn colorful(palette: &[Rgb; 16], normal: usize, bright: usize) -> Rgb {
     }
 }
 
-/// The accent's starting color (Swift `AppTheme.accentSeed`).
-fn accent_seed(accent: ThemeAccent, fg: Rgb, palette: &[Rgb; 16]) -> Rgb {
+/// The accent's starting color (Swift `AppTheme.accentSeed`): the theme's
+/// own color when it has one, else the named accent.
+fn accent_seed(accent: ThemeAccent, color: Option<Rgb>, fg: Rgb, palette: &[Rgb; 16]) -> Rgb {
+    if let Some(color) = color {
+        return color;
+    }
     let neutral = from_oklch(Oklch { l: oklch(fg).l, c: 0.0, h: 0.0 });
     if let Some(slot) = accent.slot() {
         return colorful(palette, slot, slot + 8);
@@ -276,7 +285,14 @@ fn accent_seed(accent: ThemeAccent, fg: Rgb, palette: &[Rgb; 16]) -> Rgb {
     neutral
 }
 
-fn derive_at(bg: Rgb, fg: Rgb, palette: &[Rgb; 16], accent: ThemeAccent, tint: f64) -> AppTheme {
+fn derive_at(
+    bg: Rgb,
+    fg: Rgb,
+    palette: &[Rgb; 16],
+    accent: ThemeAccent,
+    accent_color: Option<Rgb>,
+    tint: f64,
+) -> AppTheme {
     let is_dark = luminance(bg) < luminance(fg);
     let dark = |d: f64, l: f64| if is_dark { d } else { l };
     let q = quantized;
@@ -300,7 +316,7 @@ fn derive_at(bg: Rgb, fg: Rgb, palette: &[Rgb; 16], accent: ThemeAccent, tint: f
     let on_accent_wanted = if is_dark { window } else { Rgb::WHITE };
     let mut accent_on = on(&t, &PLAIN_SURFACES, UI_MINIMUM);
     accent_on.push(Constraint { on: on_accent_wanted, minimum: TEXT_MINIMUM });
-    let accent = fit(accent_seed(accent, fg, palette), &accent_on, away);
+    let accent = fit(accent_seed(accent, accent_color, fg, palette), &accent_on, away);
     t[T::Accent as usize] = accent;
     t[T::FocusRing as usize] = accent;
     let on_accent_rule = [Constraint { on: accent, minimum: TEXT_MINIMUM }];

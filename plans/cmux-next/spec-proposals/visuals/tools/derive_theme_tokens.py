@@ -1,7 +1,9 @@
 """Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift), AppTheme.derive (AppTheme.swift,
 for the hued accent of appearance.accent) and ChromeEmphasis.emphasized.
 
-A reference theme's 'accent' is appearance.accent (default neutral); 'cursor' is cursor-color (caret).
+A reference theme's 'accent' is appearance.accent (default neutral); 'accentColor' is the theme's own
+accent (appearance.themeEdits <theme>/accent, else the theme file's '# cmux-accent = #rrggbb'), which
+wins over 'accent'; 'cursor' is cursor-color (caret).
 The AppTheme port reproduces schemas/theme/app-theme-vectors.json (the web module's output):
   derive_theme_tokens.py --check-app-vectors app-theme-vectors.json
 
@@ -100,6 +102,7 @@ APP_CONTRACT=([('text',o,4.5) for o in TEXTS]+[('textSecondary',o,4.5) for o in 
   +[(n,o,4.5) for n in ('danger','warning','success') for o in STATUS])
 def colorful(pal,n,b): return pal[b] if oklch(pal[b])[1]>oklch(pal[n])[1]+0.02 else pal[n]
 def accent_seed(accent,fg,pal):
+    if isinstance(accent,C): return accent  # AccentSource.color: the theme's own accent
     neutral=from_oklch(oklch(fg)[0],0,0)
     if accent in ACCENT_SLOT: s=ACCENT_SLOT[accent]; return colorful(pal,s,s+8)
     if accent!='theme': return neutral
@@ -133,13 +136,14 @@ def app_derive(bg,fg,pal,accent='neutral'):
         if all(t[a].contrast(t[b])>=m for a,b,m in APP_CONTRACT): break
     return dark,t
 GHOSTTY_DEFAULT_PAL=[0x1D1F21,0xCC6666,0xB5BD68,0xF0C674,0x81A2BE,0xB294BB,0x8ABEB7,0xC5C8C6,0x666666,0xD54E53,0xB9CA4A,0xE7C547,0x7AA6DA,0xC397D8,0x70C0B1,0xEAEAEA]
-def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None):
+def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_color=None):
     # AppTheme fills a missing slot with Ghostty's default; ThemeTokens takes the default palette under 8 slots.
     app_pal=[C.hex(pal[i] if i<len(pal) else GHOSTTY_DEFAULT_PAL[i]) for i in range(16)]
     bg,fg=C.hex(bg),C.hex(fg); pal=[C.hex(p) for p in (pal if len(pal)>=8 else GHOSTTY_DEFAULT_PAL)]
     dark=bg.lum()<fg.lum()
-    # The app accent when appearance.accent names one; None keeps the neutral fills.
-    app=app_derive(bg,fg,app_pal,accent)[1] if accent!='neutral' else None
+    # The app accent when appearance.accent or the theme names one; None keeps the neutral fills.
+    source=C.hex(accent_color) if accent_color is not None else accent
+    app=app_derive(bg,fg,app_pal,source)[1] if accent!='neutral' or accent_color is not None else None
     acc=app['accent'] if app else None
     hover=fg.wa(0.06 if dark else 0.05); pressed=fg.wa(0.14 if dark else 0.11)
     selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.10 if dark else 0.08)
@@ -196,6 +200,9 @@ for k in ('appleSystemDark','appleSystemLight'):
     for a in ('red','green','blue'):
         THEMES[k+a.capitalize()]=dict(THEMES[k],name=THEMES[k]['name']+', appearance.accent = '+a,accent=a)
 THEMES['monokaiClassicTheme']=dict(THEMES['monokaiClassic'],name=THEMES['monokaiClassic']['name']+', appearance.accent = theme',accent='theme')
+# A theme's own accent (a <theme>/accent edit or the file's # cmux-accent) wins over appearance.accent = blue.
+THEMES['appleSystemDarkOwnAccent']=dict(THEMES['appleSystemDark'],name=THEMES['appleSystemDark']['name']+", appearance.accent = blue, the theme's own accent #ff9f0a",accent='blue',accent_color=0xFF9F0A)
+THEMES['githubLightOwnAccent']=dict(THEMES['githubLight'],name=THEMES['githubLight']['name']+", the theme's own accent #bf3989",accent_color=0xBF3989)
 if len(sys.argv)>2 and sys.argv[1]=='--check-app-vectors':
     # Replays the web module's vectors (neutral and theme accents) through the AppTheme port; exit 1 on any difference.
     cases=json.load(open(sys.argv[2]))['cases']; bad=0
@@ -208,12 +215,13 @@ if len(sys.argv)>2 and sys.argv[1]=='--check-app-vectors':
     print(len(cases),'cases,',bad,'differences'); sys.exit(1 if bad else 0)
 out={}
 for k,v in THEMES.items():
-    dark,t,pal=derive(v['bg'],v['fg'],v['pal'],v['sel'],accent=v.get('accent','neutral'),cursor=v.get('cursor'))
+    dark,t,pal=derive(v['bg'],v['fg'],v['pal'],v['sel'],accent=v.get('accent','neutral'),cursor=v.get('cursor'),accent_color=v.get('accent_color'))
     bg=C.hex(v['bg'])
     inp={'background':C.hex(v['bg']).css(),'foreground':C.hex(v['fg']).css(),
         'selectionBackground':C.hex(v['sel']).css() if v['sel'] is not None else None,'palette':[p.css() for p in pal]}
     if v.get('cursor') is not None: inp['cursor']=C.hex(v['cursor']).css()
     if v.get('accent','neutral')!='neutral': inp['accent']=v['accent']
+    if v.get('accent_color') is not None: inp['accentColor']=C.hex(v['accent_color']).css()
     e={'name':v['name'],'isDark':dark,'input':inp,
        'tokens':{n:c.css() for n,c in t.items()},
        'composited':{n:c.comp(bg).css() for n,c in t.items() if c.a<1},

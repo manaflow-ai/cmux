@@ -5,7 +5,7 @@
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
   "sourceRefsSha": "82209ab8050ffe693991fc3c0beec0ed992930cd",
-  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive and AppTheme.derive (appearance.accent cases added 2026-10-12, cx-jdb.6)."
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive and AppTheme.derive (appearance.accent cases and the theme's own accentColor added 2026-10-12, cx-jdb.6)."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
@@ -80,7 +80,7 @@
  },
  "theme": {
   "input": {
-   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key.",
+   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key. accentColor is the theme's own accent: its appearance.themeEdits <theme>/accent edit, else the theme file's '# cmux-accent = #rrggbb' line (a comment to Ghostty); it wins over appearance.accent for that theme (ThemeInput.accentColor).",
    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift (ThemeInput); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)",
    "defaultTheme": {
     "value": "light:Apple System Colors Light,dark:Apple System Colors",
@@ -224,7 +224,7 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:171-178,211 (ThemeTokens.derive)"
    },
    "accent": {
-    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
+    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; the theme's own accentColor, when set, replaces that starting color whatever appearance.accent says; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:146,212 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.accentSeed, derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:116 (Palette.accent)"
    },
    "onAccent": {
@@ -1503,6 +1503,208 @@
      "textTertiary": "#7F8177",
      "selectionFill": "#AE81FF00",
      "hoverFill": "#FDFFF10F"
+    }
+   }
+  },
+  "appleSystemDarkOwnAccent": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue, the theme's own accent #ff9f0a",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue",
+    "accentColor": "#FF9F0A"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B0B0B0",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF9F0A42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF9F0A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF9F0A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF9F0A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#594019",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF9F0A33",
+    "standard": "#FF9F0A8C",
+    "strong": "#FF9F0AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#696969",
+     "selectionFill": "#FF9F0A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FF9F0A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "githubLightOwnAccent": {
+   "name": "GitHub Light Default (test fixture), the theme's own accent #bf3989",
+   "isDark": false,
+   "input": {
+    "background": "#FFFFFF",
+    "foreground": "#1F2328",
+    "selectionBackground": null,
+    "palette": [
+     "#24292F",
+     "#CF222E",
+     "#116329",
+     "#4D2D00",
+     "#0969DA",
+     "#8250DF",
+     "#1B7C83",
+     "#6E7781",
+     "#57606A",
+     "#A40E26",
+     "#1A7F37",
+     "#633C01",
+     "#218BFF",
+     "#A475F9",
+     "#3192AA",
+     "#8C959F"
+    ],
+    "accentColor": "#BF3989"
+   },
+   "tokens": {
+    "windowBackground": "#FFFFFF",
+    "sidebarBackground": "#FFFFFF",
+    "contentBackground": "#FFFFFF",
+    "chromeBackground": "#F7F7F7",
+    "elevatedBackground": "#FBFBFB",
+    "stripBackground": "#FFFFFF",
+    "sidebarStep": "#1F23280A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#1F2328",
+    "textSecondary": "#626568",
+    "textTertiary": "#7F8284",
+    "hoverFill": "#1F23280D",
+    "selectionFill": "#BF398929",
+    "secondarySelectionFill": "#1F23280E",
+    "pressedFill": "#1F23281C",
+    "badgeFill": "#1F23281A",
+    "separator": "#1F232812",
+    "paneBorder": "#1F232817",
+    "focusRing": "#BF3989",
+    "glassTint": "#FFFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#CECFD0",
+    "attention": "#4D2D00",
+    "danger": "#CF222E",
+    "success": "#116329",
+    "highlight": "#BF3989",
+    "highlightText": "#FFFFFF",
+    "accent": "#BF3989",
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
+   },
+   "composited": {
+    "sidebarStep": "#F6F6F6",
+    "stripStep": "#F2F2F2",
+    "hoverFill": "#F4F4F4",
+    "selectionFill": "#F5DFEC",
+    "secondarySelectionFill": "#F3F3F3",
+    "pressedFill": "#E6E7E7",
+    "badgeFill": "#E9E9EA",
+    "separator": "#EFF0F0",
+    "paneBorder": "#EBEBEC",
+    "glassTint": "#FFFFFF"
+   },
+   "focusRing": {
+    "subtle": "#BF398933",
+    "standard": "#BF39898C",
+    "strong": "#BF3989D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#6D7073",
+     "textSecondary": "#999B9D",
+     "textTertiary": "#ACADAF",
+     "selectionFill": "#BF39891B",
+     "hoverFill": "#1F232808"
+    },
+    "tonal": {
+     "textPrimary": "#626568",
+     "textSecondary": "#7F8284",
+     "textTertiary": "#96989A",
+     "selectionFill": "#1F23280B",
+     "hoverFill": "#1F23280D"
+    },
+    "quiet": {
+     "textPrimary": "#626568",
+     "textSecondary": "#96989A",
+     "textTertiary": "#96989A",
+     "selectionFill": "#BF398900",
+     "hoverFill": "#1F23280D"
     }
    }
   }

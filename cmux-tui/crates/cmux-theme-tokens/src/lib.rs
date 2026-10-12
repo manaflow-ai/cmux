@@ -22,9 +22,10 @@
 //! `themes.*` there is the oracle (`spec/tests.rs`). `appearance.accent`
 //! (`ThemeInput::accent`, set by the app from cmux.json) gives selection, the
 //! focus ring, `highlight`, `accent` and `onAccent` the hue of Swift
-//! `AppTheme` (`app_theme.rs`); `cursor-color` gives `caret`. Not ported: a
-//! theme's own accent (`appearance.themeEdits` `<theme>/accent`, the theme
-//! file's `# cmux-accent`). Do not invent other values.
+//! `AppTheme` (`app_theme.rs`); `cursor-color` gives `caret`. A theme's own
+//! accent (`ThemeInput::accent_color`: the theme file's `# cmux-accent`,
+//! read by `load`, or the app's `appearance.themeEdits` `<theme>/accent`)
+//! wins over `appearance.accent`. Do not invent other values.
 //!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
@@ -49,8 +50,8 @@ mod tokens;
 pub use app_theme::{AppTheme, AppToken, ThemeAccent};
 pub use colors::parse_color;
 pub use config::{
-    Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_OVERRIDE_MAX_CHARS,
-    load, theme_for, theme_override_value,
+    Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
+    THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
 };
 pub use rgb::Rgb;
 pub use tokens::*;
