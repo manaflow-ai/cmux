@@ -55,10 +55,11 @@ actor AppContextSerialGate {
 
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
-/// `@testable import`. Tests register a windowless context and tear it down
-/// through the same recoverable path used while SwiftUI replaces a context.
-/// Tests that model an authoritative close explicitly forget the resulting
-/// route after they finish exercising its recovery behavior.
+/// `@testable import`. Tests may register a context with or without an AppKit
+/// window, then tear it down through the same lifecycle paths used while
+/// SwiftUI replaces a context. Tests that model an authoritative close
+/// explicitly forget the resulting route after they finish exercising its
+/// recovery behavior.
 extension AppDelegate {
     /// Establishes the real window/controller/terminal focus relationship before input probes.
     ///
@@ -161,7 +162,8 @@ extension AppDelegate {
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil
     ) -> UUID {
         tabManager.windowId = windowId
         let context = MainWindowContext(
@@ -171,7 +173,7 @@ extension AppDelegate {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil,
+            window: window,
             workspaceTerminalFontSizeArbiter:
                 workspaceTerminalFontSizeArbiter
         )
