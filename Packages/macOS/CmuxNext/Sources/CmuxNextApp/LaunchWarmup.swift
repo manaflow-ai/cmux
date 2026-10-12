@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextPalette
 import CoreFoundation
@@ -22,6 +23,8 @@ enum LaunchWarmup {
         // the app waits for it.
         DaemonLauncher.prewarmLoginEnvironment()
         let thread = Thread {
+            // The first agent page's files, answered without a main-thread read hop.
+            AgentPanePagePreload.start()
             _ = ActionCatalog.all
             PaletteController.prewarmStrings()
             // The SF Symbols catalog loads on first lookup (20 ms on the
