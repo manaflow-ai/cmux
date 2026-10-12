@@ -299,3 +299,11 @@
 .nt-all-group-count{flex:none;font-variant-numeric:tabular-nums;opacity:.8}
 @media (prefers-reduced-motion:reduce){.nt-all-group-chevron{transition:none}}
 .nt-closed .nt-open-tab:disabled{opacity:.45;cursor:default}
+
+/* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
+   following the box's rounded corners (the field draws none, cx-ncc.57). */
+@media (prefers-contrast: more) {
+  .nt-box:focus-within {
+    box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}

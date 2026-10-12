@@ -62,6 +62,7 @@
     "git.files.search",
     "git.push",
     "git.status",
+    "git.worktree.apply",
     "git.worktree.create",
     "history.backups.purge",
     "history.clear",

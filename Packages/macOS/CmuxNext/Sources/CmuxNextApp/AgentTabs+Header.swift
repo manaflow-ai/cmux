@@ -8,7 +8,7 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String) {
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
@@ -59,7 +59,8 @@ extension AgentTabStore {
     /// Returns whether the page was started.
     private func openNewTabColumn(beside provisional: String) -> Bool {
         let chat = resolve(provisional)
-        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd) else { return false }
+        // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
+        guard let newTab = firstPageNewTab?(lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
         return openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 
