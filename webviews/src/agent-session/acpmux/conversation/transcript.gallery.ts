@@ -908,9 +908,12 @@ export default agentPaneEntry({
         secret: { secretId: "gallery-secret", name: "STRIPE_API_KEY", reason: "Create the test webhook" },
       } as Parameters<typeof chat>[1]),
       afterCall: {
-        "chat.secret": chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
-          isWorking: true,
-        }),
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
       },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-secret-card-field" });
