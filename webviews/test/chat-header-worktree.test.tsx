@@ -45,6 +45,7 @@ const plainStatus = { root: "/Users/me/app", branch: "main", base: "origin/main"
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 const pill = () => host.querySelector<HTMLElement>(".acpmux-header-worktree");
+const branch = () => pill()?.querySelector(".acpmux-header-worktree-name")?.textContent;
 
 async function render(props: Record<string, unknown>): Promise<(next: Record<string, unknown>) => Promise<void>> {
   const { createRoot } = await import("react-dom/client");
@@ -64,19 +65,32 @@ async function render(props: Record<string, unknown>): Promise<(next: Record<str
 
 test("a worktree chat's header names its branch, the checkout it belongs to and its base", async () => {
   const asked: string[] = [];
-  const draw = await render({
-    folder: WORKTREE,
-    readStatus: async () => {
-      asked.push("git.status");
-      return worktreeStatus;
-    },
-  });
-  expect(asked).toEqual(["git.status"]);
-  expect(pill()?.textContent).toBe("cmux/fix-login");
+  const readStatus = async (cwd: string) => {
+    asked.push(cwd);
+    return worktreeStatus;
+  };
+  const draw = await render({ folder: WORKTREE, readStatus });
+  // The read names the folder: a new chat's worktree has no session yet to name it by.
+  expect(asked).toEqual([WORKTREE]);
+  expect(branch()).toBe("cmux/fix-login");
   expect(pill()?.getAttribute("title")).toBe("Worktree of /Users/me/app, branched from main");
+  // A screen reader hears what the tooltip says, not the branch alone.
+  expect(pill()?.textContent).toContain("Worktree of /Users/me/app, branched from main");
   // Another chat in a plain checkout drops it.
   await draw({ folder: "/Users/me/app", readStatus: async () => plainStatus });
   expect(pill()).toBeNull();
+  await draw({});
+});
+
+test("a turn's end reads the branch again: the agent may have switched it", async () => {
+  let status: Record<string, unknown> = worktreeStatus;
+  const readStatus = async () => status;
+  const draw = await render({ folder: WORKTREE, readStatus, statusKey: false });
+  expect(branch()).toBe("cmux/fix-login");
+  status = { ...worktreeStatus, branch: "cmux/fix-login-v2" };
+  await draw({ folder: WORKTREE, readStatus, statusKey: true });
+  await draw({ folder: WORKTREE, readStatus, statusKey: false });
+  expect(branch()).toBe("cmux/fix-login-v2");
   await draw({});
 });
 
