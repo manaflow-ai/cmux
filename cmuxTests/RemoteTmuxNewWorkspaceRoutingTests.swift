@@ -37,6 +37,8 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
     /// a mirror tab shows the item, a local tab in the same manager hides it.
     @Test func menuVisibilityFollowsTheActiveWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let controller = RemoteTmuxController()
@@ -59,6 +61,8 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
     /// selection, so the controller's observable mirror-membership snapshot has to move too.
     @Test func detachingTheSelectedMirrorChangesMirrorMembership() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let controller = RemoteTmuxController()

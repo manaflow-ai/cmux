@@ -12,6 +12,23 @@ import Testing
 enum RemoteTmuxRoutingFixture {
     private static let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
 
+    /// Enables the opt-in New Workspace routing beta for one test scope and
+    /// restores the caller's setting afterward. Tests must opt in explicitly
+    /// because the production default is intentionally off.
+    static func enableNewWorkspaceRouting() -> () -> Void {
+        let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let prior = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        return {
+            if let prior {
+                defaults.set(prior, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+
     /// Sets the ssh stub for the caller's whole scope; the returned closure
     /// restores the previous value and belongs in the FIRST `defer`, so it
     /// runs after every later-registered teardown (detach included).

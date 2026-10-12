@@ -100,6 +100,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     ) {
         _ = NSApplication.shared
         let appDelegate = try #require(AppDelegate.shared)
+        let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+        defer { restoreRouting() }
         let argvLog = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-kill-argv-\(UUID().uuidString).log").path
         let stub = try makeCreateThenKillStub(
@@ -149,6 +151,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
         _ = NSApplication.shared
         let appDelegate = try #require(AppDelegate.shared)
+        let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+        defer { restoreRouting() }
         let argvLog = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-silent-attach-argv-\(UUID().uuidString).log").path
         let stub = try makeCreateThenKillStub(sessionName: sessionName, killExit: 0, argvLog: argvLog)
@@ -265,6 +269,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let argvLog = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-cancelled-create-argv-\(UUID().uuidString).log").path
             let cleanupMarker = FileManager.default.temporaryDirectory
@@ -377,6 +383,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
 
     @Test func handlerClaimsRequestOnlyWhenActiveWorkspaceIsMirror() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let controller = RemoteTmuxController()
@@ -411,6 +419,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let argvLog = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-new-session-argv-\(UUID().uuidString).log").path
             let stub = try makeNewSessionSuccessStub(sessionName: "brand-new", argvLog: argvLog)
@@ -461,6 +471,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let stub = try makeNewSessionSuccessStub(sessionName: "unstolen", argvLog: "/dev/null")
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
             defer {
@@ -500,6 +512,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let argvLog = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-unregistered-new-session-argv-\(UUID().uuidString).log").path
             let stub = try makeNewSessionSuccessStub(sessionName: "orphaned", argvLog: argvLog)
@@ -778,6 +792,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             _ = NSApplication.shared
             let appDelegate = try #require(AppDelegate.shared)
             let controller = appDelegate.remoteTmuxController
+            let restoreRouting = RemoteTmuxRoutingFixture.enableNewWorkspaceRouting()
+            defer { restoreRouting() }
             let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
             defer { restoreSSH() }
             let manager = TabManager()
