@@ -21,6 +21,8 @@ const keys = [
   "MouseEvent",
   "KeyboardEvent",
   "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -49,6 +51,9 @@ beforeAll(() => {
     MouseEvent: window.MouseEvent,
     KeyboardEvent: window.KeyboardEvent,
     getComputedStyle: window.getComputedStyle.bind(window),
+    // The project chooser's popup animates in.
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.getElementById("root")!;
@@ -157,4 +162,25 @@ test("with nothing hidden, the row keeps no menu of its own", async () => {
   await renderNewTab({ showDictation: true });
   await rightClick(row());
   expect(menuItems()).toEqual([]);
+});
+
+// Review (#19783): a popup the row opens (the project chooser) draws outside the row but its events
+// pass through it; a right-click in its search field keeps the field's own menu (Cut, Copy, Paste).
+test("a right-click in a popup the row opened keeps its own menu", async () => {
+  await renderNewTab({ showDictation: false });
+  await act(async () => row().querySelector<HTMLButtonElement>('button[aria-label="Project"]')!.click());
+  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search projects"]');
+  expect(search).not.toBeNull();
+  expect(row().contains(search)).toBe(false);
+  await rightClick(search!);
+  expect(item("Show Dictation Button")).toBeUndefined();
+});
+
+// Review (#19783): the New Tab page draws no context ring, so its row offers no Show Context Usage.
+test("the New Tab row offers Show only for what it draws", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  await renderNewTab({ showDictation: false });
+  await act(async () => settings.setComposerSettings({ showContextUsage: false }));
+  await rightClick(row());
+  expect(menuItems().map((entry) => entry.textContent)).toEqual(["Show Dictation Button"]);
 });
