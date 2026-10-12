@@ -40,6 +40,10 @@ final class BrowserHibernation {
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
     private(set) var hibernatedCount = 0
+    /// Hidden agent chat pages, on the same setting and pressure.
+    var agentPages: AgentPageHibernation? {
+        didSet { agentPages?.update(setting: setting, pressure: pressure) }
+    }
     private(set) var restoredCount = 0
 
     init(cache: TabContentCache) {
@@ -79,6 +83,7 @@ final class BrowserHibernation {
     func apply(_ setting: BrowserHibernationSetting) {
         guard setting != self.setting else { return }
         self.setting = setting
+        agentPages?.update(setting: setting, pressure: pressure)
         replan()
     }
 
@@ -87,6 +92,7 @@ final class BrowserHibernation {
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
         onPressureChange?(level)
+        agentPages?.update(setting: setting, pressure: pressure)
         replan()
     }
 
@@ -105,6 +111,7 @@ final class BrowserHibernation {
     }
 
     func forget(_ key: String) {
+        agentPages?.forget(key)
         cache?.dormantTabs.set(key, false)
         hiddenAt[key] = nil
         prepared[key] = nil

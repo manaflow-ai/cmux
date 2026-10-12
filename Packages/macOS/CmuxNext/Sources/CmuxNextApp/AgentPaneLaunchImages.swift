@@ -12,6 +12,9 @@ final class AgentPaneLaunchImages {
 
     let directory: URL?
     private var taken: Set<String> = []
+    /// Released pages' last frames (AgentPageHibernation), in memory as JPEGs: a page built
+    /// again draws its old frame until it paints, as at launch.
+    private var held: [String: (data: Data, size: NSSize)] = [:]
 
     init(directory: URL?) {
         self.directory = directory
@@ -22,8 +25,15 @@ final class AgentPaneLaunchImages {
         self.init(directory: file?.url.deletingLastPathComponent().appending(path: Self.directoryName, directoryHint: .isDirectory))
     }
 
-    /// `key`'s saved page at its point size, the first time it is asked for.
+    /// `key`'s saved page at its point size, the first time it is asked for (a released page's
+    /// frame comes first, once).
     func take(_ key: String) -> NSImage? {
+        if let frame = held.removeValue(forKey: key), let rep = NSBitmapImageRep(data: frame.data) {
+            let image = NSImage(size: frame.size)
+            rep.size = frame.size
+            image.addRepresentation(rep)
+            return image
+        }
         guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
         for scale in [2, 1, 3] {
             let url = directory.appending(path: Self.fileName(key, scale: scale))
@@ -36,6 +46,18 @@ final class AgentPaneLaunchImages {
             return image
         }
         return nil
+    }
+
+    /// Holds `image` as tab `key`'s frame until ``take(_:)`` or ``drop(_:)``.
+    func hold(_ key: String, _ frame: CGImage, size: NSSize) async {
+        guard size.width > 0 else { return }
+        let data = await Task.detached { Self.encode(["frame": frame])["frame"] }.value
+        held[key] = data.map { ($0, size) }
+    }
+
+    /// The tab closed or showed its live page: its held frame goes.
+    func drop(_ key: String) {
+        held[key] = nil
     }
 
     /// Replaces the saved pages with `images` (by tab key).

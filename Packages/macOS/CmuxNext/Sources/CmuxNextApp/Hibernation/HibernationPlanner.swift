@@ -24,6 +24,8 @@ struct HibernationPlanner {
         case disabled, excluded, pinned, devTools = "devtools", capturing, unsupported
         /// Found by the probe right before hibernating.
         case audio, formInput = "form_input"
+        /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
+        case agentBusy = "agent_busy"
     }
 
     struct Plan: Equatable {
