@@ -302,7 +302,9 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
                       subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
-        let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
+        // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
+        let title = program?.title(localizations: localizations)
+            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
                      attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
