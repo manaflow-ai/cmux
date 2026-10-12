@@ -25,6 +25,9 @@ import PackageDescription
 // (ghostty_surface_set_link_filter; PR 33).
 // Since 89dc50175 ghostty_config_get reads a plain TerminalColor
 // (cursor-color, cursor-text, selection-*) as a color (PR 34).
+// Since 03ddb2869 the Metal text shader contrasts against the real
+// background under a macOS glass style, so minimum-contrast keeps dark text
+// dark on a light theme (PR 35).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -49,8 +52,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-89dc50175b2f6bcd95ee93611bbd70130d6ed4e2-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "985669d5323fa1d076415893ae395955af070cdfe1970900a44207ec6d84a3fc"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-03ddb28693a58ace2fbcae5d78eb1c36b80af7be-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "345b0ace874ac65684d60815d6b720a25988a14b82bca1725df288e634143464"
         ),
     ]
 )
