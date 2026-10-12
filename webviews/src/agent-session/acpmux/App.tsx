@@ -73,6 +73,8 @@ import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { ToolCards } from "./toolCards/ToolCards";
+import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import type { QuestionReply } from "./question/model";
@@ -3305,7 +3307,8 @@ function AcpmuxPane() {
           "chat.harness.retry": async () => harnessSwitch.retry(),
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation
-          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing.
+          // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing;
+          // acpmux refusing the prompt shows its reason (cx-cuk4).
           "chat.harness.enable": ({ folder, id }) =>
             client.harnessEnable(String(folder), String(id)).then(
               async (result) => {
@@ -3315,7 +3318,9 @@ function AcpmuxPane() {
                 return result;
               },
               (error: unknown) => {
-                if ((error as { code?: unknown } | null)?.code !== "transport.harness_not_confirmed")
+                const refused = error as { code?: unknown; detail?: unknown } | null;
+                if (typeof refused?.detail === "string") client.notice(refused.detail);
+                else if (refused?.code !== "transport.harness_not_confirmed")
                   client.notice(errorMessage(error) || String(error));
                 return undefined;
               },
@@ -4008,6 +4013,7 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </ArtifactContext.Provider>
   );
+  const toolCards = useToolCards();
   const asks = (
     <>
       {snapshot.permissionGroups?.supported && (
@@ -4028,8 +4034,12 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask) && (
+      {(individualPermission || trustAsk.ask || toolCards.length > 0) && (
         <div className="acpmux-permission">
+          <ToolCards
+            cards={toolCards}
+            onAnswer={(id, action) => void callNative("chat.toolCard.respond", { id, action }).catch(() => undefined)}
+          />
           {trustAsk.ask && (
             <TrustAsk
               ask={trustAsk.ask}

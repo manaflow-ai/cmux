@@ -8,7 +8,9 @@ public import CoreGraphics
 /// `SettingsSchemaTests` fails until the parser accepts every value the
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
-    public static var all: [SettingDescriptor] {
+    /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
+    /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
+    public static let all: [SettingDescriptor] = {
         let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
             + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
@@ -18,7 +20,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
-    }
+    }()
 
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.

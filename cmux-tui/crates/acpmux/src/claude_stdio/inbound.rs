@@ -58,15 +58,31 @@ impl Translator {
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
-                    Some("message_start") if parent.is_none() => {
-                        if let Some(m) = ev.pointer("/message/model").and_then(Value::as_str) {
+                    Some("message_start") => {
+                        if let Some(id) = ev.pointer("/message/id").and_then(Value::as_str) {
+                            self.message_ids
+                                .lock()
+                                .await
+                                .insert(parent.unwrap_or("").to_owned(), id.to_owned());
+                        }
+                        if parent.is_none()
+                            && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
+                        {
                             *self.loop_model.lock().await = m.to_owned();
                         }
                     }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
-                            Some("text_delta") => out.push(upd(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": d.get("text").and_then(Value::as_str).unwrap_or("")}}))),
+                            Some("text_delta") => {
+                                let mut chunk = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": d.get("text").and_then(Value::as_str).unwrap_or("")}});
+                                if let Some(id) =
+                                    self.message_ids.lock().await.get(parent.unwrap_or(""))
+                                {
+                                    chunk["messageId"] = json!(id);
+                                }
+                                out.push(upd(chunk));
+                            }
                             Some("thinking_delta") => {
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {

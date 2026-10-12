@@ -263,6 +263,7 @@ function SessionsView({
     [sessions, query],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
+  const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
   if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>
@@ -298,9 +299,7 @@ function SessionsView({
         </label>
       </search>
       {/* Always present, so a screen reader announces the text when it appears. */}
-      <output className="acpmux-sidebar-empty">
-        {pinned.length === 0 && active.length === 0 && settled.length === 0 ? t("sidebar.noMatches") : ""}
-      </output>
+      <output className="acpmux-sidebar-empty">{noMatches ? t("sidebar.noMatches") : ""}</output>
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label={t("sidebar.pinned")}>
           <div className="acpmux-sidebar-section" aria-hidden="true">
@@ -400,35 +399,38 @@ function SessionsView({
           })}
         </section>
       )}
-      <section className="acpmux-sidebar-settled" aria-label={t("sidebar.settled")}>
-        <div className="acpmux-sidebar-section" aria-hidden="true">
-          {t("sidebar.settled")}
-        </div>
-        {settled.length === 0 ? (
-          <div className="acpmux-sidebar-empty">
-            {settledSessions.length > 0 && query.trim() ? t("sidebar.noMatches") : t("sidebar.noSettled")}
+      {/* With nothing matching, the line above says so once; an empty Settled would repeat it. */}
+      {!noMatches && (
+        <section className="acpmux-sidebar-settled" aria-label={t("sidebar.settled")}>
+          <div className="acpmux-sidebar-section" aria-hidden="true">
+            {t("sidebar.settled")}
           </div>
-        ) : (
-          <ul>
-            {settled.map((session) => (
-              <SessionRow
-                key={session.sessionId}
-                session={session}
-                selected={session.sessionId === selectedId}
-                onSelect={onSelect}
-                section="settled"
-                onContinue={onContinue}
-                flat
-              />
-            ))}
-          </ul>
-        )}
-        {onShowMoreSettled && settled.length > 0 && (
-          <button type="button" className="acpmux-sidebar-more" onClick={onShowMoreSettled}>
-            {t("sidebar.showMore")}
-          </button>
-        )}
-      </section>
+          {settled.length === 0 ? (
+            <div className="acpmux-sidebar-empty">
+              {settledSessions.length > 0 && query.trim() ? t("sidebar.noMatches") : t("sidebar.noSettled")}
+            </div>
+          ) : (
+            <ul>
+              {settled.map((session) => (
+                <SessionRow
+                  key={session.sessionId}
+                  session={session}
+                  selected={session.sessionId === selectedId}
+                  onSelect={onSelect}
+                  section="settled"
+                  onContinue={onContinue}
+                  flat
+                />
+              ))}
+            </ul>
+          )}
+          {onShowMoreSettled && settled.length > 0 && (
+            <button type="button" className="acpmux-sidebar-more" onClick={onShowMoreSettled}>
+              {t("sidebar.showMore")}
+            </button>
+          )}
+        </section>
+      )}
     </>
   );
 }

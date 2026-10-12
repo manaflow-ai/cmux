@@ -12,7 +12,7 @@
   --ui-row-height: 28px;
   --ui-row-radius: 5px;
   --ui-row-padding-inline: 8px;
-  /* Each surface runs the open only under prefers-reduced-motion: no-preference. */
+  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). */
   --ui-popup-open: 120ms;
 }
 
@@ -20,6 +20,20 @@
   from {
     opacity: 0;
     transform: scale(0.97);
+  }
+}
+
+@keyframes ui-popup-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reduce Motion keeps the open's fade and drops its scale (POLISH: no flash; motion.md rule 7):
+   a popup that appeared in one frame flashed. Every host loads this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-popup) {
+    animation: ui-popup-fade var(--ui-popup-open) ease-out;
   }
 }
 

@@ -178,7 +178,7 @@ export function EditBlock({
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.
-  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} />;
+  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} review={review} />;
   const showDiff = !view.collapsed && edit.hunks.length > 0;
   return (
     <div

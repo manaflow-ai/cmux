@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextControl
@@ -103,6 +104,61 @@ struct CloudMoveTests {
         }
     }
 
+    /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
+    /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
+    /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
+    @Test func anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() async throws {
+        try await Self.withMove("moves") { move in
+            if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
+            let cards = try #require(await move.toolCards(), "the chat has no page")
+            let card = try #require(cards.first, "no card in the chat")
+            #expect(move.calls().isEmpty, "the agent's run moved the chat: \(move.calls())")
+            #expect(Self.text(card, "state") == "ask")
+            #expect(Self.actionIDs(card) == ["move", "notNow", "always"])
+            let id = try #require(Self.text(card, "id"))
+
+            // Page script can't answer for the person.
+            #expect(await move.answer(id, "move", gesture: false)["ok"] as? Bool != true)
+            #expect(move.calls().isEmpty, "a click without a gesture moved the chat")
+
+            #expect(await move.answer(id, "move", gesture: true)["ok"] as? Bool == true)
+            let moved = try await move.read()
+            #expect(moved.calls.count == 2, "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the person's Move did not move the chat")
+            #expect(!moved.macStillHasTab)
+        }
+    }
+
+    /// Not now leaves the chat on this Mac and takes the card away; an agent never brings a chat back.
+    @Test func notNowKeepsTheChatAndAnAgentCantBringOneBack() async throws {
+        try await Self.withMove("moves") { move in
+            let refused = await move.runAsAgent("cloud bring-back")
+            #expect(refused?.message.contains(CloudMoveAskStrings.bringBackIsPersons) == true, "an agent's Bring Back Local was not refused as one: \(String(describing: refused?.message))")
+            if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
+            let card = try #require(await move.toolCards()?.first, "no card in the chat")
+            let id = try #require(Self.text(card, "id"))
+            #expect(await move.answer(id, "notNow", gesture: true)["ok"] as? Bool == true)
+            #expect(await move.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Not now")
+            #expect(move.calls().isEmpty, "Not now moved the chat: \(move.calls())")
+            #expect(move.services.locateTab(move.tabID) != nil)
+        }
+    }
+
+    /// A card's text field.
+    static func text(_ card: [String: CmuxNextSettings.JSONValue], _ key: String) -> String? {
+        guard case .string(let value)? = card[key] else { return nil }
+        return value
+    }
+
+    /// A card's buttons, by id.
+    static func actionIDs(_ card: [String: CmuxNextSettings.JSONValue]) -> [String] {
+        guard case .array(let list)? = card["actions"] else { return [] }
+        return list.compactMap { value -> String? in
+            guard case .object(let action) = value, case .string(let id)? = action["id"] else { return nil }
+            return id
+        }
+    }
+
     // MARK: The harness
 
     /// One move's world: this Mac's daemon with a live chat tab, a Cloud machine on a second
@@ -132,15 +188,49 @@ struct CloudMoveTests {
 
         /// `cmux cloud move` on the chat tab; its error when it stopped.
         func run() async -> ControlError? {
+            await send(["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
+        }
+
+        /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
+        /// as the caller (`CMUX_AGENT_SESSION`) and no target. Its error when it was refused.
+        func runAsAgent(_ action: String = "cloud move") async -> ControlError? {
+            // The chat's folder, as this Mac's acpmux reports it for the chat's session.
+            services.agentTabs.localSessionHost = SessionFolderHost(folder: project.path)
+            return await send(["action": .string(action), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                        "caller": .object(["agent_session": .string("chat-live")])])
+        }
+
+        /// The chat's page's tool cards as the page gets them (its `toolCards` event), once there are
+        /// some (or ten seconds passed); nil when the chat has no page.
+        func toolCards(waiting: Bool = true) async -> [[String: CmuxNextSettings.JSONValue]]? {
+            let deadline = ContinuousClock.now + .seconds(10)
+            func cards() -> [[String: CmuxNextSettings.JSONValue]]? {
+                guard let view = services.agentTabs.existingView(key) else { return nil }
+                guard let event = AgentPanePageHost.currentEvents(view).first(where: { $0.kind == "toolCards" }), case .array(let list) = event.value else { return [] }
+                return list.compactMap { value -> [String: CmuxNextSettings.JSONValue]? in
+                    guard case .object(let card) = value else { return nil }
+                    return card
+                }
+            }
+            while waiting, cards()?.isEmpty != false, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            return cards()
+        }
+
+        /// A click on `action` of card `card` in the chat's page, after a real click in the pane when `gesture`.
+        func answer(_ card: String, _ action: String, gesture: Bool) async -> [String: Any] {
+            guard let model = services.agentTabs.existingView(key)?.model else { return ["ok": false] }
+            if gesture { model.transport.gestures.record() }
+            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.toolCard.respond", "params": ["id": card, "action": action]]))
+        }
+
+        private func send(_ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
             let bridge = RegistryControlBridge(registry: services.registry)
             let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                                  processID: getpid()),
                                        executor: bridge, settings: nil,
                                        configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
             router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            let params: [String: CmuxNextSettings.JSONValue] = ["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"),
-                                                                "wait": .bool(true), "target": .string("tab:" + tabID),
-                                                                "args": .object(["path": .string(project.path)])]
             if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
             return nil
         }
@@ -184,6 +274,13 @@ struct CloudMoveTests {
             moved.folderName = moved.calls.first?.last.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
             return moved
         }
+    }
+
+    /// A chat host that knows only the chat's folder, as this Mac's acpmux reports it.
+    struct SessionFolderHost: AgentPaneHostProviding {
+        let folder: String
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+        func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { AgentPaneSessionFolder(cwd: folder, isLocal: true) }
     }
 
     struct Moved {
