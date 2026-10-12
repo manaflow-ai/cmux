@@ -102,6 +102,19 @@ def test_unreadable_feed_is_refused():
         assert run("check-build", "--build", "3719000000001", "--feed", str(Path(d) / "missing.xml")).returncode != 0
 
 
+def test_a_feed_that_does_not_exist_yet_is_skipped_only_when_optional():
+    # cmux NEXT's first build publishes a feed that does not exist yet.
+    with tempfile.TemporaryDirectory() as d:
+        classic = write(d, "classic.xml", appcast("3718900000001"))
+        missing = str(Path(d) / "next" / "appcast-arm64.xml")
+        assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", missing).returncode == 0
+        assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed", missing).returncode != 0
+        present = write(d, "present.xml", appcast("3719500000001"))
+        assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", present).returncode != 0
+        broken = write(d, "broken.xml", "<rss")
+        assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", broken).returncode != 0
+
+
 def main():
     tests = [(name, fn) for name, fn in globals().items() if name.startswith("test_") and callable(fn)]
     failed = 0

@@ -2,7 +2,8 @@
 // The diff viewer stages and commits (cx-ueuc8, dogfood run hq #1893): the chat header's ± opens it,
 // and it had no Stage, Commit or Push. On a host that serves `cmux.diff.git.*` it now shows the
 // changes view's own Commit and Push (useGitWrite, GitActions) and a file header's Stage, in the
-// viewer's language, and each runs as the host's op; the host picks the repository.
+// viewer's language, and each runs as the host's op; the host picks the repository. From a chat
+// the ± opens Branch, so there a file with work-tree changes gets Stage too (cx-4ukqc, run 2).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -47,7 +48,7 @@ const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { loadDiffViewerLabels } = await import("../src/labels");
 await loadDiffViewerLabels("ja");
-const { diffGitSource, diffStageAction } = await import("../src/diff-viewer/git");
+const { diffGitSource, useDiffStageAction } = await import("../src/diff-viewer/git");
 const { GitToolbarButtons, GitWriteBar } = await import("../src/agent-session/acpmux/changes/GitActions");
 const { useGitWrite } = await import("../src/agent-session/acpmux/changes/useGitWrite");
 const { FileHeader } = await import("../src/diff-viewer/FileHeader");
@@ -80,6 +81,8 @@ const page = {
     calls.push([op, params]);
     if (op === "cmux.diff.git.status")
       return { head: HEAD, branch: "main", upstream: "origin/main", detached: false, ahead: 0 };
+    if (op === "cmux.diff.git.diff" && (params as { scope?: string }).scope === "unstaged")
+      return { scope: "unstaged", files: [{ path: "src/upload.ts", additions: 1, deletions: 1 }] };
     if (op === "cmux.diff.git.commit")
       return { result: { commit: HEAD, summary: "Retry the upload", filesChanged: 1 }, replayed: false };
     return { ok: true };
@@ -100,14 +103,10 @@ test("the viewer commits through the host and stages a file from its header, in 
   function Viewer() {
     const [open, setOpen] = useState(false);
     const git = useGitWrite(source, () => {});
-    const stage = diffStageAction(
-      source,
-      { kind: "unstaged", repoRoot: "/r" },
-      {
-        staged: () => staged.push("refreshed"),
-        failed: () => {},
-      },
-    );
+    const stage = useDiffStageAction(source, { kind: "unstaged", repoRoot: "/r" }, 0, {
+      staged: () => staged.push("refreshed"),
+      failed: () => {},
+    });
     return (
       <div className="diff-git">
         <GitToolbarButtons git={git} formOpen={open} onToggleForm={() => setOpen((value) => !value)} />
@@ -148,4 +147,40 @@ test("the viewer commits through the host and stages a file from its header, in 
   await act(async () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-git-primary")!.click());
   const commit = calls.find(([op]) => op === "cmux.diff.git.commit");
   expect(commit?.[1]).toMatchObject({ message: "Retry the upload", expected_head: HEAD });
+});
+
+test("in Branch, as the chat's ± opens it, a file with work-tree changes gets Stage and a committed one doesn't", async () => {
+  const source = diffGitSource(page as never, OPS)!;
+  const label = createDiffViewerLabelResolver(undefined, { language: "ja" });
+  function Header({ name }: { name: string }) {
+    const stage = useDiffStageAction(source, { kind: "branch", repoRoot: "/r", baseRef: "main" }, 0, {
+      staged: () => {},
+      failed: () => {},
+    });
+    return (
+      <FileHeader
+        item={{ id: name, fileDiff: { name, hunks: [] } } as never}
+        label={label}
+        onLoadDiff={() => {}}
+        onToggleCollapsed={() => {}}
+        onToggleViewed={() => {}}
+        stage={stage}
+        viewedState="unviewed"
+      />
+    );
+  }
+  await act(async () =>
+    root.render(
+      <div>
+        <Header name="src/upload.ts" />
+        <Header name="docs/committed.md" />
+      </div>,
+    ),
+  );
+  await act(async () => {});
+  const stages = buttons().filter((element) => element.textContent?.trim() === "ステージ");
+  expect(stages.length).toBe(1);
+  calls.length = 0;
+  await act(async () => stages[0]!.click());
+  expect(calls).toContainEqual(["cmux.diff.git.stage", { paths: ["src/upload.ts"] }]);
 });

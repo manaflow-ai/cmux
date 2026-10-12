@@ -45,7 +45,7 @@ final class MachineBadgeView: NSView {
 
     func show(text: String, help: String) {
         label.stringValue = text
-        toolTip = help
+        themedToolTip = help
         setAccessibilityLabel(help)
         updateLayer()
     }

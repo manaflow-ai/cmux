@@ -89,11 +89,13 @@ final class TitlebarToolbarBand: NSView {
     }
 
     /// Names Back and Forward with their actions' titles and keys.
-    func describeHistory(back: String, forward: String) {
+    func describeHistory(back: String, forward: String, backShortcut: String? = nil, forwardShortcut: String? = nil) {
         backButton.setAccessibilityLabel(back)
-        backButton.toolTip = back
+        backButton.themedToolTip = back
+        backButton.themedToolTipShortcut = backShortcut
         forwardButton.setAccessibilityLabel(forward)
-        forwardButton.toolTip = forward
+        forwardButton.themedToolTip = forward
+        forwardButton.themedToolTipShortcut = forwardShortcut
     }
 
     @available(*, unavailable)
@@ -132,7 +134,8 @@ final class TitlebarToolbarBand: NSView {
     /// Names the toggle with its action title and bound key.
     func describeToggle(title: String, shortcut: String?) {
         sidebarToggle.setAccessibilityLabel(title)
-        sidebarToggle.toolTip = shortcut.map { "\(title) (\($0))" } ?? title
+        sidebarToggle.themedToolTip = title
+        sidebarToggle.themedToolTipShortcut = shortcut
     }
 
     private var descriptionObservation: Task<Void, Never>?
