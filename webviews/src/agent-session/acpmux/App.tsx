@@ -1415,8 +1415,10 @@ export function VirtualTranscript({
       const top = clamped ? scrolledTo.current.top : live;
       const atLatest =
         clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
-      // At the first row nothing above can move it.
-      if (top > 0 && didOpenAtLatest.current && atLatest) {
+      // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
+      // heights and settle back to fit, and its reply must still be followed once it overflows
+      // (cx-ubd1y). Away from it, at the first row nothing above can move it.
+      if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
