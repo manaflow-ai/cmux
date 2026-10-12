@@ -104,9 +104,17 @@ try:
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    opened = rpc("debug.home_native_fixture.open") or {}
-    check("the Home fixture opens", bool(opened.get("ok")), opened)
-    poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=60)
+    # The first open after launch can come before the window's Home page settles (the Home tab then shows, not the
+    # fixture): open again until the fixture's transcript answers.
+    def fixture_shown():
+        texts = (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")
+        if texts:
+            return texts
+        rpc("debug.home_native_fixture.open")
+        time.sleep(1)  # test harness: one open request per second while the window starts, not app code
+        return None
+    check("the Home fixture opens and shows its transcript", bool(poll(fixture_shown, timeout=120)),
+          rpc("debug.home.drive", {"action": "texts"}))
     rpc("debug.home.drive", {"action": "focus"})
     rpc("debug.home.drive", {"action": "type", "text": "Scale change check"})
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
