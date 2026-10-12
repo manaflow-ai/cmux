@@ -211,6 +211,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:feed",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
+        "setting:betaFeatures:remoteTmuxNewWorkspaceOnHost",
         "setting:betaFeatures:remoteTmuxOriginColors",
         "setting:betaFeatures:remoteTmuxOriginHostTitles",
         "setting:customSidebars:enabled",

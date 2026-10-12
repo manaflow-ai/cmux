@@ -444,6 +444,22 @@ struct CloudDesktopAccessTests {
         #expect(!state.owns(try #require(URL(string: "http://10.0.0.7:8000/"))))
     }
 
+    @Test("A daemon browser keeps its machine ownership across document navigation")
+    func daemonBrowserRetainsOwnershipAcrossHostsAndAboutBlank() throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 3000), coordinator: nil,
+            wake: {}, startForward: { _ in 47000 }, stopForward: {}, route: .remoteBrowser
+        )
+        let state = CloudBrowserAccessState()
+        state.configure(
+            model: model,
+            url: URL(string: "https://public.example.test/start")!,
+            resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "browser_daemon")
+        )
+        #expect(state.owns(try #require(URL(string: "https://redirect.example.test/next"))))
+        #expect(state.owns(try #require(URL(string: "about:blank"))))
+    }
+
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
     func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
         let state = CloudBrowserAccessState()
