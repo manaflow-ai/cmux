@@ -2144,7 +2144,18 @@ final class BrowserPanel: Panel, ObservableObject {
     var mobileBrowserStreamViewport: MobileBrowserViewport?
     /// Automation keeps its dialogs until answered, even after its command
     /// returns. Physical input hands subsequent dialogs back to the native UI.
-    var browserDialogsOwnedByCLI = false
+    enum BrowserDialogOwner {
+        case user
+        case automation
+    }
+
+    private(set) var browserDialogOwner: BrowserDialogOwner = .user
+    var browserDialogsOwnedByCLI: Bool { browserDialogOwner == .automation }
+
+    /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
+    func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
+        browserDialogOwner = owner
+    }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3256,13 +3267,15 @@ final class BrowserPanel: Panel, ObservableObject {
             WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString, from: .keyboardFocus)
         }
         webView.onPhysicalUserInteraction = { [weak self] in
-            self?.browserDialogsOwnedByCLI = false
+            self?.takeBrowserDialogOwnership(.user)
         }
         webView.onMouseBackButton = { [weak self] in
-            self?.goBack()
+            guard let self else { return }
+            self.goBack(dialogOwner: self.browserDialogOwner)
         }
         webView.onMouseForwardButton = { [weak self] in
-            self?.goForward()
+            guard let self else { return }
+            self.goForward(dialogOwner: self.browserDialogOwner)
         }
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
@@ -3696,7 +3709,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
-        self.browserDialogsOwnedByCLI = preloadInitialNavigationInBackground
+        self.browserDialogOwner = preloadInitialNavigationInBackground ? .automation : .user
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
@@ -5917,7 +5930,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// - If input looks like a URL, navigate to it
     /// - Otherwise, perform a web search
     @discardableResult
-    func navigateSmart(_ input: String) -> WKNavigation? {
+    func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
@@ -6450,7 +6464,8 @@ extension BrowserPanel {
     }
 
     /// Go back in history
-    func goBack() {
+    func goBack(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6488,7 +6503,8 @@ extension BrowserPanel {
     }
 
     /// Go forward in history
-    func goForward() {
+    func goForward(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6662,7 +6678,8 @@ extension BrowserPanel {
 
     /// Reload the current page
     @discardableResult
-    func reload() -> WKNavigation? {
+    func reload(dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return nil
@@ -6675,7 +6692,8 @@ extension BrowserPanel {
     }
 
     /// Reload the current page, bypassing WebKit's cache.
-    func hardReload() {
+    func hardReload(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return

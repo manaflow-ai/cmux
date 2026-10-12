@@ -31,6 +31,7 @@ def run_with_dialogs(socket_path, method, params, answers):
                     except cmuxError as error:
                         if "not_found" not in str(error) or time.monotonic() >= deadline:
                             raise
+                        time.sleep(0.02)
                         # The operation and responder intentionally race. Each
                         # request checks native state; no page evaluation can
                         # run here while WebKit waits for the answer.

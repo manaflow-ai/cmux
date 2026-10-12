@@ -635,7 +635,6 @@ struct BrowserPanelView: View {
 #if DEBUG
         cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
 #endif
-        panel.browserDialogsOwnedByCLI = false
         panel.reload()
     }
 
@@ -643,7 +642,6 @@ struct BrowserPanelView: View {
 #if DEBUG
         cmuxDebugLog("browser.reload.contextMenu panel=\(panel.id.uuidString.prefix(5))")
 #endif
-        panel.browserDialogsOwnedByCLI = false
         panel.reload()
     }
 
@@ -1269,7 +1267,6 @@ struct BrowserPanelView: View {
                 #if DEBUG
                 cmuxDebugLog("browser.back panel=\(panel.id.uuidString.prefix(5))")
                 #endif
-                panel.browserDialogsOwnedByCLI = false
                 panel.goBack()
             }) {
                 CmuxSystemSymbolImage(systemName: "chevron.left", pointSize: chromeMetrics.navigationIconFontSize, weight: .medium, tint: .primary)
@@ -1286,7 +1283,6 @@ struct BrowserPanelView: View {
                 #if DEBUG
                 cmuxDebugLog("browser.forward panel=\(panel.id.uuidString.prefix(5))")
                 #endif
-                panel.browserDialogsOwnedByCLI = false
                 panel.goForward()
             }) {
                 CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: chromeMetrics.navigationIconFontSize, weight: .medium, tint: .primary)
@@ -2575,7 +2571,6 @@ struct BrowserPanelView: View {
                 let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
                 applyOmnibarEffects(effects)
             }
-            panel.browserDialogsOwnedByCLI = false
             panel.navigateSmart(text)
             hideSuggestions()
             suppressNextFocusLostRevert = true
@@ -2602,7 +2597,6 @@ struct BrowserPanelView: View {
                 )
             }
         default:
-            panel.browserDialogsOwnedByCLI = false
             panel.navigateSmart(suggestion.completion)
         }
         hideSuggestions()

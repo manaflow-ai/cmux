@@ -95,7 +95,7 @@ struct BrowserCLIDialogTests {
 
     @Test func queuedUIDialogCanBeAnsweredWithoutPageScript() async throws {
         try await withPanel { panel, params in
-            panel.browserDialogsOwnedByCLI = false
+            panel.takeBrowserDialogOwnership(.user)
             var answers: [Bool] = []
             enqueue(panel, kind: .javaScriptConfirm) { button, _ in answers.append(button == "ok") }
             #expect(panel.activeInteractiveBrowserPromptIDs.count == 1)

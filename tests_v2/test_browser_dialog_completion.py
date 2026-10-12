@@ -61,14 +61,23 @@ def main():
             count = client._call("browser.eval", {**params, "script": "window.completedDialogs"})
             assert count["value"] == len(cases), count
 
-            # A timer can raise its dialog after the triggering command has
+            # A posted event can raise its dialog after the triggering command has
             # returned. The surface must retain automation ownership.
             armed, _ = run_with_dialogs(socket_path, "browser.eval", {
                 **params,
-                "script": "setTimeout(() => { window.timerAnswer = confirm('timer'); }, 0); 'armed'",
+                "script": """(() => {
+                    const channel = new MessageChannel();
+                    channel.port1.onmessage = () => {
+                        window.deferredAnswer = confirm('deferred');
+                        channel.port1.close();
+                        channel.port2.close();
+                    };
+                    channel.port2.postMessage(null);
+                    return 'armed';
+                })()""",
             }, [(True, None)])
             assert armed["value"] == "armed", armed
-            assert client._call("browser.eval", {**params, "script": "window.timerAnswer"})["value"] is True
+            assert client._call("browser.eval", {**params, "script": "window.deferredAnswer"})["value"] is True
 
             # A caller may answer only after its original eval has timed out.
             # Recovery must not replace the document or lose its completion.

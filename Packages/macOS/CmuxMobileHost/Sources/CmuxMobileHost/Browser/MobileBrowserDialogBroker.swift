@@ -102,14 +102,24 @@ public final class MobileBrowserDialogBroker {
         return true
     }
 
-    public func resolveAll() {
-        let dialogs = queue.claimAll()
-        for dialog in dialogs {
-            guard let pending = resolutions.removeValue(forKey: dialog.dialogID) else { continue }
+    /// Cancels a batch atomically, preserving unrelated dialogs and FIFO completion order.
+    /// - Parameter predicate: Selects dialogs to cancel; defaults to all dialogs for teardown.
+    public func resolveAll(where predicate: (MobileBrowserDialogEvent) -> Bool = { _ in true }) {
+        let previousID = queue.current?.dialogID
+        let dialogs = queue.claimAll(where: predicate)
+        let next = queue.current
+        let claimed = dialogs.compactMap { dialog -> (MobileBrowserDialogEvent, PendingResolution)? in
+            guard let pending = resolutions.removeValue(forKey: dialog.dialogID) else { return nil }
+            return (dialog, pending)
+        }
+        for (dialog, pending) in claimed {
             let cancelButton = dialog.buttons.first(where: { $0.role == .cancel }) ?? dialog.buttons.first
             pending.resolve(cancelButton?.id ?? "cancel", nil)
             pending.dismiss?()
             onResolved?(MobileBrowserDialogResolvedEvent(panelID: panelID, dialogID: dialog.dialogID))
+        }
+        if previousID != next?.dialogID, let next, queue.current?.dialogID == next.dialogID {
+            onPresented?(next)
         }
     }
 }

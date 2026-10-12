@@ -205,7 +205,7 @@ extension TerminalController {
             guard let browserPanel = workspace.browserPanel(for: panelId) else {
                 return .reloadNotBrowser
             }
-            browserPanel.reload()
+            browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":

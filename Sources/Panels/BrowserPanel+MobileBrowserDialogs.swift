@@ -70,15 +70,9 @@ extension BrowserPanel {
         mobileBrowserDialogBroker.pendingDialogs.filter { Self.isJavaScriptDialog($0.kind) }
     }
 
+    /// Claims the navigation's JavaScript dialogs together before invoking cancellation callbacks.
     func cancelPendingJavaScriptDialogs() {
-        for dialog in pendingJavaScriptDialogs {
-            _ = mobileBrowserDialogBroker.respond(MobileBrowserDialogRespondParameters(
-                panelID: dialog.panelID,
-                dialogID: dialog.dialogID,
-                buttonID: dialog.kind == .javaScriptAlert ? "ok" : "cancel",
-                text: nil
-            ))
-        }
+        mobileBrowserDialogBroker.resolveAll { Self.isJavaScriptDialog($0.kind) }
     }
 
     /// Resolves the oldest native JavaScript dialog without evaluating page script.
