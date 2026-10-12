@@ -150,6 +150,7 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
     BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
     RelayLock, RelayStateError, RevocationClock,

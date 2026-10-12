@@ -43,6 +43,13 @@ pub enum MuxEvent {
     /// detached while their durable exit receipt remains queryable; local
     /// terminals have already been reaped when this arrives.
     SurfaceExited(SurfaceId),
+    /// The OSC 7501 status a surface's tab shows changed (state or
+    /// progress); `None` when it shows none. Raw clients get
+    /// `program-status-changed` with the tab's new `program_status`.
+    ProgramStatusChanged {
+        surface: SurfaceId,
+        status: Option<crate::program_status::ShownProgramStatus>,
+    },
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
