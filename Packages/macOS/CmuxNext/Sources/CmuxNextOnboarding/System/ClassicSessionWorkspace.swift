@@ -22,7 +22,7 @@ public nonisolated struct ClassicSessionWorkspace: Codable, Equatable, Sendable 
     /// This workspace with each folder that `exists` rejects replaced by
     /// `home`: a terminal cannot start in a folder that is gone.
     public func openingMissingFolders(in home: String, exists: (String) -> Bool) -> ClassicSessionWorkspace {
-        let folder = { (path: String) in exists(path) ? path : home }
+        func folder(_ path: String) -> String { exists(path) ? path : home }
         return ClassicSessionWorkspace(name: name, workingDirectory: folder(workingDirectory),
                                        layout: layout.mappingFolders(folder), remote: remote, cloudVM: cloudVM)
     }
