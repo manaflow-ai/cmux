@@ -8,7 +8,10 @@ for a local login page is imported as a person does (Import from Another
 Browser…, a passwords CSV). Then:
   1. a Chromium tab a person opens on that page gets the sign-in filled;
   2. a Chromium tab an agent opens (the socket's action.run) never does
-     (plans/cmux-next/passwords.md, slice 1).
+     (plans/cmux-next/passwords.md, slice 1);
+  3. a CSV with a new password for that sign-in keeps the saved one and its
+     toast offers Replace; pressing it saves the new one, so importing the new
+     one again counts as already saved (cx-dwg.6).
 Nothing reads the page through the socket, since any automated read marks
 the tab agent-driven and turns filling off: the page reports its own form
 (:autofill on both fields) to the test's local server.
@@ -89,6 +92,8 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 ORIGIN = f"http://127.0.0.1:{server.server_port}"
 PASSWORDS_CSV = "name,url,username,password,note\n" \
                 f"127.0.0.1,{ORIGIN}/login,{USERNAME},not-a-real-password-{RUN},\n"
+CHANGED_CSV = PASSWORDS_CSV.replace("not-a-real-password", "a-new-throwaway-password")
+CSV_TOAST = "password-csv-imported"
 
 
 def check(ok, what):
@@ -145,8 +150,12 @@ def type_text(text):
         key(char)
 
 
+def shown_toasts():
+    return [t for w in rpc("debug.toast").get("windows", []) for t in w.get("toasts", [])]
+
+
 def toasts():
-    return [t.get("message", "") for w in rpc("debug.toast").get("windows", []) for t in w.get("toasts", [])]
+    return [t.get("message", "") for t in shown_toasts()]
 
 
 def import_through(browser, filename):
@@ -224,6 +233,27 @@ try:
     agent = reports.get("agent") or {}
     check("agent" in reports and not agent.get("passwordFilled") and not agent.get("usernameFilled"),
           f"an agent's Chromium tab is never filled ({agent})")
+
+    # The same sign-in with a new password: a conflict, never overwritten
+    # silently; Replace is the person's choice.
+    write(os.path.join(EXPORTS, "changed.csv"), CHANGED_CSV)
+    import_through("chrome", "changed.csv")
+    conflict = wait_for(lambda: next((t for t in shown_toasts() if "different password" in t.get("message", "")), None),
+                        "the conflict toast", 60)
+    check(conflict is not None and (conflict.get("action") or "").startswith("Replace"),
+          f"the conflict toast offers Replace ({conflict})")
+    reply = rpc("debug.toast", {"press": CSV_TOAST})
+    check(reply.get("pressed") is True, f"a person presses Replace ({reply.get('pressed')})")
+    replaced = wait_for(lambda: next((t for t in toasts() if "Replaced:" in t), None), "the replaced toast", 60)
+    check(replaced is not None and "Replaced: 1." in replaced, f"the saved password is replaced ({replaced})")
+    wait_for(lambda: not os.path.exists(os.path.join(EXPORTS, "changed.csv")), "the replaced file goes to the Trash", 10)
+    check(not os.path.exists(os.path.join(EXPORTS, "changed.csv")), "every row is saved, so the file goes to the Trash")
+
+    write(os.path.join(EXPORTS, "again.csv"), CHANGED_CSV)
+    import_through("chrome", "again.csv")
+    again = wait_for(lambda: next((t for t in toasts() if "Imported: 0." in t), None), "the repeat import toast", 60)
+    check(again is not None and "different password" not in again,
+          f"the new password is the saved one: importing it again is already saved ({again})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:
