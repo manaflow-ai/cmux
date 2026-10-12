@@ -144,7 +144,7 @@ public final class WebPopupHost {
         ]
         observers = names.map { name, object in
             center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.dismiss() }
+                Task { @MainActor in self?.dismiss() }
             }
         }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
