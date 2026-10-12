@@ -36,6 +36,10 @@ pub(super) fn restore_public_projections(
                 .copied()
                 .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
         });
+        let surface = surface.or_else(|| {
+            let browser = notification.browser_id.clone()?;
+            state.placements_of_content(&ContentPublicId::Browser(browser)).first().copied()
+        });
         let level = notification_level(&notification.level)?;
         if notification.unread {
             let terminal_id = notification
@@ -70,6 +74,7 @@ pub(super) fn restore_public_projections(
             created_at_ms: notification.created_at_ms,
             source: notification.source,
             surface,
+            desktop: true,
         });
     }
     let next_notification_id = u64::try_from(notification_ledger.len())

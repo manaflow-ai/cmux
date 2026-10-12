@@ -288,9 +288,15 @@ extension AgentPaneTransport {
                 ticketPick = granted
             } else if remoteWire, facts.method == "session/new" {
                 // A new chat on another machine starts only from the person's own send (cx-k21v);
-                // its first prompt goes with the same gesture, after the start.
-                granted = gestures.consume()
-                if granted { remoteStartCredit = (id, ProcessInfo.processInfo.systemUptime) }
+                // its first prompt goes with the same gesture, after the start. A prompt a
+                // person's action seeded starts it once through its seed ticket, and goes out
+                // with that ticket (gap 4); a CLI, MCP or script seed has none and is refused.
+                if gestures.consume() {
+                    granted = true
+                    remoteStartCredit = (id, ProcessInfo.processInfo.systemUptime)
+                } else {
+                    granted = gestures.takeSeedStart()
+                }
             } else {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = takeRemoteStartCredit(facts, connection: id)
@@ -346,7 +352,8 @@ extension AgentPaneTransport {
         } else {
             noteSent(facts, relayID: relayID)
             // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            if facts.method == "session/prompt" { gestures.clearTickets() }
+            // A prompt went out: a seeded prompt's ticket that it did not redeem ends too.
+            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket() }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             if let relayID { ids.cancel(relayID) }

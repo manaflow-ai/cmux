@@ -35,7 +35,7 @@ public final class AgentPaneModel {
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
-    @ObservationIgnored public var onRememberNewTab: ((String) -> Void)?
+    @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -130,8 +130,12 @@ public final class AgentPaneModel {
     /// Saves the inspector's exported log or a side panel document where the user picks; true
     /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
     @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
+    /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
+    @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
-    @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
+    /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
+    @ObservationIgnored public internal(set) var diffColors = "theme"
+    @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -224,9 +228,9 @@ public final class AgentPaneModel {
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             markPainted()
             return AgentPaneReply.success()
-        case .openTab(let kind, let text, let cwd, let search, let run):
+        case .openTab(let request):
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
+            onOpenTab(request)
             return AgentPaneReply.success()
         case .typeAhead(let text):
             guard newTab != nil || allowsTabConversion, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
@@ -247,7 +251,7 @@ public final class AgentPaneModel {
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
-        case .rememberNewTab(let agent): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(agent); return AgentPaneReply.success()
+        case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
@@ -275,7 +279,7 @@ public final class AgentPaneModel {
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .archive, .sideChat: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .archive, .markUnread, .sideChat: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -293,17 +297,15 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
-        case .gitWrite(let write): return await respondToGitWrite(write)
-        case .git, .invalidGit, .githubRepository, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
+        case .gitWrite(let write): return await AgentPaneGitWriteReply.reply(to: write, in: self)
+        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
             return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
-        case .gitStage(let request): return await AgentPaneGitStage.reply(to: request, in: self)
-        case .gitPullRequest(let request): return await AgentPaneGitPullRequest.reply(to: request, in: self)
-        case .projectInstructions(let request): return await AgentPaneProjectInstructions.reply(to: request, in: self)
+        case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
-        case .showContextUsage(let show): return await showContextUsage(show)
+        case .composerSetting(let path, let show): return await setComposer(path, show)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }

@@ -24,36 +24,40 @@ pub fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
-/// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short path in a private per-user
-/// directory under /tmp, derived from the home path so daemon and clients
-/// agree.
+/// Unix socket path, by the rule every host and client shares
+/// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
+/// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
+/// Unix socket limit (a long TMPDIR), falls back to a short path in a private
+/// per-user directory under /tmp, derived from the home or the configured
+/// path so daemon and clients agree.
+#[cfg(unix)]
 pub fn socket_path() -> PathBuf {
-    if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
-        return PathBuf::from(v);
-    }
-    let preferred = home().join("acpmux.sock");
-    if preferred.as_os_str().len() < 96 {
-        return preferred;
-    }
-    // Windows port: the socket path rule there is `cmux::local_socket`'s (a
-    // later landing).
-    #[cfg(unix)]
-    {
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in home().to_string_lossy().bytes() {
-            hash ^= b as u64;
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-        let uid = unsafe { libc::getuid() };
-        let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
-        if private_dir(&dir, uid) {
-            return dir.join(format!("{hash:016x}.sock"));
-        }
-    }
+    let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
+        configured.as_deref(),
+        &home(),
+        uid,
+    ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
-    preferred
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
+        return configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock"));
+    }
+    resolved
+}
+
+/// Windows port: the socket path rule there is `cmux::local_socket`'s (a
+/// later landing).
+#[cfg(not(unix))]
+pub fn socket_path() -> PathBuf {
+    std::env::var("ACPMUX_SOCKET")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join("acpmux.sock"))
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory

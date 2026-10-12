@@ -31,11 +31,11 @@ declare namespace Cmux {
   type ClientToken = string
   type ClientTransport = "unix" | "websocket"
   type ClosedDeleteResult = { deleted: Array<Cmux.StateId>; updated: Array<Cmux.StateId> }
-  type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
+  type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord>; window: string | null; member_count: number; members: Array<Cmux.ClosedMemberRecord>; group?: Cmux.ClosedWorkspaceGroupRecord }
   type ClosedMemberRecord = { kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; screens: Array<Cmux.ClosedScreenRecord> }
-  type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
+  type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace" | "window"; workspace_id: string /* workspace_… */; workspace_ids: Array<string /* workspace_… */>; remaining: number; window?: string | null; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
   type ClosedScreenRecord = { name: string | null; tabs: Array<Cmux.ClosedTabRecord> }
-  type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean; page?: string | null }
+  type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean; page?: string | null; empty?: boolean }
   type ClosedWorkspaceGroupRecord = { id: Cmux.StateId; name: string; color: string | null; icon?: string | null }
   type CloudConnectInfo = { machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; state: Cmux.CloudMachineStatus; peer: { wg_public_key: string; overlay_address: string; vpc_endpoint: string | null; public_ipv6: string | null }; gateway: { tunnel_id: string; endpoint: string; server_public_key: string; client_address: string; allowed_ips: Array<string> } | null; services: Array<"daemon" | "ssh">; daemon: { version: string | null; capabilities: Array<string> }; revision: Cmux.Revision }
   type CloudConnectServices = Array<"daemon" | "ssh">
@@ -126,10 +126,14 @@ declare namespace Cmux {
   type GitFilesListResult = { root: string; folder: string; entries: Array<Cmux.GitFileEntry>; truncated: boolean }
   type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
-  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number }
+  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
+  type GitStatusWorktree = { main_root: string }
+  type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
+  type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string }
+  type GitWorktreeRemoveResult = { root: string; main_root: string; branch?: string; branch_deleted: boolean }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
-  type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type GroupColor = string
   type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
   type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
@@ -778,7 +782,7 @@ interface CmuxGlobal {
       /** `git.checkpoint.create` (mutation, scope `git:write`) */
       create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; expected_repository_id?: string; expected_worktree_id?: string; include_untracked?: unknown; exclude_paths?: Array<string>; reason?: "manual" | "handoff" | "turn"; limits?: { max_bytes?: number; max_files?: number } }, Cmux.MutationResult<Cmux.GitCheckpoint>>
       /** `git.checkpoint.diff` (read, scope `git:read`) */
-      diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; from: string; to?: string; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; max_files?: number }, Cmux.GitCheckpointDiffResult>
+      diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; from: string; to?: string; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number }, Cmux.GitCheckpointDiffResult>
       /** `git.checkpoint.get` (read, scope `git:read`) */
       get: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; checkpoint_id?: string; idempotency_key?: string }, Cmux.GitCheckpoint>
       /** `git.checkpoint.list` (read, scope `git:read`) */
@@ -791,7 +795,7 @@ interface CmuxGlobal {
     /** `git.commit` (mutation, scope `git:execute`) */
     commit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; message: string; paths?: Array<string>; all?: boolean; include_untracked?: boolean; amend?: boolean; no_verify?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitCommitResult>>
     /** `git.diff` (read, scope `git:read`) */
-    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; max_files?: number }, Cmux.GitDiffResult>
+    diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; context_lines?: number; max_files?: number }, Cmux.GitDiffResult>
     files: {
       /** `git.files.list` (read, scope `git:read`) */
       list: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitFilesListResult>
@@ -802,6 +806,14 @@ interface CmuxGlobal {
     push: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; remote?: string; branch?: string; set_upstream?: boolean; expected_head?: string }, Cmux.MutationResult<Cmux.GitPushResult>>
     /** `git.status` (read, scope `git:read`) */
     status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.GitStatusResult>
+    worktree: {
+      /** `git.worktree.apply` (mutation, scope `git:execute`) */
+      apply: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.MutationResult<Cmux.GitWorktreeApplyResult>>
+      /** `git.worktree.create` (mutation, scope `git:execute`) */
+      create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; name?: string; base?: string }, Cmux.MutationResult<Cmux.GitWorktreeCreateResult>>
+      /** `git.worktree.remove` (mutation, scope `git:execute`) */
+      remove: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; discard?: boolean }, Cmux.MutationResult<Cmux.GitWorktreeRemoveResult>>
+    }
   }
   github: {
     issue: {
@@ -957,7 +969,7 @@ interface CmuxGlobal {
     /** `notification.clear` (mutation, scope `notification:write`) */
     clear: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationClearResult>>
     /** `notification.create` (mutation, scope `notification:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
+    create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; desktop?: boolean; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
   }
@@ -1434,7 +1446,7 @@ interface CmuxGlobal {
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
+    create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; ephemeral?: boolean; cwd?: string; argv?: Array<string>; shell?: string; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
     /** `workspace.ensure_app` (mutation, scope `workspace:write`) */
     ensure_app: CmuxOp<{ machine?: string; session?: string; app: string; route?: string; name?: string }, Cmux.MutationResult<Cmux.CreatedWorkspaceOnly>>
     /** `workspace.ensure_home` (mutation, scope `workspace:write`) */

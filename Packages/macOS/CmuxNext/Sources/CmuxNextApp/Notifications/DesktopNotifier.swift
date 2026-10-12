@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import os
 import UserNotifications
 
@@ -6,7 +7,11 @@ import UserNotifications
 /// user's notification settings and Focus modes apply (macOS filters the
 /// banner and its default sound). A banner click opens the notifying tab
 /// through `onOpen`. The center is touched only when the first banner posts,
-/// so hosts without a bundle identifier (tests) never create it.
+/// so hosts without a bundle identifier (tests) never create it. An
+/// automation launch (`WindowDrawPolicy.isAutomationLaunch`: e2e scripts and
+/// GUI proofs on shared hosts) never creates it either: no authorization
+/// request and no system banner cover the host's screen; `posted` still
+/// records each banner for `debug.notifications`.
 @MainActor
 final class DesktopNotifier: NSObject {
     /// A banner the app asked for (for `debug.notifications`).
@@ -26,8 +31,11 @@ final class DesktopNotifier: NSObject {
     var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// The last banners asked for, newest last (bounded).
     private(set) var posted: [Posted] = []
-    /// Authorization as the center last reported it ("authorized", "denied", ...).
-    private(set) var authorization = "unknown"
+    /// Whether this launch uses the system notification center (not in automation launches).
+    nonisolated static let usesSystemCenter = !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment)
+    /// Authorization as the center last reported it ("authorized", "denied", ...);
+    /// "automation" when this launch never asks.
+    private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
     private var center: UNUserNotificationCenter?
     private var requestedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
@@ -109,7 +117,7 @@ final class DesktopNotifier: NSObject {
 
     private func resolvedCenter() -> UNUserNotificationCenter? {
         if let center { return center }
-        guard Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
+        guard Self.usesSystemCenter, Self.isMainAppBundle(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL) else {
             return nil
         }
         let center = UNUserNotificationCenter.current()
@@ -153,5 +161,13 @@ enum NotificationSounds {
         guard name != "none", name != "default" else { return }
         let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true) : NSSound(named: NSSound.Name(name))
         sound?.play()
+    }
+
+    /// A poster asked for no banner (`notify --desktop false`): the
+    /// notification's own default sound has no banner to ride, so the
+    /// system alert sound stands in, as classic played one.
+    @MainActor
+    static func playWithoutBanner(_ name: String) {
+        name == "default" ? NSSound.beep() : play(name)
     }
 }

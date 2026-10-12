@@ -45,6 +45,8 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
+#[cfg(test)]
+mod claude_worktree_tests;
 mod message_hooks;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 
@@ -112,6 +114,10 @@ const CODEX_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+/// Leaves out `WorktreeCreate` and `WorktreeRemove`, whose hooks replace Claude
+/// Code's own worktree handling. Claude Code reads the new worktree's path from
+/// a `WorktreeCreate` hook's stdout, and skips its `git worktree remove` when a
+/// `WorktreeRemove` hook exits 0.
 const CLAUDE_EVENTS: &[&str] = &[
     "ConfigChange",
     "CwdChanged",
@@ -140,8 +146,6 @@ const CLAUDE_EVENTS: &[&str] = &[
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    "WorktreeCreate",
-    "WorktreeRemove",
 ];
 
 const GEMINI_EVENTS: &[&str] = &[
@@ -494,11 +498,18 @@ impl Context {
     }
 }
 
+/// The XDG data home. A relative value (a quoted `"~/.local/share"`) is
+/// ignored as the XDG spec says; it would resolve against the agent's project.
 fn runtime_data_home(home: &Path) -> PathBuf {
     std::env::var_os("XDG_DATA_HOME")
-        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".local/share"))
+}
+
+/// The native events `agent hook install` wires for provider `id`, if it knows it.
+pub fn provider_events(id: &str) -> Option<&'static [&'static str]> {
+    PROVIDERS.iter().find(|provider| provider.id == id).map(|provider| provider.events)
 }
 
 #[cfg(unix)]

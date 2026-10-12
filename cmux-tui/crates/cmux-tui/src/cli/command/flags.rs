@@ -60,6 +60,7 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "no-verify",
     "set-upstream",
     "no-set-upstream",
+    "discard",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

@@ -24,6 +24,7 @@ export function FileHeader({
   onLoadDiff,
   onToggleCollapsed,
   onToggleViewed,
+  stage: stageAction,
   viewedState,
 }: {
   item: DiffItem;
@@ -33,6 +34,9 @@ export function FileHeader({
   onLoadDiff: () => void;
   onToggleCollapsed: () => void;
   onToggleViewed: () => void;
+  /** Stage or Unstage the file (cx-ueuc8), where the viewer's source can; a button and a menu row.
+   *  `offers` limits it to some files (Branch: those with work-tree changes; cx-4ukqc). */
+  stage?: { label: string; run: (path: string) => void; offers?: (path: string) => boolean };
   viewedState: ViewedFileState;
 }) {
   const fileDiff = item.fileDiff ?? {};
@@ -45,6 +49,7 @@ export function FileHeader({
   const collapsed = Boolean(item.collapsed);
   const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
   const press = useRef<HeaderPress | null>(null);
+  const stage = stageAction && (!stageAction.offers || stageAction.offers(path)) ? stageAction : undefined;
   return (
     // The bar holds its own buttons (Viewed, Load diff), which a <button>
     // cannot contain, so the toggle is a focusable element with the button role.
@@ -102,6 +107,18 @@ export function FileHeader({
           -{stats.deleted}
         </span>
       </span>
+      {stage ? (
+        <button
+          type="button"
+          className="file-review-stage"
+          onClick={(event) => {
+            event.stopPropagation();
+            stage.run(path);
+          }}
+        >
+          {stage.label}
+        </button>
+      ) : null}
       <FileReviewControls
         item={item}
         label={label}
@@ -112,6 +129,9 @@ export function FileHeader({
       <FileMenuButton
         label={label("fileActions").replace("{file}", baseName)}
         items={[
+          ...(stage
+            ? [{ id: "stage", icon: "check" as const, label: stage.label, onChoose: () => stage.run(path) }]
+            : []),
           {
             id: "viewed",
             icon: viewedState === "viewed" ? "eyeClosed" : "eye",

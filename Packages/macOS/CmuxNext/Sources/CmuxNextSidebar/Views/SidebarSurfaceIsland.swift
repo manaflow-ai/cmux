@@ -93,6 +93,14 @@ final class SidebarUpdatedCardHost: NSView {
     private(set) var card: SidebarUpdatedCard?
     /// The page's height changed: the sidebar lays the slot out again.
     var onHeightChange: (() -> Void)?
+    /// Makes ``island`` once a card shows (a web page; none at launch without one).
+    var surfaces: (any SidebarUpdateSurfaces)? {
+        didSet {
+            island?.close()
+            island = card == nil ? nil : surfaces?.island(.updated)
+            isHidden = card == nil || island == nil
+        }
+    }
     var island: (any SidebarSurfaceIsland)? {
         didSet {
             oldValue?.view.removeFromSuperview()
@@ -115,10 +123,17 @@ final class SidebarUpdatedCardHost: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Shows the card (the page draws its text), or hides the view.
+    /// Shows the card (the page draws its text), or hides the view and
+    /// closes its page.
     func configure(_ card: SidebarUpdatedCard?) {
         guard card != self.card else { return }
         self.card = card
+        if card != nil, island == nil { island = surfaces?.island(.updated) }
+        if card == nil, let island {
+            // The card went away (dismissed): its page goes too (cx-asynu).
+            island.close()
+            self.island = nil
+        }
         isHidden = card == nil || island == nil
     }
 
@@ -139,6 +154,16 @@ extension SidebarView {
                 "parked": String(updateCardView.highlights?.view.superview === updateCardView.parking),
                 "window": String(updateCardView.window != nil),
                 "hiddenAncestor": String(updateCardView.isHiddenOrHasHiddenAncestor)]
+    }
+
+    /// Proofs (`debug.update_surfaces {action: "state"}`): which update
+    /// pages this sidebar holds now (each is a web page, cx-asynu).
+    public func debugUpdateSurfaceState() -> [String: String] {
+        ["card": String(updateCardView.card != nil),
+         "highlights": String(updateCardView.highlights != nil),
+         "updatedCard": String(updatedCardView.card != nil),
+         "updatedPage": String(updatedCardView.island != nil),
+         "updatedHeight": String(Double(updatedCardView.height))]
     }
 }
 #endif

@@ -81,10 +81,18 @@ impl Params {
     }
 }
 
-/// `--color` for a tab or screen group: one of the fixed group colors.
+/// `--color` for a tab or screen group: one of the fixed group colors or `#RRGGBB`.
 fn group_color(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
     if let Some(color) = flags.take("color") {
-        validate_one_of("--color", &color, GROUP_COLORS)?;
+        let hex = color.len() == 7
+            && color.starts_with('#')
+            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex && !GROUP_COLORS.contains(&color.as_str()) {
+            return Err(UsageError::new(format!(
+                "--color must be one of {} or #RRGGBB",
+                GROUP_COLORS.join(", ")
+            )));
+        }
         params.insert("color", Value::String(color));
     }
     Ok(())

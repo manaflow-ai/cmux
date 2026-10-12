@@ -16,8 +16,12 @@
 //! Source of the values: the token values come from the spec's
 //! `design-tokens.json` (pixel parity rule), proposed at
 //! `plans/cmux-next/spec-proposals/visuals/design-tokens.json` on
-//! `feat-cmux-next`. This crate does not read it yet: the values here are the
-//! Swift port's until that file is wired in. Do not invent other values.
+//! `feat-cmux-next`, compiled in (`include_str!`) and read once: every plain
+//! color formula (`alpha(..)`, `mix(..)`, `= token`) and the contrast
+//! minimums come from it (`spec.rs`). The json follows the Swift source, and
+//! `themes.*` there is the oracle (`spec/tests.rs`). The neutral accent only:
+//! `appearance.accent` (Swift `AppTheme`) and `cursor-color` (`caret`) are not
+//! ported yet. Do not invent other values.
 //!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
@@ -35,6 +39,7 @@
 mod colors;
 mod config;
 mod rgb;
+mod spec;
 mod tokens;
 
 pub use colors::parse_color;

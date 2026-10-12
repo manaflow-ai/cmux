@@ -91,9 +91,13 @@ impl Hub {
             let live = check
                 .then(|| {
                     let procs = crate::adopt_live::processes();
+                    if fam == "opencode" {
+                        return crate::adopt_live::named_use(&id, &procs);
+                    }
                     crate::adopt_live::live_use(
                         &id,
                         &found.file,
+                        found.cwd.as_deref(),
                         &procs,
                         std::time::SystemTime::now(),
                     )
@@ -154,6 +158,7 @@ fn indexed_stores(
     let harness = match family {
         "claude" => cmux_chat_index::AdapterKind::ClaudeCode,
         "codex" => cmux_chat_index::AdapterKind::Codex,
+        "opencode" => cmux_chat_index::AdapterKind::OpenCode,
         _ => return Vec::new(),
     };
     let key = cmux_chat_index::ChatKey { harness, session_id: id.to_owned() };
@@ -225,7 +230,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 
 impl Hub {
     /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
-    /// history, unless the resumed harness already replayed some (Codex `session/load` can).
+    /// history, unless the session already shows some (a harness that sent history after its load).
     pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
         let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
             events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
@@ -242,6 +247,20 @@ impl Hub {
         if turns.is_empty() {
             return;
         }
+        // The chat's title and counts come from its past, as live turns set them (turns.rs).
+        {
+            let mut m = session.meta.lock().unwrap();
+            if m.title.is_none()
+                && let Some(first) = turns[0].prompt.lines().find(|l| !l.trim().is_empty())
+            {
+                m.title = Some(short_text(first.trim(), 80));
+            }
+            if let Some(last) = turns.last() {
+                m.last_prompt = Some(short_text(&last.prompt, 200));
+            }
+            m.turn_count += turns.len() as u64;
+        }
+        self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         for (i, turn) in turns.iter().enumerate() {
             let turn_id = format!("adopted-{i}");

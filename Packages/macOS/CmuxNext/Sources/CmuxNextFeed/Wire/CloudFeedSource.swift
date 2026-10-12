@@ -175,8 +175,8 @@ public final class CloudFeedSource: FeedSource {
         socket = task
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
-        // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
         var first = true
+        // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
         while !Task.isCancelled {
             let message: URLSessionWebSocketTask.Message
             do {

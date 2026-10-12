@@ -4,7 +4,7 @@
 // is virtualized: matches come from the rows' text, and a row draws its highlights once it mounts.
 // The current match opens what hides it: its turn's "Worked for" fold (App.tsx) and, through
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
@@ -69,6 +69,9 @@ export type ChatFind = {
   focusRequest: number;
 };
 
+/** What a find bar (ChatFindBar) reads: the chat's find, or another view's (the changes view). */
+export type FindBarState = Omit<ChatFind, "matches"> & { matches: readonly unknown[] };
+
 /** The find state of a transcript of `rows`. */
 export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [open, setOpen] = useState(false);
@@ -78,7 +81,11 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const matches = useMemo(() => (open ? findMatches(rows, query) : []), [open, rows, query]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
+  // Where focus was when the bar opened, so closing it puts the reader back there.
+  const opener = useRef<HTMLElement | null>(null);
   const show = useCallback((text?: string) => {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && !focused.closest(".acpmux-find")) opener.current = focused;
     setOpen(true);
     if (text) {
       setQueryState(text);
@@ -86,7 +93,15 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
     }
     setFocusRequest((request) => request + 1);
   }, []);
-  const hide = useCallback(() => setOpen(false), []);
+  const hide = useCallback(() => {
+    setOpen(false);
+    const target = opener.current;
+    opener.current = null;
+    // Only from the bar itself (or nowhere), so Hide Find from a menu leaves the composer alone.
+    const focused = document.activeElement;
+    const fromBar = !focused || focused === document.body || focused.closest(".acpmux-find");
+    if (fromBar && target?.isConnected) target.focus({ preventScroll: true });
+  }, []);
   const setQuery = useCallback((next: string) => {
     setQueryState(next);
     setActive(0);

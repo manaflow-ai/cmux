@@ -11,10 +11,12 @@
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 #
-# Files that serve the agent pane or the gallery from a dev server (vite.config.acpmux-pane.mjs,
-# vite.config.gallery-dev.ts) run one at a time after the rest: three of them starting at once (agent-history, agent-pane-peer-chat,
-# chat-find) stall in the dependency optimizer's first bundle and never load the page, even with
-# a dependency cache each, while each passes alone and any two pass together.
+# Files that start a Vite dev server run one at a time after the rest: the agent pane and gallery
+# configs (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
+# themselves (editor-page, ui-a11y, settings-scroll). Three of them starting at once (agent-history,
+# agent-pane-peer-chat, chat-find) stall in the dependency optimizer's first bundle and never load
+# the page, even with a dependency cache each, while each passes alone and any two pass together;
+# editor-page timed out the same way beside ui-a11y and text-field-focus.
 #
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
@@ -103,10 +105,10 @@ if [ "$count" -eq 0 ]; then
   echo "error: no webviews test files found under $PWD" >&2
   exit 1
 fi
-# Two gallery dev servers at once (composer-mention, composer-send-stop) optimize dependencies
-# into the same node_modules/.vite, and each loses files the other wrote. `--null`, not `-Z`:
-# BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)'
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",'
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
@@ -117,7 +119,11 @@ xargs -0 -P 1 -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$resul
 
 failed=0
 while read -r result file log; do
-  [ "$result" = PASS ] && continue
+  # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
+  if [ "$result" = PASS ]; then
+    grep -E '^::(warning|notice)( |::)' "$log" || true
+    continue
+  fi
   failed=$((failed + 1))
   echo "::group::$result $file"
   cat "$log"

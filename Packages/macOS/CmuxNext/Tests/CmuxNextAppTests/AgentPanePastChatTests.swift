@@ -24,8 +24,9 @@ struct AgentPanePastChatTests {
         return seed
     }
 
-    /// A terminal or read-only plan opens a fresh chat that shows the chat's past; an adopted
-    /// chat replays its own past, so its seed names none.
+    /// A terminal or read-only plan opens a fresh chat that shows the chat's past. An adopted chat
+    /// names it too: acpmux replays its past only after the folder's trust question, and until
+    /// then the reopened chat looked empty (new-user friction run, 2026-10-11).
     @Test func freshChatsForAChatNameIt() throws {
         let terminal = try #require(AcpmuxChatOpenPlan(result: ["kind": "terminal", "cwd": "/tmp", "terminal": ["argv": ["pi", "--resume", "x"]]]))
         let readOnly = try #require(AcpmuxChatOpenPlan(result: ["kind": "readOnly", "readOnly": ["path": "/tmp/x.jsonl"]]))
@@ -34,7 +35,7 @@ struct AgentPanePastChatTests {
         ]))
         #expect(Self.seed(ChatOpenRoute.route(terminal, chat: Self.subject, openTab: { _ in nil }))?.pastChat == Self.key)
         #expect(Self.seed(ChatOpenRoute.route(readOnly, chat: Self.subject, openTab: { _ in nil }))?.pastChat == Self.key)
-        #expect(Self.seed(ChatOpenRoute.route(adopt, chat: Self.subject, openTab: { _ in nil }))?.pastChat == nil)
+        #expect(Self.seed(ChatOpenRoute.route(adopt, chat: Self.subject, openTab: { _ in nil }))?.pastChat == Self.key)
     }
 
     /// The page's handshake carries the past turns of the seed's chat, on every reload while the

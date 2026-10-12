@@ -2,16 +2,19 @@
 // whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
 // folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
 // opens the last turn's changes; and the "..." chat menu. Before them, the chat branch's pull request
-// with its checks (cx-tcwj, Codex desktop's PR chip), when the App found one. Every control renders from the first frame
+// with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { useShortcut, withShortcut } from "../shortcuts";
+import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useHeaderState } from "./headerState";
+import { PullRequestChip } from "./PullRequestChip";
+import { useWorktree, WorktreePill } from "./WorktreePill";
+import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
   QUICK_ACTION_IDS,
@@ -27,6 +30,7 @@ import {
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
   terminal: "splitRight",
+  splitDown: "splitDown",
   browser: "splitBrowserRight",
   changes: "openDiffViewer",
   /// Not an app action: the App opens the Files tree (CmuxNextApp AgentChatSplitToggles.files).
@@ -75,6 +79,7 @@ export type ChatMenuChild = { key: string; label: string; shortcutAction?: strin
 
 export function ChatHeaderTools({
   onTerminal,
+  onSplitDown,
   onBrowser,
   hasChanges = false,
   onChanges,
@@ -91,10 +96,18 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  onMergePullRequest,
+  folder,
+  readStatus,
+  statusKey,
+  onApplyWorktree,
+  onRemoveWorktree,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
   onTerminal: (mode: QuickActionMode) => void;
+  /// Split Down runs a terminal split under the chat the same way (Quick Chat's panel has none).
+  onSplitDown?: (mode: QuickActionMode) => void;
   onBrowser: (mode: QuickActionMode) => void;
   /// Whether the chat edited files: Changes shows then, and while its diff is open.
   hasChanges?: boolean;
@@ -123,13 +136,26 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
+  /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
+  /// read again when `statusKey` changes.
+  folder?: string;
+  readStatus?: (cwd: string) => Promise<unknown>;
+  statusKey?: unknown;
+  /// Apply on the worktree pill (cx-lyqio.4): `git.worktree.apply` for the chat's session.
+  onApplyWorktree?: (key: string) => Promise<unknown>;
+  /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
+  onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
+  const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
   const { lit, pullRequest } = useHeaderState();
+  const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.
@@ -162,7 +188,7 @@ export function ChatHeaderTools({
               className="acpmux-header-tool"
               aria-label={t("header.changes")}
               aria-pressed={on(HEADER_ACTIONS.changes, mode)}
-              title={withShortcut(t("header.changes"), changesKey)}
+              {...tooltipProps(t("header.changes"), changesKey)}
               onClick={() => onChanges(mode)}
             >
               <Icon name="diff.file" size={15} />
@@ -201,6 +227,21 @@ export function ChatHeaderTools({
               <Icon name="media.play" size={15} />
             </button>
           ) : null
+        ) : id === "splitDown" ? (
+          onSplitDown ? (
+            <button
+              key={id}
+              data-quick-action={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t("header.splitDown")}
+              aria-pressed={on(HEADER_ACTIONS.splitDown, mode)}
+              {...tooltipProps(t("header.splitDown"), splitDownKey)}
+              onClick={() => onSplitDown(mode)}
+            >
+              <Icon name="pane.split.down" size={15} />
+            </button>
+          ) : null
         ) : id === "terminal" ? (
           <button
             key={id}
@@ -209,7 +250,7 @@ export function ChatHeaderTools({
             className="acpmux-header-tool"
             aria-label={t("header.terminal")}
             aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
-            title={withShortcut(t("header.terminal"), terminalKey)}
+            {...tooltipProps(t("header.terminal"), terminalKey)}
             onClick={() => onTerminal(mode)}
           >
             <Icon name="terminal" size={15} />
@@ -222,7 +263,7 @@ export function ChatHeaderTools({
             className="acpmux-header-tool"
             aria-label={t("header.browser")}
             aria-pressed={on(HEADER_ACTIONS.browser, mode)}
-            title={withShortcut(t("header.browser"), browserKey)}
+            {...tooltipProps(t("header.browser"), browserKey)}
             onClick={() => onBrowser(mode)}
           >
             <Icon name="browser" size={15} />
@@ -233,25 +274,8 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {pullRequest && (
-        <a
-          className="acpmux-header-tool acpmux-header-pr"
-          href={pullRequest.url}
-          data-state={pullRequest.state}
-          data-checks={pullRequest.checks.state}
-          title={
-            pullRequest.checks.total > 0
-              ? t("header.pullRequestChecks", {
-                  number: pullRequest.number,
-                  passed: pullRequest.checks.passed,
-                  total: pullRequest.checks.total,
-                })
-              : t("header.pullRequest", { number: pullRequest.number })
-          }
-        >
-          <Icon name="git.pullrequest" size={13} />#{pullRequest.number}
-        </a>
-      )}
+      {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
       {onCustomize && buttons ? (
         // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
         // inside them reaches this host through React.
@@ -287,10 +311,11 @@ export function ChatHeaderTools({
 
 /// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
 /// Files a folder on this Mac).
-const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "browser", "newTab"]);
+const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "splitDown", "browser", "newTab"]);
 
 const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   terminal: "header.terminal",
+  splitDown: "header.splitDown",
   browser: "header.browser",
   changes: "header.changes",
   files: "header.files",

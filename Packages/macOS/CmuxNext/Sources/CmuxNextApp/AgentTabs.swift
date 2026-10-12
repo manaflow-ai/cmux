@@ -128,7 +128,8 @@ final class AgentTabStore {
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
-    var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+    /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
+    var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
@@ -292,7 +293,7 @@ final class AgentTabStore {
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
-            newTabPages[key] = firstPageNewTab?(nil)
+            newTabPages[key] = firstPageNewTab?(nil, nil)
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
@@ -362,17 +363,13 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
-        model.onTypeAhead = { [weak self] text in
-            guard let self else { return }
-            let key = resolve(provisional)
-            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
-        }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in
             guard let self else { return }
             let key = resolve(provisional)
             newTabPages[key]?.handler.inputReady(key, token)
         }
-        model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
+        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
@@ -428,7 +425,7 @@ final class AgentTabStore {
         // React-only New Tab). Chat panes keep it.
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
-        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
+        model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
         customization.start()
         return view
     }
@@ -436,6 +433,8 @@ final class AgentTabStore {
     func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
 
     func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
+    /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
+    func pageHandler(_ key: String) -> NewTabPageHandler? { newTabPages[resolve(key)]?.handler ?? blankChatHandler?(resolve(key)) }
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }

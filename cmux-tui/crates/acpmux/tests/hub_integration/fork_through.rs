@@ -8,6 +8,15 @@ use super::*;
 // Side questions fork the chat too, and share its Claude helpers.
 #[path = "aside.rs"]
 mod aside;
+// The context window a Claude chat reports, which shares these helpers too.
+#[path = "context_window.rs"]
+mod context_window;
+// Claude's todo list as an ACP plan, which shares these helpers too.
+#[path = "todo_plan.rs"]
+mod todo_plan;
+// Claude's background shells ending, which share these helpers too.
+#[path = "background_task.rs"]
+mod background_task;
 
 const FORK_OP: &str = "acp.session.fork";
 
@@ -61,6 +70,13 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
     assert_ne!(fid, id);
     let forked = hub.resolve(&fid).unwrap();
     assert_eq!(forked.meta().parent_id.as_deref(), Some(id.as_str()));
+    // The session list names where the fork branched, for the pane's < 1/2 > arrows (cx-ncc.61):
+    // a fork at the chat's end (this agent is not Claude) branches after the chat's last event.
+    let listed = hub.session_summary(&forked);
+    assert_eq!(listed["parentId"], id.as_str());
+    let fork_seq = forked.meta().fork_seq.expect("a fork records where it branched");
+    assert!(fork_seq >= results[1], "{fork_seq} < {}", results[1]);
+    assert_eq!(listed["forkSeq"], fork_seq);
     let prompts =
         hub.events(&fid, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "user_message").count();
     assert_eq!(prompts, 2, "the fork holds both turns");

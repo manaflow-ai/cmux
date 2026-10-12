@@ -18,12 +18,15 @@ pub(crate) const DEFAULT_LIST_LIMIT: usize = 100;
 pub(crate) const MAX_LIST_LIMIT: usize = 1000;
 
 /// The SQL condition "this group is visible from the window `?1`", or
-/// every group when the caller names no window.
+/// every group when the caller names no window. A live window is one with
+/// a window record that is not closed (`open: false`): a closed window's
+/// groups, and its own window group, are visible from every window.
 fn in_scope(window: Option<&str>) -> &'static str {
     match window {
         Some(_) => {
             "(window_id = ?1 OR window_id IS NULL
-              OR window_id NOT IN (SELECT install_id || '/' || window_id FROM window_records))"
+              OR window_id NOT IN (SELECT install_id || '/' || window_id FROM window_records
+                                   WHERE IFNULL(json_extract(record_json, '$.open'), 1) != 0))"
         }
         None => "(?1 IS NULL)",
     }
@@ -44,7 +47,28 @@ fn public_tab(tab: &Value) -> Value {
     if let Some(page) = tab["conversation"]["page"].as_str() {
         public["page"] = json!(page);
     }
+    if reopens_empty(tab) {
+        public["empty"] = json!(true);
+    }
     public
+}
+
+/// Whether a stored tab would reopen as nothing, so Recently Closed can leave it out: an
+/// untouched New Tab page (a chat tab whose agent session has no session yet, no page and no
+/// route) or a browser on `about:blank`. A remote terminal, a chat, a page and any other
+/// conversation source never are.
+fn reopens_empty(tab: &Value) -> bool {
+    if tab["kind"] != "browser" || !tab["remote"].is_null() {
+        return false;
+    }
+    let conversation = &tab["conversation"];
+    match conversation.as_object() {
+        None => matches!(tab["url"].as_str(), None | Some("" | "about:blank")),
+        Some(source) => {
+            source.keys().all(|key| key == "agent_session")
+                && source.get("agent_session").is_some_and(|agent| agent["session"].is_null())
+        }
+    }
 }
 
 /// The public `ClosedMemberRecord` of one stored member.
@@ -76,7 +100,8 @@ pub(crate) fn public_item(record: &Value) -> Value {
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
-        "name": first["name"],
+        // A window group has no member: its name is the window's workspace.
+        "name": if first["name"].is_null() { record["name"].clone() } else { first["name"].clone() },
         "workspace_id": first["workspace_id"],
         "pane_id": first["pane_id"],
         "index": first["index"].as_u64().unwrap_or(0),
@@ -118,7 +143,8 @@ pub(crate) fn closed_items_in(
 
 /// The group Reopen Closed takes when the caller names none: the newest
 /// group of `window`, else the newest group no live window owns. Without a
-/// window: the newest group.
+/// window: the newest group that is not a closed window (only an app can
+/// show a window again, and it names its window).
 pub(crate) fn newest_for_window(
     connection: &Connection,
     window: Option<&str>,
@@ -139,8 +165,13 @@ pub(crate) fn newest_for_window(
     Ok(connection
         .query_row(
             &format!(
-                "SELECT closed_id FROM closed_groups WHERE {} ORDER BY seq DESC LIMIT 1",
-                in_scope(window)
+                "SELECT closed_id FROM closed_groups WHERE {} {} ORDER BY seq DESC LIMIT 1",
+                in_scope(window),
+                if window.is_none() {
+                    "AND IFNULL(json_extract(record_json, '$.kind'), '') != 'window'"
+                } else {
+                    ""
+                }
             ),
             params![window],
             |row| row.get::<_, String>(0),

@@ -11,7 +11,7 @@ import QuartzCore
 @MainActor
 final class SidebarGroupEditor {
     var onRename: ((GroupID, String) -> Void)?
-    var onColor: ((GroupID, GroupTint) -> Void)? { didSet { colorPanel.onColor = onColor } }
+    var onColor: ((GroupID, GroupTint) -> Void)?
     var onItem: ((GroupID, String) -> Void)?
     /// The editor closed, after any rename it committed.
     var onClose: ((GroupID) -> Void)?
@@ -27,7 +27,7 @@ final class SidebarGroupEditor {
     private var lastClosed: (group: GroupID, time: TimeInterval, click: Int?)?
     /// The shown group's color, where the color panel starts.
     private var shownTint: GroupTint?
-    private let colorPanel = SidebarGroupColorPanel()
+    private let colorPanel = GroupColorPanel.shared
 
     var isVisible: Bool { shownGroup != nil }
     /// False in tests: the bubble is laid out but never put on screen.
@@ -50,7 +50,7 @@ final class SidebarGroupEditor {
             // The panel takes focus and the bubble closes; the color panel keeps the
             // group, and a new empty group is kept for it (not deleted on close).
             self.onItem?(id, SidebarGroupEditing.keepGroupItem)
-            self.colorPanel.open(for: id, current: self.shownTint)
+            self.colorPanel.open(current: self.shownTint) { [weak self] tint in self?.onColor?(id, tint) }
         }
         panel.onItem = { [weak self] item in
             guard let self, let id = self.shownGroup else { return }
@@ -135,7 +135,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     private let field = NSView()
     private(set) var swatches: [SidebarGroupSwatchView] = []
     /// After the palette dots, icon-only (cx-25az): a custom color and the emoji or icon picker.
-    let customSwatch = SidebarGroupCustomSwatchView()
+    let customSwatch = GroupCustomSwatchView(label: GroupEditorStrings.customColor)
     let emojiButton = SidebarIconButton(symbol: "face.smiling", pointSize: { Metrics.smallIconSize },
                                         label: GroupEditorStrings.emoji)
     private let stack = NSStackView()
@@ -270,6 +270,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let content = glass else { return }
         content.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(GroupEditorStrings.namePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
             field.layer?.borderColor = Palette.focusRing.cgColor
             field.layer?.borderWidth = Metrics.dividerThickness

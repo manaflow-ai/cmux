@@ -24,6 +24,7 @@ import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../th
 import { ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { SettingRow, useRowMenu } from "./SettingRow";
+import { ThemeFiles } from "./ThemeFiles";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
 import { ThemeTokens } from "./ThemeTokens";
@@ -203,6 +204,12 @@ export function ThemeStudio() {
               {t("settingsPage.theme.contrast", lowest("text"), lowest("textSecondary"), lowest("accent"))}
             </span>
           </figcaption>
+          <ThemeFiles
+            base={terminal.name}
+            disabled={disabled || previewing !== null}
+            canSave={!!state.themeColors?.has(terminal.name)}
+            onSaved={(name) => (paired ? pickSide(scheme)(name) : write({ kind: "single", name }))}
+          />
         </figure>
       ) : null}
       <section className="group">
@@ -264,7 +271,6 @@ export function ThemeStudio() {
                       <div className="row-title" id={ids.theme}>
                         {text(row.title)}
                       </div>
-                      <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
                     </ContextMenu>
                     <div className="row-control">
                       {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
@@ -296,7 +302,11 @@ export function ThemeStudio() {
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
-                  <div className="row-help">{text(appRow.help)}</div>
+                  {appRow.summary && (
+                    <div className="row-help" title={text(appRow.summary)}>
+                      {text(appRow.summary)}
+                    </div>
+                  )}
                   {appManaged && (
                     <div className="row-managed" data-managed-reason="">
                       <Icon name="lock" />

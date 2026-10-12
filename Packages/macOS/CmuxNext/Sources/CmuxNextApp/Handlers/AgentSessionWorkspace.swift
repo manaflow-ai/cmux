@@ -88,7 +88,7 @@ enum AgentSessionWorkspace {
     }
 
     /// The first pane of workspace `key` once the store mirrors it (10 s at most).
-    @MainActor private static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
+    @MainActor static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
         if let pane = firstPane(of: key, in: store) { return pane }
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in

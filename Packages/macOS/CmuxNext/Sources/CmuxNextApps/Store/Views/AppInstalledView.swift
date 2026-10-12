@@ -16,6 +16,7 @@ struct AppInstalledView: View {
             }
             .appStoreColumn()
             .padding(.vertical, Metrics.space5)
+            .thinScrollers()
         }
         .overlay {
             if model.installedApps.isEmpty {
@@ -54,7 +55,7 @@ struct AppInstalledRow: View {
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
                 .tint(colors.secondary)
                 .disabled(!model.canChange)
-                .help(AppsStrings.enabled)
+                .themedHelp(AppsStrings.enabled)
                 iconButton(app.hidden ? .actionShow : .actionHide, app.hidden ? AppsStrings.show : AppsStrings.hide,
                            enabled: model.canChange && !app.isBuiltIn) {
                     // task-owner: one hide or show from a button
@@ -109,7 +110,7 @@ struct AppInstalledRow: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .help(help)
+        .themedHelp(help)
         .accessibilityLabel(help)
     }
 }

@@ -192,11 +192,13 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and
-/// reports pointer movement and clicks by row.
+/// reports pointer movement and clicks by row. A click is a press, drag and release (`PalettePress`).
 final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
+    /// The press's following mouse events; nil reads the window's queue. Tests feed a press here.
+    var pressEvents: (() -> NSEvent?)?
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
@@ -218,8 +220,17 @@ final class PaletteTableView: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let row = row(at: convert(event.locationInWindow, from: nil))
-        if row >= 0 { onClick?(row) }
+        PalettePress.track(event, in: self, row: { point in
+            // A point over the search bar or footer still maps to a row scrolled out of view.
+            guard self.visibleRect.contains(point) else { return nil }
+            let index = self.row(at: point)
+            return index >= 0 ? index : nil
+        }, select: { index in
+            let rect = self.rect(ofRow: index)
+            self.onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
+        }, release: { index in
+            self.onClick?(index)
+        }, next: pressEvents)
     }
 }
 

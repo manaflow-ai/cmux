@@ -18,6 +18,7 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
@@ -1624,12 +1625,9 @@ fn main() -> std::process::ExitCode {
         let code = acp::run_standalone(std::env::args_os().skip(1).collect());
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
-    // Hook helper mode for hosts that received only this binary (see
-    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
-    // so it touches no daemon, log, or config state.
-    let mut arguments = std::env::args().skip(1);
-    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
-        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    // Hook helper mode and classic cmux's hook commands (see `classic_hooks::run`).
+    if let Some(code) = classic_hooks::run() {
+        return code;
     }
     run_main();
     // Reached only by the normal return paths (never client_log::exit): flush
@@ -2445,7 +2443,7 @@ fn run_server(
     }
     loopback_policy::install(&mux, loopback_forward_policy);
     #[cfg(unix)]
-    mux.set_acpmux_socket(acp::daemon_socket_path());
+    mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
     mux.set_acpmux_starter(acp::daemon_acpmux_starter());
     #[cfg(unix)]

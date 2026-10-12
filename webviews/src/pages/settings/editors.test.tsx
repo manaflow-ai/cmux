@@ -52,7 +52,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
         ? has("[data-ordered-choices]")
           ? null
           : "no ordered choice list"
-        : "a kind the cmux-next page never renders";
+        : has("input.token-input")
+          ? null
+          : "no token field";
     case "number_list":
     case "string_map":
       return "a kind the cmux-next page never renders";

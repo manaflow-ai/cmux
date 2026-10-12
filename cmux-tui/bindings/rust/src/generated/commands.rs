@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb.
+// cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1262,6 +1262,20 @@ pub struct DeleteSavedTabGroupResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DeleteTerminalCommandsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub all: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ids: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub started_since_ms: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type DeleteTerminalCommandsResult = T::TerminalCommandDeleteResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteWorkspaceGroupRequest {
     pub group: String,
@@ -1611,6 +1625,18 @@ pub struct ListTabGroupsResult {
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListTerminalCommandsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type ListTerminalCommandsResult = T::TerminalCommandList;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2989,6 +3015,8 @@ pub type SetTabPinnedResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTerminalCommandHistoryRequest {
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub retention_days: Optional<u32>,
 }
 
 #[rustfmt::skip]
@@ -3943,6 +3971,10 @@ impl CmuxClient {
         self.execute(&DELETE_SAVED_TAB_GROUP_METADATA, &request)
     }
 
+    pub fn delete_terminal_commands(&mut self, request: DeleteTerminalCommandsRequest) -> Result<DeleteTerminalCommandsResult> {
+        self.execute(&DELETE_TERMINAL_COMMANDS_METADATA, &request)
+    }
+
     pub fn delete_workspace_group(&mut self, request: DeleteWorkspaceGroupRequest) -> Result<DeleteWorkspaceGroupResult> {
         self.execute(&DELETE_WORKSPACE_GROUP_METADATA, &request)
     }
@@ -4081,6 +4113,10 @@ impl CmuxClient {
 
     pub fn list_tab_groups(&mut self, request: ListTabGroupsRequest) -> Result<ListTabGroupsResult> {
         self.execute(&LIST_TAB_GROUPS_METADATA, &request)
+    }
+
+    pub fn list_terminal_commands(&mut self, request: ListTerminalCommandsRequest) -> Result<ListTerminalCommandsResult> {
+        self.execute(&LIST_TERMINAL_COMMANDS_METADATA, &request)
     }
 
     pub fn list_terminals(&mut self, request: ListTerminalsRequest) -> Result<T::ListTerminalsResult> {

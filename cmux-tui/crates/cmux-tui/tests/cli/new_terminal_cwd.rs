@@ -2,7 +2,8 @@
 //! that moved to another folder (`cd`, then its OSC 7 report) gives that
 //! folder to every new terminal created beside it without a `cwd`: a new
 //! tab, a split, a new pane and a new screen of its workspace. Like
-//! Ghostty's `tab-`, `split-` and `window-inherit-working-directory`.
+//! Ghostty's `tab-`, `split-` and `window-inherit-working-directory`. Also
+//! `workspace create --cwd` with a command.
 #![cfg(unix)]
 
 use super::*;
@@ -100,4 +101,70 @@ fn new_terminals_start_in_the_folder_the_focused_terminal_moved_to() {
         }
     }
     assert!(failures.is_empty(), "new terminals must start in {target}: {failures:?}");
+}
+
+/// The text in `path` once a writer finished its line.
+fn wait_for_line(path: &std::path::Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Ok(text) = fs::read_to_string(path)
+            && text.ends_with('\n')
+        {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "{} never appeared", path.display());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// `workspace create --cwd` with a command (hq#1870 P1 9, classic
+/// `new-workspace --cwd --command`): the first terminal runs it in that folder.
+#[test]
+fn workspace_create_runs_its_first_terminal_in_the_given_folder_and_command() {
+    let server = HeadlessServer::start("workspace-create-launch");
+    // The daemon reports physical paths (macOS /tmp is /private/tmp).
+    let folder = unique_temp_dir("workspace-create-cwd");
+    fs::create_dir_all(&folder).unwrap();
+    let folder = folder.canonicalize().unwrap();
+    let folder_text = folder.to_str().unwrap();
+
+    let argv_out = server.dir.join("argv.out");
+    let created = json_cli(
+        &server,
+        &[
+            "workspace",
+            "create",
+            "--name",
+            "build",
+            "--cwd",
+            folder_text,
+            "--",
+            "/bin/sh",
+            "-c",
+            &format!("pwd -P > '{}'", argv_out.display()),
+        ],
+    );
+    assert_success(&created);
+    assert!(json_output(&created)["value"]["workspace_id"].is_string(), "{created:?}");
+    assert_eq!(wait_for_line(&argv_out), format!("{folder_text}\n"));
+
+    let shell_out = server.dir.join("shell.out");
+    let created = json_cli(
+        &server,
+        &[
+            "workspace",
+            "create",
+            "--cwd",
+            folder_text,
+            "--shell",
+            &format!("pwd -P > '{}'", shell_out.display()),
+        ],
+    );
+    assert_success(&created);
+    assert_eq!(wait_for_line(&shell_out), format!("{folder_text}\n"));
+
+    // An empty workspace has no terminal to launch.
+    let refused = json_cli(&server, &["workspace", "create", "--empty", "--cwd", folder_text]);
+    assert!(!refused.status.success(), "an empty workspace took a cwd");
+    assert_eq!(json_error(&refused)["code"], "validation.invalid", "{refused:?}");
 }

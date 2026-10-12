@@ -79,10 +79,10 @@ extension PaneController {
                 if v2 { return try await c.state.updateTabGroup(id, name: name) }
                 _ = try await c.updateTabGroup(group, name: name, transaction: t)
             }
-        case .setColor(_, let color):
+        case .setColor(_, let tint):
             groupCommand("update-tab-group") { c, t in
-                if v2 { return try await c.state.updateTabGroup(id, color: color.rawValue) }
-                _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t)
+                if v2 { return try await c.state.updateTabGroup(id, color: tint.wire) }
+                _ = try await c.updateTabGroup(group, color: .set(tint.wire), transaction: t)
             }
         case .newTab(let id):
             let groupTabs = stripModel.orderedTabs.filter { $0.groupID == id }.map(\.id.rawValue)

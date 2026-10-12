@@ -424,7 +424,7 @@ impl Refusal {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
-            LinkError::Rpc(_) => Self::Refused,
+            LinkError::Rpc(..) => Self::Refused,
         }
     }
 }

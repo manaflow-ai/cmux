@@ -36,7 +36,7 @@ struct DebugTunableRowView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(SettingsStyle.secondary)
-            .help(SettingsWindowStrings.reset)
+            .themedHelp(SettingsWindowStrings.reset)
             .opacity(changed ? 1 : 0)
             .disabled(!changed)
             .padding(.top, Metrics.space1)

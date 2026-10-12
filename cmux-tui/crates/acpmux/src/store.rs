@@ -177,12 +177,19 @@ impl SessionMeta {
     /// `CODEX_HOME`) over `env` (a spawn's, or the env a store is read
     /// with). The harness's default home (`~/.claude`, `~/.codex`) removes
     /// the variable instead: setting `CLAUDE_CONFIG_DIR=~/.claude` moves
-    /// Claude's own config file, and with it the person's login.
+    /// Claude's own config file, and with it the person's login. OpenCode's
+    /// store `<data>/opencode` is `XDG_DATA_HOME=<data>`.
     pub fn apply_chat_store(&self, env: &mut BTreeMap<String, String>) {
         let Some(dir) = &self.chat_store else { return };
-        let (var, default) = match self.family.as_deref() {
-            Some("claude") => ("CLAUDE_CONFIG_DIR", ".claude"),
-            Some("codex") => ("CODEX_HOME", ".codex"),
+        let (var, default, dir) = match self.family.as_deref() {
+            Some("claude") => ("CLAUDE_CONFIG_DIR", ".claude", dir.as_path()),
+            Some("codex") => ("CODEX_HOME", ".codex", dir.as_path()),
+            Some("opencode") => match dir.parent() {
+                Some(data) if dir.file_name().is_some_and(|name| name == "opencode") => {
+                    ("XDG_DATA_HOME", ".local/share", data)
+                }
+                _ => return,
+            },
             _ => return,
         };
         let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());

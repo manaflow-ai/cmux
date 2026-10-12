@@ -25,6 +25,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent actual-size", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "agentChat.toggleNotificationMute",
+                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute or Unmute Chat Notifications", bundle: .module),
+                keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab]
+            ),
+            ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
@@ -107,7 +113,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.createCheckpoint",
-                title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create checkpoint", bundle: .module),
+                title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create Checkpoint", bundle: .module),
                 keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
                 category: .agents, symbol: "camera", surfaces: [.palette],
                 requires: [.agentPaneFocused, .checkpointCaptureAvailable], targets: [.pane],
@@ -150,7 +156,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
-                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),
+                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit Changes…", bundle: .module),
                 keywords: ["agent", "git", "commit", "changes", "stage", "message"],
                 category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -165,7 +171,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.git.push",
-                title: String(localized: "action.agentPane.git.push", defaultValue: "Push branch", bundle: .module),
+                title: String(localized: "action.agentPane.git.push", defaultValue: "Push Branch", bundle: .module),
                 keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
                 category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -203,13 +209,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
-            permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
-            permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
+            permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
+            permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
             permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
-            permissionAction("expand", title: String(localized: "action.agentPane.permission.expand", defaultValue: "Expand permission details", bundle: .module), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
-            permissionAction("retry", title: String(localized: "action.agentPane.permission.retry", defaultValue: "Check and retry permission", bundle: .module), symbol: "arrow.clockwise"),
-            permissionAction("revoke", title: String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke chat permission", bundle: .module), symbol: "hand.raised"),
-            permissionAction("refresh", title: String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh permissions", bundle: .module), symbol: "arrow.clockwise.circle"),
+            permissionAction("expand", title: String(localized: "action.agentPane.permission.expand", defaultValue: "Expand Permission Details", bundle: .module), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
+            permissionAction("retry", title: String(localized: "action.agentPane.permission.retry", defaultValue: "Check and Retry Permission", bundle: .module), symbol: "arrow.clockwise"),
+            permissionAction("revoke", title: String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke Chat Permission", bundle: .module), symbol: "hand.raised"),
+            permissionAction("refresh", title: String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh Permissions", bundle: .module), symbol: "arrow.clockwise.circle"),
             ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),

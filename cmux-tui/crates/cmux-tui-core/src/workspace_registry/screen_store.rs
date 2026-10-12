@@ -127,7 +127,7 @@ pub struct ScreenGroupRecord {
     /// Stable key of the workspace whose screens the group holds.
     pub workspace_key: String,
     pub name: String,
-    /// One of the nine tab group colors.
+    /// One of the nine tab group colors or `#RRGGBB`.
     pub color: String,
     pub collapsed: bool,
     /// The saved screen group this live group syncs with.

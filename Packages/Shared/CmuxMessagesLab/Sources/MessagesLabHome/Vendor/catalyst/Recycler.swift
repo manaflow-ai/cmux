@@ -43,6 +43,9 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
     /// screen); ScrollPrefetcher sets them from the velocity.
     var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// Rows the AppKit host's lift pacing still shows behind the offset (its translation; 0 at rest).
+    var paceOverscanTop: CGFloat = 0 { didSet { if paceOverscanTop != oldValue { setNeedsLayout() } } }
+    var paceOverscanBottom: CGFloat = 0 { didSet { if paceOverscanBottom != oldValue { setNeedsLayout() } } }
     /// Until this time (`clock`) a page motion runs (WindowView.addPageMotion): the offset jumped a
     /// page at once, which is not a scroll, so the prefetcher adds no lead and reads no velocity.
     var pageJumpUntil: CFTimeInterval = 0
@@ -93,7 +96,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
         // The visible rect plus where rows are still animating in from
         // (`overscan`): a row on screen during a transaction's motion keeps
         // its cell even when its final place is outside the visible rect.
-        let top = max(overscanTop, leadTop), bottom = max(overscanBottom, leadBottom)
+        let top = max(overscanTop, leadTop, paceOverscanTop), bottom = max(overscanBottom, leadBottom, paceOverscanBottom)
         let rect = CGRect(x: bounds.minX, y: bounds.minY - top, width: bounds.width, height: bounds.height + top + bottom)
         let attrs = (layout.layoutAttributesForElements(in: rect) ?? []).filter { $0.indexPath.item < n }
         var next: [String: RowCell] = [:]

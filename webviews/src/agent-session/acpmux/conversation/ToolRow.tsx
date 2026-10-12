@@ -1,7 +1,7 @@
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useContext, useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
@@ -10,6 +10,7 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
+import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -50,7 +51,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const hasDiff = Boolean(tool.diffs?.length);
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
-  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }));
+  const cwd = useContext(SessionCwdContext);
+  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");

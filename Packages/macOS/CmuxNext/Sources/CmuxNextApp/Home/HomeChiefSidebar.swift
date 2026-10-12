@@ -17,13 +17,13 @@ import CmuxNextCompat
 final class HomeChiefSidebar: NSView {
     static let width: CGFloat = 280
     private let muxHome: URL
-    private let harness = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let model = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let stats = ThemedLabel(wrappingLabelWithString: "")
     private let replies = ThemedLabel(wrappingLabelWithString: "")
-    private let nameField = NSTextField(string: "")
-    private let avatarField = NSTextField(string: "")
+    private let nameField = ThemedTextField(string: "")
+    private let avatarField = ThemedTextField(string: "")
     /// The avatar text the field last showed, so an unchanged commit writes nothing.
     private var shownAvatar = ""
     private let stack = NSStackView()
@@ -76,9 +76,11 @@ final class HomeChiefSidebar: NSView {
             field.action = action
             field.setAccessibilityLabel(label)
             field.placeholderString = label
+            field.font = Typography.body
+            let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
             stack.addArrangedSubview(caption)
-            stack.addArrangedSubview(field)
-            field.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+            stack.addArrangedSubview(box)
+            box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
@@ -105,12 +107,12 @@ final class HomeChiefSidebar: NSView {
         brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         brain.ink = .secondary
         stack.addArrangedSubview(brain)
-        let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
+        let traces = ThemedBezelButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
         // The memory inspector (DEV and nightly, like its palette action).
         if DevTools.isEnabled {
-            let memory = NSButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+            let memory = ThemedBezelButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
             memory.bezelStyle = .push
             stack.addArrangedSubview(memory)
             localViews.append(memory)

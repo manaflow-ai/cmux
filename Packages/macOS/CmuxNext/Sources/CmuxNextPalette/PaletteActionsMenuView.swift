@@ -61,7 +61,7 @@ final class PaletteActionsMenuView: NSView {
         rowViews = state.visibleCommands.enumerated().map { index, command in
             let keycaps: [String]? = index == 0 && state.filter.isEmpty ? ["↩"] : (command.id == alternateID ? ["⌘", "↩"] : nil)
             let row = PaletteMenuRow(command: command, keycaps: keycaps, isSelected: index == state.selectedIndex)
-            row.onClick = { [weak self] in self?.onRun?(index) }
+            row.onPress = { [weak self] event in self?.track(event) }
             row.onHover = { [weak self] in self?.onHover?(index) }
             content.addSubview(row)
             return row
@@ -101,6 +101,17 @@ final class PaletteActionsMenuView: NSView {
         applyColors()
     }
 
+    /// A press on a row: the selection follows a drag and the release runs the row it ends on.
+    private func track(_ event: NSEvent) {
+        PalettePress.track(event, in: content, row: { point in
+            self.rowViews.firstIndex { $0.frame.contains(point) }
+        }, select: { index in
+            self.onHover?(index)
+        }, release: { index in
+            self.onRun?(index)
+        })
+    }
+
     private func applyColors() {
         performWithTheme {
             glass.applyTheme()
@@ -111,7 +122,7 @@ final class PaletteActionsMenuView: NSView {
 
 /// One command row in the Actions menu.
 final class PaletteMenuRow: NSView {
-    var onClick: (() -> Void)?
+    var onPress: ((NSEvent) -> Void)?
     var onHover: (() -> Void)?
     private let icon = NSImageView()
     private let label = PaletteText.label(Typography.body)
@@ -135,7 +146,7 @@ final class PaletteMenuRow: NSView {
     override var isFlipped: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        onClick?()
+        onPress?(event)
     }
 
     override func updateTrackingAreas() {

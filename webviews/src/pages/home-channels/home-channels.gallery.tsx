@@ -77,6 +77,9 @@ export default componentEntry<Props>({
     "pages/home-channels/Switcher.tsx#Switcher",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
+    "pages/home-channels/AddChannel.tsx#AddChannel",
+    "pages/home-channels/MessageRow.tsx#DraftRow",
+    "pages/home-channels/icons.tsx#HomeIcon",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -213,6 +216,33 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
         await ctx.click({ role: "button", name: "Emoji" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
+      },
+    },
+    "emoji-return": {
+      note: "Return in the emoji search inserts the first result into the composer and closes the popover.",
+      props: { select: "c-chief" },
+      checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason: "The first open decodes the bundled emoji table (~290 KB JSON) once; later opens reuse it.",
+        },
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Typing filters the grid a letter at a time, so the cells it keeps move to new places.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
+        await ctx.click({ role: "button", name: "Emoji" });
+        await ctx.type("rocket", { selector: ".hc-emoji-search" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
+        const first = ctx.document.querySelector(".hc-emoji-cell")?.textContent?.trim() ?? "";
+        await ctx.press("Enter");
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".hc-emoji") &&
+            (ctx.document.querySelector(".hc-main .hc-composer [contenteditable]")?.textContent ?? "").includes(first),
+        );
       },
     },
     "add-channel": {

@@ -2,14 +2,17 @@
 // (Experimental, behind appearance.experimentalControls), the
 // terminal facts (Terminal) and the settings file with its problems (Advanced). Data comes from
 // the host lists; writes run host ops or catalog actions, the palette's paths.
+import { useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
+import { ArtBrowser } from "./ArtBrowser";
 
 export function Backdrops() {
   const store = useStore();
   const { host, rows } = useSettingsState();
+  const [browsing, setBrowsing] = useState(false);
   const enabled = rows.get("appearance.experimentalControls")?.value === true;
   const backdrops = host?.backdrops ?? [];
   if (!enabled || backdrops.length === 0) return null;
@@ -34,14 +37,50 @@ export function Backdrops() {
       <span className="row-help">{attribution}</span>
     </button>
   );
+  // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
+  // title, then the person's own images ("Your images"); the desktop picture and system
+  // wallpapers follow in one untitled group.
+  const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
+  for (const choice of backdrops) {
+    const key = choice.collection ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.choices.push(choice);
+    else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
+  }
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <div className="row-help">{t("settingsWindow.backdropPicker.hint")}</div>
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
-        {backdrops.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+        <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            +
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
+          <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
+        </button>
+        <button
+          type="button"
+          className="backdrop-tile"
+          aria-expanded={browsing}
+          onClick={() => setBrowsing((open) => !open)}
+        >
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ⌕
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
+          <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
+        </button>
       </div>
+      {browsing && <ArtBrowser onClose={() => setBrowsing(false)} />}
+      {groups.map((group) => (
+        <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
+          {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
+          <div className="backdrop-grid">
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
@@ -51,7 +90,6 @@ export function TerminalInfo() {
   if (!host?.terminal) return null;
   return (
     <section className="group" data-card="terminal">
-      <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
           <span className="row-help selectable" title={host.terminal.ghostty_config}>

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb. */
+/* cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f. */
 
 
 import type * as T from "./types.js";
@@ -870,6 +870,15 @@ export type DeleteSavedTabGroupResult = {
   [key: string]: unknown;
 };
 
+/** Protocol v12; authority: local-admin. */
+export interface DeleteTerminalCommandsRequest extends CmuxRequestBase {
+  cmd: "delete-terminal-commands";
+  "all"?: boolean;
+  "ids"?: (Array<string>) | null;
+  "started_since_ms"?: (string) | null;
+}
+export type DeleteTerminalCommandsResult = T.TerminalCommandDeleteResult;
+
 /** Protocol v12; authority: control. */
 export interface DeleteWorkspaceGroupRequest extends CmuxRequestBase {
   cmd: "delete-workspace-group";
@@ -1124,6 +1133,14 @@ export type ListTabGroupsResult = {
   "groups": Array<T.TabGroupRun>;
   [key: string]: unknown;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface ListTerminalCommandsRequest extends CmuxRequestBase {
+  cmd: "list-terminal-commands";
+  "after_id"?: (string) | null;
+  "limit"?: (number) | null;
+}
+export type ListTerminalCommandsResult = T.TerminalCommandList;
 
 /** Protocol v9; authority: control. */
 export interface ListTerminalsRequest extends CmuxRequestBase {
@@ -2102,6 +2119,7 @@ export type SetTabPinnedResult = T.JsonValue;
 export interface SetTerminalCommandHistoryRequest extends CmuxRequestBase {
   cmd: "set-terminal-command-history";
   "enabled": boolean;
+  "retention_days"?: (number) | null;
 }
 export type SetTerminalCommandHistoryResult = T.TerminalCommandHistoryResult;
 
@@ -2560,6 +2578,7 @@ export type CmuxRequest =
   | DeleteProfileRequest
   | DeleteSavedScreenGroupRequest
   | DeleteSavedTabGroupRequest
+  | DeleteTerminalCommandsRequest
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
@@ -2592,6 +2611,7 @@ export type CmuxRequest =
   | ListSavedScreenGroupsRequest
   | ListSavedTabGroupsRequest
   | ListTabGroupsRequest
+  | ListTerminalCommandsRequest
   | ListTerminalsRequest
   | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
@@ -3367,6 +3387,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "saved-tab-groups-v1";
     stream: null;
   };
+  "delete-terminal-commands": {
+    request: DeleteTerminalCommandsRequest;
+    result: DeleteTerminalCommandsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "terminal-command-history-v1";
+    stream: null;
+  };
   "delete-workspace-group": {
     request: DeleteWorkspaceGroupRequest;
     result: DeleteWorkspaceGroupResult;
@@ -3621,6 +3649,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "list-terminal-commands": {
+    request: ListTerminalCommandsRequest;
+    result: ListTerminalCommandsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "terminal-command-history-v1";
     stream: null;
   };
   "list-terminals": {
@@ -4412,7 +4448,7 @@ export interface CmuxCommandDefinitionMap {
     result: SetTerminalCommandHistoryResult;
     authority: "local-admin";
     since: 12;
-    capability: "terminal-command-journal-v1";
+    capability: "terminal-command-history-v1";
     stream: null;
   };
   "set-terminal-idle-policy": {

@@ -5,7 +5,7 @@ pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
-    [--expected-revision <revision>]
+    [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> move --index <n>
@@ -112,7 +112,8 @@ USAGE
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange.
+name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
+or a custom #RRGGBB.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

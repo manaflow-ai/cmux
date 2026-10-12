@@ -161,9 +161,10 @@ impl Hub {
         // An agent that started fresh instead of resuming fails creation.
         if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
-            // The adopted chat shows its past at once: Claude Code's resume replays nothing (Codex
-            // resumes through ACP session/load, which streams the history itself).
-            if family == "claude"
+            // The adopted chat shows its past at once: Claude Code's resume replays nothing, and a
+            // Codex session/load's history is logged as `.replay` records no client shows, so both
+            // replay their own transcript (OpenCode's store is a database: not replayed).
+            if matches!(family.as_str(), "claude" | "codex")
                 && let Some(file) = adopted_file.clone()
             {
                 self.replay_adopted(&session, &family, file).await;

@@ -23,4 +23,16 @@ struct TabGroupCustomColorTests {
         #expect(groups.first { $0.id == "custom" }?.tint.wire == GroupTint(wire: "#AA5500")?.wire)
         #expect(groups.first { $0.id == "token" } == TabGroupItem(id: "token", name: "Red", colorToken: .red))
     }
+
+    /// A custom color picked in the group editor recolors the strip's group at once and goes to
+    /// the daemon as `#RRGGBB`, the shape it stores (palette tokens still go out as tokens).
+    @Test func aPickedCustomColorReachesTheStripAndTheDaemon() throws {
+        let tint = try #require(GroupTint(wire: "#3366cc"))
+        let strip = TabStripModel(tabs: [TabItem(id: "t", title: "t", groupID: "g")],
+                                  groups: [TabGroupItem(id: "g", name: "API", colorToken: .blue)])
+        #expect(strip.apply(.group(.setColor("g", tint)), makeTab: { TabItem(id: "n", title: "n") }))
+        #expect(strip.group("g")?.tint == tint)
+        #expect(TabGroupCommand.setColor("g", tint).arguments["color"] == "#3366CC")
+        #expect(TabGroupCommand.setColor("g", .palette(.red)).arguments["color"] == "red")
+    }
 }

@@ -26,7 +26,7 @@ import {
   sourceSelectionWithActiveRepo,
   validDiffSource,
 } from "./session";
-import { type AppAction, type AppState, type DiffViewerLayout } from "./state";
+import { splitFits, type AppAction, type AppState, type DiffViewerLayout } from "./state";
 
 export function Toolbar({
   activeSessionSource,
@@ -144,7 +144,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state)}
+      buttons={toolbarPillButtons({ ...state, splitFits: splitFits(state.viewerWidth) })}
       label={label}
       menuItems={overflowMenuItems(state.options, NO_HOST_CAPABILITIES)}
       menuOpen={state.optionsOpen}
@@ -200,13 +200,13 @@ function ViewOptionsMenuRows({
       <ViewMenuButton
         checked={state.options.showBackgrounds}
         icon="background"
-        label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")}
+        label={label("showBackgrounds")}
         onClick={() => onSetOption("showBackgrounds", !state.options.showBackgrounds)}
       />
       <ViewMenuButton
         checked={state.options.lineNumbers}
         icon="numbers"
-        label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")}
+        label={label("showLineNumbers")}
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
       <div className="menu-item menu-segment">

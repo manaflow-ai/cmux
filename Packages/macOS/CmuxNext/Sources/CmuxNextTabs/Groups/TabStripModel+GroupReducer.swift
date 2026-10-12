@@ -84,8 +84,8 @@ extension TabStripModel {
         switch command {
         case .rename(_, let name):
             groups[index].name = name
-        case .setColor(_, let color):
-            groups[index].colorToken = color
+        case .setColor(_, let tint):
+            groups[index].tint = tint
         case .save:
             groups[index].isSaved = true
         case .unsave:

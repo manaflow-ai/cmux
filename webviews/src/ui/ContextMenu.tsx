@@ -6,6 +6,8 @@ import { cx } from "./cx";
 export interface ContextMenuItem {
   id: string;
   label: ReactNode;
+  /** An icon before the label, as macOS shows on items such as Hide (HideableChrome.tsx). */
+  icon?: ReactNode;
   ariaLabel?: string;
   disabled?: boolean;
   destructive?: boolean;
@@ -26,7 +28,22 @@ export interface ContextMenuProps {
   onOpen?(): void;
   /** Targets (a CSS selector) that keep the host's own menu, such as a text field's Cut, Copy and Paste. */
   ignore?: string;
+  /**
+   * "own": only a right-click on this host's own DOM opens the menu. React passes events up from a
+   * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
+   */
+  targets?: "own";
 }
+
+/** Inline, as the placement is: the agent pane does not load ui.css. */
+const MENU_ICON = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 16,
+  height: 16,
+  flex: "none",
+} as const;
 
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
@@ -39,7 +56,7 @@ export interface ContextMenuProps {
  * own any later focus changes. Like a native menu, it opens down and right of the pointer and
  * flips up or left where that would leave the window.
  */
-export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -90,6 +107,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       if (enabled.length === 0) return;
       event.preventDefault();
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      if (enabled.length === 0) return;
+      event.preventDefault();
+      setActive(event.key === "Home" ? 0 : enabled.length - 1);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       run(enabled[active]);
@@ -99,6 +120,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
     <div
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
+        // A menu inside this host already took the right-click (its own item's Hide, inside a
+        // row's Show); a host with no items keeps the default.
+        if (event.defaultPrevented || items.length === 0) return;
+        if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
@@ -161,7 +186,20 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       data-highlighted={enabled[active] === item ? "" : undefined}
                       onClick={() => run(item)}
                     >
-                      {item.label}
+                      {/* A text label truncates with its full text as a tooltip; a composed label
+                          (text plus a shortcut) keeps its own flex layout. */}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                          {item.icon}
+                        </span>
+                      ) : null}
+                      {typeof item.label === "string" ? (
+                        <span className="ui-menu-label" title={item.label}>
+                          {item.label}
+                        </span>
+                      ) : (
+                        item.label
+                      )}
                     </button>
                   </div>
                 ))}

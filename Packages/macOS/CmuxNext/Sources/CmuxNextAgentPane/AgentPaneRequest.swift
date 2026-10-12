@@ -24,7 +24,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
-    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true)
+    case openTab(AgentPaneOpenTab)
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
@@ -42,7 +42,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
-    case rememberNewTab(agent: String)
+    case rememberNewTab(AgentPaneRememberedPick)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -102,10 +102,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The header's right-click menu saved the quick actions (`pane.setQuickActions
     /// {quickActions}`): the App writes them into `agent-pane/layout.json`.
     case setQuickActions([AgentPaneQuickAction])
-    /// The chat tab's state the header's menu labels read: `{pinned}`.
-    case tabState
+    /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
+    /// asks for the chat folder's pull request again.
+    case tabState(refresh: Bool)
     /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
     case archive(Bool)
+    /// `chat.markUnread`: the chat menu's Mark as Unread asks acpmux to mark this pane's chat unread.
+    case markUnread
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// The page reports whether repository checkpoint actions are available so
@@ -167,6 +170,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `project.instructions`: the chat menu's Edit CLAUDE.md (AgentPaneProjectInstructions.swift);
     /// nil when its params break the contract.
     case projectInstructions(AgentPaneProjectInstructions?)
+    /// `project.addFiles`: the chat menu's Add Files to Project (AgentPaneProjectFiles.swift), with the
+    /// same `{cwd, name}`; nil when its params break the contract.
+    case projectAddFiles(AgentPaneProjectInstructions?)
+    /// `composer.capture` with `{mode}`: the composer's Attach Screenshot… or Attach Window…
+    /// (AgentPaneCapture.swift).
+    case composerCapture(mode: String?)
     /// `transport.open`: open the host's acpmux socket named by the last handshake
     /// (``AgentPaneTransport``); answers `{connection}` once it is open.
     case transportOpen
@@ -186,9 +195,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` with `{show}`: the composer's Hide or Show Context Usage, which the
-    /// host writes to cmux.json (`agentPane.showContextUsage`).
-    case showContextUsage(Bool)
+    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
+    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
+    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    case composerSetting(path: [String], show: Bool)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).

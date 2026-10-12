@@ -211,7 +211,7 @@ final class ImportProfileRow: NSView {
         var showsBox = false
         var spins = false
         var markIcon: IconName?
-        detail.toolTip = nil
+        detail.themedToolTip = nil
         switch state {
         case .idle:
             showsBox = !showsAccess
@@ -228,7 +228,7 @@ final class ImportProfileRow: NSView {
         case .failed(let reason):
             markIcon = .statusError
             detail.stringValue = OnboardingStrings.importRowFailed
-            detail.toolTip = reason
+            detail.themedToolTip = reason
         }
         box.alphaValue = showsBox ? 1 : 0
         if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }

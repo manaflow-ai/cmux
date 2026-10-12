@@ -27,30 +27,54 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
         guard let request else { return AgentPaneModel.transportFailure(.pathInvalid) }
         guard !model.remoteChat else { return AgentPaneModel.unsupported("project.instructions") }
         let roots = model.fileOpenRoots()
-        let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-        var isDirectory: ObjCBool = false
-        guard let folder = AcpmuxPathPolicy.canonical(request.cwd),
-              FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return AgentPaneModel.transportFailure(.pathInvalid)
-        }
-        guard canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {
-            return AgentPaneModel.transportFailure(.pathOutsideRoots)
+        let folder: String
+        switch request.folder(roots: roots) {
+        case .success(let canonical): folder = canonical
+        case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = URL(fileURLWithPath: folder).appendingPathComponent(request.name)
         // Exclusive create: a file (or link) already there is kept as it is.
         let created = (try? Data().write(to: file, options: .withoutOverwriting)) != nil
         // The file, made canonical, must still be a regular file under a root (a link out is refused)
-        // with the asked name: a committed CLAUDE.md that links to a page (x.html) never opens it.
+        // named CLAUDE.md or AGENTS.md: a committed CLAUDE.md that links to a page (x.html) never opens it.
+        // A refusal or a tab that can't open takes back the empty file it made, only while it is
+        // still that: an empty regular file (`attributesOfItem` reads a link, not its target).
+        let undo = {
+            guard created, let item = try? FileManager.default.attributesOfItem(atPath: file.path),
+                  item[.type] as? FileAttributeType == .typeRegular, (item[.size] as? NSNumber)?.intValue == 0 else { return }
+            try? FileManager.default.removeItem(at: file)
+        }
         let url: URL
         switch AgentPaneFileOpen.resolve(file.path, roots: roots) {
         case .success(let resolved): url = resolved
-        case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
+        case .failure(let refusal):
+            undo()
+            return AgentPaneModel.transportFailure(refusal)
         }
-        guard url.lastPathComponent == request.name else { return AgentPaneModel.transportFailure(.pathInvalid) }
+        // Either instructions name: a CLAUDE.md that links to the folder's AGENTS.md opens that.
+        guard names.contains(url.lastPathComponent) else {
+            undo()
+            return AgentPaneModel.transportFailure(.pathInvalid)
+        }
         guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab) else {
+            undo()
             return AgentPaneReply.failure(code: "open_failed", message: AgentPaneModel.openFileFailedMessage)
         }
         return AgentPaneReply.success(["path": url.path, "created": created])
+    }
+
+    /// The chat's folder made canonical: an existing folder inside one of `roots`.
+    func folder(roots: [String]) -> Result<String, AgentPaneTransportError> {
+        let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
+        var isDirectory: ObjCBool = false
+        guard let folder = AcpmuxPathPolicy.canonical(cwd),
+              FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return .failure(.pathInvalid)
+        }
+        guard canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {
+            return .failure(.pathOutsideRoots)
+        }
+        return .success(folder)
     }
 }

@@ -70,7 +70,7 @@ extension NewTabSubmit {
         let cwd = pane.selectedTab?.cwd
         switch plan {
         case .page:
-            pane.newTabPage()
+            pane.newTabPage(reusingShown: true)
         case .terminal(let command):
             services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
@@ -79,7 +79,11 @@ extension NewTabSubmit {
             TabLifecycle.newBrowser(ctx, open)
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
-            let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))
+            // The prompt goes out by itself only when a person typed it here (palette, menu);
+            // a CLI, MCP or script prompt waits in the composer for a Send (cx-k21v gap 4).
+            let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt,
+                                                         promptBy: invocation.origin == .user ? .person : .automation,
+                                                         harness: harness))
             pane.openAgentTab(seed: seed)
         }
     }

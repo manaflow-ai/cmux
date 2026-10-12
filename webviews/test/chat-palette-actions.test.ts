@@ -77,4 +77,10 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
     const result = await play("archive-chat-key");
     expect(result.play, result.report).toBe("pass");
   });
+
+  test("Mark as Unread asks the host to mark the chat unread", async () => {
+    const result = await play("mark-unread-menu");
+    // "warn" reports frames over 16.7 ms while Chat actions opens; the variant's checks bound them (cx-ncc.87).
+    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+  });
 });

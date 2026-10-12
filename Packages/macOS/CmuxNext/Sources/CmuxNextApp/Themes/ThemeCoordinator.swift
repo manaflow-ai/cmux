@@ -94,8 +94,20 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
-        catalog.load()
         let catalog = catalog
+        // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
+        ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }
+        // File accents arrive with the catalog's colors, which no config reload reports; only a
+        // change in them re-derives (and re-applies the surfaces).
+        var fileAccents: [String: ThemeRGB] = [:]
+        catalog.onRead = { [weak self] in
+            let read = catalog.colors.compactMapValues(\.accent)
+            guard read != fileAccents else { return }
+            fileAccents = read
+            ThemeBridge.refresh()
+            self?.resolver.changed()
+        }
+        catalog.load()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
         }

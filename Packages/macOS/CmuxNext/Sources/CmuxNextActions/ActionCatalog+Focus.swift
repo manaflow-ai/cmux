@@ -19,7 +19,7 @@ nonisolated extension ActionCatalog {
         "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
         "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.openConversation", "home.previousConversation", "home.nextConversation",
         // Focus history and notifications
-        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "markOldestUnreadAndJumpNext",
+        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",
         // Windows
         "showMainWindow", "showHideAllWindows",

@@ -234,7 +234,7 @@ fn valid_branch(repository: &Repository, branch: &str) -> Result<(), ResourceErr
     ))
 }
 
-fn current_branch(repository: &Repository) -> Option<String> {
+pub(super) fn current_branch(repository: &Repository) -> Option<String> {
     let output = repository.run(&["symbolic-ref", "--quiet", "--short", "HEAD"], 4096).ok()?;
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!branch.is_empty()).then_some(branch)

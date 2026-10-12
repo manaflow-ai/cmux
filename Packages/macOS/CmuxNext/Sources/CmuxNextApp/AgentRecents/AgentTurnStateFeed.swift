@@ -89,20 +89,23 @@ final class AgentTurnStateFeed {
 
     /// One decoded line of the watch (decoded off the main actor).
     nonisolated enum Message: Sendable {
-        /// The watch result: every session's state and last message.
-        case page(AgentTurnStates, lastMessages: [String: String])
-        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged) and last message.
-        case change(session: String, state: AgentTurnState?, lastMessage: String?)
+        /// The watch result: every session's state, last message and the muted sessions.
+        case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String])
+        /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
+        /// message and mute.
+        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)
-                self = .page(states, lastMessages: AgentTurnStates.lastMessages(result))
+                self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
+                             titles: AgentTurnStates.titles(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
-                self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage)
+                self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
+                               title: change.title)
             } else {
                 return nil
             }
@@ -111,15 +114,21 @@ final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages):
+        case .page(let states, let lastMessages, let muted, let titles):
             backoff.reset()
             if turns.states != states { turns.states = states }
             if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
-        case .change(let session, let state, let lastMessage):
+            if turns.muted != muted { turns.muted = muted }
+            if turns.titles != titles { turns.titles = titles }
+        case .change(let session, let state, let lastMessage, let muted, let title):
             // Most session records leave the indicator as it was: write (and so redraw the
             // tabs and rows that observe the store) only when the state differs.
             if turns.states[session] != state { turns.states.set(session, state) }
             if turns.lastMessages[session] != lastMessage { turns.lastMessages[session] = lastMessage }
+            if turns.muted.contains(session) != muted {
+                if muted { turns.muted.insert(session) } else { turns.muted.remove(session) }
+            }
+            if turns.titles[session] != title { turns.titles[session] = title }
         }
     }
 
@@ -129,6 +138,8 @@ final class AgentTurnStateFeed {
         // A closed watch knows nothing: no stale working dots until it reconnects.
         turns.states.clear()
         turns.lastMessages = [:]
+        turns.muted = []
+        // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

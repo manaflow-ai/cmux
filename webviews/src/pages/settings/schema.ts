@@ -20,10 +20,10 @@ export type SettingKind =
   // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
   | "number_list"
   | "string_map"
-  // Only page-hidden keys use it today (`notifications.mutedWorkspaces`); the page never renders it.
+  // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
-export type NumberUnit = "points" | "seconds" | "minutes" | "count" | "fraction";
+export type NumberUnit = "points" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
 export type NumberRange = { min: number; max: number; step: number; unit: NumberUnit; placeholder: number };
 
@@ -35,7 +35,10 @@ export type SchemaRow = {
   section: string;
   group: LocalizedText;
   title: LocalizedText;
+  /** The long documentation text (docs, MDM manifest, search); the page never shows it. */
   help: LocalizedText | null;
+  /** The one short line the page shows under the title; null when the title says it all. */
+  summary: LocalizedText | null;
   kind: SettingKind;
   choices?: Choice[];
   /** A string_list of `choices` in an order the user picks. */

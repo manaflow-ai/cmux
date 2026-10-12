@@ -38,6 +38,7 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -59,6 +60,8 @@ import {
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
+import { ChromeArea } from "../../ui/HideableChrome";
+import { useComposerChrome } from "./composerChrome";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -75,6 +78,8 @@ export const COMPOSER_LABELS = {
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
+  attachScreenshot: "composer.attachScreenshot",
+  attachWindow: "composer.attachWindow",
   prompt: "composer.prompt",
   send: "composer.send",
   stop: "composer.stop",
@@ -157,10 +162,16 @@ type Props = {
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
+  /// or a window, attached as an image; an error for one too large to attach (shown as the
+  /// composer's note); undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
+  onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
@@ -213,9 +224,11 @@ export function Composer({
   onUnsentDraft,
   onImportFile,
   searchFiles,
+  capture,
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   onBrowseFolder,
   onConnect,
   localName,
@@ -231,6 +244,7 @@ export function Composer({
   blocked,
 }: Props) {
   const t = useT();
+  const chrome = useComposerChrome();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
@@ -832,6 +846,7 @@ export function Composer({
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
+      onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       summary={snapshot.summary}
@@ -1013,117 +1028,150 @@ export function Composer({
             </div>
           )}
         </ContextMenu>
-        <div className="acpmux-composer-bar">
-          <input
-            ref={chooser}
-            className="acpmux-attach-input"
-            type="file"
-            multiple
-            hidden
-            aria-label={t(COMPOSER_LABELS.attach)}
-            onChange={(event) => {
-              const files = [...(event.currentTarget.files ?? [])];
-              // Cleared, choosing the same file again still fires change.
-              event.currentTarget.value = "";
-              void attach.current(files);
-            }}
-          />
-          {leading !== undefined ? (
-            leading
-          ) : (
-            <Picker
-              label={t(COMPOSER_LABELS.add)}
-              className="acpmux-composer-plus"
-              button={<PlusIcon />}
-              align="start"
-              returnFocus={false}
-              sections={[
-                {
-                  choices: [
-                    { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
-                    { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
-                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
-                    ...(commands?.length
-                      ? [
-                          {
-                            id: "commands",
-                            name: t(COMPOSER_LABELS.commands),
-                            icon: <SlashIcon />,
-                            hint: "/",
-                          },
-                        ]
-                      : []),
-                    ...(planChoice ? [planChoice] : []),
-                  ],
-                  onPick: (id) =>
-                    id.startsWith("plan:")
-                      ? onMode?.(
-                          planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
-                        )
-                      : id === "attach"
-                        ? chooser.current?.click()
-                        : id === "mention"
-                          ? mention()
-                          : id === "files"
-                            ? setFindingFiles(true)
-                            : openCommands(),
-                },
-              ]}
+        {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
+        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
+          <div className="acpmux-composer-bar">
+            <input
+              ref={chooser}
+              className="acpmux-attach-input"
+              type="file"
+              multiple
+              hidden
+              aria-label={t(COMPOSER_LABELS.attach)}
+              onChange={(event) => {
+                const files = [...(event.currentTarget.files ?? [])];
+                // Cleared, choosing the same file again still fires change.
+                event.currentTarget.value = "";
+                void attach.current(files);
+              }}
             />
-          )}
-          <Chips snapshot={snapshot} />
-          <span className="acpmux-composer-actions">
-            {accessory}
-            {stop ? (
-              <button
-                key="stop"
-                ref={sendButton}
-                type="button"
-                className="acpmux-send acpmux-cancel"
-                aria-label={t(COMPOSER_LABELS.stop)}
-                title={t(COMPOSER_LABELS.stop)}
-                onClick={stopTurn}
-              >
-                <StopIcon />
-              </button>
-            ) : remote.canSend ? (
-              <>
-                {steerable && (
-                  <button
-                    key="steer"
-                    type="button"
-                    className="acpmux-steer"
-                    aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                    title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
-                    onClick={() => {
-                      send(false, true);
-                      field.current?.focus();
-                    }}
-                  >
-                    {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
-                  </button>
-                )}
+            {leading !== undefined ? (
+              leading
+            ) : (
+              <Picker
+                label={t(COMPOSER_LABELS.add)}
+                className="acpmux-composer-plus"
+                button={<PlusIcon />}
+                align="start"
+                returnFocus={false}
+                sections={[
+                  {
+                    choices: [
+                      { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
+                      // A harness without images would refuse the capture after the whole pick.
+                      ...(capture && allowImages
+                        ? [
+                            {
+                              id: "screenshot",
+                              name: t(COMPOSER_LABELS.attachScreenshot),
+                              icon: <Icon name="site.permission.camera" size={18} />,
+                            },
+                            {
+                              id: "window",
+                              name: t(COMPOSER_LABELS.attachWindow),
+                              icon: <Icon name="site.permission.windowmanagement" size={18} />,
+                            },
+                          ]
+                        : []),
+                      { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
+                      ...(searchFiles
+                        ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
+                        : []),
+                      ...(commands?.length
+                        ? [
+                            {
+                              id: "commands",
+                              name: t(COMPOSER_LABELS.commands),
+                              icon: <SlashIcon />,
+                              hint: "/",
+                            },
+                          ]
+                        : []),
+                      ...(planChoice ? [planChoice] : []),
+                    ],
+                    onPick: (id) =>
+                      id.startsWith("plan:")
+                        ? onMode?.(
+                            planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
+                          )
+                        : id === "attach"
+                          ? chooser.current?.click()
+                          : id === "screenshot" || id === "window"
+                            ? // Back to the prompt either way (the + menu doesn't take focus back),
+                              // unless the person moved focus out of the composer while the capture ran.
+                              void capture?.(id === "window" ? "window" : "screen")
+                                .then(async (shot) => {
+                                  if (shot instanceof File) await attach.current([shot]);
+                                  else if (shot) setAttachError(attachmentErrorText(shot, t));
+                                })
+                                .finally(() => {
+                                  const focused = document.activeElement;
+                                  if (!focused || focused === document.body || form.current?.contains(focused))
+                                    field.current?.focus();
+                                })
+                            : id === "mention"
+                              ? mention()
+                              : id === "files"
+                                ? setFindingFiles(true)
+                                : openCommands(),
+                  },
+                ]}
+              />
+            )}
+            <Chips snapshot={snapshot} />
+            <span className="acpmux-composer-actions">
+              {accessory}
+              {stop ? (
                 <button
-                  key="send"
+                  key="stop"
                   ref={sendButton}
-                  type="submit"
-                  disabled={Boolean(blocked) && !shell}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                  title={
-                    shell
-                      ? t("composer.shellRun")
-                      : blocked?.reason
-                        ? t(blocked.reason)
-                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
-                  }
+                  type="button"
+                  className="acpmux-send acpmux-cancel"
+                  aria-label={t(COMPOSER_LABELS.stop)}
+                  title={t(COMPOSER_LABELS.stop)}
+                  onClick={stopTurn}
                 >
-                  <ArrowUpIcon />
+                  <StopIcon />
                 </button>
-              </>
-            ) : null}
-          </span>
-        </div>
+              ) : remote.canSend ? (
+                <>
+                  {steerable && (
+                    <button
+                      key="steer"
+                      type="button"
+                      className="acpmux-steer"
+                      aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                      title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                      onClick={() => {
+                        send(false, true);
+                        field.current?.focus();
+                      }}
+                    >
+                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                    </button>
+                  )}
+                  <button
+                    key="send"
+                    ref={sendButton}
+                    type="submit"
+                    disabled={Boolean(blocked) && !shell}
+                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                    title={
+                      shell
+                        ? t("composer.shellRun")
+                        : blocked?.reason
+                          ? t(blocked.reason)
+                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                    }
+                  >
+                    <ArrowUpIcon />
+                  </button>
+                </>
+              ) : null}
+            </span>
+          </div>
+        </ChromeArea>
         {!contextFirst && context}
       </div>
     </form>

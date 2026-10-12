@@ -1069,15 +1069,22 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 // Messages (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md
                 // section 6): the typing bubble does not ride the rows' scroll. It grows in its final window place
                 // (the opposite of the row's own move cancels it), about a point near its upper left, and drifts
-                // a few points into place.
+                // a few points into place. Its two tail discs are layers of their own beside it: Messages shows
+                // them from its first frames, larger than the bubble, and moves them into place on their own
+                // curves (Springs.typingDiscFrom). Bubble, dots and discs fade in as one (the row's content).
                 if let d = deltas[key], abs(d) > 0.01 {
                     ledger.add(key, .typing, "position.y", from: Double(-d), to: 0, el, begin: begin)
+                    for i in RowDraw.typingDiscs.indices { ledger.add(key, .typingDisc(i), "position.y", from: Double(-d), to: 0, el, begin: begin) }
                 }
                 ledger.add(key, .typing, "transform.scale", from: 0, to: 1, Springs.typingScale, begin: begin)
-                ledger.add(key, .typing, "opacity", from: 0, to: 1, Springs.typingOpacity, begin: begin)
+                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.typingOpacity, begin: begin)
                 ledger.add(key, .typing, "position.x", from: Double(Springs.typingDrift.x), to: 0, Springs.typingDriftX, begin: begin)
                 ledger.add(key, .typing, "position.y", from: Double(Springs.typingDrift.y), to: 0, Springs.typingDriftY, begin: begin)
-                typingBegin = begin + Springs.typingDotsPhase
+                for (i, f) in Springs.typingDiscFrom.enumerated() {
+                    ledger.add(key, .typingDisc(i), "position.x", from: f.x, to: 0, Springs.typingDiscX(i), begin: begin)
+                    ledger.add(key, .typingDisc(i), "position.y", from: f.y, to: 0, Springs.typingDiscY(i), begin: begin)
+                    ledger.add(key, .typingDisc(i), "transform.scale", from: f.scale, to: 1, Springs.typingDiscScale(i), begin: begin)
+                }
             case let .receipt(bold, rest):
                 // Messages (lossless send-typed-take1, Delivered): the label fades in while it grows from
                 // Springs.receiptAppearScale about its own centre (the row's content scales about the row's
@@ -1234,7 +1241,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var receiptChanges: [String: (String, String, RowSpec)] = [:]
     /// Layer time until which the recycler keeps its overscan.
     private var overscanUntil: CFTimeInterval = 0
-    private var typingBegin: CFTimeInterval = 0
 
     // MARK: Rows hidden when they appear
 
@@ -1304,7 +1310,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
         // lower than the landed cell's until the swap).
         let flying = CGRect(x: target.minX, y: target.minY, width: target.width, height: p.size.height)
-        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin)
+        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin,
+                             fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
         #if canImport(UIKit) || APPKIT_NATIVE
         // The glass tints the bubble until its bottom leaves the field's top.
@@ -1471,6 +1478,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             case .cell: target = cell.layer
             case .content: target = cell.contentView.layer
             case .typing: target = cell.typingContainer
+            case let .typingDisc(i): target = cell.typingDiscs[checked: i] ?? cell.typingContainer // checked
             case .receiptOld: target = cell.receiptOld
             case .receiptNew: target = cell.bitmap
             case .connector: target = cell.connector
@@ -1496,8 +1504,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        if case .typing = r.spec.kind, !r.ghost, cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil {
-            cell.startTypingDots(begin: r.insertedAt > 0 ? typingBegin : Animate.now(layer))
+        if case .typing = r.spec.kind {
+            if r.ghost {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
+                let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
+                cell.typingInsertedAt = r.insertedAt
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
+            }
         }
     }
 

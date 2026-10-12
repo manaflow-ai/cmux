@@ -41,6 +41,7 @@ export function ComposerContext({
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   localName,
   movedTo,
   onMove,
@@ -55,6 +56,8 @@ export function ComposerContext({
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
+  onNewWorktree?(cwd: string): void;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// The folder a started chat moved to.
@@ -122,6 +125,7 @@ export function ComposerContext({
             current={currentFolder}
             onPick={(cwd) => onProject?.(cwd)}
             onBrowse={onBrowseProject}
+            onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
             localName={localName}
             peers={peers}
           />
@@ -177,7 +181,7 @@ function BranchPicker({ branch }: { branch: string }) {
   return (
     <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
         <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
@@ -197,7 +201,7 @@ function BranchPicker({ branch }: { branch: string }) {
 function BranchIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -282,7 +286,11 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
     <>
       {icon}
       <span className="acpmux-location-label">{value}</span>
-      {chevron && <ChevronIcon />}
+      {chevron && (
+        <span className="ui-ghost-icon" aria-hidden="true">
+          <ChevronIcon />
+        </span>
+      )}
     </>
   );
 }
@@ -290,7 +298,7 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
 function FolderIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -355,6 +363,7 @@ function FolderMenu({
   current,
   onPick,
   onBrowse,
+  onNewWorktree,
   localName,
   peers,
 }: {
@@ -365,6 +374,8 @@ function FolderMenu({
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  /// New Worktree of the current folder.
+  onNewWorktree?(): void;
   localName?: string;
   peers?: string[];
 }) {
@@ -375,7 +386,7 @@ function FolderMenu({
   return (
     <span ref={control} className="acpmux-location-picker" title={current}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={label}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
         <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
@@ -400,8 +411,20 @@ function FolderMenu({
                   ))}
                 </MenuRadioGroup>
               </div>
-              {onBrowse && <MenuSeparator />}
+              {(onBrowse || onNewWorktree) && <MenuSeparator />}
             </>
+          )}
+          {onNewWorktree && (
+            <MenuItem
+              className="acpmux-menu-item acpmux-location-choose"
+              onSelect={() => {
+                setOpen(false);
+                onNewWorktree();
+              }}
+            >
+              <span className="ui-menu-check" aria-hidden="true" />
+              <span className="acpmux-menu-label">{t("worktree.new")}</span>
+            </MenuItem>
           )}
           {onBrowse && (
             <MenuItem
@@ -496,7 +519,7 @@ function LocationPicker({
     return (
       <span ref={control} className="acpmux-location-picker">
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button" label={label}>
+          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
             {button}
           </MenuButton>
           <MenuPopup
@@ -541,7 +564,7 @@ function LocationPicker({
     <span ref={control} className="acpmux-location-picker" title={selected}>
       <button
         type="button"
-        className="acpmux-location-button"
+        className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -581,6 +604,7 @@ function LocationPicker({
             );
           }}
           inline
+          keepHeight
         />
         {onBrowse && (
           <>

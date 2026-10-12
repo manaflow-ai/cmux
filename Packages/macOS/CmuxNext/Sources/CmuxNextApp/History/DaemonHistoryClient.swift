@@ -24,7 +24,7 @@ struct DaemonHistoryClient: Sendable {
         if !text.isEmpty { params["text"] = .string(text) }
         if let limit { params["limit"] = .number(Double(min(max(limit, 1), 5_000))) }
         let result = try await relay.send(operation: "history.entries.list", params: params, idempotencyKey: nil)
-        return try Self.decode(DaemonHistoryList.self, from: result).entries
+        return try await Self.decode(DaemonHistoryList.self, from: result).entries
     }
 
     func remove(ids: [String]) async throws {
@@ -82,7 +82,7 @@ struct DaemonHistoryClient: Sendable {
     func summaries(profile: String, limit: Int = 5_000) async throws -> [DaemonVisitSummary] {
         let result = try await relay.send(operation: "history.visit.summaries",
                                           params: ["profile": .string(profile), "limit": .number(Double(limit))], idempotencyKey: nil)
-        return try Self.decode([DaemonVisitSummary].self, from: result)
+        return try await Self.decode([DaemonVisitSummary].self, from: result)
     }
 
     static func key() -> String { "cmux-next-history-" + UUID().uuidString.lowercased() }
@@ -92,7 +92,9 @@ struct DaemonHistoryClient: Sendable {
         .string(String(Int64((date.timeIntervalSince1970 * 1_000).rounded())))
     }
 
-    static func decode<T: Decodable>(_ type: T.Type, from value: JSONValue) throws -> T {
+    /// Decodes a relay reply on the global executor: a history page or a profile's visit summaries
+    /// can hold thousands of rows, so the decode never runs on the main actor.
+    @concurrent static func decode<T: Decodable & Sendable>(_ type: T.Type, from value: JSONValue) async throws -> T {
         try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
     }
 }

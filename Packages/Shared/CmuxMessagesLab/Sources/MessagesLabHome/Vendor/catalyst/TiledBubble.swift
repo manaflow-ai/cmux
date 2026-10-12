@@ -273,14 +273,14 @@ final class TiledBody {
         if !p.reactions.isEmpty {
             let h = RowDraw.margin + 24
             badges.frame = CGRect(x: 0, y: 0, width: spec.width, height: h)
-            let key = "\(p.reactions)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
+            let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
             if key != badgeKey {
                 badgeKey = key
                 Reclaimer.release(badges.contents)
                 badges.contentsScale = s
                 let b = body
                 badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
-                    PartRenderer.drawReactions(ctx, p.reactions, body: b, outgoing: p.outgoing)
+                    PartRenderer.drawReactions(ctx, p.reactions, mine: p.myReaction, body: b, outgoing: p.outgoing)
                 }
             }
         }

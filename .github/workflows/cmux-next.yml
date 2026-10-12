@@ -644,6 +644,8 @@ jobs:
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
+          # The first probe already waited for main's merge-tree publisher.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -818,6 +820,20 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
           scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log"
 
+      # Every CmuxNextApp edit re-emits the whole module; the target may only
+      # shrink, new features go in their own target (code-quality.md SW14).
+      - name: CmuxNextApp size cap
+        id: app-size
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        # A pull request that does not grow the App passes even over the cap
+        # (its merge commit's first parent is the base).
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
         id: no-swift-cli
         continue-on-error: true
@@ -860,9 +876,10 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
-      # SCROLLBARS-FOLLOW-MACOS: no forced scroller style, hidden indicators or
-      # custom web scrollbars; scrollers follow the macOS "Show scroll bars" setting.
-      - name: Scrollbars follow macOS
+      # SCROLLBARS-THIN: no forced scroller style, hidden indicators or
+      # custom web scrollbars outside the one shared style (SystemScrollers.swift,
+      # webviews/src/scrollers.ts): thin, shown only while scrolling.
+      - name: Scrollbars thin, one style
         id: scrollbars
         continue-on-error: true
         env:
@@ -933,6 +950,7 @@ jobs:
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/ratchet-debt-issue.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
+          bash scripts/cmux-next/tests/pr-autofix.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -1075,6 +1093,7 @@ jobs:
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
+            ${{ steps.app-size.outcome }}|CmuxNextApp size cap
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency

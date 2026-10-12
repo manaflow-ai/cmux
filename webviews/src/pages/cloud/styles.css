@@ -35,12 +35,13 @@ body {
   box-sizing: border-box;
 }
 
-/* Native controls and focus rings take the text color, never the system (blue) accent. */
+/* Native controls and focus rings take the text color, never the system (blue) accent. Text fields
+   draw no ring: their caret and their box show focus (desktop.css, cx-ncc.57). */
 :root {
   accent-color: var(--cloud-text);
 }
 
-:focus-visible {
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
   outline: 2px solid var(--cloud-text-3);
   outline-offset: 1px;
 }

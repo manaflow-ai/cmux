@@ -186,7 +186,7 @@ extension DaemonStore {
                 existing.update(delta.entity)
             } else {
                 let tab = TabModel(delta.entity)
-                tab.setAgent(agentsBySurface[delta.surface])
+                tab.setAgent(agents.bySurface[delta.surface])
                 pane.insertTab(tab, at: delta.index ?? pane.tabs.count)
             }
             structureChanged()
@@ -234,7 +234,7 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
-            agentsBySurface[status.surface] = status
+            agents.apply(status)
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
         case .agentPresenceChanged(let presence):

@@ -174,6 +174,8 @@ REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     # react-apps-check runs the webviews tests through it.
     "scripts/ci/run-webviews-tests.sh",
+    # It also runs the test of the PR scoping of ui-rules and gallery coverage.
+    "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
     "scripts/check-webviews-react-compiler.mjs",
     # The generated agent pane page, its build and regenerate scripts, and

@@ -96,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
             "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
+            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
             "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],
@@ -105,6 +105,8 @@ nonisolated extension ActionSurfaceCatalog {
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
             "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
+            // The app's Interface Size; the chat's own zoom is the agent chat menu's.
+            "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",
@@ -120,7 +122,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browserLinkHints", "browserLinkHintsNewSplit", "hints.show",
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
-            "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
+            "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [

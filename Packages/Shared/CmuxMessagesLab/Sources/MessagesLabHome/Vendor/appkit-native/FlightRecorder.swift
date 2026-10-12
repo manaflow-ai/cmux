@@ -504,7 +504,7 @@ final class FlightRecorder: NSObject {
     /// About 0.5 s of window captures, one per display frame, off the main thread.
     private func burst(_ dir: String, _ c: ChatController, count: Int) {
         guard let window = c.window else { return }  // cmux: the pane's window is optional
-        guard let wid = UInt32(exactly: window.windowNumber) else { return } // cmux: no trapping conversion
+        guard let wid = UInt32(exactly: window.windowNumber) else { return } // no trapping conversion
         let q = DispatchQueue(label: "flight.burst", qos: .utility)
         let start = CACurrentMediaTime()
         var i = 0

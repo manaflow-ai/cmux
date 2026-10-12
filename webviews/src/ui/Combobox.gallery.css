@@ -21,9 +21,8 @@
   font: inherit;
 }
 
-.combobox-gallery-input:focus-visible {
-  outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
-  outline-offset: 2px;
+.combobox-gallery-input:focus {
+  border-color: color-mix(in srgb, currentColor 55%, transparent);
 }
 
 .combobox-gallery-list {

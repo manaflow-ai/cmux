@@ -256,6 +256,26 @@ impl Mux {
         })
     }
 
+    /// Push the tabs of the terminal runtime `surface` after its host link
+    /// changed state (lost, given up, back). Clients read a tab's
+    /// `terminal_state` only from tree pushes, and without one a terminal
+    /// whose link failed still looked running: its last screen, keys
+    /// dropped, no label.
+    pub(crate) fn emit_terminal_host_link_changed(&self, surface: SurfaceId) {
+        let terminal = self.with_state(|state| {
+            state.terminal_catalog_by_runtime.get(&surface).cloned().or_else(|| {
+                match state.resource_indexes.content_ids.get(&surface) {
+                    Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
+                    _ => None,
+                }
+            })
+        });
+        match terminal {
+            Some(terminal) => self.emit_terminal_tabs_changed(&terminal),
+            None => self.emit_tab_changed(surface),
+        }
+    }
+
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
         self.client_sizing_lifecycle.lock().unwrap()
     }

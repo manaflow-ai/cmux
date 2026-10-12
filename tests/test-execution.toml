@@ -433,6 +433,10 @@ path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_backdrop_art_generator.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_localize_changes.py"
 lane = "linux-guard"
 
@@ -1045,6 +1049,10 @@ path = "tests/test_nightly_version.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
 lane = "linux-guard"
 
@@ -1058,6 +1066,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1162,4 +1174,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_classic_to_next.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_guards_notices_pair.py"
 lane = "linux-guard"

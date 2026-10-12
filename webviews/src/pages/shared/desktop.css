@@ -56,23 +56,40 @@ select {
   cursor: pointer;
 }
 
-/* The shared title tooltip replaces WebKit's native title bubble on every first-party page. */
+/* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
+   (ui/Tooltip.tsx) and the title tooltip that replaces WebKit's bubble on every first-party page
+   (ui/titleTooltips.ts) both sit on the solid popup surface in the primary ink, with a separator
+   hairline, the caption font and a subtle shadow. A truncated row's title tooltip is as wide as
+   the row (tooltipWidth sets its min and max width). */
+.ui-tooltip,
 .ui-title-tooltip {
-  position: fixed;
-  z-index: var(--layer-tooltip);
+  box-sizing: border-box;
   max-width: min(320px, calc(100vw - 12px));
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cmux-elevated-background, Canvas) 96%, var(--cmux-text, CanvasText));
-  box-shadow: 0 4px 14px color-mix(in srgb, black 30%, transparent);
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
+  border-radius: 5px;
+  background: var(--surface-popup);
+  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+.ui-title-tooltip {
+  position: fixed;
+  z-index: var(--layer-tooltip);
+  white-space: pre-line;
+}
+
+/* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-hint {
+  float: inline-end;
+  margin-inline-start: 8px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+  white-space: nowrap;
 }
 
 img,
@@ -114,15 +131,25 @@ input[type="submit"] {
 
 /* Keep focus keyboard-only and consistent across pages, including controls with local focus
    rules. Mouse focus is removed above; keyboard focus gets a thin theme-toned ring with no glow.
-   A borderless field inside a box that shows focus itself (`data-focus-ring="none"`, the New Tab
-   field) is left out: a text field is :focus-visible on every focus, so the ring drew a rectangle
-   inside the box. Rows of menus, lists and palettes, and the containers that hold their active
-   row, show focus as the row tint below instead. */
-:focus-visible:not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
+   Text entry (text inputs, textareas, contenteditable prompts) is left out, and so is any element
+   marked `data-focus-ring="none"`: a text field is :focus-visible on every focus, mouse included,
+   and its box is a plain rectangle inside the rounded control that owns it, so a ring drew a
+   square inside the composer, the New Tab box and the model picker's search (cx-ncc.57). The
+   caret and the owning control's own rounded focus state (`:focus-within` on the box, or the
+   field's own border) show focus instead. Rows of menus, lists and palettes, and the containers
+   that hold their active row, show focus as the row tint below instead. An open menu or
+   popover takes focus so its keys work; it never draws a ring around itself (Leo 2026-10-11).
+   `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
   box-shadow: none !important;
+}
+
+/* Text entry never draws a ring of its own, not even WebKit's default `outline: auto` (see above). */
+:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"]):focus {
+  outline: none;
 }
 
 /* Text selection takes the Ghostty config's `selection-background`, else the theme accent's tint
@@ -200,7 +227,9 @@ input[type="submit"] {
     --acpmux-composer-dim: var(--agent-text, CanvasText) !important;
   }
 
-  :focus-visible {
+  /* Text entry stays out here too: the owning box takes this ring under Increase Contrast (the
+     composer, New Tab and model picker stylesheets), never a square around the field. */
+  :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
     outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }
@@ -228,6 +257,14 @@ input[type="submit"] {
      tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
   --surface-blur: blur(20px) saturate(1.4);
+  /* The one solid surface of every menu, popover, picker and tooltip, never translucent and never
+     blurred, so text under a popup never shows through (Leo, 2026-10-12): the host's popup fill
+     (WebTheme.swift, the same color as native overlays' Palette.popupSurface), else the page
+     color lifted toward the text. */
+  --surface-popup: var(
+    --cmux-popup-surface,
+    color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))
+  );
 }
 
 @media (prefers-reduced-transparency: reduce) {

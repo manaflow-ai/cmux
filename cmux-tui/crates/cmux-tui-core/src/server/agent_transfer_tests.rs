@@ -19,8 +19,8 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 
 use super::super::agent_session_attach_tests::{
-    ABORT_FAILS_CHAT, BUNDLE_MANIFEST, BUNDLE_SESSION, Client, FakeAcpmux, SESSION, UNGUARDED_CHAT,
-    agent_tab, assert_code, mux_with, run, terminal_pane,
+    ABORT_FAILS_CHAT, BUNDLE_MANIFEST, BUNDLE_SESSION, Client, FakeAcpmux, MOVING_CHAT, SESSION,
+    UNGUARDED_CHAT, agent_tab, assert_code, mux_with, run, terminal_pane,
 };
 use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink, remote_relay};
 use super::{AGENT_TRANSFER_CAPABILITY, AgentTransferHost, MAX_PAGE_BYTES, try_handle};
@@ -143,6 +143,7 @@ fn every_verb(surface: u64, cwd: &str) -> Vec<Value> {
         json!({"id":6,"cmd":"agent-transfer-commit","surface":surface,"transfer_id":"xfer_1",
                "to":{"machine":"vm"}}),
         json!({"id":7,"cmd":"agent-transfer-abort","surface":surface,"transfer_id":"xfer_1"}),
+        json!({"id":8,"cmd":"agent-transfer-source","surface":surface}),
     ]
 }
 
@@ -755,5 +756,352 @@ fn receive_abort_has_acpmux_forget_that_move_only() {
     ] {
         assert_code(&client.request(frame), "agent_transfer.bad_request");
     }
+    fake.no_frame();
+}
+
+#[test]
+fn a_receive_its_finish_ended_still_answers_whether_its_chat_landed() {
+    let fake = FakeAcpmux::start("xsettled");
+    let home = Home::new("settled");
+    let mux = transfer_mux(&fake, "atx-settled", &home, true);
+    let mut client = Client::connect(&mux, "xsettled");
+    let mut landed = manifest();
+    landed["transferId"] = json!("xfer_landed");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":landed,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
+    let _ = fake.frame();
+    // The pump lost the finish answer and asks: the daemon still has acpmux
+    // forget the move named by the receive's own manifest.
+    for _ in 0..2 {
+        let asked =
+            client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+        assert_eq!(ok_data(&asked)["landed"], json!(true));
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!("_acpmux/transfer_forget"));
+        assert_eq!(sent["params"], json!({"transferId":"xfer_landed","sessionId":"acp_moving"}));
+    }
+    // It takes no more pages and no second finish.
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unknown_receive");
+    fake.no_frame();
+}
+
+#[test]
+fn begin_of_a_chat_already_moving_names_that_move() {
+    let fake = FakeAcpmux::start("xmoving");
+    let home = Home::new("moving");
+    let mux = transfer_mux(&fake, "atx-moving", &home, false);
+    let surface = agent_tab(&mux, Some(MOVING_CHAT));
+    let mut client = Client::connect(&mux, "xmoving");
+    // A pump that lost its begin answer asks again: the refusal names the
+    // move, so the pump can resolve it.
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    assert_code(&begun, "agent_transfer.refused");
+    assert!(begun["error"].as_str().unwrap().contains("transfer.moving"), "{begun}");
+    assert_eq!(begun["error_details"], json!({"transfer_id": "xfer_frozen"}));
+    // Any other refusal carries no details.
+    let other = agent_tab(&mux, Some(ABORT_FAILS_CHAT));
+    let abort = client.request(json!({"cmd":"agent-transfer-abort","surface":other,
+                                      "transfer_id":"xfer_1"}));
+    assert_code(&abort, "agent_transfer.refused");
+    assert!(abort.get("error_details").is_none(), "{abort}");
+}
+
+#[test]
+fn a_receive_abort_whose_forget_fails_keeps_the_receive_askable() {
+    let fake = FakeAcpmux::start("xforgetfail");
+    let home = Home::new("forgetfail");
+    let mux = transfer_mux(&fake, "atx-forgetfail", &home, true);
+    let mut client = Client::connect(&mux, "xforgetfail");
+    let mut failing = manifest();
+    failing["transferId"] = json!("xfer_forget_fails");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":failing,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    for _ in 0..2 {
+        let asked =
+            client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+        assert_eq!(
+            ok_data(&asked),
+            &json!({"dropped": false, "forgotten": false, "landed": null}),
+            "the landing is unknown and the receive stays"
+        );
+        assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_forget"));
+    }
+    // Still live: it takes pages.
+    let write = client.request(json!({"cmd":"agent-transfer-write","receive_id":"rcv_1",
+                                      "path":"events/0.ndjson","offset":0,"data":"YWJj"}));
+    ok_data(&write);
+}
+
+#[test]
+fn a_receive_abort_during_a_running_finish_cannot_say_yet() {
+    let fake = FakeAcpmux::start("xracing");
+    let home = Home::new("racing");
+    let mux = transfer_mux(&fake, "atx-racing", &home, true);
+    let mut pump = Client::connect(&mux, "xracing");
+    let mut asker = Client::connect(&mux, "xracing2");
+    ok_data(&receive(&mut pump, &home.text("work/project")));
+    let _ = fake.frame();
+    let finishing =
+        pump.send(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1","name":"slow"}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
+    let asked = asker.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked), &json!({"dropped": false, "forgotten": false, "landed": null}));
+    // No forget raced the finish.
+    fake.no_frame();
+    ok_data(&pump.answer(finishing));
+    // Once it settled, the question gets an answer.
+    let asked = asker.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked)["forgotten"], json!(true));
+}
+
+#[test]
+fn a_finish_that_cannot_reach_acpmux_leaves_the_receive_askable_and_finishable() {
+    let fake = FakeAcpmux::start("xfinconn");
+    let home = Home::new("finconn");
+    let mux = transfer_mux(&fake, "atx-finconn", &home, true);
+    let mut client = Client::connect(&mux, "xfinconn");
+    let mut landing = manifest();
+    landing["transferId"] = json!("xfer_landed");
+    let received = client.request(json!({"cmd":"agent-transfer-receive","manifest":landing,
+                                         "cwd":home.text("work/project")}));
+    ok_data(&received);
+    let _ = fake.frame();
+    // acpmux restarts: the finish cannot connect.
+    mux.set_acpmux_socket(Some(home.path.join("gone.sock")));
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unavailable");
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    // The pump runs again: the finish can be sent again and lands.
+    ok_data(&client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"})));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_finish"));
+    let asked = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked)["landed"], json!(true));
+}
+
+#[test]
+fn a_receive_abort_after_a_finish_that_could_not_connect_gets_a_real_answer() {
+    let fake = FakeAcpmux::start("xfinconn2");
+    let home = Home::new("finconn2");
+    let mux = transfer_mux(&fake, "atx-finconn2", &home, true);
+    let mut client = Client::connect(&mux, "xfinconn2");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    mux.set_acpmux_socket(Some(home.path.join("gone.sock")));
+    let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_code(&finish, "agent_transfer.unavailable");
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    let asked = client.request(json!({"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&asked), &json!({"dropped": true, "forgotten": true, "landed": false}));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/transfer_forget"));
+}
+
+#[test]
+fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
+    let fake = FakeAcpmux::start("xsource");
+    let home = Home::new("source");
+    let mux = transfer_mux(&fake, "atx-source", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xsource");
+    let read = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    // Begin answers the same session it froze, so a pump can pin it.
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
+    skip_begin(&fake);
+    let read = client.request(json!({"cmd":"agent-transfer-source","surface":999_999}));
+    assert_code(&read, "agent_transfer.unknown_tab");
+    fake.no_frame();
+}
+
+// MARK: A landed chat in a tab of this machine
+
+/// `new-conversation-tab` of a `registry:` tab that already names `session`,
+/// as Move to Cloud opens a moved chat on the machine it landed on.
+fn machine_tab(client: &mut Client, mux: &Arc<Mux>, session: &str) -> Value {
+    let host = format!("registry:{}", mux.registry_identity().0);
+    machine_tab_of(client, mux, &host, Some(session))
+}
+
+fn machine_tab_of(client: &mut Client, mux: &Arc<Mux>, host: &str, session: Option<&str>) -> Value {
+    let (_, pane) = terminal_pane(mux);
+    client.request(json!({"cmd":"new-conversation-tab","pane":pane,
+                          "agent_session":{"host":host,"session":session,"harness":"claude"}}))
+}
+
+/// The session `agent-transfer-source` reads from the tab a create answered.
+fn tab_session_of(client: &mut Client, created: &Value) -> Value {
+    let surface = ok_data(created)["surface"].clone();
+    let source = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    ok_data(&source)["session"].clone()
+}
+
+/// Receives the test manifest's chat and finishes it (acpmux answers
+/// `acp_moved`, while the manifest names `acp_moving`).
+fn land(client: &mut Client, fake: &FakeAcpmux, home: &Home) {
+    ok_data(&receive(client, &home.text("work/project")));
+    let _ = fake.frame();
+    let finished = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1"}));
+    assert_eq!(ok_data(&finished)["session"]["sessionId"], json!("acp_moved"));
+    let _ = fake.frame();
+}
+
+/// A daemon with a durable registry under `home/state` (the same one each
+/// call, as after a restart).
+fn persistent_mux(fake: &FakeAcpmux, home: &Home) -> Arc<Mux> {
+    let root = home.path.join("state");
+    let mux = Mux::open_persistent("landed", crate::SurfaceOptions::default(), &root).unwrap();
+    mux.set_acpmux_socket(Some(fake.socket.clone()));
+    mux.set_agent_transfer_host(Some(AgentTransferHost { cloud: true, home: home.path.clone() }));
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    mux
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+#[test]
+fn a_chat_this_daemon_landed_opens_in_a_tab_of_this_machine_and_no_other_does() {
+    let fake = FakeAcpmux::start("xlandtab");
+    let home = Home::new("landtab");
+    let mux = transfer_mux(&fake, "atx-landtab", &home, true);
+    let mut client = Client::connect(&mux, "xlandtab");
+    let mismatch = "conversation_tab.machine_mismatch";
+    // Nothing landed yet: still another machine's chat.
+    assert_code(&machine_tab(&mut client, &mux, "acp_moved"), mismatch);
+    land(&mut client, &fake, &home);
+    // The session acpmux's finish answered opens in this store's own tab.
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    assert_eq!(tab_session_of(&mut client, &opened), json!("acp_moved"));
+    // The manifest's id (a client's), any other session, and another
+    // store's host are still refused.
+    assert_code(&machine_tab(&mut client, &mux, "acp_moving"), mismatch);
+    assert_code(&machine_tab(&mut client, &mux, "acp_other"), mismatch);
+    let elsewhere = machine_tab_of(&mut client, &mux, "registry:another-store", Some("acp_moved"));
+    assert_code(&elsewhere, mismatch);
+    // A bind into a tab of this machine stays refused, landed chat or not.
+    let unbound =
+        machine_tab_of(&mut client, &mux, &format!("registry:{}", mux.registry_identity().0), None);
+    let surface = ok_data(&unbound)["surface"].clone();
+    let bind = client.request(json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                                     "session":"acp_moved","expected_session":null}));
+    assert_code(&bind, mismatch);
+    fake.no_frame();
+}
+
+#[test]
+fn a_receive_that_did_not_land_opens_no_tab_of_this_machine() {
+    let fake = FakeAcpmux::start("xnoland");
+    let home = Home::new("noland");
+    let mux = transfer_mux(&fake, "atx-noland", &home, true);
+    let mut client = Client::connect(&mux, "xnoland");
+    ok_data(&receive(&mut client, &home.text("work/project")));
+    let _ = fake.frame();
+    for name in ["incomplete", "exists"] {
+        let finish = client.request(json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1",
+                                           "name":name}));
+        assert_code(&finish, "agent_transfer.refused");
+        let _ = fake.frame();
+    }
+    for session in ["acp_moving", "acp_moved"] {
+        assert_code(&machine_tab(&mut client, &mux, session), "conversation_tab.machine_mismatch");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn a_landed_chat_still_opens_in_a_tab_of_this_machine_after_a_restart() {
+    let fake = FakeAcpmux::start("xlandkeep");
+    let home = Home::new("landkeep");
+    let open = || persistent_mux(&fake, &home);
+    let mux = open();
+    let mut client = Client::connect(&mux, "xlandkeep");
+    land(&mut client, &fake, &home);
+    drop(client);
+    mux.shutdown();
+    drop(mux);
+    let mux = open();
+    let mut client = Client::connect(&mux, "xlandkeep2");
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    assert_eq!(tab_session_of(&mut client, &opened), json!("acp_moved"));
+    assert_code(&machine_tab(&mut client, &mux, "acp_other"), "conversation_tab.machine_mismatch");
+    drop(client);
+    mux.shutdown();
+    fake.no_frame();
+}
+
+#[test]
+fn a_landed_chat_this_daemon_moved_away_again_opens_no_tab_of_this_machine() {
+    let fake = FakeAcpmux::start("xlandaway");
+    let home = Home::new("landaway");
+    let mux = transfer_mux(&fake, "atx-landaway", &home, true);
+    let mut client = Client::connect(&mux, "xlandaway");
+    land(&mut client, &fake, &home);
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    let surface = ok_data(&opened)["surface"].clone();
+    // The chat leaves this machine again (back to the Mac) and the move commits.
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
+    assert_eq!(ok_data(&begun)["source_session"], json!("acp_moved"));
+    skip_begin(&fake);
+    let committed = client.request(json!({"cmd":"agent-transfer-commit","surface":surface,
+                                          "transfer_id":"xfer_1","to":{"machine":"mac"}}));
+    ok_data(&committed);
+    let _ = fake.frame();
+    // It is another machine's chat again: no new tab of this machine names it.
+    assert_code(&machine_tab(&mut client, &mux, "acp_moved"), "conversation_tab.machine_mismatch");
+    fake.no_frame();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_planted_or_symlinked_landed_file_and_its_temporary_are_never_trusted() {
+    let fake = FakeAcpmux::start("xlandplant");
+    let home = Home::new("landplant");
+    let mux = persistent_mux(&fake, &home);
+    let directory = mux.session_state_directory().unwrap();
+    // The landed file is a symlink to a record the daemon never wrote.
+    let planted = home.path.join("elsewhere/landed.json");
+    let record = json!([{"session":"acp_planted","landed_at_ms":now_ms()}]).to_string();
+    std::fs::write(&planted, &record).unwrap();
+    std::os::unix::fs::symlink(&planted, directory.join("agent-transfer-landed.json")).unwrap();
+    // The temporary the next write uses points at a file it must not touch.
+    let victim = home.path.join("elsewhere/victim");
+    std::fs::write(&victim, "keep").unwrap();
+    let temporary = format!("agent-transfer-landed.json.{}.tmp", std::process::id());
+    std::os::unix::fs::symlink(&victim, directory.join(temporary)).unwrap();
+    let mut client = Client::connect(&mux, "xlandplant");
+    assert_code(
+        &machine_tab(&mut client, &mux, "acp_planted"),
+        "conversation_tab.machine_mismatch",
+    );
+    land(&mut client, &fake, &home);
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+    assert_eq!(std::fs::read_to_string(&planted).unwrap(), record);
+    let opened = machine_tab(&mut client, &mux, "acp_moved");
+    assert_eq!(tab_session_of(&mut client, &opened), json!("acp_moved"));
+    drop(client);
+    mux.shutdown();
+    fake.no_frame();
+}
+
+#[test]
+fn a_landed_record_from_the_future_is_not_trusted() {
+    let fake = FakeAcpmux::start("xlandfuture");
+    let home = Home::new("landfuture");
+    let mux = persistent_mux(&fake, &home);
+    let directory = mux.session_state_directory().unwrap();
+    let later = now_ms() + 24 * 3600 * 1000;
+    let record = json!([{"session":"acp_future","landed_at_ms":later}]).to_string();
+    std::fs::write(directory.join("agent-transfer-landed.json"), record).unwrap();
+    let mut client = Client::connect(&mux, "xlandfuture");
+    assert_code(&machine_tab(&mut client, &mux, "acp_future"), "conversation_tab.machine_mismatch");
+    drop(client);
+    mux.shutdown();
     fake.no_frame();
 }

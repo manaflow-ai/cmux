@@ -36,6 +36,7 @@ struct BookmarkEditView: View {
                     Text(BookmarkStrings.name).foregroundStyle(model.colors.secondary)
                     TextField("", text: $model.title)
                         .textFieldStyle(.roundedBorder)
+                        .focusEffectDisabled()
                         .focused($nameFocused)
                         .onSubmit { model.onDone() }
                         .accessibilityIdentifier("cmux.bookmarks.edit.name")

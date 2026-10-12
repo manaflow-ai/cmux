@@ -891,16 +891,16 @@
   "to": 300.0,
   "components": [
    {
-    "delay": -0.0055,
-    "duration": 0.4488,
-    "bounce": 0.2016,
-    "delta": -358.93
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
    },
    {
-    "delay": 0.068,
-    "duration": 0.2277,
-    "bounce": 0.4523,
-    "delta": -393.07
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
    }
   ],
   "residual": {
@@ -979,7 +979,11 @@
    "os": "macOS 27; macOS 26 uses bubble.width.macOS26",
    "method": "2026-10-10 (cx-3cb.6) joint refit of bubble.width, bubble.scale, bubble.right and bubble.centerY on the seven lossless macOS 27 send takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2, send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1): the flying bubble's box (tools/evidence/anim/diff.py, Messages' own new frames 0-0.8 s after its first send frame), soft L1 on L, T, R, B, the app's geometry (Morph.swift: our field as the start rect, Messages' rest box as the flying rect). Curve time = Messages' first send frame + 14.3 ms + the send phase (Springs.sendPhase: -4.0 ms after a 1-line draft, +6.6 ms after a draft that shrinks the field), the same phase that the rows and the field top show. Before (these springs' predecessors, no phase) left edge rms 2line 5.9, typed 5.6, media 4.3, 1line 11.4, unfocused 6.8, 2bubble 4.0, typing-unfocused 5.4 pt; this: 3.1, 1.6, 3.6, 4.4, 3.0, 2.2, 2.1 pt (the rest of the 1-line take is Messages' own frame jitter: its new frames alternate 8-20 pt about a smooth curve). Scale's second duration bounded at 0.6 s (0.9 s gave the same residuals but settled 0.37 s later). Our live takes 7101 render this model within 1.5 pt on every frame they did not drop."
   },
-  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.width"
+  "os": "macOS 27, after a draft that shrinks the field (Springs.Bubble); 1-line drafts use bubble.width",
+  "refit5": {
+   "date": "2026-10-12",
+   "method": "2026-10-12 (cx-3cb send-shrink): macOS 27 sends after a draft that shrinks the field (Springs.Bubble). bubble.width (2 springs and their share; right, centerY, scale unchanged) refit on the three lossless 2-line-draft takes (send-2line-take2, send-typed-take1, send-typed-media-take1), the four edges on Messages' changed frames 0-0.4 s after its first send frame, soft L1 (2 pt), each take equal, Messages' frames whose left edge is more than 4 pt off the line through its neighbour frames left out of the fit (its frame-to-frame scatter: 9, 1, 9 frames) (tools/evidence/anim/sendfit/fit2s.py, GROUPS=W SCATTER=4); model = Morph.swift geometry (the motion-gate harness within 0.19 pt), curve time = Messages' first send frame + 14.3 ms + 6.6 ms (-Springs.sendPhase). Left edge rms/max/over 1 pt, 0-0.4 s, all frames, before -> after (leave-one-out): 2line 4.6/12.4/22 -> 4.2/14.2/23 (4.4/13.3/19), typed 2.3/5.6/25 -> 1.5/5.4/7 (2.1/6.3/14), typed-media 5.2/19.0/30 -> 5.2/21.2/13 (5.4/21.1/13); 0.17-0.4 s: 2.2 -> 1.5 (1.6), 2.2 -> 0.8 (0.9), 1.9 -> 0.3 (0.4). The field top needs no new curve: field.top to the 30 pt field, with the send phase, is within 0.2/0.6, 0.1/0.4, 0.2/0.7 pt rms/max of these takes. tools/evidence/ANIMATIONS.md section 1."
+  }
  },
  "bubble.scale.fieldShrink": {
   "event": "send",
@@ -1415,6 +1419,235 @@
     "send-typed-media-take1",
     "typing-unfocused-take1",
     "send-typed-take1"
+   ]
+  }
+ },
+ "typing.discL.x": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: its centre moves 2.53 pt to the left into place (Springs.typingDiscFrom[0])",
+  "unit": "share of Springs.typingDiscFrom[0].x",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.1591,
+    "duration": 0.1603,
+    "curve": [
+     0.002,
+     0.103,
+     0.625,
+     0.999
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 0.152,
+    "typing-unfocused-take1": 0.369
+   },
+   "maxPt": {
+    "send-typed-media-take1": 0.404,
+    "typing-unfocused-take1": 1.482
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discL.y": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: its centre moves 8.19 pt down into place (Springs.typingDiscFrom[0]); it passes its place by about 2 pt and comes back (two components)",
+  "unit": "share of Springs.typingDiscFrom[0].y",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0993,
+    "duration": 0.1283,
+    "curve": [
+     0.111,
+     0.039,
+     0.276,
+     0.751
+    ],
+    "delta": 1.7359
+   },
+   {
+    "delay": 0.003,
+    "duration": 0.3065,
+    "curve": [
+     0.678,
+     0.262,
+     0.756,
+     0.937
+    ],
+    "delta": -0.7359
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 2.508,
+    "typing-unfocused-take1": 2.266
+   },
+   "maxPt": {
+    "send-typed-media-take1": 6.014,
+    "typing-unfocused-take1": 4.819
+   },
+   "note": "the two takes differ by about 9 pt in their first frames (the body's 12 pt, section 6); one curve sits between them"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discL.scale": {
+  "event": "the typing bubble appears: its large tail disc (RowDraw.typingDiscs[0]), a layer of its own at its window place: it grows from 0.496 of its size about its centre (Springs.typingDiscFrom[0])",
+  "unit": "share of Springs.typingDiscFrom[0].scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0901,
+    "duration": 0.1615,
+    "curve": [
+     0.0,
+     0.581,
+     0.598,
+     1.0
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": {
+    "send-typed-media-take1": 0.017,
+    "typing-unfocused-take1": 0.017
+   },
+   "max": {
+    "send-typed-media-take1": 0.049,
+    "typing-unfocused-take1": 0.044
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.x": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: its centre moves 3.64 pt to the left into place (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].x",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0905,
+    "duration": 0.2113,
+    "curve": [
+     0.482,
+     0.725,
+     0.501,
+     0.85
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 0.082,
+    "typing-unfocused-take1": 0.067
+   },
+   "maxPt": {
+    "send-typed-media-take1": 0.28,
+    "typing-unfocused-take1": 0.124
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.y": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: its centre moves 10.70 pt down into place (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].y",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0993,
+    "duration": 0.143,
+    "curve": [
+     0.124,
+     0.027,
+     0.336,
+     0.866
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rmsPt": {
+    "send-typed-media-take1": 2.708,
+    "typing-unfocused-take1": 2.393
+   },
+   "maxPt": {
+    "send-typed-media-take1": 6.665,
+    "typing-unfocused-take1": 4.764
+   },
+   "note": "the two takes differ by about 9 pt in their first frames (the body's 12 pt, section 6); one curve sits between them"
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
+   ]
+  }
+ },
+ "typing.discS.scale": {
+  "event": "the typing bubble appears: its small tail disc (RowDraw.typingDiscs[1]), a layer of its own at its window place: it grows from 0.800 of its size about its centre (Springs.typingDiscFrom[1])",
+  "unit": "share of Springs.typingDiscFrom[1].scale",
+  "from": 0.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0859,
+    "duration": 0.2383,
+    "curve": [
+     0.311,
+     1.0,
+     0.303,
+     0.66
+    ],
+    "delta": 1.0
+   }
+  ],
+  "residual": {
+   "rms": {
+    "send-typed-media-take1": 0.01,
+    "typing-unfocused-take1": 0.009
+   },
+   "max": {
+    "send-typed-media-take1": 0.023,
+    "typing-unfocused-take1": 0.018
+   }
+  },
+  "fit": {
+   "method": "lossless send-typed-media-take1 (+4.93 s) and typing-unfocused-take1 (+9.36 s, inactive window), every new frame to +345 ms: the typing bubble fitted as a capsule and two discs (tools/evidence/anim/fitind.py tailfit(), cmpdisc.py, fitdisc.py): each disc's centre (window pt) and diameter against its place and size at 290-345 ms (from about 0.35 s Messages' discs breathe, +-7 % over about 0.7 s: not part of the appearance); time 0 = the rows' begin (cmptyp.py's transcript.typing begin per take). The discs' fill follows the body's within 0.04 (typing.opacity). tools/evidence/ANIMATIONS.md section 6",
+   "takes": [
+    "send-typed-media-take1",
+    "typing-unfocused-take1"
    ]
   }
  },

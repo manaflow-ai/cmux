@@ -110,6 +110,29 @@ export function resolveUiOverlayPosition(
   return { left, top, side: resolvedSide, maxHeight: Math.max(0, available) };
 }
 
+/**
+ * The part of the window a local overlay can show in: the window, cut by every ancestor from its
+ * offset parent up that clips overflow (a scroller), as those are the boxes that clip an
+ * absolutely positioned overlay. A menu inside the New Tab scroller is sized to what the scroller
+ * shows, not to the window (cx-m6jn0).
+ */
+function visibleBox(overlay: HTMLElement): UiAnchorBox {
+  const view = overlay.ownerDocument.defaultView ?? window;
+  let box: UiAnchorBox = { left: 0, top: 0, right: view.innerWidth, bottom: view.innerHeight };
+  for (let node = overlay.offsetParent; node instanceof HTMLElement; node = node.parentElement) {
+    const style = view.getComputedStyle(node);
+    if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+    const rect = node.getBoundingClientRect();
+    box = {
+      left: Math.max(box.left, rect.left),
+      top: Math.max(box.top, rect.top),
+      right: Math.min(box.right, rect.right),
+      bottom: Math.min(box.bottom, rect.bottom),
+    };
+  }
+  return box;
+}
+
 function scaleFor(container: HTMLElement | null): { x: number; y: number } {
   if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) return { x: 1, y: 1 };
   const rect = container.getBoundingClientRect();
@@ -146,12 +169,15 @@ export function useUiAnchor(
       const direction =
         requestedDirection ??
         (anchorNode.ownerDocument.defaultView?.getComputedStyle(anchorNode).direction === "rtl" ? "rtl" : "ltr");
-      const position = resolveUiOverlayPosition(
-        { left: a.left, top: a.top, right: a.right, bottom: a.bottom },
+      // Resolved in the visible box's coordinates, then back in the window's.
+      const box = visibleBox(overlayNode);
+      const inBox = resolveUiOverlayPosition(
+        { left: a.left - box.left, top: a.top - box.top, right: a.right - box.left, bottom: a.bottom - box.top },
         { width: o.width, height: o.height },
-        { width: window.innerWidth, height: window.innerHeight },
+        { width: box.right - box.left, height: box.bottom - box.top },
         { align, direction, gap, margin, side },
       );
+      const position = { ...inBox, left: inBox.left + box.left, top: inBox.top + box.top };
       const parent = overlayNode.offsetParent instanceof HTMLElement ? overlayNode.offsetParent : null;
       const parentRect = parent?.getBoundingClientRect() ?? { left: 0, top: 0 };
       const scale = scaleFor(parent);

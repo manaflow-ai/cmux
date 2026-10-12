@@ -81,3 +81,33 @@ test("the chat menu edits the folder's CLAUDE.md or AGENTS.md, and only for a pr
   ).toEqual([]);
   expect(await menuFor({ cwd: undefined, family: "claude" })).toEqual([]);
 });
+
+// Add Files to Project (cx-ncc.67, Claude desktop's project knowledge): the same chats offer it, and
+// choosing it asks the app to add files to the folder for that harness's file (`project.addFiles`).
+test("the chat menu adds files to a project on this Mac, named in its harness's file", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { projectFilesRow } = await import("../src/agent-session/acpmux/header/instructionsRow");
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  const asked: [string, string][] = [];
+  const menuFor = async (chat: { cwd: string | undefined; family: string | undefined }) => {
+    const row = projectFilesRow(chat, (cwd, name) => void asked.push([cwd, name]));
+    act(() => root?.unmount());
+    root = createRoot(doc.getElementById("root")!);
+    act(() =>
+      root!.render(
+        <ChatHeaderTools onTerminal={() => {}} onBrowser={() => {}} summary={null} menu={() => (row ? [row] : [])} />,
+      ),
+    );
+    await act(async () => void openPicker("Chat actions"));
+    return labels();
+  };
+
+  expect(await menuFor({ cwd: "/Users/me/src/app", family: "codex" })).toEqual(["Add Files to Project…"]);
+  await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
+  expect(asked).toEqual([["/Users/me/src/app", "AGENTS.md"]]);
+  expect(
+    await menuFor({ cwd: "/Users/me/Library/Application Support/cmux/agent-home/6b16a112", family: "claude" }),
+  ).toEqual([]);
+  expect(await menuFor({ cwd: undefined, family: "claude" })).toEqual([]);
+});

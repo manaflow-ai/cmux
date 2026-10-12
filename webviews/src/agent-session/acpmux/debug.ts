@@ -5,6 +5,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
+import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
@@ -48,11 +49,34 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
+  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
+  loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
 
 const WARMUP_FRAMES = 30;
+
+/** The open menu's rows: how many, how many show whole in the page, and whether it went past the window. */
+function openMenuRows(): Record<string, unknown> | null {
+  const popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1);
+  if (!popup) return null;
+  const rows = [...popup.querySelectorAll('[role^="menuitem"],[role=option]')];
+  const frame = popup.getBoundingClientRect();
+  const top = Math.max(0, frame.top);
+  const bottom = Math.min(innerHeight, frame.bottom);
+  const whole = rows.filter((row) => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
+  });
+  return {
+    rows: rows.length,
+    shown_in_page: whole.length,
+    escaped: popup.parentElement?.hasAttribute("data-escaped") ?? false,
+  };
+}
 
 function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
@@ -179,7 +203,10 @@ export function createAcpmuxDebug(
       const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
         (node) => node.dataset.menu === label,
       );
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
+      // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
+      await nextFrame();
+      await nextFrame();
+      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
     },
 
     acpLog(options = {}) {
@@ -223,6 +250,14 @@ export function createAcpmuxDebug(
     },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
+    },
+    loadSeed(turns = 5000) {
+      const automationHost = host.automation;
+      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+    },
+    loadRun(options = {}) {
+      return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
 }

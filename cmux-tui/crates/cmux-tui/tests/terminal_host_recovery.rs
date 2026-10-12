@@ -4915,9 +4915,18 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     } = park_template_host(&mut harness);
     harness.adopt_template_terminal = true;
     harness.restart();
-    // The binding is written before the daemon listens, and the public
-    // terminal list must already show the terminal it names. A client that
-    // listed nothing here (the Cloud prompt sync) created a second workspace.
+    // The owner listens while it restores (cx-n3bs) and parks this request
+    // until the restore is done, so the first answer any client gets must
+    // already show the bound terminal. A client that listed nothing here (the
+    // Cloud prompt sync) created a second workspace. Read the binding and the
+    // registry only after that answer: while it restores, neither exists yet.
+    let listed = resource_request(
+        &harness.socket,
+        "template-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
     // The warm host is claimed through the Cloud template path, not the
     // migration import for hosts that predate the SQLite registry.
     let spec = registry_launch_spec(&harness.state, &terminal_id);
@@ -4928,13 +4937,6 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
         .unwrap()
         .to_string();
-    let listed = resource_request(
-        &harness.socket,
-        "template-terminal-list",
-        "terminal.list",
-        serde_json::json!({"machine":"current","session":"current"}),
-        None,
-    );
     let listed_ids = listed
         .as_array()
         .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
@@ -5261,6 +5263,9 @@ mod host_orphan;
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
+#[path = "terminal_host_recovery/host_link_failed.rs"]
+mod host_link_failed;
+
 #[path = "terminal_host_recovery/host_death.rs"]
 mod host_death;
 
@@ -5285,3 +5290,6 @@ mod kitty_budget_resync;
 
 #[path = "terminal_host_recovery/parallel_new_tabs.rs"]
 mod parallel_new_tabs;
+
+#[path = "terminal_host_recovery/host_scrollback.rs"]
+mod host_scrollback;

@@ -38,8 +38,9 @@ pub(crate) enum LinkError {
     Timeout,
     /// Too many calls wait already.
     Busy,
-    /// acpmux answered with an error (its message, for the daemon log only).
-    Rpc(String),
+    /// acpmux answered with an error: its message (for the daemon log
+    /// only) and its `data` (`Null` without one).
+    Rpc(String, Value),
 }
 
 /// What the reader thread hands the link's owner.
@@ -184,6 +185,7 @@ fn read_loop(
             let outcome = match message.remove("error") {
                 Some(error) => Err(LinkError::Rpc(
                     error.get("message").and_then(Value::as_str).unwrap_or("error").to_string(),
+                    error.get("data").cloned().unwrap_or(Value::Null),
                 )),
                 None => Ok(message.remove("result").unwrap_or(Value::Null)),
             };

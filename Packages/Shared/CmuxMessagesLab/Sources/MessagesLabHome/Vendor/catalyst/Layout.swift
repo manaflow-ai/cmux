@@ -192,8 +192,19 @@ struct RowSpec: Hashable {
 /// Compose bar geometry shared by every app (catalyst, ios, appkit-native). Measured on
 /// macOS 27 Messages (lossless references, 2026-10-05; macOS 26 values in brackets): the
 /// one-line field is 31 pt tall [30] with its bottom unchanged, so the transcript ends 1 pt
-/// higher (983 [984]); 2 and 3 lines are 47 and 63 pt; the text stays centered (first
-/// baseline 20.25 pt below the field top [19.75]).
+/// higher (983 [984]); 2 and 3 lines are 47 and 63 pt; the first baseline is 20.25 pt below
+/// the field top on both.
+/// After a send the empty field is 30 pt on both (`emptyAfterSend`), until a character is typed:
+/// lossless macOS 27 takes (send-1line-take2, send-2line-take2, send-1line-unfocused-take2,
+/// send-1line-2bubble-take1, send-typed-take1, send-typed-media-take1, typing-unfocused-take1,
+/// reply-menu-send-take1; cx-3cb compose-settle, 2026-10-11): every take starts at 30 pt (the
+/// previous take's send), the first typed character makes it 31, the send settles it at 30
+/// again (top 1000, caret and placeholder 1 pt lower with the top); a click, a deactivation or
+/// the reply view's Esc leave it at 30. An empty field that was never sent from (launch, a
+/// draft deleted with Backspace or Cmd-A Delete) is 31 (deactivate-activate, field-focus-type).
+/// The macOS 26 recording's [30] and its baseline were measured after its send: the same 30 pt
+/// field, placeholder (top + 10.5) and caret (top + 7) as macOS 27's, and its 2- and 3-line
+/// drafts have the 20.25 baseline. Its empty field before a send is not recorded (the 30 stays).
 /// The Mac apps pick the values of the OS they run on (a run-time check: one build runs on
 /// both); macOS 26 values come from the macOS 26 recording (catalyst/TRANSITIONS.md). iOS keeps
 /// the macOS 27 values.
@@ -216,7 +227,9 @@ enum ComposeMetrics {
     static let oneLine: CGFloat = macOS26 ? 30 : 31
     static let anchorBase: CGFloat = macOS26 ? 984 : 983
     static let fieldBottom: CGFloat = 1030.25
-    static let firstBaseline: CGFloat = macOS26 ? 19.75 : 20.25
+    static let firstBaseline: CGFloat = 20.25
+    /// The empty field after a send (see above): 1 pt under the macOS 27 one-line field, its bottom unchanged.
+    static let emptyAfterSend: CGFloat = 30
 }
 
 struct ThreadPreview: Hashable {
@@ -352,6 +365,13 @@ struct PartRow: Hashable {
     var outgoing: Bool
     var tail: Bool
     var reactions: [Reaction]
+    /// The index in `reactions` of the viewer's own reaction (the participant with isMe,
+    /// AppState.me, of the conversation this row was built from), or nil. The row carries it, not
+    /// a process global: two windows with different users draw their own badges blue, and the
+    /// off-main renderers read no shared state. Part of the row's equality and hash, so the row
+    /// bitmap and badge caches re-render when it changes. The engine keeps one reaction per
+    /// person per part; with more, the first one is mine.
+    var myReaction: Int? = nil
     var failed: Bool
     var size: CGSize
     var text: TextLayout?
@@ -849,7 +869,8 @@ enum RowBuilder {
                     var failed = false
                     if case .failed = m.status { failed = true }
                     let row = PartRow(ref: PartRef(messageId: m.id, partIndex: pi), part: part, outgoing: CustomRows.outgoing(part, sender: outgoing),
-                                      tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions, failed: failed,
+                                      tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
+                                      myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
                                       markdownFormat: m.isMarkdown)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,

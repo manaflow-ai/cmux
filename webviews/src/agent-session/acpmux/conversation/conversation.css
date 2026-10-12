@@ -185,7 +185,10 @@
   font-size: var(--text-detail);
   line-height: 24px;
   color: var(--agent-muted);
-  cursor: pointer;
+  cursor: default;
+}
+.acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
+  color: var(--agent-text);
 }
 .acpmux-artifact-tab[aria-pressed="true"] {
   background: var(--agent-page-bg);
@@ -237,8 +240,22 @@
   transition: opacity 120ms ease-out;
 }
 .cv-user:hover .cv-user__actions,
-.cv-user__actions:focus-within {
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
   opacity: 1;
+}
+/* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
+.cv-user__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-user__version-count {
+  min-width: 28px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--cv-text-muted);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {
@@ -1721,12 +1738,15 @@ pre.cv-math-source {
   border: 0.5px solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
-  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  box-shadow: var(--ui-popup-shadow, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
+.acpmux-find__bar:focus-within {
+  border-color: var(--agent-accent);
+}
 .acpmux-find__field {
-  width: 180px;
+  width: min(180px, 40vw);
   height: 100%;
   padding: 0;
   border: 0;
@@ -1767,6 +1787,13 @@ pre.cv-math-source {
 }
 .acpmux-find__step:hover:not(:disabled) {
   background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
+}
+.acpmux-find__up {
+  transform: rotate(180deg);
+}
+/* No match for the query: the count reads as an answer, not as quiet detail. */
+.acpmux-find__count[data-empty] {
+  color: var(--agent-text);
 }
 .acpmux-find__step:disabled {
   opacity: 0.4;
@@ -1881,4 +1908,84 @@ pre.cv-math-source {
   background-color: var(--agent-page-bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+.cv-plan {
+  margin: 8px 0;
+  font-size: var(--text-body);
+}
+.cv-plan__heading {
+  height: 20px;
+  font-size: var(--text-caption);
+  color: var(--cv-text-muted);
+}
+.cv-plan__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-plan__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.cv-plan__mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--cv-text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.cv-plan__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cv-plan__item[data-status="completed"] {
+  color: var(--cv-text-muted);
+  text-decoration: line-through;
+}
+.cv-plan__item[data-status="completed"] .cv-plan__mark {
+  border-color: transparent;
+  background: var(--cv-text-muted);
+  color: var(--agent-accent-text, #fff);
+}
+.cv-plan__item[data-status="in_progress"] {
+  font-weight: 600;
+}
+.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--agent-text);
+}
+
+/* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
+.cv-bgtask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin: 4px 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}
+.cv-bgtask > svg {
+  flex: none;
+}
+.cv-bgtask__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-bgtask[data-state="failed"] > svg {
+  color: var(--agent-danger);
 }

@@ -359,6 +359,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             guard let self else { return }
             let sv = self.host.scrollView, clip = sv.contentView
             let range = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
+            sv.endPace() // MessagesLab 3508ff9: a jump shows at once (upstream goes through scroll(toModelOffset:))
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: (CGFloat(v) * range).rounded())); sv.reflectScrolledClipView(clip)
         }
         installFrameAndPressWiring(demo) // MessagesLab ced183d (PaneHost+FrameWiring.swift)

@@ -4,6 +4,8 @@
 // once when the pointer moves on from a tooltip just shown (along a rail or a toolbar), and kept
 // inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
+// A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
+// Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 
 /// Hover time before the first tooltip.
 export const TOOLTIP_DELAY = 500;
@@ -14,6 +16,43 @@ const EDGE = 6;
 const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
+
+/// The standard tooltip's widest, the native one's (TooltipPanel.maxWidth).
+const MAX_WIDTH = 320;
+/// The narrowest a truncated element's tooltip may wrap at, so a cut-off chip's text is not a column.
+const TRUNCATED_MIN_MAX = 480;
+
+/// The tooltip's min and max width for an element `width` px wide in a `view` px window. A tooltip
+/// for text the element cuts off shows it in full, wrapping, up to the element's width (at least
+/// 480 px) and never narrower than the element's line, unless the full text (`text`, its width on
+/// one line) is shorter: then it is just the text's width. Any other tooltip wraps at 320 px. Both
+/// stay inside the window's edges.
+export function tooltipWidth({
+  width,
+  truncated,
+  view,
+  text,
+}: {
+  width: number;
+  truncated: boolean;
+  view: number;
+  text?: number;
+}) {
+  const room = Math.max(0, view - 2 * EDGE);
+  if (!truncated) return { min: 0, max: Math.min(MAX_WIDTH, room) };
+  const line = Math.ceil(width);
+  const min = text === undefined ? line : Math.min(line, Math.ceil(text));
+  return { min: Math.min(min, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+}
+
+/// Whether `element` or anything inside it cuts its text off: a row can carry the title while its
+/// label clips (BranchBasePicker's rows).
+function clips(element: Element): boolean {
+  const cut = (node: Element) => node.scrollWidth > node.clientWidth + 1;
+  if (cut(element)) return true;
+  for (const child of element.querySelectorAll("*")) if (cut(child)) return true;
+  return false;
+}
 
 /// Where a `size` tooltip for `anchor` goes in a `view` window: below and centered, above when
 /// there is no room below, and shifted to stay inside the edges.
@@ -60,9 +99,37 @@ export function installTooltips(doc: Document): () => void {
     if (!target?.isConnected) return;
     const text = textOf(target);
     if (!text) return;
-    tip.textContent = text;
+    const shortcut = target.getAttribute("data-tooltip-shortcut");
+    const label = doc.createElement("span");
+    label.className = "ui-tooltip-text";
+    label.textContent = text;
+    // The hint floats to the top right, so it comes first.
+    if (shortcut) {
+      const hint = doc.createElement("span");
+      hint.className = "ui-tooltip-hint";
+      hint.textContent = shortcut;
+      tip.replaceChildren(hint, label);
+    } else tip.replaceChildren(label);
+    const anchor = target.getBoundingClientRect();
+    const truncated = clips(target);
     tip.hidden = false;
-    const position = tooltipPosition(target.getBoundingClientRect(), tip.getBoundingClientRect(), {
+    let natural: number | undefined;
+    if (truncated) {
+      // The full text's width on one line, so a short title gets no wide empty box.
+      tip.style.minWidth = "0";
+      tip.style.maxWidth = "none";
+      // Zero means no layout to measure (a detached or unrendered page): keep the line's width.
+      natural = tip.getBoundingClientRect().width || undefined;
+    }
+    const width = tooltipWidth({
+      width: anchor.width,
+      truncated,
+      view: doc.documentElement.clientWidth,
+      text: natural,
+    });
+    tip.style.minWidth = `${width.min}px`;
+    tip.style.maxWidth = `${width.max}px`;
+    const position = tooltipPosition(anchor, tip.getBoundingClientRect(), {
       width: doc.documentElement.clientWidth,
       height: doc.documentElement.clientHeight,
     });

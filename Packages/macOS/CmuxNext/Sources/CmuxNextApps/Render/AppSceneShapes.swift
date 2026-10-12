@@ -39,6 +39,7 @@ struct AppSceneTextField: View {
     var body: some View {
         TextField(node.string("placeholder") ?? "", text: $text)
             .textFieldStyle(.plain)
+            .focusEffectDisabled()
             .focused($focused)
             .onAppear {
                 text = node.string("text") ?? ""

@@ -154,6 +154,8 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudNewTerminal": [p(.cloudMachine, .create, 0)],
         "cloudOpenMachine": [p(.cloudMachine, .create, 1)],
         "cloudSSH": [p(.cloudMachine, .create, 2)],
+        "cloudMove": [p(.tab, .move, 399, folder: .move), p(.agentChat, .move, 0)],
+        "cloudBringBack": [p(.tab, .move, 398, folder: .move), p(.agentChat, .move, 1)],
         "cloudRenameMachine": [p(.cloudMachine, .identity, 2)],
         "cloudKillMachine": [p(.cloudMachine, .close, 300)],
         "cloudPauseMachine": [p(.cloudMachine, .connection, 208, folder: .connection)],
@@ -187,9 +189,9 @@ nonisolated extension ActionSurfaceCatalog {
         "swapPaneDown": [p(.pane, .move, 304, folder: .move)],
         "closePane": [p(.pane, .close, 600)],
         "renamePane": [p(.pane, .identity, 103)],
-        "agentPaneZoomIn": [p(.pane, .layout, 510, folder: .layout), p(.agentChat, .layout, 3)],
-        "agentPaneZoomOut": [p(.pane, .layout, 511, folder: .layout), p(.agentChat, .layout, 4)],
-        "agentPaneZoomReset": [p(.pane, .layout, 512, folder: .layout), p(.agentChat, .layout, 5)],
+        "agentPaneZoomIn": [p(.pane, .layout, 510, folder: .layout), p(.agentChat, .layout, 0, label: AgentChatMenuLabels.zoomIn)],
+        "agentPaneZoomOut": [p(.pane, .layout, 511, folder: .layout), p(.agentChat, .layout, 1, label: AgentChatMenuLabels.zoomOut)],
+        "agentPaneZoomReset": [p(.pane, .layout, 512, folder: .layout), p(.agentChat, .layout, 2, label: AgentChatMenuLabels.actualSize)],
         "column.moveLeft": [p(.pane, .move, 310, folder: .move)],
         "column.moveRight": [p(.pane, .move, 311, folder: .move)],
         "column.center": [p(.pane, .layout, 504, folder: .layout)],
@@ -218,9 +220,8 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.remove": [p(.bookmark, .close, 101)],
         "bookmark.toggleBar": [p(.bookmark, .view, 300), p(.bookmarksBar, .view, 100)],
         "bookmark.manager": [p(.bookmark, .view, 301), p(.bookmarksBar, .view, 101)],
-        // An agent chat's empty space (Change Background leads, from its own plan).
-        "appearance.interfaceSize.increase": [p(.agentChat, .layout, 0)],
-        "appearance.interfaceSize.decrease": [p(.agentChat, .layout, 1)],
-        "appearance.interfaceSize.reset": [p(.agentChat, .layout, 2)],
+        // An agent chat's empty space (POLISH.md right-click contract): Change Background leads, from
+        // its own plan, then Theme, the chat's zoom and Find in Chat.
+        "find": [p(.agentChat, .layout, 100, label: AgentChatMenuLabels.findInChat)],
     ]
 }

@@ -109,6 +109,8 @@ impl Hub {
             "eventCount": m.event_count,
             "turnCount": m.turn_count,
             "parentId": m.parent_id,
+            // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
+            "forkSeq": m.fork_seq,
             "title": m.title,
             "lastPrompt": m.last_prompt,
             "preview": m.preview.as_deref().map(|p| short_text(p, 160)),

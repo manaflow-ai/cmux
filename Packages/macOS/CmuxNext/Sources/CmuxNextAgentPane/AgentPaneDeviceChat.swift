@@ -36,9 +36,14 @@ extension AgentPageEvent {
 }
 
 extension AgentPaneDeviceChat {
+    /// The chats `view`'s page shows: this Mac's chats, none on a page of another machine (cx-k21v).
+    @MainActor static func shown(_ chats: [AgentPaneDeviceChat], in view: AgentPaneView) -> [AgentPaneDeviceChat] {
+        view.model.remoteChat ? [] : chats
+    }
+
     /// Pushes `chats` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).
     @MainActor static func push(_ chats: [AgentPaneDeviceChat], to view: AgentPaneView) {
-        let event = AgentPageEvent.deviceChats(chats)
+        let event = AgentPageEvent.deviceChats(shown(chats, in: view))
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyDeviceChats?.(\(event.value.compactText));"])
     }
 }

@@ -66,12 +66,6 @@ extension WindowManager {
             .map(\.id).filter { !shownElsewhere.contains($0) }
     }
 
-    /// The profile a workspace created for `windowID` is born in: that
-    /// window's, else the active window's, else `default`.
-    func profileForNewWorkspace(window windowID: String?) -> ProfileID {
-        windowID.flatMap { states[$0]?.profileID } ?? active?.state.profileID ?? .defaultProfile
-    }
-
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
     func enterProfile(of workspaceID: String, in state: WindowState) {

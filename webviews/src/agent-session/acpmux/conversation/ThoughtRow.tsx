@@ -17,6 +17,7 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
   const body = useId();
   const text = item.text.trim();
   if (!text) return null;
+  const title = firstLine(text);
   return (
     <>
       <button
@@ -33,8 +34,8 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
             {t("tools.thought")}
           </span>
           {!open && (
-            <span className="cv-thought__title" dir="auto">
-              {firstLine(text)}
+            <span className="cv-thought__title" dir="auto" title={title}>
+              {title}
             </span>
           )}
         </span>
@@ -53,8 +54,26 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
+/// The title: the first non-empty line without its Markdown marks. Codex and Claude summaries open
+/// with a `**Heading**` line, which would otherwise show its asterisks.
 const firstLine = (text: string) =>
-  text
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean) ?? "";
+  (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  )
+    .replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "")
+    // A line wrapped in bold, then code spans, then emphasis only where it opens and closes a
+    // word, so `run_tests.sh`, `src/foo_bar` and `a*b*c` keep their marks.
+    .replace(/^(\*\*|__)(.+)\1$/, "$2")
+    .split(/(`[^`]+`)/)
+    .map((part) =>
+      part.startsWith("`") && part.endsWith("`") && part.length > 1
+        ? part.slice(1, -1)
+        : part
+            .replace(/(?<![\w*])(\*\*|__)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2")
+            .replace(/(?<![\w*])(\*|_)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2"),
+    )
+    .join("")
+    .trim();

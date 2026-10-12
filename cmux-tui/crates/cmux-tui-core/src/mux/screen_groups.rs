@@ -399,7 +399,7 @@ impl Mux {
                         state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                         "workspace limit reached"
                     );
-                    let name = Mux::default_workspace_name(state);
+                    let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
                         public_id: WorkspacePublicId::random()?,
@@ -725,7 +725,7 @@ impl Mux {
                         state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
                         "workspace limit reached"
                     );
-                    let name = Mux::default_workspace_name(state);
+                    let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
                         public_id: WorkspacePublicId::random()?,

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb.
+// cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1398,7 +1398,7 @@ pub struct SavedTabGroupMember {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedTabGroupRecord {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     pub members: Vec<SavedTabGroupMember>,
@@ -1906,7 +1906,7 @@ pub struct TabGroupOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRecord {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     /// May be empty: the group shows only its color.
@@ -1921,7 +1921,7 @@ pub struct TabGroupRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRun {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub count: u64,
     pub id: String,
@@ -2008,8 +2008,37 @@ pub struct TerminalColors {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandDeleteResult {
+    pub deleted: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalCommandHistoryResult {
     pub enabled: bool,
+    pub retention_days: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandList {
+    pub commands: Vec<TerminalCommandRecord>,
+    pub deletions: String,
+    pub registry_id: String,
+    pub retention_days: u32,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandRecord {
+    pub command: Nullable<String>,
+    pub cwd: Nullable<String>,
+    pub duration_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub id: String,
+    pub started_at_ms: String,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

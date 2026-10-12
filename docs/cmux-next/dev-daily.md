@@ -10,7 +10,8 @@ identity and uploads `cmux-NEXT-DEV.zip` to the `cmux-next-dev` GitHub
 prerelease. It deliberately skips notarization. Downloading the archive with
 `curl` or `gh` keeps it outside the browser quarantine path.
 
-From a checkout, update in one line:
+From a `feat-cmux-next` checkout, update in one line (the [README](README.md#cmux-next-dev)
+shows how to run it without a checkout):
 
 ```sh
 bash scripts/cmux-next/update-dev-daily.sh
@@ -29,6 +30,7 @@ Run it as often as you like:
   agents under acpmux, so the new build reattaches to them: workspaces, panes,
   tabs, browser pages, agents and their chats. Nothing needs relaunching or
   re-pointing. An app that wasn't running stays closed.
+- **A first install:** nothing is quit, and the new app opens.
 
 The new build takes over the previous build's daemons on its own. A `cmux-tui`
 session daemon of another build is handed off to the bundled one; one of the

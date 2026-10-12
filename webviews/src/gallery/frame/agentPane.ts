@@ -54,12 +54,25 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "project.list":
       case "file.search":
         return answer(state.native?.[message.method] ?? []);
-      default:
-        return answer(state.native?.[message.method ?? ""] ?? null);
+      default: {
+        const value = state.native?.[message.method ?? ""] ?? null;
+        // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
+        if (value && typeof value === "object" && "nativeError" in value)
+          return { ok: false, error: (value as { nativeError: unknown }).nativeError };
+        return answer(value);
+      }
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {
-    messageHandlers: { agentSession: { postMessage: (message: Message) => Promise.resolve(handle(message)) } },
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: Message) => {
+          const reply = handle(message);
+          const delay = state.nativeDelayMs?.[message.method ?? ""];
+          return delay ? new Promise((resolve) => setTimeout(() => resolve(reply), delay)) : Promise.resolve(reply);
+        },
+      },
+    },
   };
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   await import("virtual:cmux-gallery/agent-pane.css");

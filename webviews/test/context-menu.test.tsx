@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -275,4 +277,46 @@ test("keeps the native selection menu unless selection mode opts into the app me
   document.getSelection()!.addRange(menuRange);
   await act(async () => openContextMenu(menuCopy));
   expect(document.querySelector('[role="menu"]')).not.toBeNull();
+});
+
+test("Home and End jump to the first and last enabled rows", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(fixture().element);
+  });
+  await act(async () => openContextMenu(container.querySelector<HTMLElement>("[data-target]")!));
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  const highlighted = () => menu.querySelector('[role="menuitem"][data-highlighted]')?.textContent;
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(highlighted()).toBe("Rename");
+  await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+  expect(highlighted()).toBe("Open");
+});
+
+test("a disabled row is dimmed and a long label keeps its full text a hover away", async () => {
+  const container = installDom();
+  const long = "Open https://example.com/a/very/long/path/that/would/stretch/the/menu/past/the/window";
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ContextMenu
+        items={[
+          { id: "long", label: long, onSelect: () => {} },
+          { id: "off", label: "Unavailable", disabled: true, onSelect: () => {} },
+        ]}
+      >
+        <button type="button" data-target>
+          Target
+        </button>
+      </ContextMenu>,
+    );
+  });
+  await act(async () => openContextMenu(container.querySelector<HTMLElement>("[data-target]")!));
+  const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  // The selector ui.css dims must match the disabled row.
+  const css = readFileSync(join(import.meta.dir, "../src/ui/ui.css"), "utf8");
+  const dimmed = /([^{}]+)\{\s*opacity:\s*0\.45;\s*\}/.exec(css)![1]!.trim();
+  expect(rows[1]!.matches(dimmed)).toBe(true);
+  expect(rows[0]!.querySelector<HTMLElement>(".ui-menu-label")?.title).toBe(long);
 });

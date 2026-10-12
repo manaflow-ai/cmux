@@ -27,7 +27,7 @@ struct AgentChatPullRequestTests {
             #!/bin/sh
             echo "$*" >> "$0.calls"
             [ "$(pwd -P)" = "$(cd '\(folder)' && pwd -P)" ] || exit 3
-            [ "$*" = "pr view --json url,number,state,isDraft,statusCheckRollup" ] || exit 2
+            [ "$*" = "pr view --json \(AgentPanePullRequest.fields)" ] || exit 2
             cat "$(dirname "$0")/view.json"
             """
         try script.write(toFile: gh, atomically: true, encoding: .utf8)
@@ -42,9 +42,11 @@ struct AgentChatPullRequestTests {
     /// Checks sum to the worst: a failure beats one still running; skipped ones count as passed.
     @Test func readsThePullRequestAndSumsItsChecks() async throws {
         let rig = try Self.rig()
-        let read = await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder)
-        #expect(read == AgentPanePullRequest(url: "https://github.com/o/r/pull/7", number: 7, state: "open",
-                                             checks: .init(state: "failing", passed: 3, total: 5)))
+        let read = try #require(await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder))
+        #expect(read.url == "https://github.com/o/r/pull/7")
+        #expect(read.number == 7)
+        #expect(read.state == "open")
+        #expect(read.checks == .init(state: "failing", passed: 3, total: 5))
         let pending = AgentPanePullRequest(ghView: Data(#"{"url":"https://github.com/o/r/pull/8","number":8,"state":"OPEN","isDraft":true,"statusCheckRollup":[{"status":"QUEUED"},{"status":"COMPLETED","conclusion":"SUCCESS"}]}"#.utf8))
         #expect(pending?.state == "draft")
         #expect(pending?.checks == .init(state: "pending", passed: 1, total: 2))

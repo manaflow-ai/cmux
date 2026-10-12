@@ -24,6 +24,7 @@ mod plan;
 mod screen;
 mod server_ensure;
 mod state;
+mod workspace;
 
 pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
 use screen::{parse_screen, parse_screen_strings};
@@ -597,20 +598,7 @@ fn parse_workspace(
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
         ["list"] => state::workspace_list(selectors, flags),
-        ["create"] => {
-            let mut params = Map::new();
-            if let Some(name) = flags.take("name") {
-                params.insert("name".into(), Value::String(name));
-            }
-            params.insert(
-                "initial_content".into(),
-                Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
-            );
-            if flags.boolean("ephemeral") {
-                params.insert("ephemeral".into(), Value::Bool(true));
-            }
-            request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
-        }
+        ["create"] => workspace::workspace_create(selectors, flags, argv),
         [selector, "show"] => {
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceGet, selectors, flags, Map::new())
@@ -1205,11 +1193,9 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` is refused: the reply
 /// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
-/// for signature parity and have no meaning on a machine: the Mac decides how
-/// a machine's row is delivered. `--desktop` is still validated so a bad value
-/// fails the same way it does locally, and like the local flag it is not
-/// validated with `--clear`.
+/// machine boundary. `--window` and `--id-format` are accepted for signature
+/// parity. `--desktop false` asks the app for no banner; like the local flag
+/// it is not validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1269,9 +1255,11 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
     }
     // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
-    if let Some(desktop) = desktop {
-        parse_bool("--desktop", &desktop)
-            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
+    if let Some(desktop) = desktop
+        && !parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?
+    {
+        params.insert("desktop".into(), Value::Bool(false));
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -3511,8 +3499,8 @@ mod tests {
                 .is_err(),
             "no reply channel across the link"
         );
-        // The Mac owns delivery for a machine's rows, so the local banner
-        // switch parses for parity and adds nothing to the request.
+        // `--desktop false` is a plain `desktop` field (the e2e test reads it
+        // on the event), never classic's `effects` object.
         for parity in [
             &["notify", "--workspace", "current", "--desktop", "false"][..],
             &["notify", "--workspace", "current", "--desktop=true"][..],

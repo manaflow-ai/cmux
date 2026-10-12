@@ -2109,137 +2109,6 @@
         }
       }
     },
-    "settingsWindow.browserProfilesHint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Each profile has its own cookies, logins, history, extensions and site permissions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "各プロファイルに固有の Cookie、ログイン、履歴、拡張機能、サイトの権限があります。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لكل ملف تعريف ملفات تعريف الارتباط وتسجيلات الدخول والسجل والإضافات وأذونات المواقع الخاصة به."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Svaki profil ima vlastite kolačiće, prijave, historiju, proširenja i dozvole stranica."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hver profil har sine egne cookies, logins, historik, udvidelser og webstedstilladelser."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jedes Profil hat eigene Cookies, Anmeldungen, Verläufe, Erweiterungen und Website-Berechtigungen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cada perfil tiene sus propias cookies, inicios de sesión, historial, extensiones y permisos de sitios."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chaque profil a ses propres cookies, identifiants, historique, extensions et autorisations de sites."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ogni profilo ha i propri cookie, accessi, cronologia, estensioni e autorizzazioni dei siti."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រវត្តិរូបនីមួយៗមានខូគី ការចូល ប្រវត្តិ កម្មវិធីបន្ថែម និងការអនុញ្ញាតគេហទំព័រផ្ទាល់ខ្លួន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "각 프로필에는 고유한 쿠키, 로그인, 기록, 확장 프로그램, 사이트 권한이 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hver profil har egne informasjonskapsler, pålogginger, logg, utvidelser og nettstedstillatelser."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Każdy profil ma własne pliki cookie, logowania, historię, rozszerzenia i uprawnienia witryn."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cada perfil tem seus próprios cookies, logins, histórico, extensões e permissões de sites."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "У каждого профиля свои файлы cookie, входы, история, расширения и разрешения сайтов."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แต่ละโปรไฟล์มีคุกกี้ การเข้าสู่ระบบ ประวัติ ส่วนขยาย และสิทธิ์ของไซต์เป็นของตัวเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Her profilin kendi çerezleri, oturumları, geçmişi, uzantıları ve site izinleri vardır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Кожен профіль має власні файли cookie, входи, історію, розширення та дозволи сайтів."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mỗi hồ sơ có cookie, thông tin đăng nhập, lịch sử, tiện ích mở rộng và quyền trang web riêng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每个配置文件都有自己的 Cookie、登录信息、历史记录、扩展程序和网站权限。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每個設定檔都有自己的 Cookie、登入資料、瀏覽記錄、擴充功能和網站權限。"
-          }
-        }
-      }
-    },
     "settingsWindow.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -11934,137 +11803,6 @@
         }
       }
     },
-    "settingsWindow.terminalBody.options": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cursor, keybinds and other terminal options are Ghostty settings."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カーソル、キーバインド、その他のターミナルのオプションは Ghostty の設定です。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المؤشر واختصارات المفاتيح وخيارات الطرفية الأخرى هي إعدادات Ghostty."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kursor, prečice tastature i ostale opcije terminala su postavke Ghosttyja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Markør, tastebindinger og andre terminalindstillinger er Ghostty-indstillinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cursor, Tastenbelegungen und andere Terminaloptionen sind Ghostty-Einstellungen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El cursor, los atajos de teclado y otras opciones de la terminal son ajustes de Ghostty."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le curseur, les raccourcis clavier et les autres options du terminal sont des réglages Ghostty."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cursore, scorciatoie da tastiera e altre opzioni del terminale sono impostazioni di Ghostty."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទស្សន៍ទ្រនិច ការកំណត់គ្រាប់ចុច និងជម្រើសទែមីណាល់ផ្សេងទៀត គឺជាការកំណត់របស់ Ghostty។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "커서, 키 바인딩 및 기타 터미널 옵션은 Ghostty 설정입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Markør, hurtigtaster og andre terminalvalg er Ghostty-innstillinger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kursor, skróty klawiszowe i inne opcje terminala to ustawienia Ghostty."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cursor, atalhos de teclado e outras opções do terminal são ajustes do Ghostty."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Курсор, сочетания клавиш и другие параметры терминала задаются в настройках Ghostty."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เคอร์เซอร์ ปุ่มลัด และตัวเลือกเทอร์มินัลอื่น ๆ เป็นการตั้งค่าของ Ghostty"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İmleç, tuş atamaları ve diğer terminal seçenekleri Ghostty ayarlarıdır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Курсор, сполучення клавіш та інші параметри термінала задаються в налаштуваннях Ghostty."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Con trỏ, phím tắt và các tùy chọn terminal khác là cài đặt của Ghostty."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "光标、按键绑定和其他终端选项属于 Ghostty 设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "游標、按鍵綁定和其他終端機選項屬於 Ghostty 設定。"
-          }
-        }
-      }
-    },
     "settingsWindow.moreThemes": {
       "extractionState": "manual",
       "localizations": {
@@ -12589,137 +12327,6 @@
         }
       }
     },
-    "settingsWindow.backdropPicker.hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wähle ein Gemälde oder ein macOS-Systembild. Änderungen gelten für jedes Fenster."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choisissez une peinture ou un fond d’écran macOS. Les changements s’appliquent à toutes les fenêtres."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اختر لوحة أو خلفية نظام macOS. تُطبّق التغييرات على كل النوافذ."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elige una pintura o un fondo de macOS. Los cambios se aplican a todas las ventanas."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選擇畫作或 macOS 系統桌布。變更會套用至所有視窗。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择画作或 macOS 系统墙纸。更改会应用到所有窗口。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "그림이나 macOS 시스템 배경화면을 선택합니다. 변경 사항은 모든 창에 적용됩니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "絵画または macOS システム壁紙を選びます。変更はすべてのウィンドウに適用されます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pick a painting or a macOS system wallpaper. Changes apply to every window."
-          }
-        }
-      }
-    },
     "settingsWindow.backdropPicker.none": {
       "extractionState": "manual",
       "localizations": {
@@ -12847,6 +12454,1447 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "No wallpaper"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.chooseImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Image…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار صورة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberi sliku…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg billede…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild auswählen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir imagen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir une image…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli immagine…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を選択…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសរូបភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 선택…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg bilde …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz obraz…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher Imagem…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать изображение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกรูปภาพ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görsel Seç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрати зображення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn hình ảnh…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图片…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇圖片…"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.dropHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or drop an image anywhere on this page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو أفلت صورة في أي مكان على هذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili prevucite sliku bilo gdje na ovu stranicu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller slip et billede hvor som helst på denne side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder ziehe ein Bild irgendwo auf diese Seite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O suelta una imagen en cualquier parte de esta página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou déposez une image n’importe où sur cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure trascina un’immagine su questa pagina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または、このページのどこかに画像をドロップします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬទម្លាក់រូបភាពនៅកន្លែងណាមួយលើទំព័រនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 이 페이지 아무 곳에나 이미지를 놓으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller slipp et bilde hvor som helst på denne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albo upuść obraz w dowolnym miejscu tej strony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou solte uma imagem em qualquer lugar desta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или перетащите изображение в любое место этой страницы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรือวางรูปภาพที่ใดก็ได้บนหน้านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya da bu sayfada herhangi bir yere bir görsel bırakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або перетягніть зображення будь-куди на цій сторінці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc thả một hình ảnh vào bất kỳ đâu trên trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或将图片拖放到此页面的任意位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或將圖片拖放到此頁面的任何位置。"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse More Art…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصفّح المزيد من الأعمال الفنية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledaj još umjetnosti…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gennemse mere kunst …"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr Kunst durchsuchen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explorar más arte…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcourir plus d’œuvres…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfoglia altre opere…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのアートを探す…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រុករកសិល្បៈបន្ថែម…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 많은 작품 둘러보기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bla gjennom mer kunst …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeglądaj więcej dzieł…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explorar Mais Arte…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Больше произведений…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียกดูงานศิลปะเพิ่มเติม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha Fazla Sanat Eseri Göz At…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Більше творів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duyệt thêm tác phẩm…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览更多艺术作品…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽更多藝術作品…"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search museum collections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في مجموعات المتاحف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži muzejske zbirke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i museumssamlinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Museumssammlungen durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar en colecciones de museos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans les collections"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca nelle collezioni dei musei"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "美術館のコレクションを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកក្នុងបណ្ដុំសារមន្ទីរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "박물관 소장품 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i museumssamlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj w zbiorach muzeów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar em acervos de museus"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск по музейным коллекциям"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาในคอลเลกชันพิพิธภัณฑ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Müze koleksiyonlarında ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук у музейних колекціях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm trong bộ sưu tập bảo tàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索博物馆馆藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋博物館館藏"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шукати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public domain, from open museum collections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملكية عامة من مجموعات متاحف مفتوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Javno vlasništvo, iz otvorenih muzejskih zbirki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fri brug, fra åbne museumssamlinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinfrei, aus offenen Museumssammlungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dominio público, de colecciones abiertas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domaine public, issu de collections ouvertes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pubblico dominio, da collezioni aperte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オープンな美術館コレクションのパブリックドメイン作品"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មសិទ្ធិសាធារណៈ ពីបណ្ដុំសារមន្ទីរបើកចំហ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공개 박물관 소장품의 퍼블릭 도메인 작품"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fri bruk, fra åpne museumssamlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domena publiczna, z otwartych zbiorów muzeów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domínio público, de acervos abertos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общественное достояние из открытых коллекций"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สาธารณสมบัติจากคอลเลกชันพิพิธภัณฑ์แบบเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kamu malı, açık müze koleksiyonlarından"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Суспільне надбання з відкритих колекцій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phạm vi công cộng, từ bộ sưu tập mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自开放博物馆馆藏的公有领域作品"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自開放博物館館藏的公有領域作品"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ البحث…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraživanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søger …"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche läuft …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricerca in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្វែងរក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søker …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyszukiwanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังค้นหา…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aranıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tìm…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在搜索…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在搜尋…"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No public-domain works found."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُعثر على أعمال ضمن الملكية العامة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema djela u javnom vlasništvu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen frie værker fundet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine gemeinfreien Werke gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron obras de dominio público."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune œuvre du domaine public trouvée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna opera di pubblico dominio trovata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パブリックドメインの作品が見つかりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញស្នាដៃកម្មសិទ្ធិសាធារណៈទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "퍼블릭 도메인 작품을 찾지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ingen frie verk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono dzieł z domeny publicznej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma obra em domínio público encontrada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не найдено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบผลงานสาธารณสมบัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kamu malı eser bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нічого не знайдено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tìm thấy tác phẩm nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到公有领域作品。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到公有領域作品。"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.downloading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التنزيل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preuzimanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henter …"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geladen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléchargement…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងទាញយក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster ned …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pobieranie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังดาวน์โหลด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İndiriliyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tải xuống…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下载…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下載…"
+          }
+        }
+      }
+    },
+    "settingsWindow.artBrowser.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t download this work."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تنزيل هذا العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preuzimanje nije uspjelo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Værket kunne ikke hentes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Werk konnte nicht geladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar la obra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléchargement impossible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scaricare l’opera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この作品をダウンロードできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចទាញយកស្នាដៃនេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작품을 다운로드할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste ned verket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się pobrać dzieła."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar a obra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดาวน์โหลดผลงานนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eser indirilemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tải xuống được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载此作品。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法下載此作品。"
           }
         }
       }
@@ -14822,127 +15870,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every setting and shortcut in %@ goes back to its default. Custom actions stay."
+            "value": "Resets everything in %@. Custom actions stay."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ のすべての設定とショートカットがデフォルトに戻ります。カスタムアクションは残ります。"
+            "value": "%@ をすべてリセット。カスタムアクションは残ります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يعود كل إعداد واختصار في %@ إلى قيمته الافتراضية. تبقى الإجراءات المخصصة."
+            "value": "يعيد ضبط كل ما في %@. تبقى الإجراءات المخصصة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svaka postavka i prečica u %@ vraća se na zadano. Prilagođene radnje ostaju."
+            "value": "Vraća sve u %@ na zadano. Vaše radnje ostaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle indstillinger og genveje i %@ nulstilles til standard. Tilpassede handlinger bevares."
+            "value": "Nulstiller alt i %@. Egne handlinger bevares."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Einstellungen und Kurzbefehle in %@ werden auf den Standard zurückgesetzt. Eigene Aktionen bleiben."
+            "value": "Setzt alles in %@ zurück. Aktionen bleiben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos los ajustes y atajos de %@ vuelven a su valor predeterminado. Las acciones personalizadas se mantienen."
+            "value": "Restablece todo en %@. Tus acciones se quedan."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chaque réglage et raccourci de %@ revient à sa valeur par défaut. Les actions personnalisées sont conservées."
+            "value": "Réinitialise tout dans %@. Vos actions restent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ogni impostazione e scorciatoia in %@ torna al valore predefinito. Le azioni personalizzate restano."
+            "value": "Ripristina tutto in %@. Le tue azioni restano."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រាល់ការកំណត់ និងផ្លូវកាត់ក្នុង %@ ត្រឡប់ទៅលំនាំដើម។ សកម្មភាពផ្ទាល់ខ្លួននៅដដែល។"
+            "value": "កំណត់អ្វីៗក្នុង %@ ឡើងវិញ។ សកម្មភាពផ្ទាល់ខ្លួននៅដដែល។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 모든 설정과 단축키가 기본값으로 돌아갑니다. 사용자 설정 동작은 유지됩니다."
+            "value": "%@의 모든 항목을 재설정합니다. 사용자 동작은 유지됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle innstillinger og hurtigtaster i %@ tilbakestilles til standard. Tilpassede handlinger beholdes."
+            "value": "Tilbakestiller alt i %@. Handlinger beholdes."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszystkie ustawienia i skróty w %@ wracają do wartości domyślnych. Własne czynności zostają."
+            "value": "Resetuje wszystko w %@. Własne akcje zostają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todos os ajustes e atalhos do %@ voltam ao padrão. Ações personalizadas são mantidas."
+            "value": "Redefine tudo em %@. Suas ações ficam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все настройки и сочетания клавиш в %@ вернутся к значениям по умолчанию. Пользовательские действия сохранятся."
+            "value": "Сбрасывает всё в %@. Свои действия остаются."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การตั้งค่าและปุ่มลัดทั้งหมดใน %@ จะกลับเป็นค่าเริ่มต้น การทำงานที่กำหนดเองยังคงอยู่"
+            "value": "รีเซ็ตทุกอย่างใน %@ การทำงานที่กำหนดเองยังอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@’daki tüm ayarlar ve kısayollar varsayılana döner. Özel eylemler korunur."
+            "value": "%@ içinde her şeyi sıfırlar. Eylemler kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі параметри та комбінації клавіш у %@ повернуться до типових. Власні дії залишаться."
+            "value": "Скидає все в %@. Власні дії залишаються."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mọi cài đặt và phím tắt trong %@ trở về mặc định. Tác vụ tùy chỉnh được giữ lại."
+            "value": "Đặt lại mọi thứ trong %@. Giữ hành động riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 中的所有设置和快捷键都会恢复默认值。自定义操作会保留。"
+            "value": "重置 %@ 中的所有内容，自定义操作保留。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 中的所有設定和快速鍵都會恢復預設值。自訂動作會保留。"
+            "value": "重設 %@ 中的所有內容，自訂動作保留。"
           }
         }
       }
@@ -20731,127 +21779,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الوكلاء الذين أضفتهم: من سجل ACP أو أي برنامج يدعم ACP بأمره الخاص. يشغّل الفحص المصافحة؛ وتحتفظ الإزالة بنسخة احتياطية للتراجع."
+            "value": "وكلاء أضفتهم من السجل أو بأمر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenti koje si dodao: iz ACP registra ili bilo koji program koji govori ACP svojom naredbom. Provjera pokreće rukovanje; Ukloni čuva kopiju za poništavanje."
+            "value": "Agenti koje ste dodali iz registra ili komandom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenter, du har tilføjet: fra ACP-registret eller ethvert program, der taler ACP, med sin egen kommando. Tjek kører handshaket; Fjern gemmer en kopi til Fortryd."
+            "value": "Agenter, du har tilføjet fra registret eller en kommando"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Von dir hinzugefügte Agenten: aus der ACP-Registry oder jedes Programm, das ACP spricht, mit seinem eigenen Befehl. Prüfen führt den Handshake aus; Entfernen behält eine Sicherung zum Widerrufen."
+            "value": "Hinzugefügte Agenten aus der Registry oder per Befehl"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents you added: from the ACP Registry, or any program that speaks ACP with its own command. Check runs the handshake; Remove keeps a backup for Undo."
+            "value": "Agents you added, from the registry or a command"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentes que añadiste: del registro ACP o cualquier programa que hable ACP con su propio comando. Comprobar ejecuta el handshake; Quitar guarda una copia para Deshacer."
+            "value": "Agentes que añadiste desde el registro o con un comando"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les agents que vous avez ajoutés : depuis le registre ACP, ou tout programme qui parle ACP avec sa propre commande. Vérifier lance la poignée de main ; Supprimer garde une sauvegarde pour Annuler."
+            "value": "Agents ajoutés depuis le registre ou par une commande"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenti che hai aggiunto: dal registro ACP o qualsiasi programma che parla ACP con il suo comando. Verifica esegue l’handshake; Rimuovi tiene un backup per Annulla."
+            "value": "Agenti aggiunti dal registro o con un comando"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加したエージェントです。ACPレジストリから、またはACPに対応した任意のプログラムを独自のコマンドで追加できます。「確認」はハンドシェイクを実行し、「削除」は取り消し用のバックアップを残します。"
+            "value": "レジストリやコマンドで追加したエージェント"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារដែលអ្នកបានបន្ថែម៖ ពីបញ្ជី ACP ឬកម្មវិធីណាមួយដែលនិយាយ ACP ដោយពាក្យបញ្ជារបស់វា។ ពិនិត្យដំណើរការការចាប់ដៃ; លុបរក្សាទុកការបម្រុងសម្រាប់មិនធ្វើវិញ។"
+            "value": "ភ្នាក់ងារដែលអ្នកបានបន្ថែមពីបញ្ជីឈ្មោះ ឬពាក្យបញ្ជា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "추가한 에이전트입니다. ACP 레지스트리에서 또는 ACP를 지원하는 프로그램을 자체 명령으로 추가합니다. 확인은 핸드셰이크를 실행하고, 제거는 실행 취소용 백업을 남깁니다."
+            "value": "레지스트리나 명령으로 추가한 에이전트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenter du har lagt til: fra ACP-registeret eller ethvert program som snakker ACP, med sin egen kommando. Sjekk kjører håndtrykket; Fjern beholder en kopi for Angre."
+            "value": "Agenter du la til fra registeret eller med en kommando"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenci, których dodałeś: z rejestru ACP lub dowolny program obsługujący ACP własnym poleceniem. Sprawdź uruchamia handshake; Usuń zachowuje kopię do cofnięcia."
+            "value": "Agenci dodani z rejestru lub poleceniem"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agentes que você adicionou: do registro ACP ou qualquer programa que fale ACP com o próprio comando. Verificar executa o handshake; Remover guarda um backup para Desfazer."
+            "value": "Agentes que você adicionou do registro ou por comando"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавленные вами агенты: из реестра ACP или любая программа с поддержкой ACP со своей командой. Проверка выполняет рукопожатие; удаление сохраняет копию для отмены."
+            "value": "Агенты, добавленные из реестра или командой"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์ที่คุณเพิ่ม: จากรีจิสทรี ACP หรือโปรแกรมใดก็ได้ที่รองรับ ACP ด้วยคำสั่งของตัวเอง ตรวจสอบจะเรียก handshake ลบจะเก็บสำเนาไว้สำหรับเลิกทำ"
+            "value": "เอเจนต์ที่คุณเพิ่มจากรีจิสทรีหรือด้วยคำสั่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eklediğiniz aracılar: ACP kayıt defterinden veya ACP konuşan herhangi bir program, kendi komutuyla. Denetle el sıkışmayı çalıştırır; Kaldır geri alma için bir yedek tutar."
+            "value": "Kayıt defterinden veya komutla eklediğiniz ajanlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додані вами агенти: з реєстру ACP або будь-яка програма з підтримкою ACP власною командою. Перевірка виконує рукостискання; видалення зберігає копію для скасування."
+            "value": "Агенти, додані з реєстру або командою"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các tác tử bạn đã thêm: từ sổ đăng ký ACP, hoặc bất kỳ chương trình nào hỗ trợ ACP bằng lệnh riêng. Kiểm tra chạy bắt tay; Xóa giữ bản sao lưu để Hoàn tác."
+            "value": "Tác tử bạn đã thêm từ registry hoặc bằng lệnh"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你添加的智能体：来自 ACP 注册表，或任何支持 ACP 的程序及其命令。“检查”会运行握手；“移除”会保留备份以便撤销。"
+            "value": "你从注册表或命令添加的智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你新增的代理：來自 ACP 登錄檔，或任何支援 ACP 的程式及其指令。「檢查」會執行交握；「移除」會保留備份以便還原。"
+            "value": "你從登錄檔或指令新增的代理"
           }
         }
       }
@@ -25215,127 +26263,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux reads your Ghostty config. These lines have no effect in cmux."
+            "value": "These Ghostty lines have no effect in cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux は Ghostty の設定を読み込みます。次の行は cmux では効果がありません。"
+            "value": "これらの Ghostty の行は cmux では無効です"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يقرأ cmux إعدادات Ghostty. لا تأثير لهذه الأسطر في cmux."
+            "value": "لا تأثير لهذه الأسطر من Ghostty في cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux čita vašu Ghostty konfiguraciju. Ovi redovi nemaju učinka u cmuxu."
+            "value": "Ove Ghostty linije nemaju efekta u cmuxu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux læser din Ghostty-konfiguration. Disse linjer har ingen virkning i cmux."
+            "value": "Disse Ghostty-linjer virker ikke i cmux"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux liest deine Ghostty-Konfiguration. Diese Zeilen wirken in cmux nicht."
+            "value": "Diese Ghostty-Zeilen wirken in cmux nicht"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux lee tu configuración de Ghostty. Estas líneas no tienen efecto en cmux."
+            "value": "Estas líneas de Ghostty no tienen efecto en cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux lit votre configuration Ghostty. Ces lignes n’ont aucun effet dans cmux."
+            "value": "Ces lignes Ghostty sont sans effet dans cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux legge la tua configurazione di Ghostty. Queste righe non hanno effetto in cmux."
+            "value": "Queste righe di Ghostty non hanno effetto in cmux"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux អានការកំណត់ Ghostty របស់អ្នក។ បន្ទាត់ទាំងនេះគ្មានឥទ្ធិពលនៅក្នុង cmux ទេ។"
+            "value": "បន្ទាត់ Ghostty ទាំងនេះគ្មានប្រសិទ្ធភាពក្នុង cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux는 Ghostty 설정을 읽습니다. 다음 줄은 cmux에서 효과가 없습니다."
+            "value": "이 Ghostty 줄은 cmux에서 적용되지 않음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux leser Ghostty-konfigurasjonen din. Disse linjene har ingen virkning i cmux."
+            "value": "Disse Ghostty-linjene virker ikke i cmux"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux odczytuje konfigurację Ghostty. Te wiersze nie działają w cmux."
+            "value": "Te linie Ghostty nie działają w cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux lê sua configuração do Ghostty. Estas linhas não têm efeito no cmux."
+            "value": "Estas linhas do Ghostty não têm efeito no cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux читает вашу конфигурацию Ghostty. Эти строки не действуют в cmux."
+            "value": "Эти строки Ghostty не действуют в cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux อ่านการตั้งค่า Ghostty ของคุณ บรรทัดเหล่านี้ไม่มีผลใน cmux"
+            "value": "บรรทัด Ghostty เหล่านี้ไม่มีผลใน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Ghostty yapılandırmanızı okur. Bu satırların cmux’ta etkisi yoktur."
+            "value": "Bu Ghostty satırlarının cmux'ta etkisi yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux читає вашу конфігурацію Ghostty. Ці рядки не діють у cmux."
+            "value": "Ці рядки Ghostty не діють у cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux đọc cấu hình Ghostty của bạn. Các dòng này không có tác dụng trong cmux."
+            "value": "Các dòng Ghostty này không có tác dụng trong cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 会读取你的 Ghostty 配置。以下各行在 cmux 中不起作用。"
+            "value": "这些 Ghostty 配置行在 cmux 中无效"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 會讀取你的 Ghostty 設定。以下各行在 cmux 中不會生效。"
+            "value": "這些 Ghostty 設定行在 cmux 中無效"
           }
         }
       }
@@ -27043,137 +28091,6 @@
         }
       }
     },
-    "settingsPage.theme.terminalHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ bundled Ghostty themes. Each one also works as the app theme."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ سمة Ghostty مضمّنة. تصلح كلٌّ منها أيضًا سمةً للتطبيق."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ugrađenih Ghostty tema. Svaka radi i kao tema aplikacije."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ medfølgende Ghostty-temaer. Hvert tema virker også som apptema."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ mitgelieferte Ghostty-Designs. Jedes funktioniert auch als App-Design."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ temas de Ghostty incluidos. Cada uno sirve también como tema de la app."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ thèmes Ghostty fournis. Chacun fonctionne aussi comme thème de l’app."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ temi Ghostty inclusi. Ognuno funziona anche come tema dell’app."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "同梱のGhosttyテーマ%@個。どれもアプリのテーマとして使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបរាង Ghostty ភ្ជាប់មកជាមួយ %@។ នីមួយៗក៏ប្រើជារូបរាងកម្មវិធីបានដែរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기본 제공 Ghostty 테마 %@개. 모두 앱 테마로도 쓸 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ medfølgende Ghostty-temaer. Hvert tema fungerer også som apptema."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ wbudowanych motywów Ghostty. Każdy działa też jako motyw aplikacji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ temas do Ghostty incluídos. Cada um também funciona como tema do app."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Встроенных тем Ghostty: %@. Каждая подходит и как тема приложения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ธีม Ghostty ในตัว %@ ธีม แต่ละธีมใช้เป็นธีมของแอปได้ด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ yerleşik Ghostty teması. Her biri uygulama teması olarak da çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вбудованих тем Ghostty: %@. Кожна підходить і як тема застосунку."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ chủ đề Ghostty có sẵn. Mỗi chủ đề cũng dùng được làm chủ đề ứng dụng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "内置 %@ 个 Ghostty 主题,每个都可用作应用主题。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "內建 %@ 個 Ghostty 主題,每個都可用作 App 主題。"
-          }
-        }
-      }
-    },
     "settingsPage.theme.matchSystem": {
       "extractionState": "manual",
       "localizations": {
@@ -27311,127 +28228,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use one theme in Light mode and another in Dark mode."
+            "value": "Different themes for Light and Dark"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استخدم سمة في الوضع الفاتح وأخرى في الوضع الداكن."
+            "value": "سمات مختلفة للوضعين الفاتح والداكن"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jedna tema u svijetlom, druga u tamnom načinu."
+            "value": "Različite teme za svijetli i tamni način"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brug ét tema i lys tilstand og et andet i mørk tilstand."
+            "value": "Forskellige temaer til lys og mørk"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein Design im hellen und ein anderes im dunklen Modus."
+            "value": "Unterschiedliche Designs für Hell und Dunkel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un tema en modo claro y otro en modo oscuro."
+            "value": "Temas distintos para claro y oscuro"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un thème en mode clair, un autre en mode sombre."
+            "value": "Des thèmes différents en clair et en sombre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un tema in modalità chiara e uno in modalità scura."
+            "value": "Temi diversi per chiaro e scuro"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ライトモードとダークモードで別のテーマを使います。"
+            "value": "ライトとダークで別のテーマ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រើរូបរាងមួយក្នុងរបៀបភ្លឺ និងមួយទៀតក្នុងរបៀបងងឹត។"
+            "value": "រចនាប័ទ្មផ្សេងគ្នាសម្រាប់ភ្លឺ និងងងឹត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "라이트 모드와 다크 모드에 각각 다른 테마를 씁니다."
+            "value": "라이트와 다크에 다른 테마 사용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ett tema i lys modus og et annet i mørk modus."
+            "value": "Ulike temaer for lys og mørk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jeden motyw w trybie jasnym, inny w ciemnym."
+            "value": "Różne motywy dla jasnego i ciemnego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um tema no modo Claro e outro no modo Escuro."
+            "value": "Temas diferentes para claro e escuro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Одна тема для светлого режима, другая для тёмного."
+            "value": "Разные темы для светлого и тёмного режима"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช้ธีมหนึ่งในโหมดสว่างและอีกธีมในโหมดมืด"
+            "value": "ธีมต่างกันสำหรับโหมดสว่างและมืด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Açık modda bir tema, koyu modda başka bir tema kullanır."
+            "value": "Açık ve koyu için farklı temalar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Одна тема для світлого режиму, інша для темного."
+            "value": "Різні теми для світлого й темного режиму"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một chủ đề cho chế độ sáng, một chủ đề cho chế độ tối."
+            "value": "Chủ đề khác nhau cho Sáng và Tối"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "浅色模式和深色模式各用一个主题。"
+            "value": "浅色和深色使用不同主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "淺色模式與深色模式各用一個主題。"
+            "value": "淺色和深色使用不同主題"
           }
         }
       }
@@ -30187,268 +31104,6 @@
         }
       }
     },
-    "settingsWindow.computerUse.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS gives these permissions to the cmux Computer Use helper, not to cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS はこれらの権限を cmux ではなく cmux Computer Use ヘルパーに与えます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يمنح macOS هذه الأذونات لمساعد cmux Computer Use، وليس لـ cmux."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS daje ove dozvole pomoćniku cmux Computer Use, a ne cmuxu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS giver disse tilladelser til hjælpeprogrammet cmux Computer Use, ikke til cmux."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS erteilt diese Berechtigungen dem Hilfsprogramm cmux Computer Use, nicht cmux."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS concede estos permisos al asistente cmux Computer Use, no a cmux."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS accorde ces autorisations à l’assistant cmux Computer Use, pas à cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS concede questi permessi all’helper cmux Computer Use, non a cmux."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS ផ្តល់សិទ្ធិទាំងនេះទៅកម្មវិធីជំនួយ cmux Computer Use មិនមែនទៅ cmux ទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS는 이 권한을 cmux가 아니라 cmux Computer Use 도우미에 부여합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS gir disse tillatelsene til hjelpeprogrammet cmux Computer Use, ikke til cmux."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS nadaje te uprawnienia pomocnikowi cmux Computer Use, a nie cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O macOS concede essas permissões ao auxiliar cmux Computer Use, não ao cmux."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS выдаёт эти разрешения помощнику cmux Computer Use, а не cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS ให้สิทธิ์เหล่านี้แก่ตัวช่วย cmux Computer Use ไม่ใช่ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS bu izinleri cmux’a değil, cmux Computer Use yardımcısına verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS надає ці дозволи помічнику cmux Computer Use, а не cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS cấp các quyền này cho trình trợ giúp cmux Computer Use, không phải cho cmux."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS 将这些权限授予 cmux Computer Use 辅助程序，而不是 cmux。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS 將這些權限授予 cmux Computer Use 輔助程式，而非 cmux。"
-          }
-        }
-      }
-    },
-    "settingsWindow.computerUse.helpNamed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS gives these permissions to %@, not to cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS はこれらの権限を cmux ではなく %@ に与えます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يمنح macOS هذه الأذونات لـ %@، وليس لـ cmux."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS daje ove dozvole aplikaciji %@, a ne cmuxu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS giver disse tilladelser til %@, ikke til cmux."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS erteilt diese Berechtigungen %@, nicht cmux."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS concede estos permisos a %@, no a cmux."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS accorde ces autorisations à %@, pas à cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS concede questi permessi a %@, non a cmux."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS ផ្តល់សិទ្ធិទាំងនេះទៅ %@ មិនមែនទៅ cmux ទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS는 이 권한을 cmux가 아니라 %@에 부여합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS gir disse tillatelsene til %@, ikke til cmux."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS nadaje te uprawnienia aplikacji %@, a nie cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O macOS concede essas permissões a %@, não ao cmux."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS выдаёт эти разрешения приложению %@, а не cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS ให้สิทธิ์เหล่านี้แก่ %@ ไม่ใช่ cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS bu izinleri cmux’a değil, %@ uygulamasına verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS надає ці дозволи програмі %@, а не cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS cấp các quyền này cho %@, không phải cho cmux."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS 将这些权限授予 %@，而不是 cmux。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "macOS 將這些權限授予 %@，而非 cmux。"
-          }
-        }
-      }
-    },
     "settingsWindow.computerUse.accessibility": {
       "extractionState": "manual",
       "localizations": {
@@ -30604,7 +31259,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Omogućava agentima da klikću, kucaju i listaju u drugim aplikacijama."
+            "value": "Agenti klikaju, kucaju i listaju u drugim aplikacijama."
           }
         },
         "da": {
@@ -30616,25 +31271,25 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaubt Agenten, in anderen Apps zu klicken, zu tippen und zu scrollen."
+            "value": "Agenten klicken, tippen und scrollen in anderen Apps."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permite a los agentes hacer clic, escribir y desplazarse en otras apps."
+            "value": "Clic, escritura y desplazamiento en otras apps."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permet aux agents de cliquer, saisir et faire défiler dans d’autres apps."
+            "value": "Clics, saisie et défilement dans d’autres apps."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consente agli agenti di fare clic, digitare e scorrere in altre app."
+            "value": "Gli agenti cliccano, scrivono e scorrono in altre app."
           }
         },
         "km": {
@@ -30658,7 +31313,7 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pozwala agentom klikać, pisać i przewijać w innych aplikacjach."
+            "value": "Agenci klikają, piszą i przewijają w innych aplikacjach."
           }
         },
         "pt-BR": {
@@ -30670,7 +31325,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Позволяет агентам нажимать, печатать и прокручивать в других приложениях."
+            "value": "Агенты кликают, печатают и листают в других приложениях."
           }
         },
         "th": {
@@ -30682,13 +31337,13 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajanların diğer uygulamalarda tıklamasına, yazmasına ve kaydırmasına izin verir."
+            "value": "Ajanlar diğer uygulamalarda tıklar, yazar ve kaydırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дає агентам змогу натискати, вводити й прокручувати в інших програмах."
+            "value": "Агенти натискають, вводять і гортають в інших програмах."
           }
         },
         "vi": {
@@ -30878,7 +31533,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaubt Agenten, die Fenster zu sehen, in denen sie arbeiten."
+            "value": "Agenten sehen die Fenster, in denen sie arbeiten."
           }
         },
         "es": {
@@ -30890,7 +31545,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permet aux agents de voir les fenêtres dans lesquelles ils travaillent."
+            "value": "Les agents voient les fenêtres où ils travaillent."
           }
         },
         "it": {
@@ -31789,13 +32444,13 @@
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå Computer Use til ovenfor for at kontrollere dets tilladelser."
+            "value": "Slå Computer Use til ovenfor for at se tilladelserne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Schalte Computer Use oben ein, um die Berechtigungen zu prüfen."
+            "value": "Schalte Computer Use oben ein, um sie zu prüfen."
           }
         },
         "es": {
@@ -31807,7 +32462,7 @@
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activez Computer Use ci-dessus pour vérifier ses autorisations."
+            "value": "Activez Computer Use ci-dessus pour vérifier l’accès."
           }
         },
         "it": {
@@ -31896,127 +32551,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No signed cmux Computer Use helper is installed. Install cmux NIGHTLY to use it."
+            "value": "Not installed. Install cmux NIGHTLY to use it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "署名済みの cmux Computer Use ヘルパーがインストールされていません。使うには cmux NIGHTLY をインストールしてください。"
+            "value": "未インストールです。使うには cmux NIGHTLY をインストールしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يوجد مساعد cmux Computer Use موقّع مثبت. ثبّت cmux NIGHTLY لاستخدامه."
+            "value": "غير مثبّت. ثبّت cmux NIGHTLY لاستخدامه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nijedan potpisani pomoćnik cmux Computer Use nije instaliran. Instalirajte cmux NIGHTLY da biste ga koristili."
+            "value": "Nije instalirano. Instalirajte cmux NIGHTLY."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der er ikke installeret et signeret cmux Computer Use-hjælpeprogram. Installer cmux NIGHTLY for at bruge det."
+            "value": "Ikke installeret. Installér cmux NIGHTLY for at bruge den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Es ist kein signiertes cmux Computer Use-Hilfsprogramm installiert. Installiere cmux NIGHTLY, um es zu verwenden."
+            "value": "Nicht installiert. Dafür cmux NIGHTLY installieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ningún asistente cmux Computer Use firmado instalado. Instala cmux NIGHTLY para usarlo."
+            "value": "No instalado. Instala cmux NIGHTLY para usarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun assistant cmux Computer Use signé n’est installé. Installez cmux NIGHTLY pour l’utiliser."
+            "value": "Non installé. Installez cmux NIGHTLY pour l’utiliser."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessun helper cmux Computer Use firmato è installato. Installa cmux NIGHTLY per usarlo."
+            "value": "Non installato. Installa cmux NIGHTLY per usarlo."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានកម្មវិធីជំនួយ cmux Computer Use ដែលបានចុះហត្ថលេខាត្រូវបានដំឡើងទេ។ ដំឡើង cmux NIGHTLY ដើម្បីប្រើវា។"
+            "value": "មិនទាន់ដំឡើង។ ដំឡើង cmux NIGHTLY ដើម្បីប្រើ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "서명된 cmux Computer Use 도우미가 설치되어 있지 않습니다. 사용하려면 cmux NIGHTLY를 설치하세요."
+            "value": "설치되지 않음. 사용하려면 cmux NIGHTLY를 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen signert cmux Computer Use-hjelper er installert. Installer cmux NIGHTLY for å bruke den."
+            "value": "Ikke installert. Installer cmux NIGHTLY for å bruke den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie zainstalowano podpisanego pomocnika cmux Computer Use. Zainstaluj cmux NIGHTLY, aby go używać."
+            "value": "Nie zainstalowano. Zainstaluj cmux NIGHTLY."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum auxiliar cmux Computer Use assinado está instalado. Instale o cmux NIGHTLY para usá-lo."
+            "value": "Não instalado. Instale o cmux NIGHTLY para usar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Подписанный помощник cmux Computer Use не установлен. Установите cmux NIGHTLY, чтобы использовать его."
+            "value": "Не установлено. Установите cmux NIGHTLY."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีตัวช่วย cmux Computer Use ที่ลงนามติดตั้งอยู่ ติดตั้ง cmux NIGHTLY เพื่อใช้งาน"
+            "value": "ยังไม่ได้ติดตั้ง ติดตั้ง cmux NIGHTLY เพื่อใช้งาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İmzalı bir cmux Computer Use yardımcısı yüklü değil. Kullanmak için cmux NIGHTLY’yi yükleyin."
+            "value": "Yüklü değil. Kullanmak için cmux NIGHTLY'yi yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Підписаний помічник cmux Computer Use не встановлено. Установіть cmux NIGHTLY, щоб ним користуватися."
+            "value": "Не встановлено. Встановіть cmux NIGHTLY."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa cài trình trợ giúp cmux Computer Use đã ký. Hãy cài cmux NIGHTLY để dùng."
+            "value": "Chưa cài đặt. Cài cmux NIGHTLY để dùng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未安装已签名的 cmux Computer Use 辅助程序。请安装 cmux NIGHTLY 以使用它。"
+            "value": "未安装。安装 cmux NIGHTLY 后即可使用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未安裝已簽署的 cmux Computer Use 輔助程式。請安裝 cmux NIGHTLY 以使用。"
+            "value": "未安裝。安裝 cmux NIGHTLY 後即可使用。"
           }
         }
       }
@@ -32319,7 +32974,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Erlaube beide Berechtigungen, damit Computer Use funktioniert."
+            "value": "Erlaube beide Berechtigungen für Computer Use."
           }
         },
         "es": {
@@ -32420,127 +33075,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The helper's version does not match this build. Update cmux NIGHTLY and this build."
+            "value": "Version mismatch: update cmux NIGHTLY and cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ヘルパーのバージョンがこのビルドと一致しません。cmux NIGHTLY とこのビルドを更新してください。"
+            "value": "バージョン不一致: cmux NIGHTLY と cmux を更新してください"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إصدار المساعد لا يطابق هذا الإصدار. حدّث cmux NIGHTLY وهذا الإصدار."
+            "value": "عدم تطابق الإصدار: حدّث cmux NIGHTLY وcmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verzija pomoćnika ne odgovara ovoj verziji. Ažurirajte cmux NIGHTLY i ovu verziju."
+            "value": "Verzije se ne slažu: ažurirajte cmux NIGHTLY i cmux"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjælpeprogrammets version passer ikke til denne build. Opdater cmux NIGHTLY og denne build."
+            "value": "Versioner passer ikke: opdatér cmux NIGHTLY og cmux"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Version des Hilfsprogramms passt nicht zu diesem Build. Aktualisiere cmux NIGHTLY und diesen Build."
+            "value": "Version passt nicht: cmux NIGHTLY und cmux updaten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La versión del asistente no coincide con esta compilación. Actualiza cmux NIGHTLY y esta compilación."
+            "value": "Versión distinta: actualiza cmux NIGHTLY y cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La version de l’assistant ne correspond pas à cette version. Mettez à jour cmux NIGHTLY et cette version."
+            "value": "Versions différentes : mettez à jour cmux NIGHTLY et cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La versione dell’helper non corrisponde a questa build. Aggiorna cmux NIGHTLY e questa build."
+            "value": "Versione diversa: aggiorna cmux NIGHTLY e cmux"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំណែកម្មវិធីជំនួយមិនត្រូវនឹងកំណែនេះទេ។ ធ្វើបច្ចុប្បន្នភាព cmux NIGHTLY និងកំណែនេះ។"
+            "value": "កំណែមិនត្រូវគ្នា៖ ធ្វើបច្ចុប្បន្នភាព cmux NIGHTLY និង cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "도우미 버전이 이 빌드와 맞지 않습니다. cmux NIGHTLY와 이 빌드를 업데이트하세요."
+            "value": "버전 불일치: cmux NIGHTLY와 cmux를 업데이트하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjelperens versjon samsvarer ikke med denne builden. Oppdater cmux NIGHTLY og denne builden."
+            "value": "Versjonene passer ikke: oppdater cmux NIGHTLY og cmux"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wersja pomocnika nie pasuje do tej kompilacji. Zaktualizuj cmux NIGHTLY i tę kompilację."
+            "value": "Niezgodne wersje: zaktualizuj cmux NIGHTLY i cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A versão do auxiliar não corresponde a esta build. Atualize o cmux NIGHTLY e esta build."
+            "value": "Versão diferente: atualize o cmux NIGHTLY e o cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Версия помощника не совпадает с этой сборкой. Обновите cmux NIGHTLY и эту сборку."
+            "value": "Версии не совпадают: обновите cmux NIGHTLY и cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เวอร์ชันของตัวช่วยไม่ตรงกับบิลด์นี้ อัปเดต cmux NIGHTLY และบิลด์นี้"
+            "value": "เวอร์ชันไม่ตรงกัน: อัปเดต cmux NIGHTLY และ cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yardımcının sürümü bu yapıyla eşleşmiyor. cmux NIGHTLY’yi ve bu yapıyı güncelleyin."
+            "value": "Sürüm uyuşmuyor: cmux NIGHTLY ve cmux'u güncelleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Версія помічника не відповідає цій збірці. Оновіть cmux NIGHTLY і цю збірку."
+            "value": "Версії не збігаються: оновіть cmux NIGHTLY і cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phiên bản trình trợ giúp không khớp với bản dựng này. Hãy cập nhật cmux NIGHTLY và bản dựng này."
+            "value": "Phiên bản không khớp: cập nhật cmux NIGHTLY và cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "辅助程序版本与此构建不匹配。请更新 cmux NIGHTLY 和此构建。"
+            "value": "版本不一致：请更新 cmux NIGHTLY 和 cmux"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "輔助程式版本與此建置不符。請更新 cmux NIGHTLY 與此建置。"
+            "value": "版本不一致：請更新 cmux NIGHTLY 和 cmux"
           }
         }
       }
@@ -32672,137 +33327,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "代理環境"
-          }
-        }
-      }
-    },
-    "settingsWindow.harnesses.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The coding agents cmux can start in a chat. Sign In opens a terminal tab with the agent's own sign-in."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "وكلاء البرمجة الذين يمكن لـ cmux تشغيلهم في محادثة. يفتح تسجيل الدخول علامة تبويب طرفية بتسجيل دخول الوكيل نفسه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenti za kodiranje koje cmux može pokrenuti u razgovoru. Prijava otvara karticu terminala s prijavom samog agenta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De kodeagenter, cmux kan starte i en chat. Log ind åbner en terminalfane med agentens egen login."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Coding-Agenten, die cmux in einem Chat starten kann. Anmelden öffnet einen Terminal-Tab mit der Anmeldung des Agenten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Los agentes de código que cmux puede iniciar en un chat. Iniciar sesión abre una pestaña de terminal con el inicio de sesión del propio agente."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les agents de code que cmux peut lancer dans une discussion. Se connecter ouvre un onglet de terminal avec la connexion propre à l'agent."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gli agenti di programmazione che cmux può avviare in una chat. Accedi apre una scheda del terminale con l'accesso dell'agente."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux がチャットで起動できるコーディングエージェントです。「サインイン」を押すと、エージェント自身のサインインを実行するターミナルタブが開きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ភ្នាក់ងារសរសេរកូដដែល cmux អាចចាប់ផ្ដើមក្នុងការជជែក។ ចូល បើកផ្ទាំងស្ថានីយជាមួយការចូលរបស់ភ្នាក់ងារផ្ទាល់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 채팅에서 시작할 수 있는 코딩 에이전트입니다. 로그인을 누르면 에이전트 자체 로그인이 실행되는 터미널 탭이 열립니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kodeagentene cmux kan starte i en chat. Logg på åpner en terminalfane med agentens egen pålogging."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agenci kodujący, których cmux może uruchomić w czacie. Zaloguj otwiera kartę terminala z logowaniem samego agenta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Os agentes de código que o cmux pode iniciar em um chat. Entrar abre uma aba de terminal com o login do próprio agente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Агенты для кода, которых cmux может запустить в чате. «Войти» открывает вкладку терминала со входом самого агента."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เอเจนต์เขียนโค้ดที่ cmux เริ่มในแชตได้ ลงชื่อเข้าใช้จะเปิดแท็บเทอร์มินัลพร้อมการลงชื่อเข้าใช้ของเอเจนต์เอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux'un bir sohbette başlatabildiği kodlama ajanları. Oturum Aç, ajanın kendi girişiyle bir terminal sekmesi açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Агенти для коду, яких cmux може запустити в чаті. «Увійти» відкриває вкладку термінала із входом самого агента."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các tác nhân lập trình mà cmux có thể khởi chạy trong cuộc trò chuyện. Đăng nhập mở một thẻ terminal với bước đăng nhập của chính tác nhân."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 可以在聊天中启动的编程代理。“登录”会打开一个终端标签页，运行代理自己的登录。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux 可以在聊天中啟動的程式代理。「登入」會開啟一個終端機分頁，執行代理自己的登入。"
           }
         }
       }
@@ -35434,127 +35958,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updating needs administrator rights. Run in a terminal:"
+            "value": "Needs admin rights. Run in a terminal:"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتطلب التحديث صلاحيات المسؤول. شغّل في الطرفية:"
+            "value": "يتطلب صلاحيات المسؤول. شغّل في الطرفية:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ažuriranje traži administratorska prava. Pokrenite u terminalu:"
+            "value": "Treba administratorska prava. Pokrenite u terminalu:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Opdatering kræver administratorrettigheder. Kør i en terminal:"
+            "value": "Kræver administratorrettigheder. Kør i en terminal:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Aktualisierung erfordert Administratorrechte. Im Terminal ausführen:"
+            "value": "Braucht Administratorrechte. Im Terminal ausführen:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Actualizar requiere permisos de administrador. Ejecuta en una terminal:"
+            "value": "Requiere permisos de admin. Ejecuta en una terminal:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mise à jour nécessite des droits d’administrateur. Exécutez dans un terminal :"
+            "value": "Droits d’administrateur requis. Exécutez dans un terminal :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’aggiornamento richiede i privilegi di amministratore. Esegui in un terminale:"
+            "value": "Servono i permessi di admin. Esegui in un terminale:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "アップデートには管理者権限が必要です。ターミナルで実行してください:"
+            "value": "管理者権限が必要です。ターミナルで実行:"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង។ ដំណើរការក្នុងទែមីណាល់៖"
+            "value": "ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង។ ដំណើរការក្នុងទែមីណាល់៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "업데이트하려면 관리자 권한이 필요합니다. 터미널에서 실행하세요:"
+            "value": "관리자 권한이 필요합니다. 터미널에서 실행:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppdatering krever administratorrettigheter. Kjør i en terminal:"
+            "value": "Krever administratorrettigheter. Kjør i en terminal:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aktualizacja wymaga uprawnień administratora. Uruchom w terminalu:"
+            "value": "Wymaga uprawnień administratora. Uruchom w terminalu:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A atualização exige privilégios de administrador. Execute em um terminal:"
+            "value": "Requer privilégios de administrador. Execute no terminal:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для обновления нужны права администратора. Выполните в терминале:"
+            "value": "Нужны права администратора. Выполните в терминале:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การอัปเดตต้องใช้สิทธิ์ผู้ดูแลระบบ เรียกใช้ในเทอร์มินัล:"
+            "value": "ต้องใช้สิทธิ์ผู้ดูแลระบบ เรียกใช้ในเทอร์มินัล:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Güncelleme yönetici izni gerektirir. Bir terminalde çalıştırın:"
+            "value": "Yönetici izni gerekir. Bir terminalde çalıştırın:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для оновлення потрібні права адміністратора. Виконайте в терміналі:"
+            "value": "Потрібні права адміністратора. Виконайте в терміналі:"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cập nhật cần quyền quản trị viên. Chạy trong terminal:"
+            "value": "Cần quyền quản trị. Chạy trong terminal:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新需要管理员权限。请在终端中运行："
+            "value": "需要管理员权限。请在终端中运行："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "更新需要管理員權限。請在終端機中執行："
+            "value": "需要管理員權限。請在終端機中執行："
           }
         }
       }
@@ -36343,6 +36867,1450 @@
           "stringUnit": {
             "state": "translated",
             "value": "沒有符合的主題。"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.defaultName": {
+      "comment": "Default name for a saved theme; %@ is the theme it starts from.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Custom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ مخصصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ prilagođena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tilpasset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ angepasst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ personalizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ personnalisé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ personalizzato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ カスタム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 사용자 지정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tilpasset"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ własny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (своя)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Özel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (власна)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 自定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 自訂"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Theme File…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد ملف سمة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvezi datoteku teme…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér temafil…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme-Datei importieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar archivo de tema…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer un fichier de thème…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa file tema…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマファイルを読み込む…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលឯកសារស្បែក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 파일 가져오기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer temafil …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj plik motywu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar Arquivo de Tema…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать файл темы…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าไฟล์ธีม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema Dosyası İçe Aktar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати файл теми…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập tệp chủ đề…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入主题文件…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入主題檔案⋯"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a name without / = # or quotes, not starting with a dot."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم اسمًا بدون / أو = أو # أو علامات اقتباس، ولا يبدأ بنقطة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite naziv bez / = # ili navodnika, koji ne počinje tačkom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug et navn uden / = # eller anførselstegn, der ikke starter med punktum."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende einen Namen ohne / = # oder Anführungszeichen, der nicht mit einem Punkt beginnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa un nombre sin / = # ni comillas que no empiece por un punto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez un nom sans / = # ni guillemets, qui ne commence pas par un point."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa un nome senza / = # o virgolette, che non inizi con un punto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/ = # や引用符を含まず、ドットで始まらない名前にしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឈ្មោះដែលគ្មាន / = # ឬសញ្ញាសម្រង់ ហើយមិនចាប់ផ្តើមដោយចំណុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/ = # 또는 따옴표가 없고 마침표로 시작하지 않는 이름을 사용하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk et navn uten / = # eller anførselstegn, som ikke starter med punktum."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj nazwy bez / = # i cudzysłowów, niezaczynającej się od kropki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use um nome sem / = # ou aspas, que não comece com ponto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте название без / = # и кавычек, не начинающееся с точки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ชื่อที่ไม่มี / = # หรือเครื่องหมายคำพูด และไม่ขึ้นต้นด้วยจุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/ = # veya tırnak içermeyen ve noktayla başlamayan bir ad kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використайте назву без / = # і лапок, що не починається з крапки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tên không có / = # hoặc dấu ngoặc kép, không bắt đầu bằng dấu chấm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用不含 / = # 或引号且不以点开头的名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用不含 / = # 或引號且不以點開頭的名稱。"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naziv teme"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temanavn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme-Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre del tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom du thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome del tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマ名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះស្បែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temanavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwa motywu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome do tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主題名稱"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.notATheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file sets no theme colors."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحدد هذا الملف أي ألوان للسمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta datoteka ne postavlja boje teme."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fil angiver ingen temafarver."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei legt keine Theme-Farben fest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese archivo no define colores de tema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier ne définit aucune couleur de thème."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file non imposta colori del tema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはテーマの色を設定していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារនោះមិនកំណត់ពណ៌ស្បែកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 파일에 테마 색상이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den filen angir ingen temafarger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten plik nie ustawia kolorów motywu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse arquivo não define cores de tema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл не задаёт цвета темы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์นั้นไม่ได้กำหนดสีธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosya tema rengi ayarlamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей файл не задає кольорів теми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp đó không đặt màu chủ đề nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件未设置主题颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該檔案未設定主題顏色。"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.replace": {
+      "comment": "Inline prompt before replacing a user theme file; %@ is its name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A theme named “%@” exists. Replace it?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجد سمة باسم “%@”. هل تريد استبدالها؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema pod nazivom „%@“ postoji. Zamijeniti je?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der findes et tema med navnet “%@”. Vil du erstatte det?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Theme namens „%@“ existiert. Ersetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya existe un tema llamado “%@”. ¿Reemplazarlo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un thème nommé « %@ » existe. Le remplacer ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esiste un tema chiamato “%@”. Sostituirlo?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”という名前のテーマがあります。置き換えますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានស្បែកឈ្មោះ “%@” រួចហើយ។ ជំនួសវាទេ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 테마가 이미 있습니다. 대치하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et tema med navnet «%@» finnes. Vil du erstatte det?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motyw o nazwie „%@” już istnieje. Zastąpić go?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já existe um tema chamado “%@”. Substituí-lo?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема «%@» уже есть. Заменить её?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีธีมชื่อ “%@” อยู่แล้ว ต้องการแทนที่หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” adlı bir tema var. Değiştirilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема «%@» уже існує. Замінити її?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã có chủ đề tên “%@”. Thay thế?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名为“%@”的主题已存在。要替换吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名為「%@」的主題已存在。要取代嗎？"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.replaceButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamijeni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituisci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជំនួស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastąp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทนที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Замінити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay thế"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取代"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.saveAs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save as Ghostty Theme…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ كسمة Ghostty…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sačuvaj kao Ghostty temu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gem som Ghostty-tema…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Ghostty-Theme sichern …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como tema de Ghostty…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer comme thème Ghostty…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva come tema Ghostty…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghosttyテーマとして保存…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុកជាស្បែក Ghostty…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 테마로 저장…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagre som Ghostty-tema …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisz jako motyw Ghostty…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar como Tema do Ghostty…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить как тему Ghostty…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกเป็นธีม Ghostty…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Teması Olarak Kaydet…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зберегти як тему Ghostty…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu thành chủ đề Ghostty…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储为 Ghostty 主题…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存為 Ghostty 主題⋯"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.file.shippedName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A theme that comes with cmux has this name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجد سمة مضمّنة في cmux بهذا الاسم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema koja dolazi uz cmux ima ovaj naziv."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et tema, der følger med cmux, har dette navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein mit cmux geliefertes Theme hat diesen Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un tema incluido con cmux tiene este nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un thème fourni avec cmux porte ce nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un tema incluso in cmux ha questo nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxに付属するテーマにこの名前があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្បែកដែលភ្ជាប់មកជាមួយ cmux មានឈ្មោះនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 포함된 테마가 이 이름을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et tema som følger med cmux, har dette navnet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motyw dołączony do cmux ma tę nazwę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um tema incluído no cmux tem este nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема с таким названием входит в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีธีมที่มาพร้อม cmux ใช้ชื่อนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ile gelen bir tema bu adı kullanıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема з такою назвою постачається з cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một chủ đề đi kèm cmux đã dùng tên này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自带的主题使用了此名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 內建的主題使用了此名稱。"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.accent": {
+      "comment": "The theme editor's accent swatch: the app accent for this theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌សង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu nhấn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色"
           }
         }
       }

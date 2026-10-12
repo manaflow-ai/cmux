@@ -102,7 +102,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         placeholderBar.wantsLayer = true
-        placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
+        placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         moreButton.onPress = { [weak self] in self?.onMore?() }
@@ -203,7 +203,7 @@ final class WorkspaceRowView: SidebarRowView {
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         // The workspace hover card shows the cwd (and CPU and memory).
-        toolTip = nil
+        themedToolTip = nil
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)

@@ -7,6 +7,7 @@ import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
+import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setHeaderState } from "./header/headerState";
@@ -84,6 +85,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setEditedFilesSettings(event.value);
     case "composer":
       return setComposerSettings(event.value);
+    case "diffColors":
+      return setAgentDiffColors(event.value);
     case "deviceChats":
       // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
       return setDeviceChats(event.value);

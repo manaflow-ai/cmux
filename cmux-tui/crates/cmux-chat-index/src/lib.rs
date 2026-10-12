@@ -19,7 +19,7 @@ mod text;
 pub mod time;
 pub mod transcript;
 
-pub use adapters::{PathRole, classify_path};
+pub use adapters::{PathRole, classify_path, find_opencode_session};
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};
 pub use roots::{

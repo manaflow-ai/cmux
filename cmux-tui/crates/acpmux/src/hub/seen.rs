@@ -45,6 +45,23 @@ impl Hub {
         session.attached.load(Ordering::SeqCst) > session.hidden.load(Ordering::SeqCst)
     }
 
+    /// The person marked the chat unread (`_acpmux/markUnread`): sets `unread` and tells every
+    /// client. A client that shows it keeps it unread until it hides and shows it again.
+    pub fn mark_unread(&self, session: &Session) {
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let was_read = !std::mem::replace(&mut meta.unread, true);
+        drop(meta);
+        if was_read {
+            self.save_meta(session);
+            self.append(
+                session,
+                "mux",
+                "status",
+                json!({"status": session.status().to_string(), "read": false}),
+            );
+        }
+    }
+
     /// The person saw the chat: clears `unread` and tells every client.
     fn mark_seen(&self, session: &Session) {
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());

@@ -70,6 +70,25 @@ struct AgentPaneProjectInstructionsTests {
         #expect(rig.openedPaths == [rig.canonical("AGENTS.md")])
     }
 
+    /// A CLAUDE.md that links to the folder's AGENTS.md (one file for every harness) opens that
+    /// file, the one both names read.
+    @Test func opensAClaudeMdThatLinksToAgentsMd() async throws {
+        let rig = try Rig()
+        try "Use tabs.\n".write(toFile: rig.folder + "/AGENTS.md", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: rig.folder + "/CLAUDE.md", withDestinationPath: "AGENTS.md")
+        let reply = await rig.ask()
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(rig.openedPaths == [rig.canonical("AGENTS.md")])
+    }
+
+    /// A tab that can't open leaves no empty file behind: the folder is as it was.
+    @Test func aFailedOpenLeavesNoEmptyFile() async throws {
+        let rig = try Rig()
+        rig.model.onOpenFile = { _, _ in false }
+        #expect(Self.errorCode(await rig.ask()) == "open_failed")
+        #expect(!FileManager.default.fileExists(atPath: rig.folder + "/CLAUDE.md"))
+    }
+
     /// Each refusal opens and writes nothing.
     @Test func refusesWithoutAGestureOutsideTheFoldersOnAnotherMachineOrAnotherName() async throws {
         let rig = try Rig()

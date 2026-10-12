@@ -21,6 +21,9 @@ public struct AgentPaneHeaderHooks {
     /// The "..." menu's Move to Floating Chat (cx-b9qi): Start Agent's panel holds session `id` and
     /// the tab closes; false when it could not (the floating chat is off).
     public var moveToFloatingChat: (@MainActor (String) -> Bool)?
+    /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
+    /// end, cx-ncc.77.1); the answer is pushed with the header state.
+    public var refreshPullRequest: (@MainActor () -> Void)?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -29,7 +32,8 @@ public struct AgentPaneHeaderHooks {
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
-                moveToFloatingChat: (@MainActor (String) -> Bool)? = nil) {
+                moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
+                refreshPullRequest: (@MainActor () -> Void)? = nil) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -38,6 +42,13 @@ public struct AgentPaneHeaderHooks {
         self.preview = preview
         self.saveQuickActions = saveQuickActions ?? { _ in false }
         self.moveToFloatingChat = moveToFloatingChat
+        self.refreshPullRequest = refreshPullRequest
+    }
+
+    /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
+    @MainActor func state(refresh: Bool) -> AgentPaneHeaderState {
+        if refresh { refreshPullRequest?() }
+        return tabState()
     }
 
     /// The "..." menu's Move to Floating Chat (`pane.action {id: "floatingChat"}`).
@@ -55,10 +66,10 @@ public struct AgentPaneHeaderHooks {
 }
 
 extension AgentPaneModel {
-    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
-    /// splits, Changes' diff, Files' tree (not an app action) and the "..." menu's tab verbs. Preview has its own request.
+    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal, Split Down and
+    /// Browser splits, Changes' diff, Files' tree (not an app action) and the "..." menu's tab verbs. Preview has its own request.
     public static let headerActions: Set<String> = [
-        "splitRight", "splitBrowserRight", "openDiffViewer", "files", "renameTab", "palette.toggleTabPin",
+        "splitRight", "splitDown", "splitBrowserRight", "openDiffViewer", "files", "renameTab", "palette.toggleTabPin",
         "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow", "closeTab",
     ]
 
@@ -95,13 +106,13 @@ extension AgentPaneModel {
             let folder = folderForOtherTabs(cwd)
             if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
             return AgentPaneReply.success()
-        case .tabState:
+        case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.tabState().reply)
-        case .archive(let archived):
-            return await archive(archived)
+            return AgentPaneReply.success(header.state(refresh: refresh).reply)
+        case .archive(let archived): return await archive(archived)
+        case .markUnread: return await AgentPaneMarkUnread(self).reply()
         case .sideChat(let fork):
             return await openSideChat(fork)
         default:

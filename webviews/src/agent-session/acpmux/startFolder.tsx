@@ -1,4 +1,4 @@
-import { useT } from "./i18n";
+import { translate, useT } from "./i18n";
 import { isAgentHome, projectLabel } from "./sessionList";
 
 // Where a chat starts (cx-nn3e). The host names a new chat's folder in the handshake (its
@@ -51,6 +51,46 @@ export async function pickFolder(
     return undefined;
   }
   return { cwd: answer.cwd, reason: answer.status === "confirm" && answer.reason === "home" ? "home" : "root" };
+}
+
+/// New Worktree (cx-lyqio.2, Codex/Conductor style): the host makes a worktree of the new chat's
+/// folder on a branch of its own (`git.worktree.create`, on this click; the user's checkout stays
+/// as it is), and the chat starts there as in a picked folder: when the host asks about that
+/// folder first, the question comes back (`ask`) for the pane to show, and nothing starts until the
+/// user answers it. Rejects with the host's reason when it makes none; nothing is used then.
+export async function newWorktree(
+  callNative: Native,
+  cwd: string,
+  use: (cwd: string) => void,
+): Promise<{ root: string; branch?: string; ask?: FolderAsk }> {
+  let reply: { value?: { root?: unknown; branch?: unknown } } | undefined;
+  try {
+    reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
+  } catch (error) {
+    // The session host's own words (`details.extra.message`: a base that names nothing, not a
+    // repository) say more than the pane's generic failure.
+    const details = (error as { details?: { extra?: { message?: unknown } } } | null)?.details;
+    const reason = details?.extra?.message;
+    throw typeof reason === "string" && reason ? new Error(reason) : error;
+  }
+  const root = reply?.value?.root;
+  if (typeof root !== "string" || !root) throw new Error(translate("worktree.failed"));
+  const ask = await pickFolder(callNative, root, use);
+  const branch = reply?.value?.branch;
+  return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}) };
+}
+
+/// New Worktree's refusal above the composer: the host's reason, and Dismiss.
+export function WorktreeFailure({ error, onDismiss }: { error: string; onDismiss(): void }) {
+  const t = useT();
+  return (
+    <output className="acpmux-switch-notice acpmux-folder-choice">
+      <span role="alert">{t("worktree.failedBecause", { reason: error })}</span>{" "}
+      <button type="button" className="acpmux-folder-choice-button" onClick={onDismiss}>
+        {t("worktree.dismiss")}
+      </button>
+    </output>
+  );
 }
 
 /// Use Home Folder: the answer goes to the host from this click (it spends the click's gesture

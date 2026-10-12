@@ -211,6 +211,7 @@ final class NotificationCenterService {
             return
         }
         var arrival = NotificationPolicy.Arrival(source: source)
+        arrival.bannerAllowed = notification.desktop
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
@@ -228,6 +229,7 @@ final class NotificationCenterService {
         guard let located else {
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             return
         }
         if decision.acknowledge {
@@ -258,13 +260,15 @@ final class NotificationCenterService {
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
         moveToTop(located.workspace)
-        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.desktop)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
                  subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
         }
-        if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
+        if !decision.desktop, let sound = decision.sound {
+            notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
+        }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 

@@ -119,7 +119,7 @@ enum RowDraw {
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
-            drawTypingBubble(ctx, top: top + 4)
+            drawTypingBubble(ctx, top: top + typingBubble.minY - margin)
         case let .threadPreview(pv):
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
@@ -143,21 +143,29 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots (dots are layers that animate).
-    static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest (the lossless
+    /// typing stills and send-typed-media-take1 at the bottom of each breath, fitted with the same capsule model as
+    /// a capture of ours): 43.69 x 27.19 pt, its left edge 20.14 pt, its bottom where ours was
+    /// (tools/evidence/ANIMATIONS.md section 6, cx-3cb typing-breath).
+    static let typingBubble = CGRect(x: 20.14, y: margin + 4.31, width: 43.69, height: 27.19)
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
+    /// The bubble's two tail discs (row coordinates), large then small: layers of their own
+    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears). Messages at rest: the
+    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.40 pt above the bubble's bottom; the
+    /// small one d 4.75 pt at 19.00 pt, 3.23 pt below it (section 6, cx-3cb typing-breath).
+    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.40 - 4.59, width: 9.18, height: 9.18),
+                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.23 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
-        let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
-        Fixture.incoming.setFill()
+        let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
+        Fixture.typingFill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
-        UIBezierPath(ovalIn: CGRect(x: 20.5, y: b.maxY - 7, width: 9, height: 9)).fill()
-        UIBezierPath(ovalIn: CGRect(x: 16.5, y: b.maxY + 1, width: 5, height: 5)).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble
-        return CGPoint(x: b.minX + 12.25 + CGFloat(i) * 9.5, y: b.midY)
+        // Messages at rest: 32.25, 41.75, 51.25 pt, 0.335 pt above the bubble's centre (section 6).
+        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.335)
     }
 }
 
@@ -220,7 +228,7 @@ enum PartRenderer {
             let f = HomeFonts.system(ofSize: 12, weight: .bold) // HomeFonts (cx-qpqs)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
-        drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
+        drawReactions(ctx, p.reactions, mine: p.myReaction, body: body, outgoing: p.outgoing, windowY: windowY)
     }
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
@@ -605,8 +613,6 @@ enum PartRenderer {
         TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // HomeFonts (cx-qpqs)
     }
 
-    /// The person whose tapbacks draw blue (the conversation's own participant).
-    static var me: ID = "me"
     /// Tapback badges on the part's top corner (outer side), stacked.
     /// Geometry (measured on macOS 26 Messages, 2x screenshot, unchanged on macOS 27): a 27.5 pt
     /// disc whose center is 2 pt inside the bubble's top outer corner and 8.25 pt above its top
@@ -616,11 +622,12 @@ enum PartRenderer {
     /// window-position gradient of my bubbles ((81, 151, 248) at window y 277 pt, the gradient's
     /// value there). Mine is drawn here only when `windowY` is known; in a cell's bitmap
     /// (`windowY` NaN) the cell's badge layer draws it (RowCell, a window-anchored gradient like
-    /// the outgoing fill, and the badge's pop).
-    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
+    /// the outgoing fill, and the badge's pop). `mine`: the index of my reaction in `rs`
+    /// (PartRow.myReaction).
+    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], mine myIndex: Int?, body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
         let side: CGFloat = outgoing ? -1 : 1
         for (i, r) in rs.enumerated().reversed() {
-            let mine = r.senderId == me
+            let mine = i == myIndex
             if mine && windowY.isNaN { continue }
             let c = badgeCenter(body: body, outgoing: outgoing, index: i)
             let shape = badgePath(center: c, side: side, tails: i == 0)

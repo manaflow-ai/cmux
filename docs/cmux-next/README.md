@@ -13,11 +13,17 @@ to take classic NIGHTLY's place, because both use the same bundle id and socket.
 
 ## cmux NEXT DEV
 
-From a cmux checkout:
+The install script is on the `feat-cmux-next` branch, not on `main`. You don't need a checkout:
 
 ```sh
-bash scripts/cmux-next/update-dev-daily.sh            # installs or updates ~/Applications/cmux NEXT DEV.app
+curl -fsSL -o /tmp/update-dev-daily.sh \
+  https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/scripts/cmux-next/update-dev-daily.sh
+bash /tmp/update-dev-daily.sh            # installs or updates ~/Applications/cmux NEXT DEV.app
 ```
+
+From a `feat-cmux-next` checkout, run `bash scripts/cmux-next/update-dev-daily.sh` instead.
+The first install opens the app. Later, open it from `~/Applications` or Spotlight
+("cmux NEXT DEV").
 
 Run it whenever you want the latest build. When the published build is the one you have, it
 says so and leaves the app alone. Otherwise it downloads `cmux-NEXT-DEV.zip` from the
@@ -57,9 +63,12 @@ older one can't read.
 
 ## Coming from classic
 
-There's no migration UI. Point an agent at [classic-to-next.md](classic-to-next.md). It reads
-classic's state without changing it and reopens your workspaces and Claude Code or Codex chats in
-cmux-next by session id. Split layouts currently come over as tabs in one pane.
+In cmux-next, open the command palette (⇧⌘P) and run **Import Workspaces from Classic cmux**, or
+run `cmux workspace import-classic`. It reads classic's last saved session without changing it and
+opens its workspaces with their panes and tabs. A terminal that ran Claude Code or Codex usually
+comes back as a chat that resumes its session. A toast says when it's done and what stayed in
+classic. [classic-to-next.md](classic-to-next.md) lists exactly what comes over, and has an agent
+playbook for choosing workspaces or bringing launch commands too.
 
 ## Moving between two cmux-next builds
 

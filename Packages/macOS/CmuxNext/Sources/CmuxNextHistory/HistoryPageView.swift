@@ -49,7 +49,7 @@ struct HistoryPageView: View {
         VStack(alignment: .leading, spacing: Metrics.panelInset * 1.5) {
             titleRow
             TextField(HistoryStrings.searchPlaceholder, text: $model.text)
-                .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focused($searchFocused)
+                .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focusEffectDisabled().focused($searchFocused)
                 .onKeyPress(.downArrow) { model.moveSelection(1); return .handled }
                 .onKeyPress(.upArrow) { model.moveSelection(-1); return .handled }
                 .onSubmit { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } }
@@ -144,6 +144,7 @@ struct HistoryPageView: View {
                                 .onTapGesture(count: 2) { model.open(entry) }
                                 .contextMenu { HistoryPageMenu(entry: entry, model: model) }
                                 .listRowBackground(model.selection == entry.id ? colors.selection : Color.clear)
+                                .thinScrollers()
                         }
                     } header: {
                         Text(title(of: group)).font(Font(Typography.header)).foregroundStyle(colors.secondary)

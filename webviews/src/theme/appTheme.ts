@@ -32,6 +32,8 @@ export type TerminalColors = {
   foreground: string;
   /** ANSI 0-15; a missing index is null. */
   palette: ReadonlyArray<string | null>;
+  /** The theme's own accent (`<theme>/accent` edit or `# cmux-accent`); wins over `appearance.accent`. */
+  accent?: string | null;
 };
 
 export type AppTokenName =
@@ -238,8 +240,9 @@ export function resolvedPalette(colors: TerminalColors): RGB[] {
   return GHOSTTY_DEFAULT_PALETTE.map((fallback, index) => rgbOf(colors.palette[index], fallback));
 }
 
-/** The accent's starting color: see APP_ACCENTS. */
-function accentSeed(accent: AppAccent, fg: RGB, palette: ReadonlyArray<RGB>): RGB {
+/** The accent's starting color: the theme's own, else see APP_ACCENTS. */
+function accentSeed(accent: AppAccent, fg: RGB, palette: ReadonlyArray<RGB>, own: RGB | null): RGB {
+  if (own) return own;
   if (accent === "neutral") return neutral(fg);
   if (accent !== "theme") return colorful(palette, ACCENT_SLOTS[accent], ACCENT_SLOTS[accent] + 8);
   const slot = themeAccentSlot(palette);
@@ -278,7 +281,7 @@ function derive(colors: TerminalColors, accent: AppAccent, tint: number): AppThe
   // and to carry text in the window color (dark) or white (light).
   const onAccentWanted = isDark ? tokens.window : WHITE;
   tokens.accent = fit(
-    accentSeed(accent, fg, palette),
+    accentSeed(accent, fg, palette, colors.accent ? parseHex(colors.accent) : null),
     [...on(PLAIN_SURFACES, UI_MINIMUM), { on: onAccentWanted, min: TEXT_MINIMUM }],
     isDark ? "lighter" : "darker",
   );

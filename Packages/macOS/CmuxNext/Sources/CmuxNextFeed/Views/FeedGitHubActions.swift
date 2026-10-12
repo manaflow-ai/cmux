@@ -58,7 +58,7 @@ struct FeedGitHubActions: View {
             }
             HStack(spacing: 7) {
                 TextField(FeedStrings.comment, text: $comment)
-                    .textFieldStyle(.roundedBorder).font(.system(size: 11))
+                    .textFieldStyle(.roundedBorder).font(.system(size: 11)).focusEffectDisabled()
                 if supported(.comment) {
                     Button(FeedStrings.comment) {
                     let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)

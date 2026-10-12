@@ -86,6 +86,15 @@ final class NewTabSparePool {
         usedThisSession || services.settings?.snapshot.newTabKind == .page
     }
 
+    /// At launch, before any window: makes the first spare, so its page loads while the windows
+    /// build; the launch's restored New Tab page adopts it, or ``start()`` parks it (bd cx-z9kz0).
+    func prewarm() {
+        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm,
+              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+        else { return }
+        slot.parked(view)
+    }
+
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
@@ -93,7 +102,10 @@ final class NewTabSparePool {
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
         services.agentTabs.takeSpare = { [weak self] in
             guard let self, let window = NSApp.keyWindow.flatMap(self.mainWindow) ?? self.target else { return nil }
-            return self.take(for: window, size: self.slot.peek?.frame.size ?? .zero)?.view
+            let start = ContinuousClock.now
+            let spare = self.take(for: window, size: self.slot.peek?.frame.size ?? .zero)
+            self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
+            return spare?.view
         }
         observeWindows()
         if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {

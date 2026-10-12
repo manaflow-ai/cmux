@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb. */
+/* cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -871,7 +871,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -1161,7 +1161,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1173,7 +1173,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;
@@ -1225,8 +1225,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {

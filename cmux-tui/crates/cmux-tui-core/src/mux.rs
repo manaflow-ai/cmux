@@ -168,6 +168,8 @@ pub(crate) use browser_tab_create::{
 pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
+#[cfg(unix)]
+mod agent_chat_notices;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
@@ -226,7 +228,8 @@ pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKin
 mod notification_types;
 mod notifications;
 pub use notification_types::{
-    NotificationEvent, NotificationSource, ResourceNotification, SurfaceNotification,
+    NOTIFICATION_DESKTOP_CAPABILITY, NotificationEvent, NotificationSource, ResourceNotification,
+    SurfaceNotification,
 };
 mod notification_level;
 pub use notification_level::NotificationLevel;
@@ -254,6 +257,7 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
+mod command_history;
 mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
@@ -608,13 +612,13 @@ pub struct Mux {
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
-    /// Records finished shell commands in the journal (`terminal-command-journal-v1`). Off until
-    /// a trusted client turns it on (`set-terminal-command-history`); never persisted, so a
-    /// restarted daemon records nothing until asked again.
+    /// Records finished shell commands (`terminal-command-history-v1`). Off
+    /// until a trusted client turns it on (`set-terminal-command-history`);
+    /// never persisted, so a restarted daemon records nothing until asked
+    /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
-    /// The shell command journal worker's bounded queue (started on first use).
-    shell_command_journal:
-        Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
+    /// The command history worker's bounded queue (`mux/command_history.rs`).
+    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this

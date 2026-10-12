@@ -5,7 +5,10 @@
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
-//! (`mutation`).
+//! (`mutation`), and so do `git.worktree.create`, a chat's own worktree
+//! (`worktree`), and `git.worktree.apply`, which brings its work back to the
+//! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
+//! (`worktree_remove`).
 
 mod checkpoint;
 mod commit;
@@ -20,6 +23,9 @@ mod push;
 mod run;
 mod target;
 mod user_run;
+mod worktree;
+mod worktree_apply;
+mod worktree_remove;
 mod write_run;
 
 use std::collections::BTreeSet;
@@ -52,6 +58,15 @@ pub(crate) const COMMIT_CAPABILITY: &str = "git-commit-v1";
 /// Advertised in identify: the session host owns `git.push`.
 pub(crate) const PUSH_CAPABILITY: &str = "git-push-v1";
 
+/// Advertised in identify: the session host owns `git.worktree.create`.
+pub(crate) const WORKTREE_CAPABILITY: &str = "git-worktree-v1";
+
+/// Advertised in identify: the session host owns `git.worktree.apply`.
+pub(crate) const WORKTREE_APPLY_CAPABILITY: &str = "git-worktree-apply-v1";
+
+/// Advertised in identify: the session host owns `git.worktree.remove`.
+pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -61,6 +76,9 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitFilesList
             | ResourceOperation::GitCommit
             | ResourceOperation::GitPush
+            | ResourceOperation::GitWorktreeCreate
+            | ResourceOperation::GitWorktreeApply
+            | ResourceOperation::GitWorktreeRemove
     ) || checkpoint::handles(operation)
 }
 
@@ -75,6 +93,9 @@ pub(crate) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
         ResourceOperation::GitPush => return push::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {
@@ -134,6 +155,17 @@ impl Repository {
         (!commit.is_empty()).then_some(commit)
     }
 
+    /// The branch `name` names exactly, local first: `main` but not
+    /// `main~1` or `main@{1}`, which name a commit relative to one.
+    fn branch_ref(&self, name: &str) -> Option<String> {
+        ["refs/heads/", "refs/remotes/"].iter().map(|prefix| format!("{prefix}{name}")).find(
+            |reference| {
+                let arguments = ["show-ref", "--verify", "--quiet", reference.as_str()];
+                self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).is_ok()
+            },
+        )
+    }
+
     /// The empty tree in this repository's hash, to compare against before
     /// the first commit.
     fn empty_tree(&self) -> Result<String, GitFailure> {
@@ -141,10 +173,14 @@ impl Repository {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    /// The branch the branch scope compares with, as (ref, short name):
-    /// origin's default branch, else origin/main, origin/master, main or
-    /// master.
+    /// The branch the branch scope compares with, as (ref, short name): the
+    /// base a chat's worktree branch was made from (`branch.<b>.cmuxBase`,
+    /// `git.worktree.create`), else origin's default branch, else
+    /// origin/main, origin/master, main or master.
     fn base_branch(&self) -> Option<(String, String)> {
+        if let Some(recorded) = self.recorded_base() {
+            return Some(recorded);
+        }
         let arguments = ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"];
         if let Ok(output) = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
             let reference = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -163,6 +199,37 @@ impl Repository {
         .into_iter()
         .find(|(reference, _)| self.commit(reference).is_some())
         .map(|(reference, short)| (reference.to_string(), short.to_string()))
+    }
+
+    /// The current branch's recorded base while it still names a commit: a
+    /// local or remote branch by its ref, else the commit itself.
+    fn recorded_base(&self) -> Option<(String, String)> {
+        let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];
+        let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let setting = format!("branch.{branch}.cmuxBase");
+        let arguments = ["config", "--get", setting.as_str()];
+        let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
+        let base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() || base.is_empty() || base.starts_with('-') {
+            return None;
+        }
+        self.branch_ref(&base).or_else(|| self.commit(&base)).map(|reference| (reference, base))
+    }
+
+    /// The main checkout of a linked worktree (one `git worktree add` made);
+    /// `None` in the main checkout itself or a bare repository's.
+    fn main_checkout(&self) -> Option<PathBuf> {
+        let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
+        let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let mut lines = text.lines();
+        let common = std::fs::canonicalize(lines.next()?).ok()?;
+        let own = std::fs::canonicalize(lines.next()?).ok()?;
+        if common == own {
+            return None;
+        }
+        worktree::main_root(&common).map(Path::to_path_buf)
     }
 }
 
@@ -233,6 +300,9 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
     }
     if let Some((_, base)) = repository.base_branch() {
         value["base"] = json!(base);
+    }
+    if let Some(main) = repository.main_checkout() {
+        value["worktree"] = json!({"main_root": main.to_string_lossy()});
     }
     Ok(value)
 }

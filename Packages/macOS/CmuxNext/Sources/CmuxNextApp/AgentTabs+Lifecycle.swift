@@ -40,11 +40,19 @@ extension AgentTabStore {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
         }
+        // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
+        // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
+        // the New Tab page's open-here included). The store binds a `registry:` tab's session only
+        // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
+        if !daemon.isLocal, session != nil || adopt != nil || seed?.namesLocalChat == true {
+            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
+        }
         // A new chat in a pane of another machine runs on that machine: the tab records that
         // machine's store as its host and its session daemon starts the chat there
-        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). An existing session of this
-        // Mac (a link, Duplicate Tab) or an outside chat it resumes stays this Mac's.
-        let remote = !daemon.isLocal && host == nil && session == nil && adopt == nil
+        // (``startRemoteChat``), never this Mac's acpmux (cx-k21v). A session, an outside chat or
+        // a past chat of this Mac was refused above.
+        let remote = !daemon.isLocal && host == nil
         var seed = seed, spare = spare
         if remote {
             guard let registry = Self.registryHost(of: daemon) else {

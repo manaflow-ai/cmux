@@ -512,6 +512,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "terminal_id": terminal_id,
         "created_at_ms": created_at_ms,
         "source": crate::NotificationSource::Cli.as_str(),
+        "desktop": request.fields.get("desktop").and_then(Value::as_bool).unwrap_or(true),
     });
     let preparation = mux
         .prepare_resource_effect(
@@ -642,6 +643,8 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
+    // Intents written before the field existed post a banner.
+    let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
     let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -652,6 +655,7 @@ fn execute_notification_effect(
         terminal_id.clone(),
         created_at_ms,
         source,
+        desktop,
     );
     let notification = crate::ResourceNotification {
         id: notification_id.clone(),
@@ -663,6 +667,7 @@ fn execute_notification_effect(
         created_at_ms,
         source,
         surface,
+        desktop,
     };
     let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());

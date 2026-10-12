@@ -15,7 +15,11 @@ import WebKit
 /// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
+/// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
+/// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
+/// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
+/// work; webviews loadDebug.ts), `typing_stats`,
 /// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
@@ -35,8 +39,8 @@ import WebKit
 /// be measured behind the user's windows.
 @MainActor
 enum DebugAgentPane {
-    /// Long enough for a 5000-row seed and a waited fling of up to ~25 s.
-    static let deadline: Duration = .seconds(30)
+    /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
+    static let deadline: Duration = .seconds(60)
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
@@ -45,6 +49,7 @@ enum DebugAgentPane {
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
+        "load_seed": "loadSeed", "load_run": "loadRun",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
@@ -92,6 +97,15 @@ enum DebugAgentPane {
             let state = view.model.transport.gestures.debugState
             var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            // A seeded prompt's ticket (cx-k21v gap 4): outstanding, and whether its one remote start was used.
+            let seed = view.model.transport.gestures.seedTicketState
+            fields["seed_ticket"] = .bool(seed.outstanding)
+            fields["seed_started"] = .bool(seed.started)
+            // `replay_seed: true` redeems the last seed ticket again for its own prompt (a replay): false once spent.
+            if params["replay_seed"]?.boolValue == true {
+                let replay = view.model.transport.gestures.replayLastSeedTicket(connection: view.model.transport.connection ?? -1)
+                fields["seed_replay_allowed"] = replay.map { .bool($0) } ?? .null
+            }
             return .object(fields)
         }
         #if DEBUG
@@ -256,6 +270,15 @@ enum DebugAgentPane {
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
             for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+                if let value = params[key]?.doubleValue { options[key] = value }
+            }
+            return [options]
+        case "load_seed":
+            return [params["turns"]?.intValue ?? 5000]
+        case "load_run":
+            // The chat under load (loadDebug.ts): a full-speed stream while the transcript scrolls.
+            var options: [String: Any] = [:]
+            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]

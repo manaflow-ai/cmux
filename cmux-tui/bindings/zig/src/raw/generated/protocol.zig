@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb";
+pub const ir_sha256 = "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1510,7 +1510,7 @@ pub const SavedTabGroupMember = struct {
 };
 
 pub const SavedTabGroupRecord = struct {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     id: []const u8,
     members: []const SavedTabGroupMember,
@@ -2031,7 +2031,7 @@ pub const TabGroupOutcome = struct {
 
 pub const TabGroupRecord = struct {
     collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     id: []const u8,
     /// May be empty: the group shows only its color.
@@ -2042,7 +2042,7 @@ pub const TabGroupRecord = struct {
 
 pub const TabGroupRun = struct {
     collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     count: u64,
     id: []const u8,
@@ -2144,8 +2144,31 @@ pub const TerminalColors = struct {
     };
 };
 
+pub const TerminalCommandDeleteResult = struct {
+    deleted: u64,
+};
+
 pub const TerminalCommandHistoryResult = struct {
     enabled: bool,
+    retention_days: u32,
+};
+
+pub const TerminalCommandList = struct {
+    commands: []const TerminalCommandRecord,
+    deletions: []const u8,
+    registry_id: []const u8,
+    retention_days: u32,
+    truncated: bool,
+};
+
+pub const TerminalCommandRecord = struct {
+    command: wire.Nullable([]const u8),
+    cwd: wire.Nullable([]const u8),
+    duration_ms: []const u8,
+    exit_code: wire.Nullable(i32),
+    id: []const u8,
+    started_at_ms: []const u8,
+    terminal_id: []const u8,
 };
 
 pub const TerminalEventsResult = struct {
@@ -4799,6 +4822,31 @@ pub fn deleteSavedTabGroup(client: anytype, request: DeleteSavedTabGroupRequest)
     );
 }
 
+pub const DeleteTerminalCommandsRequest = struct {
+    all: ?bool = null,
+    ids: wire.Field([]const []const u8) = .absent,
+    started_since_ms: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "all",
+    };
+};
+
+pub const DeleteTerminalCommandsResult = TerminalCommandDeleteResult;
+
+pub fn deleteTerminalCommands(client: anytype, request: DeleteTerminalCommandsRequest) !wire.Decoded(DeleteTerminalCommandsResult) {
+    return client.callTyped(
+        DeleteTerminalCommandsResult,
+        .{
+            .name = "delete-terminal-commands",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "terminal-command-history-v1",
+        },
+        request,
+    );
+}
+
 pub const DeleteWorkspaceGroupRequest = struct {
     group: []const u8,
 };
@@ -5466,6 +5514,26 @@ pub fn listTabGroups(client: anytype, request: ListTabGroupsRequest) !wire.Decod
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const ListTerminalCommandsRequest = struct {
+    after_id: wire.Field([]const u8) = .absent,
+    limit: wire.Field(u32) = .absent,
+};
+
+pub const ListTerminalCommandsResult = TerminalCommandList;
+
+pub fn listTerminalCommands(client: anytype, request: ListTerminalCommandsRequest) !wire.Decoded(ListTerminalCommandsResult) {
+    return client.callTyped(
+        ListTerminalCommandsResult,
+        .{
+            .name = "list-terminal-commands",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "terminal-command-history-v1",
         },
         request,
     );
@@ -7756,6 +7824,7 @@ pub fn setTabPinned(client: anytype, request: SetTabPinnedRequest) !wire.Decoded
 
 pub const SetTerminalCommandHistoryRequest = struct {
     enabled: bool,
+    retention_days: wire.Field(u32) = .absent,
 };
 
 pub const SetTerminalCommandHistoryResult = TerminalCommandHistoryResult;
@@ -7767,7 +7836,7 @@ pub fn setTerminalCommandHistory(client: anytype, request: SetTerminalCommandHis
             .name = "set-terminal-command-history",
             .authority = "local-admin",
             .since = 12,
-            .capability = "terminal-command-journal-v1",
+            .capability = "terminal-command-history-v1",
         },
         request,
     );
@@ -9074,6 +9143,7 @@ pub const MachineUsageChangedEvent = struct {
 
 pub const NotificationEvent = struct {
     body: []const u8,
+    desktop: ?bool = null,
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
@@ -9082,6 +9152,7 @@ pub const NotificationEvent = struct {
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "desktop",
         "source",
     };
 };
@@ -10015,7 +10086,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 251;
+pub const command_count: usize = 253;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10096,6 +10167,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "delete-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "delete-saved-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "delete-saved-tab-group", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
+    .{ .name = "delete-terminal-commands", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "delete-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "detach-attached-view", .authority = "frontend", .since = 10, .capability = "view-attachment-detach-v1", .stream = null },
     .{ .name = "detach-client", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -10128,6 +10200,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-saved-screen-groups", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "list-saved-tab-groups", .authority = "control", .since = 12, .capability = "saved-tab-groups-v1", .stream = null },
     .{ .name = "list-tab-groups", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
+    .{ .name = "list-terminal-commands", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "list-workspace-groups", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -10226,7 +10299,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
     .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
-    .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-journal-v1", .stream = null },
+    .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },

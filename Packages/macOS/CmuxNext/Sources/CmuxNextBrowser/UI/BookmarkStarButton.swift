@@ -27,7 +27,7 @@ final class BookmarkStarButton: NSView {
             guard state != oldValue else { return }
             image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
-            toolTip = label
+            themedToolTip = label
             setAccessibilityLabel(label)
             needsDisplay = true
         }

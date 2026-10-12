@@ -37,6 +37,7 @@ struct BookmarkManagerView: View {
             Spacer(minLength: Metrics.space6)
             TextField(BookmarkStrings.searchPlaceholder, text: $model.query)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .focused($searchFocused)
                 .frame(maxWidth: Metrics.paletteWidth / 2)
                 .accessibilityIdentifier("cmux.bookmarks.manager.search")
@@ -53,7 +54,7 @@ struct BookmarkManagerView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .accessibilityIdentifier("cmux.bookmarks.manager.menu")
-            .help(BookmarkStrings.more)
+            .themedHelp(BookmarkStrings.more)
             .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)
@@ -68,6 +69,7 @@ struct BookmarkManagerView: View {
                 }
             }
             .padding(Metrics.space3)
+            .thinScrollers()
         }
         .accessibilityIdentifier("cmux.bookmarks.manager.folders")
     }

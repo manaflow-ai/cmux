@@ -16,9 +16,9 @@
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 7px;
+  --row-pad-y: 3px;
   --row-pad-x: 12px;
-  --row-min: 38px;
+  --row-min: 28px;
   --card-radius: 10px;
   --sidebar-width: 208px;
   /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
@@ -33,9 +33,9 @@
 }
 
 :root[data-settings-look="dense"] {
-  --row-pad-y: 4px;
+  --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 30px;
+  --row-min: 26px;
   --card-radius: 0;
   --sidebar-width: 188px;
   font-size: 12px;
@@ -168,6 +168,12 @@
   border-radius: var(--card-radius);
 }
 
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
+}
+
 .row {
   min-height: var(--row-min);
   padding: var(--row-pad-y) var(--row-pad-x);
@@ -235,7 +241,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--muted-text);
 }
@@ -517,6 +523,27 @@
   white-space: nowrap;
 }
 
+/* Save as Ghostty Theme and Import Theme File, with their inline name and replace prompts. */
+.theme-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theme-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.theme-files-row .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
 .theme-studio .row-help {
   white-space: normal;
@@ -553,8 +580,8 @@
 
 .theme-ball {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .theme-ball-empty {
@@ -756,5 +783,6 @@
 
   .content {
     padding: 14px 16px 40px;
+    --content-fade-top: 12px;
   }
 }

@@ -262,3 +262,42 @@ test("the panel steps between a document's versions, starting on the one opened"
   act(() => root!.render(<ArtifactPanel artifact={versions[0]!} versions={[versions[0]!]} onClose={() => {}} />));
   expect(button("Next version")).toBeUndefined();
 });
+
+test("the panel names the document, copies when saving fails, and hands focus back on close", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const copied: string[] = [];
+  Object.defineProperty(window.navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  const code = "# Release notes\n\nRetry now backs off.";
+  const opener = window.document.createElement("button");
+  window.document.body.append(opener);
+  opener.focus();
+
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactPanel
+        artifact={{ kind: "markdown", lang: "markdown", code }}
+        onClose={() => {}}
+        onSave={() => Promise.reject(new Error("no host"))}
+      />,
+    ),
+  );
+  const title = host.querySelector<HTMLElement>(".acpmux-artifact-title")!;
+  expect(title.textContent).toBe("Release notes");
+  expect(title.title).toContain("Markdown");
+
+  await act(async () => button("Save")!.click());
+  expect(copied).toEqual([code]);
+
+  // Focus moved into the panel (its Code tab), then the panel closes.
+  button("Code")!.focus();
+  act(() => root!.unmount());
+  root = undefined;
+  expect(window.document.activeElement).toBe(opener);
+  opener.remove();
+});

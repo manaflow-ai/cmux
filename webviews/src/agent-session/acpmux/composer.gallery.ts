@@ -82,6 +82,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
+    // The context-usage-menu play draws it beside Hide Context Usage.
+    "agent-session/acpmux/ComposerPickers.tsx#RingIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -426,7 +428,7 @@ export default agentPaneEntry({
       },
     },
     "context-usage-menu": {
-      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the composer's button row then offers Show Context Usage.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-usage",
@@ -461,6 +463,89 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
+    // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
+    // host (macOS screencapture's own region or window pick) and attach it as an image chip.
+    "attach-screenshot": {
+      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 80,
+          reason:
+            "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
+        },
+        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        // Back in the prompt, to type about the capture (the + menu does not take focus back).
+        await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        const asked = log.find(({ method }) => method === "composer.capture");
+        if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
+          throw new Error(`capture asked ${JSON.stringify(asked)}`);
+      },
+    },
+    "attach-window-cancelled": {
+      note: "Play: + > Attach Window… that the person cancels attaches nothing, shows no error and puts focus back in the prompt.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "composer.capture": null },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="window"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        await ctx.waitFor(() =>
+          log.some(
+            ({ method, params }) => method === "composer.capture" && (params as { mode?: string })?.mode === "window",
+          ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (ctx.document.querySelector(".acpmux-attachment-image, .acpmux-attachment-note"))
+          throw new Error("a cancelled capture attached something or showed a note");
+        if (!ctx.document.activeElement?.closest(".acpmux-composer-prompt"))
+          throw new Error("a cancelled capture left focus off the prompt");
+      },
+    },
+    "attach-screenshot-too-large": {
+      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 40,
+          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
+        },
+        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
+      },
+      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.waitFor(() =>
+          ctx.document
+            .querySelector(".acpmux-attachment-note")
+            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
+        );
+        if (ctx.document.querySelector(".acpmux-attachment-image"))
+          throw new Error("a refused capture attached an image");
       },
     },
     "context-breakdown": {

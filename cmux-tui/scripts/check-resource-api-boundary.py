@@ -1957,7 +1957,28 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {"name", "initial_content", "correlation_key", "expected_revision", "ephemeral"}
+            != {
+                "name",
+                "initial_content",
+                "correlation_key",
+                "expected_revision",
+                "ephemeral",
+                "cwd",
+                "argv",
+                "shell",
+            }
+            or create_fields.get("cwd", {}).get("required") is not False
+            or create_fields.get("cwd", {}).get("type") != {"kind": "primitive", "name": "string"}
+            or create_fields.get("argv", {}).get("required") is not False
+            or create_fields.get("argv", {}).get("type")
+            != {
+                "kind": "array",
+                "items": {"kind": "primitive", "name": "string"},
+                "min_items": 1,
+            }
+            or create_fields.get("shell", {}).get("required") is not False
+            or create_fields.get("shell", {}).get("type")
+            != {"kind": "primitive", "name": "string", "min_length": 1}
             or create_fields.get("ephemeral", {}).get("required") is not False
             or create_fields.get("ephemeral", {}).get("type")
             != {"kind": "primitive", "name": "boolean"}
@@ -1976,7 +1997,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

@@ -74,6 +74,8 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    /// The page's menu shown past the window's edge (AgentPaneView+Popup).
+    var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
@@ -87,7 +89,7 @@ public final class AgentPaneView: NSView {
     public private(set) lazy var redraw = AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    private static let processPool = WKProcessPool()
+    static let processPool = WKProcessPool()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -126,7 +128,7 @@ public final class AgentPaneView: NSView {
             })
         } else {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
+            configuration.websiteDataStore = AgentPaneWarmup.dataStore
             // One process pool for every agent page: a fresh pool per page made WebKit list the
             // user-installed fonts again for each new page (registerUserInstalledFonts, about
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
@@ -178,10 +180,8 @@ public final class AgentPaneView: NSView {
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        model.onSaveFile = { [weak self] save in
-            guard let self else { return false }
-            return try await savePanel.save(save, window: window)
-        }
+        model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
+        model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
@@ -305,6 +305,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
@@ -336,6 +337,7 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
+        popupHostStorage?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -346,7 +348,10 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
-        if window == nil { dictation.handle(.stop) }
+        if window == nil {
+            dictation.handle(.stop)
+            popupHostStorage?.dismiss()
+        }
         applyTheme()
     }
 

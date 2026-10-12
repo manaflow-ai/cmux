@@ -205,6 +205,7 @@ impl HostedReader {
             let generation = {
                 let mut term = pty.term.lock().unwrap();
                 **term = replacement_term;
+                self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
                 *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
                 pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                 *geometry = next_geometry;
@@ -240,13 +241,18 @@ impl HostedReader {
                 {
                     host.disconnect();
                 }
-                pty.host_connection_state
-                    .store(TerminalHostConnectionState::Reconnecting as u8, Ordering::Release);
+                let was = pty
+                    .host_connection_state
+                    .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel);
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
                     pty.stream_progress.notify();
                     return None;
+                }
+                // A resync's reconnect that failed is a loss clients have not heard of.
+                if was != TerminalHostConnectionState::Reconnecting as u8 {
+                    publish_host_link_state(pty);
                 }
                 if !retry.wait_or_fail(pty) {
                     return None;
@@ -272,9 +278,13 @@ impl HostedReader {
             self.sequence_boundary = replacement_snapshot.sequence_boundary;
             self.protocol_version = replacement_protocol_version;
             self.smart_renderer = replacement_smart_renderer;
-            pty.host_connection_state
-                .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
+            let was = pty
+                .host_connection_state
+                .swap(TerminalHostConnectionState::Connected as u8, Ordering::AcqRel);
             self.connected_at = Some(Instant::now());
+            if was != TerminalHostConnectionState::Connected as u8 {
+                publish_host_link_state(pty);
+            }
             return Some(replacement_reader);
         }
     }

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.addFiles.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入"
+          }
+        }
+      }
+    },
+    "agentPane.addFiles.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقرأ كل محادثة في هذا المجلد الملفات التي تضيفها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki chat u ovoj mapi čita datoteke koje dodate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle chats i denne mappe læser de filer, du tilføjer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Chat in diesem Ordner liest die Dateien, die du hinzufügst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every chat in this folder reads the files you add."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los chats de esta carpeta leen los archivos que añadas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque discussion de ce dossier lit les fichiers que vous ajoutez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni chat in questa cartella legge i file che aggiungi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダ内のすべてのチャットが、追加したファイルを読み込みます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនីមួយៗក្នុងថតនេះអានឯកសារដែលអ្នកបន្ថែម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더의 모든 채팅이 추가한 파일을 읽습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle chatter i denne mappen leser filene du legger til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Każdy czat w tym folderze odczytuje dodane pliki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os chats desta pasta leem os arquivos que você adicionar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый чат в этой папке читает добавленные вами файлы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกแชทในโฟลเดอร์นี้จะอ่านไฟล์ที่คุณเพิ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasördeki her sohbet eklediğiniz dosyaları okur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожен чат у цій папці читає додані вами файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi cuộc trò chuyện trong thư mục này đều đọc các tệp bạn thêm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹中的每个聊天都会读取你添加的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾中的每個聊天都會讀取你加入的檔案。"
+          }
+        }
+      }
+    },
     "agentPane.inspector.saveLog": {
       "extractionState": "manual",
       "localizations": {
@@ -22137,6 +22399,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "the agent daemon there is too old for approvals from cmux. Update the machine, then try again"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeBehind": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الفرع متأخر عن فرعه الأساسي. حدّثه، ثم ادمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova grana zaostaje za svojom osnovom. Ažurirajte je, pa spojite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne gren er bagud i forhold til sin base. Opdater den, og flet derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Branch liegt hinter seiner Basis. Aktualisiere ihn, dann führe zusammen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch is behind its base. Update it, then merge."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta rama está por detrás de su base. Actualízala y luego fusiona."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette branche est en retard sur sa base. Mettez-la à jour, puis fusionnez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo branch è indietro rispetto alla base. Aggiornalo, poi unisci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブランチはベースより遅れています。更新してからマージしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាខានេះនៅពីក្រោយមូលដ្ឋានរបស់វា។ សូមធ្វើបច្ចុប្បន្នភាព រួចបញ្ចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브랜치가 기본 브랜치보다 뒤처져 있습니다. 업데이트한 다음 병합하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne grenen ligger bak grunnen sin. Oppdater den, og flett deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta gałąź jest za swoją bazą. Zaktualizuj ją, potem scal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este branch está atrás da base. Atualize-o e depois mescle."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта ветка отстаёт от базовой. Обновите её, затем выполните слияние."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สาขานี้ตามหลังสาขาหลัก อัปเดตก่อน แล้วจึงผสาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dal temelinin gerisinde. Güncelleyin, sonra birleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця гілка відстає від базової. Оновіть її, потім виконайте злиття."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhánh này đang chậm hơn nhánh gốc. Hãy cập nhật rồi hợp nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落后于其基础分支。请先更新，再合并。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支落後於其基礎分支。請先更新，再合併。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال GitHub يتحقق مما إذا كان يمكن دمج طلب السحب هذا. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub još provjerava može li se ovaj zahtjev za povlačenje spojiti. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub tjekker stadig, om denne pull request kan flettes. Prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub prüft noch, ob dieser Pull Request zusammengeführt werden kann. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub is still checking whether this pull request can merge. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub aún está comprobando si esta solicitud de incorporación se puede fusionar. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub vérifie encore si cette pull request peut être fusionnée. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sta ancora verificando se questa pull request può essere unita. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub はこのプルリクエストをマージできるかまだ確認中です。少し待ってからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub នៅតែពិនិត្យថាតើសំណើទាញនេះអាចបញ្ចូលបានឬអត់។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub가 아직 이 풀 리퀘스트의 병합 가능 여부를 확인하고 있습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sjekker fortsatt om denne pull requesten kan flettes. Prøv igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub wciąż sprawdza, czy ten pull request można scalić. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub ainda está verificando se este pull request pode ser mesclado. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ещё проверяет, можно ли слить этот пул-реквест. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ยังตรวจสอบอยู่ว่าพูลรีเควสต์นี้ผสานได้หรือไม่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub bu çekme isteğinin birleştirilip birleştirilemeyeceğini hâlâ denetliyor. Biraz sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub ще перевіряє, чи можна злити цей пул-реквест. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub vẫn đang kiểm tra xem pull request này có hợp nhất được không. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 仍在检查此拉取请求能否合并。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 仍在檢查此提取要求能否合併。請稍後再試。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيّر طلب السحب لهذا الفرع. راجعه مرة أخرى قبل الدمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zahtjev za povlačenje ove grane se promijenio. Pogledajte ga ponovo prije spajanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne grens pull request er ændret. Se på den igen, før du fletter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Pull Request dieses Branches hat sich geändert. Sieh ihn dir vor dem Zusammenführen noch einmal an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch's pull request changed. Look at it again before merging."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La solicitud de incorporación de esta rama cambió. Revísala de nuevo antes de fusionar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pull request de cette branche a changé. Consultez-la à nouveau avant de fusionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pull request di questo branch è cambiata. Controllala di nuovo prima di unire."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブランチのプルリクエストが変更されました。マージする前にもう一度確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើទាញរបស់សាខានេះបានផ្លាស់ប្ដូរ។ សូមពិនិត្យម្ដងទៀតមុនពេលបញ្ចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브랜치의 풀 리퀘스트가 변경되었습니다. 병합하기 전에 다시 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne grenens pull request er endret. Se på den igjen før du fletter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request tej gałęzi się zmienił. Sprawdź go ponownie przed scaleniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O pull request deste branch mudou. Confira-o de novo antes de mesclar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пул-реквест этой ветки изменился. Посмотрите его ещё раз перед слиянием."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พูลรีเควสต์ของสาขานี้เปลี่ยนไป ตรวจดูอีกครั้งก่อนผสาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dalın çekme isteği değişti. Birleştirmeden önce yeniden bakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пул-реквест цієї гілки змінився. Перегляньте його ще раз перед злиттям."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request của nhánh này đã thay đổi. Hãy xem lại trước khi hợp nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支的拉取请求已更改。合并前请再看一遍。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分支的提取要求已變更。合併前請再看一次。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeHead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الفرع هنا ليس رأس طلب السحب. ادفع أو اسحب أولاً، ثم ادمج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova grana ovdje nije vrh zahtjeva za povlačenje. Prvo pošaljite ili povucite, pa spojite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grenen her er ikke pull requestens head. Push eller pull først, og flet derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Branch hier ist nicht der Head des Pull Requests. Erst pushen oder pullen, dann zusammenführen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This branch here isn't the pull request's head. Push or pull first, then merge."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta rama aquí no es la cabeza de la solicitud de incorporación. Envía o trae cambios primero y luego fusiona."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette branche ici n’est pas la tête de la pull request. Poussez ou tirez d’abord, puis fusionnez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo branch qui non è la head della pull request. Esegui prima push o pull, poi unisci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここのブランチはプルリクエストの先頭ではありません。先にプッシュまたはプルしてからマージしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាខានៅទីនេះមិនមែនជាក្បាលនៃសំណើទាញទេ។ សូមរុញ ឬទាញជាមុនសិន រួចបញ្ចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기 브랜치가 풀 리퀘스트의 헤드가 아닙니다. 먼저 푸시하거나 풀한 다음 병합하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grenen her er ikke pull requestens head. Push eller pull først, og flett deretter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta gałąź tutaj nie jest głową pull requesta. Najpierw wypchnij lub pobierz, potem scal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este branch aqui não é o head do pull request. Envie ou puxe primeiro e depois mescle."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта ветка здесь не совпадает с головой пул-реквеста. Сначала отправьте или подтяните изменения, затем выполните слияние."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สาขานี้ที่นี่ไม่ใช่ส่วนหัวของพูลรีเควสต์ พุชหรือพูลก่อน แล้วจึงผสาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buradaki dal, çekme isteğinin başı değil. Önce gönderin veya çekin, sonra birleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця гілка тут не є головою пул-реквесту. Спершу надішліть або підтягніть зміни, потім виконайте злиття."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhánh ở đây không phải đầu của pull request. Hãy đẩy hoặc kéo trước, rồi hợp nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里的分支不是拉取请求的头部。请先推送或拉取，然后再合并。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡的分支不是提取要求的前端。請先推送或拉取，再合併。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeNotOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب السحب هذا غير مفتوح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj zahtjev za povlačenje nije otvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne pull request er ikke åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Pull Request ist nicht offen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pull request isn't open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta solicitud de incorporación no está abierta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette pull request n’est pas ouverte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa pull request non è aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプルリクエストはオープンではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើទាញនេះមិនបើកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 풀 리퀘스트는 열려 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne pull requesten er ikke åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten pull request nie jest otwarty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este pull request não está aberto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот пул-реквест не открыт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พูลรีเควสต์นี้ไม่ได้เปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çekme isteği açık değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей пул-реквест не відкритий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request này không mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此拉取请求未打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此提取要求未開啟。"
+          }
+        }
+      }
+    },
+    "agentPane.error.gitMergeNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقول GitHub إن طلب السحب هذا غير جاهز للدمج: لا يزال هناك فحص أو مراجعة أو تعارض مفتوح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub kaže da ovaj zahtjev za povlačenje nije spreman za spajanje: provjera, pregled ili konflikt je još otvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub siger, at denne pull request ikke er klar til at blive flettet: en kontrol, en gennemgang eller en konflikt er stadig åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laut GitHub ist dieser Pull Request noch nicht bereit zum Zusammenführen: Eine Prüfung, ein Review oder ein Konflikt ist noch offen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub says this pull request isn't ready to merge: a check, a review or a conflict is still open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub indica que esta solicitud de incorporación no está lista para fusionarse: aún hay una comprobación, una revisión o un conflicto pendiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selon GitHub, cette pull request n’est pas prête à être fusionnée : une vérification, une revue ou un conflit reste ouvert."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secondo GitHub questa pull request non è pronta per l’unione: un controllo, una revisione o un conflitto è ancora aperto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub によると、このプルリクエストはまだマージできません。チェック、レビュー、またはコンフリクトが残っています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub និយាយថាសំណើទាញនេះមិនទាន់រួចរាល់សម្រាប់បញ្ចូលទេ៖ ការត្រួតពិនិត្យ ការពិនិត្យ ឬការប៉ះទង្គិចនៅតែបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub에 따르면 이 풀 리퀘스트는 아직 병합할 수 없습니다. 검사, 리뷰 또는 충돌이 남아 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub sier at denne pull requesten ikke er klar til fletting: en kontroll, en gjennomgang eller en konflikt er fortsatt åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub podaje, że ten pull request nie jest gotowy do scalenia: kontrola, recenzja lub konflikt są nadal otwarte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GitHub diz que este pull request não está pronto para mesclar: uma verificação, uma revisão ou um conflito ainda está aberto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По данным GitHub, этот пул-реквест ещё не готов к слиянию: проверка, ревью или конфликт ещё не завершены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub แจ้งว่าพูลรีเควสต์นี้ยังไม่พร้อมผสาน: ยังมีการตรวจสอบ การรีวิว หรือความขัดแย้งค้างอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub'a göre bu çekme isteği birleştirmeye hazır değil: bir denetim, inceleme veya çakışma hâlâ açık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За даними GitHub, цей пул-реквест ще не готовий до злиття: перевірка, рецензія або конфлікт ще відкриті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub cho biết pull request này chưa sẵn sàng hợp nhất: vẫn còn một kiểm tra, đánh giá hoặc xung đột đang mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 显示此拉取请求尚不能合并：仍有检查、审查或冲突未完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub 顯示此提取要求尚無法合併：仍有檢查、審查或衝突未完成。"
           }
         }
       }

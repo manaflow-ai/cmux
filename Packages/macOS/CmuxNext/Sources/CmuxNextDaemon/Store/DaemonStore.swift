@@ -95,7 +95,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
-    @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -240,8 +240,8 @@ public final class DaemonStore: StateResourceQueries {
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
-        agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
-        for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
+        self.agents.seed(agents)
+        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
     /// Records a completed handshake before its `.connected` event drains,
@@ -275,7 +275,7 @@ public final class DaemonStore: StateResourceQueries {
                     for group in pane.tabGroups { tabGroups[group.id] = group }
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
-                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
+                        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
                         tab.setObservedCwd(directories.directory(for: tab.surface))
                     }
                 }

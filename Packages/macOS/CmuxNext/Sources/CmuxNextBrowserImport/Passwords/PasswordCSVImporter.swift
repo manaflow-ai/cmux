@@ -11,6 +11,8 @@ public struct PasswordCSVImporter: Sendable {
         case storeUnavailable
         case unreadable
         case noPasswordColumns
+        /// The person closed the column sheet.
+        case cancelled
     }
 
     /// Larger than any real export; a bigger file is not a password CSV.
@@ -22,10 +24,21 @@ public struct PasswordCSVImporter: Sendable {
         self.destination = destination
     }
 
-    public func run(file: URL, intoProfile profileID: String) async throws -> PasswordImportReport {
+    /// `columns` is asked, only when the header names no website or password column, to match
+    /// them by the header's names (the column sheet); nil keeps such a file a failure.
+    public func run(file: URL, intoProfile profileID: String,
+                    columns: (@MainActor @Sendable (PasswordCSVHeader) async -> PasswordCSVColumns?)? = nil) async throws -> PasswordImportReport {
         guard destination.isAvailable else { throw Failure.storeUnavailable }
-        // File IO off the caller's actor; the plaintext never leaves this task.
-        let read = try await Task.detached { try Self.parse(Self.read(file)) }.value
+        // File IO and parsing off the caller's actor; the plaintext stays in the locked buffer.
+        let bytes = try await Task.detached { try Self.read(file) }.value
+        let read: (logins: [ImportedLogin], skipped: LoginSkipCounts)
+        do {
+            read = try await Task.detached { try Self.parse(bytes) }.value
+        } catch Failure.noPasswordColumns {
+            guard let columns, let header = bytes.withUnsafeBytes(PasswordCSVHeader.read) else { throw Failure.noPasswordColumns }
+            guard let match = await columns(header) else { throw Failure.cancelled }
+            read = try await Task.detached { try Self.parse(bytes, columns: match) }.value
+        }
         return try await store(read, intoProfile: profileID)
     }
 
@@ -65,9 +78,9 @@ public struct PasswordCSVImporter: Sendable {
         return try await store(read, intoProfile: profileID)
     }
 
-    static func parse(_ bytes: SecretBytes) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
+    static func parse(_ bytes: SecretBytes, columns: PasswordCSVColumns? = nil) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         do {
-            return try bytes.withUnsafeBytes { try PasswordCSVReader().read($0) }
+            return try bytes.withUnsafeBytes { try PasswordCSVReader().read($0, columns: columns) }
         } catch {
             throw .noPasswordColumns
         }

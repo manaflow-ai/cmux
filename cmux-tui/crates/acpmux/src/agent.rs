@@ -44,6 +44,10 @@ pub enum Inbound {
         code: Option<i32>,
         host_seq: Option<u64>,
     },
+    /// Answered once every item queued before it was handled. A prompt's answer
+    /// bypasses this queue, so a turn sends one before it settles: the agent's
+    /// last notifications (the reply text) are applied first.
+    Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -477,6 +481,15 @@ impl ChildAgent {
                                 let _ =
                                     inbound.send(Inbound::Notification { method, params }).await;
                             }
+                        }
+                    }
+                }
+                // Claude's background shells ended with it (cx-ncc.84).
+                if let Some(tr) = &agent_for_exit.translator {
+                    for m in tr.end_background_shells().await {
+                        tap(Direction::In, &m, None);
+                        if let Message::Notification { method, params } = m {
+                            let _ = inbound.send(Inbound::Notification { method, params }).await;
                         }
                     }
                 }

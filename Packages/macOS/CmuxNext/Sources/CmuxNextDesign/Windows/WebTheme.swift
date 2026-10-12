@@ -72,6 +72,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1))
             } ?? surface.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
+            // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
+            // opaque fill as native overlays (`Palette.popupSurface`).
+            "--cmux-popup-surface": Self.css(tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),

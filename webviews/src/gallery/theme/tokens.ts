@@ -70,6 +70,8 @@ export type ThemeInput = {
   backgroundOpacity: number;
   /** `appearance.accent` (ThemeInput.accent); neutral when absent. */
   accent?: AppAccent;
+  /** The theme's own accent (ThemeInput.accentColor); wins over `accent`. */
+  accentColor?: ThemeRGB | null;
 };
 
 export const GHOSTTY_DEFAULT: ThemeInput = {
@@ -149,10 +151,18 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
-  // The app theme when the setting names an accent; null keeps the neutral fills.
+  // The app theme when the setting or the theme names an accent; null keeps the neutral fills.
   const app =
-    input.accent && input.accent !== "neutral"
-      ? deriveAppTheme({ background: hex(bg), foreground: hex(fg), palette: input.palette.map(hex) }, input.accent)
+    (input.accent && input.accent !== "neutral") || input.accentColor
+      ? deriveAppTheme(
+          {
+            background: hex(bg),
+            foreground: hex(fg),
+            palette: input.palette.map(hex),
+            accent: input.accentColor ? hex(input.accentColor) : null,
+          },
+          input.accent ?? "neutral",
+        )
       : null;
   const accent = app ? parseHex(app.tokens.accent) : null;
   const hover = withAlpha(fg, isDark ? 0.06 : 0.05);

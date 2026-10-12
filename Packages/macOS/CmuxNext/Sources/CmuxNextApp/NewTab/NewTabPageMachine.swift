@@ -15,22 +15,20 @@ struct NewTabPageMachine {
     /// nil for this Mac (the page lists this Mac's projects). Never this Mac's folders (cx-k21v).
     let remoteFolders: [String]?
 
-    @MainActor init(_ services: AppServices, selected: TabModel?) {
-        guard let selected else {
-            (cwd, home, remoteFolders) = (nil, NSHomeDirectory(), nil)
-            return
-        }
-        let daemon = services.machines.daemon(forTab: selected)
-        guard !daemon.isLocal else {
-            (cwd, home, remoteFolders) = (selected.cwd, NSHomeDirectory(), nil)
+    /// `pane`: the pane the page opens in. With no selected tab (an empty pane) its machine
+    /// decides: a pane of another machine uses its workspace's folder there, never this Mac's.
+    @MainActor init(_ services: AppServices, selected: TabModel?, pane: PaneController? = nil) {
+        guard let daemon = selected.map(services.machines.daemon(forTab:)) ?? pane?.daemon, !daemon.isLocal else {
+            (cwd, home, remoteFolders) = (selected?.cwd, NSHomeDirectory(), nil)
             return
         }
         let store = daemon.store
-        let workspace = store.pane(containing: selected.surface).flatMap { store.workspace(containing: $0.handle) }
+        let workspace = selected.flatMap { store.pane(containing: $0.surface) }.flatMap { store.workspace(containing: $0.handle) }
+            ?? pane.flatMap { store.workspace(containing: $0.pane.handle) }
         let folder = workspace?.screens.flatMap(\.panes).flatMap(\.tabs).lazy.compactMap(\.cwd).first
         var folders: [String] = []
         for path in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
             where path.hasPrefix("/") && !folders.contains(path) { folders.append(path) }
-        (cwd, home, remoteFolders) = (selected.cwd ?? folder, nil, folders)
+        (cwd, home, remoteFolders) = (selected?.cwd ?? folder, nil, folders)
     }
 }

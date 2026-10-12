@@ -23,11 +23,15 @@ extension NewTabPage {
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
     /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
-    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, then: (@MainActor (String) -> Void)? = nil) {
+    /// `reusingShown` (Focus Location Bar, an empty submit): a New Tab page the pane already
+    /// shows takes the keyboard instead. Otherwise (Cmd-T) a new tab opens, also from a New Tab
+    /// page (Leo 2026-10-10).
+    static func open(in pane: PaneController, seed: AgentPaneSeedSource?, reusingShown: Bool = false,
+                     then: (@MainActor (String) -> Void)? = nil) {
         let start = ContinuousClock.now
         let services = pane.services
         let openingKey = ObjectIdentifier(pane)
-        if let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key), AgentHistoryPage.title(key, services) == nil {
+        if reusingShown, let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key), AgentHistoryPage.title(key, services) == nil {
             openingPanes.remove(openingKey)
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             services.agentTabs.view(for: key)?.focusLocation()
@@ -40,8 +44,9 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
-        let cwd = pane.selectedTab?.cwd
-        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window)
+        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+        // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
+        let cwd = page.cwd
         page.inputToken = inputToken
         var handler = Self.handler(services, cwd: cwd) { [weak pane] key, request in
             if let pane { BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane) } }
@@ -81,7 +86,8 @@ extension NewTabPage {
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
     /// responsibility (the godfile limit counts its extensions).
-    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep: Bool = false) {
+    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep chat: Bool = false) {
+        let keep = chat || request.keep
         let services = pane.services
         services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))

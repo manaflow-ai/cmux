@@ -51,6 +51,7 @@ mod mux;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod program_status;
+mod prompt_mode_reset;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
@@ -132,14 +133,15 @@ pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
-    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
-    ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
-    ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
-    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
-    TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    NOTIFICATION_DESKTOP_CAPABILITY, NotificationEvent, NotificationLevel, NotificationSource,
+    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RowHeightsOutcome, RowsError,
+    RunPlacement, ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
+    TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination, TabGroupOutcome,
+    TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations, TreeDelta,
+    TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{

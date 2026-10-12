@@ -94,7 +94,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
-            // Cmd-Shift-[ / ] while Home is shown (KeyBindingDefaults.homeNavigation, a scoped default).
+            // No keys: Cmd-Shift-[ / ] are Chrome tab keys everywhere, Home too (KeyBindingDefaults.tabSwitching).
             ActionDescriptor(
                 id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
                 keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],
