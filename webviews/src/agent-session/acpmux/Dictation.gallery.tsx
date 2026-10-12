@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
-import { DictationButton } from "./DictationButton";
+import { setComposerSettings } from "./composerSettings";
+import { DictationMic } from "./DictationMic";
 import { deliverDictation, type Dictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationNotice } from "./DictationNotice";
@@ -58,7 +59,7 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
             <div className="acpmux-composer-bar">
               <span className="acpmux-chips-spacer" />
               <div className="acpmux-composer-actions">
-                <DictationButton dictation={dictation} />
+                <DictationMic dictation={dictation} />
               </div>
             </div>
           </div>
@@ -83,6 +84,17 @@ const stop: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Dictate" }).getAttribute("aria-pressed") === "false");
 };
 
+/// Right-click Hide dictation button takes the mic out of the composer (every composer reads the
+/// same setting); the play puts it back as Settings would.
+const hide: Play = async (ctx) => {
+  const mic = ctx.find({ role: "button", name: "Dictate" });
+  mic.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 100 }));
+  await ctx.click({ role: "menuitem", name: "Hide dictation button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mic") === null);
+  setComposerSettings({ showDictation: true });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mic") !== null);
+};
+
 const permission: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Open voice permissions" });
   await ctx.waitFor(() => ctx.document.querySelector("[data-settings-receipt]") !== null);
@@ -100,6 +112,7 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-dictation-fixture]" }],
   covers: [
     "agent-session/acpmux/DictationButton.tsx#DictationButton",
+    "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/DictationLevelMeter.tsx#DictationLevelMeter",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
   ],
@@ -135,6 +148,11 @@ export default componentEntry<Props>({
     stop: {
       props: { initialState: "listening", initialNotice: null },
       play: stop,
+    },
+    hide: {
+      props: { initialState: "idle", initialNotice: null },
+      play: hide,
+      note: "Right-click on the mic hides it in every composer; Settings shows it again.",
     },
     denied: {
       props: {

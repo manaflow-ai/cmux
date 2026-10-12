@@ -48,6 +48,7 @@ import Testing
             let keys = descriptor.textKeys
             #expect(keys.group != nil && keys.title != nil, "\(descriptor.id): group or title has no key")
             #expect((descriptor.help == nil) == (keys.help == nil), "\(descriptor.id): help has no key")
+            #expect((descriptor.summary == nil) == (keys.summary == nil), "\(descriptor.id): summary has no key")
             #expect((descriptor.defaultLabel == nil) == (keys.defaultLabel == nil), "\(descriptor.id): default label has no key")
         }
     }

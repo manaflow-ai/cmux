@@ -10,7 +10,7 @@ struct TooltipStyle {
     /// The scope's colors, frozen (the panel itself sits in no scope). theme-scoped
     @MainActor static func current() -> TooltipStyle {
         func frozen(_ color: NSColor) -> NSColor { color.usingColorSpace(.sRGB) ?? color }
-        return TooltipStyle(fill: frozen(Palette.elevatedBackground), border: frozen(Palette.separator),
+        return TooltipStyle(fill: frozen(Palette.popupSurface), border: frozen(Palette.separator),
                             ink: frozen(Palette.textPrimary), hint: frozen(Palette.textSecondary))
     }
 }

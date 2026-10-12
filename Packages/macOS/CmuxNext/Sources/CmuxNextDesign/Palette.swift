@@ -55,6 +55,16 @@ public struct Palette {
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
+    /// The one solid surface of every overlay that carries text (palette,
+    /// dialogs, hover cards, find and prompt bars, page info, popovers,
+    /// tooltips): the window background lifted toward the text
+    /// (``ThemeTokens/opaqueOverlayFill(lift:)``), always opaque, so no text
+    /// under it shows through. Pages get the same color as
+    /// `--cmux-popup-surface` (`WebTheme`).
+    public static var popupSurface: NSColor {
+        guard let tokens = ThemeContext.active else { return PaletteDynamic.popupSurface }
+        return tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor
+    }
     /// Every pane's tab strip: a shade darker than the window.
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.

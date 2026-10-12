@@ -2,6 +2,7 @@ import { errorMessage } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
+import { lastModel } from "./lastPick";
 import { isTrustRefusal } from "./direct";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
@@ -255,6 +256,7 @@ export class HarnessSwitch {
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();
+    const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -265,8 +267,9 @@ export class HarnessSwitch {
       // A model or mode picked for one harness does not carry to another; to another folder it does.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
-        // A model row of this harness picked it: the new chat starts on that model.
-        ...(options.model ? { model: options.model } : {}),
+        // A model row of this harness picked it, or the caller passed the one last picked on it
+        // (`lastOfferedModel`): the new chat starts on that model.
+        ...(model ? { model } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
@@ -646,15 +649,29 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
-/// The model a new chat on `harness` starts on before anything is picked: what a session acpmux
-/// last started there reported, else its last session's, else the catalog's first.
+/// The model a new chat on `harness` in `folder` starts on before anything is picked: the one last
+/// picked on it (lastPick.ts) while the harness still offers it, else what a session acpmux last
+/// started there reported, else its last session's, else the catalog's first.
 export function defaultModel(
   harness: string,
   catalog: Catalog,
   profiles: HarnessProfiles = harnessProfiles,
+  folder?: string,
 ): string | undefined {
   const profile = profiles.get(harness);
-  return profile?.startModel ?? profile?.model ?? catalog.find((entry) => entry.id === harness)?.models[0]?.id;
+  return (
+    lastOfferedModel(harness, catalog, folder) ??
+    profile?.startModel ??
+    profile?.model ??
+    catalog.find((entry) => entry.id === harness)?.models[0]?.id
+  );
+}
+
+/// The model last picked on `harness` in `folder` (lastPick.ts), while the harness still offers it.
+export function lastOfferedModel(harness: string, catalog: Catalog, folder?: string): string | undefined {
+  const picked = lastModel(harness, folder);
+  const models = catalog.find((entry) => entry.id === harness)?.models ?? [];
+  return picked && (models.length === 0 || models.some((model) => model.id === picked)) ? picked : undefined;
 }
 
 export function applySwitch(
@@ -688,7 +705,7 @@ export function applySwitch(
   const live = attached ? raw.summary : undefined;
   const profile = profiles.get(intent.harness);
   const config = intent.config;
-  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles);
+  const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
   const modes = live?.modes ?? profile?.modes;
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),

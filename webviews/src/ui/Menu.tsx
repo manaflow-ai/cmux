@@ -12,7 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { usePortalContainer } from "./UiProvider";
+import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -210,10 +210,12 @@ export function MenuPopup({
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
+  const positionMethod = useOverlayPosition();
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner
         className="ui-positioner"
+        positionMethod={positionMethod}
         anchor={anchor}
         side={side}
         collisionAvoidance={flip ? undefined : { side: "none" }}
