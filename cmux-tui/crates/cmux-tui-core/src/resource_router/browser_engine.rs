@@ -4,7 +4,8 @@
 //! session) a new tab would stay `starting` for good, so `tab.create_browser`
 //! and a browser mutation on a starting tab fail at once with
 //! `operation.failed`, `extra.code` `engine_unavailable`, before any receipt.
-//! Frontend-rendered browsers and sessions with a provider are unchanged.
+//! Frontend-rendered browsers and sessions with a provider are unchanged, and
+//! a retry of a request that already has a receipt replays it.
 
 use std::sync::Arc;
 
@@ -28,9 +29,19 @@ pub(super) fn refuse_without_provider(
         _ => false,
     };
     match daemon_rendered.then(|| mux.browser_engine_unavailable(&name)).flatten() {
-        Some(error) => Err(error),
-        None => Ok(()),
+        Some(error) if !received_before(mux, request) => Err(error),
+        _ => Ok(()),
     }
+}
+
+/// A retry of a request that was already received replays its receipt
+/// instead: refusing it would orphan the tab its original created.
+fn received_before(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> bool {
+    let Some(key) = request.envelope.idempotency_key.as_deref() else { return false };
+    let correlation = request.fields.get("correlation_key").and_then(serde_json::Value::as_str);
+    let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A failed lookup refuses: the request is new as far as the gate can tell.
+    registry.has_resource_receipt(key, correlation).unwrap_or(false)
 }
 
 /// The request's browser is daemon-rendered and has no live session yet. A
