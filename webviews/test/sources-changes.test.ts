@@ -76,9 +76,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
       const file = [...document.querySelectorAll<HTMLElement>(".acpmux-diff-file")].find((node) =>
         node.dataset.path?.endsWith("jitter/exponential.ts"),
       );
-      return Boolean(
-        body && file && Math.abs(file.getBoundingClientRect().top - body.getBoundingClientRect().top) < 8,
-      );
+      return Boolean(body && file && Math.abs(file.getBoundingClientRect().top - body.getBoundingClientRect().top) < 8);
     });
     await page.close();
   });

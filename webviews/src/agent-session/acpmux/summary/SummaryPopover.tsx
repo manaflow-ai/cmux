@@ -3,6 +3,7 @@ import { Counts } from "../changes/Counts";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
+import type { TurnFile } from "../diff";
 import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
@@ -23,6 +24,13 @@ const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
   stopped: "bgTask.state.stopped",
 };
 
+/// The last turn that edited files: its totals (the checkpoint's once loaded) and its files.
+export type SummaryChanges = {
+  additions: number;
+  deletions: number;
+  files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
+};
+
 export function SummaryPopover({
   summary,
   galleryCount = 0,
@@ -35,8 +43,9 @@ export function SummaryPopover({
 }: {
   summary: SessionSummary;
   galleryCount?: number;
-  changes?: { additions: number; deletions: number };
-  onOpenChanges?: () => void;
+  changes?: SummaryChanges;
+  /// The turn's diff; at `path`, that file's.
+  onOpenChanges?: (path?: string) => void;
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
@@ -117,23 +126,40 @@ export function SummaryPopover({
         )}
       />
       {changes && (
-        <section className="acpmux-summary-section" aria-label={t("header.changes")}>
-          <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
-          <ul className="acpmux-summary-list">
+        // The last turn that edited files: its totals open its diff, each of its files that file's.
+        <SummarySection
+          title={t("header.changes")}
+          items={changes.files ?? []}
+          lead={
             <li>
               <button
                 type="button"
                 className="acpmux-summary-row acpmux-summary-link"
                 aria-label={t("header.changes")}
-                onClick={onOpenChanges}
+                onClick={() => onOpenChanges?.()}
               >
                 <Icon name="diff.file" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{t("header.changes")}</span>
                 <Counts additions={changes.additions} deletions={changes.deletions} />
               </button>
             </li>
-          </ul>
-        </section>
+          }
+          row={(file) => (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
+                title={file.path}
+                disabled={!onOpenChanges}
+                onClick={() => onOpenChanges?.(file.path)}
+              >
+                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{file.displayPath}</span>
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          )}
+        />
       )}
       <SummarySection
         title={t("summary.pullRequests")}

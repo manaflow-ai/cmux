@@ -2523,14 +2523,15 @@ function AcpmuxPane() {
     let end = at + 1;
     while (end < rows.length && rows[end]!.kind !== "user") end += 1;
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
-    const key = `${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
+    // Keyed by the chat too: another chat's rows never read as this one's.
+    const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
-  }, [snapshot.rows]);
-  const lastChanges = useMemo(
-    () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
-    [lastEditTurn, turnCountsFor],
-  );
+  }, [snapshot.rows, snapshot.sessionId]);
+  const lastChanges = useMemo(() => {
+    const counts = lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined;
+    return counts && { ...counts, files: lastEditTurn!.files };
+  }, [lastEditTurn, turnCountsFor]);
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
   // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
   const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());
@@ -2554,7 +2555,9 @@ function AcpmuxPane() {
     previewTurns.current = seen;
     return found;
   }, [snapshot.rows]);
-  const toggleLastChanges = () => {
+  // The summary's Changes: the turn's diff, toggled; a file of it opens the diff at that file.
+  const toggleLastChanges = (path?: string) => {
+    if (path) return lastEditTurn && openDiff(lastEditTurn.rowId, path);
     if (diffView && diffOpen) return closeDiff();
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
   };
