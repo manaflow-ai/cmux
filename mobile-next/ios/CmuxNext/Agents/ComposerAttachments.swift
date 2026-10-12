@@ -96,19 +96,80 @@ struct AttachmentStrip: View {
 /// Photos the user sent, right-aligned above their message like ChatGPT.
 struct UserImagesRow: View {
     let images: [Data]
+    @State private var viewing: ViewedImage?
+    @Namespace private var zoom
+
+    struct ViewedImage: Identifiable {
+        let id: Int
+        let image: UIImage
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             Spacer(minLength: 48)
-            ForEach(Array(images.enumerated()), id: \.offset) { _, data in
+            ForEach(Array(images.enumerated()), id: \.offset) { index, data in
                 if let image = UIImage(data: data) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: images.count == 1 ? 180 : 96, height: images.count == 1 ? 180 : 96)
-                        .clipShape(.rect(cornerRadius: 16, style: .continuous))
+                    Button { viewing = ViewedImage(id: index, image: image) } label: {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: images.count == 1 ? 180 : 96, height: images.count == 1 ? 180 : 96)
+                            .clipShape(.rect(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .matchedTransitionSource(id: index, in: zoom)
+                    .accessibilityLabel("Photo")
+                    .accessibilityIdentifier("agent.photo.\(index)")
                 }
             }
         }
+        .fullScreenCover(item: $viewing) { item in
+            ImageViewer(image: item.image)
+                .navigationTransition(.zoom(sourceID: item.id, in: zoom))
+        }
+    }
+}
+
+/// Full-screen photo: pinch or double-tap to zoom, drag down or tap Done to close.
+struct ImageViewer: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var baseScale: CGFloat = 1
+    @State private var drag: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.opacity(1 - min(0.6, abs(drag.height) / 400)).ignoresSafeArea()
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(scale)
+                .offset(scale == 1 ? drag : .zero)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(MagnifyGesture()
+                    .onChanged { scale = max(1, min(5, baseScale * $0.magnification)) }
+                    .onEnded { _ in baseScale = scale })
+                .simultaneousGesture(DragGesture()
+                    .onChanged { if scale == 1 { drag = $0.translation } }
+                    .onEnded { value in
+                        if scale == 1, abs(value.translation.height) > 120 { dismiss() }
+                        else { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { drag = .zero } }
+                    })
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        scale = scale > 1 ? 1 : 2.5
+                        baseScale = scale
+                    }
+                }
+            Button("Done") { dismiss() }
+                .font(.system(size: 17, weight: .semibold))
+                .padding(.horizontal, 16).frame(height: 40)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .padding(16)
+                .foregroundStyle(.white)
+                .accessibilityIdentifier("viewer.done")
+        }
+        .environment(\.colorScheme, .dark)
     }
 }

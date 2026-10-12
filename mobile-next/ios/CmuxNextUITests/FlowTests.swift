@@ -307,6 +307,11 @@ final class FlowTests: XCTestCase {
         pause(35)
         app.swipeDown()
         snap(app, "82-answer")
+        app.buttons["agent.photo.0"].tap()
+        pause(1.2)
+        snap(app, "83-viewer")
+        app.buttons["viewer.done"].tap()
+        pause(1)
     }
 
     /// Slash-command menu and the mode chip in an existing agent chat.
