@@ -216,12 +216,32 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let run = try await runCreateThenFailedAttach(
                 sessionName: "remote-login-banner",
-                killExit: 1,
+                killExit: 0,
                 createExit: 1
             )
             #expect(run.failures == [
                 .create,
             ])
+            #expect(run.attachCalls == 0)
+            #expect(run.argv.contains("'kill-session' '-t' '=cmux-new-"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    @Test func aNonzeroCreateWithUnexpectedOutputReportsWhenCleanupFails() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenFailedAttach(
+                sessionName: "remote-login-banner",
+                killExit: 1,
+                createExit: 1
+            )
+            #expect(run.failures.count == 1)
+            if case let .attach(sessionName, removed) = run.failures[0] {
+                #expect(sessionName.hasPrefix("cmux-new-"))
+                #expect(!removed)
+            } else {
+                Issue.record("expected an attach cleanup failure, got \(run.failures)")
+            }
             #expect(run.attachCalls == 0)
             #expect(run.argv.contains("'kill-session' '-t' '=cmux-new-"))
             #expect(run.tabs == 0)

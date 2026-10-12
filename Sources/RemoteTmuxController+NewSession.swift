@@ -141,8 +141,19 @@ extension RemoteTmuxController {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: failed new-session returned unexpected output")
                 #endif
-                _ = await removeCreatedSession(host: host, name: requestedName)
-                newSessionEnvironment.reportFailure(host, .create, manager)
+                let removed = await removeCreatedSession(host: host, name: requestedName)
+                if removed {
+                    newSessionEnvironment.reportFailure(host, .create, manager)
+                } else {
+                    // The command failed, but a remote banner may have obscured the
+                    // requested name after tmux created it. Report the cleanup miss
+                    // without exposing that untrusted output or the session name.
+                    newSessionEnvironment.reportFailure(
+                        host,
+                        .attach(sessionName: requestedName, removed: false),
+                        manager
+                    )
+                }
                 return
             }
             guard !created.isEmpty else {
