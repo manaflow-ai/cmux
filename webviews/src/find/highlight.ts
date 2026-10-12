@@ -36,6 +36,9 @@ type PainterOptions = {
   /** The ranges to paint, in place of the model-matched ones (`collectFindPaintRanges`): a view
    * that counts matches in its rendered rows (`collectQueryRanges`) picks the active one itself. */
   collect?: (container: HTMLElement, snapshot: FindPaintSnapshot, shadowRoots: ShadowRoot[]) => FindPaintRanges;
+  /** Whether scrolling repaints (default true): a virtualized view mounts rows as it scrolls; a view
+   * that renders every row does not need it (highlight ranges move with their text). */
+  repaintOnScroll?: boolean;
 };
 
 export type FindHighlightPainter = {
@@ -262,7 +265,7 @@ export function collectQueryRanges(
   if (query === "") return ranges;
   for (const row of collectRows(container, shadowRoots)) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLowerCase();
+    const haystack = rowText.text.toLocaleLowerCase();
     for (let start = haystack.indexOf(query); start !== -1; start = haystack.indexOf(query, start + query.length)) {
       const range = rangeFor(rowText, start, start + query.length);
       if (range != null) ranges.push(range);
@@ -308,11 +311,11 @@ function paint(
  * and clears all highlights.
  */
 export function installFindHighlightPainter(options: PainterOptions): FindHighlightPainter {
-  const { container, getSnapshot, collect } = options;
+  const { container, getSnapshot, collect, repaintOnScroll = true } = options;
   let frame: number | null = null;
   let disposed = false;
   let highlightSheet: CSSStyleSheet | null = null;
-  const styledRoots = new WeakSet<DocumentOrShadowRoot>();
+  const styledRoots = new Set<DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] }>();
   const observedRoots = new WeakSet<Node>();
 
   const adoptStyles = (root: DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] }) => {
@@ -364,7 +367,7 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
   };
 
   adoptStyles(document as unknown as DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] });
-  container.addEventListener("scroll", schedule, { passive: true });
+  if (repaintOnScroll) container.addEventListener("scroll", schedule, { passive: true });
   observer.observe(container, { childList: true, subtree: true, characterData: true });
   syncShadowRoots();
 
@@ -379,6 +382,10 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
       container.removeEventListener("scroll", schedule);
       observer.disconnect();
       clearHighlights();
+      // A later painter adopts its own sheet; drop this one's.
+      for (const root of styledRoots)
+        root.adoptedStyleSheets = root.adoptedStyleSheets.filter((sheet) => sheet !== highlightSheet);
+      styledRoots.clear();
     },
   };
 }

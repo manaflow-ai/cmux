@@ -32,6 +32,7 @@ export function useDiffFind(body: RefObject<HTMLElement | null>): FindBarState {
     const installed = installFindHighlightPainter({
       container,
       getSnapshot: () => ({ query: state.current.query, active: null, activeItemSpan: null }),
+      repaintOnScroll: false,
       collect: (root, snapshot, shadowRoots) => {
         const ranges = collectQueryRanges(root, snapshot.query, shadowRoots);
         setCount(ranges.length);
@@ -43,8 +44,12 @@ export function useDiffFind(body: RefObject<HTMLElement | null>): FindBarState {
           revealed.current = key;
           const match = activeRange.getBoundingClientRect();
           const view = root.getBoundingClientRect();
-          if (match.top < view.top || match.bottom > view.bottom)
+          // The find bar floats over the top of the view.
+          const top = view.top + (root.querySelector(".acpmux-find__bar")?.getBoundingClientRect().height ?? 0);
+          if (match.top < top || match.bottom > view.bottom)
             root.scrollTop += match.top - view.top - (view.height - match.height) / 2;
+          // A long unwrapped line scrolls sideways inside the diff.
+          activeRange.startContainer.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
         }
         return {
           matchRanges: ranges.filter((range) => range !== activeRange),
@@ -61,7 +66,11 @@ export function useDiffFind(body: RefObject<HTMLElement | null>): FindBarState {
       setCount(0);
     };
   }, [open, body]);
-  useEffect(() => painter.current?.repaint(), [query, current]);
+  useEffect(() => {
+    // An empty query paints nothing, so nothing counts it.
+    if (!query) setCount(0);
+    painter.current?.repaint();
+  }, [query, current]);
 
   const show = useCallback((text?: string) => {
     const focused = document.activeElement;
