@@ -96,7 +96,6 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
         >
           {t("settingsWindow.newBrowserProfile")}
         </button>
-        <span className="row-help">{t("settingsWindow.browserProfilesHint")}</span>
       </div>
     </section>
   );
