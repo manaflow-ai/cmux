@@ -1987,10 +1987,22 @@
       "title" : "Show All Chats",
       "type" : "boolean"
     },
+    "sidebar.showProfileControl" : {
+      "default" : true,
+      "description" : "sidebar.showProfileControl",
+      "title" : "Show Profile Button",
+      "type" : "boolean"
+    },
     "sidebar.showProjects" : {
       "default" : true,
       "description" : "sidebar.showProjects",
       "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showSpaces" : {
+      "default" : true,
+      "description" : "sidebar.showSpaces",
+      "title" : "Show Spaces",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {

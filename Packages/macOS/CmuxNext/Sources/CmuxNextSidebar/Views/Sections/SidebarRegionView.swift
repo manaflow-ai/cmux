@@ -68,6 +68,8 @@ final class SidebarRegionView: NSView {
     /// cannot (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3: no drag and drop
     /// in the footer row for now).
     var allowsDrag = true
+    /// What a right-click on empty space targets: the band's own target for the footer.
+    var emptySpaceTarget: SidebarContextTarget = .background
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
@@ -306,7 +308,7 @@ final class SidebarRegionView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?(.background)
+        contextMenuProvider?(emptySpaceTarget)
     }
 
     /// The item view for `id` (tests, hover cards).
