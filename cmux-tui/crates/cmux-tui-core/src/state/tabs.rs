@@ -65,7 +65,13 @@ impl Mux {
                         edit.groups.members.remove(&tab);
                     }
                     tab_groups::place_block(state, pane, &[surface], other_pinned);
-                    edit.pins.push((tab.clone(), pinned));
+                    // A browser tab keeps the page it is pinned on (Back to Pinned Page).
+                    let url = pinned
+                        .then(|| {
+                            state.surfaces.get(&surface).and_then(|surface| surface.browser_url())
+                        })
+                        .flatten();
+                    edit.pins.push((tab.clone(), pinned, url));
                 }
                 edit.result = StripResult::Tab(tab);
                 Ok(())
