@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextControl
@@ -33,6 +34,36 @@ struct CloudBringBackTests {
             #expect(local.agentSession?.host == trip.services.agentTabs.localHost)
             #expect(trip.machineChat() == nil, "the machine's tab is still open")
             #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
+            // The chat's grants on the machine end with it (cmuxterm-hq#1874 slice 6).
+            let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
+            try await trip.waitUntil { trip.accessCalls().contains(revoke) }
+            #expect(trip.accessCalls().contains(revoke), "the bring back left the chat's grants: \(trip.accessCalls())")
+        }
+    }
+
+    /// A moved chat's agent asks for a file of this Mac (cmuxterm-hq#1874 slice 6): the app's triage
+    /// lists it, and the chat's tab on the machine shows a card with Allow once, Always and Deny.
+    /// A click without a real gesture in the pane answers nothing; the person's Always answers with
+    /// exactly what the card showed, for the chat's machine and session, and the card goes.
+    @Test func aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt() async throws {
+        try await Self.withRoundTrip("access") { trip in
+            let triage = ["link", "access", "triage", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm"]
+            let card = try #require(await trip.toolCards().first, "no card in the moved chat; calls: \(trip.accessCalls())")
+            #expect(trip.accessCalls().contains(triage), "\(trip.accessCalls())")
+            #expect(CloudMoveTests.actionIDs(card) == ["allow", "always", "deny"])
+            #expect(CloudMoveTests.text(card, "text")?.contains(trip.project.path + "/plan.md") == true, "\(card)")
+            let id = try #require(CloudMoveTests.text(card, "id"))
+            func answers() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "answer"] } }
+            #expect(await trip.answer(id, "always", gesture: false)["ok"] as? Bool != true)
+            #expect(answers().isEmpty, "a click without a gesture answered: \(answers())")
+            #expect(await trip.answer(id, "always", gesture: true)["ok"] as? Bool == true)
+            try await trip.waitUntil { !answers().isEmpty }
+            let root = try #require(trip.services.cloud.move.workRoots.first)
+            #expect(answers() == [["link", "access", "answer", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm",
+                                   "--request", "0123456789abcdef0123456789abcdef", "--remote-root", root,
+                                   "--always", trip.project.path + "/plan.md", "--target", trip.project.path + "/plan.md",
+                                   "--folder", trip.project.path]])
+            #expect(await trip.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Always")
         }
     }
 
@@ -161,9 +192,38 @@ struct CloudBringBackTests {
             store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession?.session != nil }
         }
 
-        func calls() -> [[String]] {
+        /// The stand-in CLI's calls, but `link access`: those are polled on their own (``accessCalls()``).
+        func calls() -> [[String]] { allCalls().filter { $0.prefix(2) != ["link", "access"] } }
+
+        /// The stand-in CLI's `link access` calls: a moved chat's file requests and grants.
+        func accessCalls() -> [[String]] { allCalls().filter { $0.prefix(2) == ["link", "access"] } }
+
+        private func allCalls() -> [[String]] {
             let lines = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
             return lines.split(separator: "\n").map { $0.split(separator: "\u{1f}").map(String.init) }
+        }
+
+        /// The tool cards the machine chat's page gets (its `toolCards` event), once there are some
+        /// (or twenty seconds passed); nil when the chat has no page.
+        func toolCards(waiting: Bool = true) async -> [[String: CmuxNextSettings.JSONValue]]? {
+            let deadline = ContinuousClock.now + .seconds(20)
+            func cards() -> [[String: CmuxNextSettings.JSONValue]]? {
+                guard let view = services.agentTabs.existingView(machineKey) else { return nil }
+                guard let event = AgentPanePageHost.currentEvents(view).first(where: { $0.kind == "toolCards" }), case .array(let list) = event.value else { return [] }
+                return list.compactMap { value -> [String: CmuxNextSettings.JSONValue]? in
+                    guard case .object(let card) = value else { return nil }
+                    return card
+                }
+            }
+            while waiting, cards()?.isEmpty != false, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            return cards()
+        }
+
+        /// A click on `action` of card `card` in the machine chat's page, after a real click in the pane when `gesture`.
+        func answer(_ card: String, _ action: String, gesture: Bool) async -> [String: Any] {
+            guard let model = services.agentTabs.existingView(machineKey)?.model else { return ["ok": false] }
+            if gesture { model.transport.gestures.record() }
+            return await model.respond(to: AgentPaneRequest(body: ["method": "chat.toolCard.respond", "params": ["id": card, "action": action]]))
         }
 
         /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
@@ -191,7 +251,8 @@ struct CloudBringBackTests {
     }
 
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
-    /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`).
+    /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
+    /// has the chat ask for a file).
     private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
@@ -271,10 +332,13 @@ struct CloudBringBackTests {
     /// A stand-in `cmux` (calls recorded unit-separated): `link sync push` makes the synced folder
     /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
-    /// pull` and the move back answer as `mode` says.
+    /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
+    /// moved chat in `access` mode until `link access answer` answered it; other `link access` calls answer ok.
     private static func standInCLI(in root: URL, log: URL, mode: String, vmState: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let pulled = root.appendingPathComponent("pulled").path
+        let answered = root.appendingPathComponent("answered").path
+        let project = root.appendingPathComponent("proj").path, plan = project + "/plan.md"
         let script = """
             #!/bin/sh
             line=""
@@ -303,6 +367,15 @@ struct CloudBringBackTests {
                 else
                     echo '{"ok":true,"session_id":"chat-live","transfer_id":"tr-back","bytes":42,"resolved":false}'
                 fi ;;
+            "link access triage")
+                if [ '\(mode)' = access ] && [ ! -f '\(answered)' ]; then
+                    echo '{"ok":true,"answered":[],"ask":[{"request_id":"0123456789abcdef0123456789abcdef","session":"chat-on-vm","kind":"file","path":"\(plan)","reason":"to read the plan","exists":true,"shareable":true,"target":"\(plan)","folder":false,"always_folder":"\(project)"}],"errors":[]}'
+                else
+                    echo '{"ok":true,"answered":[],"ask":[],"errors":[]}'
+                fi ;;
+            "link access answer") touch '\(answered)'; echo '{"ok":true}' ;;
+            "link access sync") echo '{"ok":true,"synced":[]}' ;;
+            "link access revoke") echo '{"ok":true}' ;;
             *) exit 64 ;;
             esac
 
