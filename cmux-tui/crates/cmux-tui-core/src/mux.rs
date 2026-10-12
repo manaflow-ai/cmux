@@ -228,7 +228,7 @@ pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKin
 mod notification_types;
 mod notifications;
 pub use notification_types::{
-    NOTIFICATION_DESKTOP_CAPABILITY, NotificationEvent, NotificationSource, ResourceNotification,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent, NotificationSource, ResourceNotification,
     SurfaceNotification,
 };
 mod notification_level;

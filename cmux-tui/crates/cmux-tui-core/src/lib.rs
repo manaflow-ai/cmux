@@ -133,7 +133,7 @@ pub use mux::{
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    NOTIFICATION_DESKTOP_CAPABILITY, NotificationEvent, NotificationLevel, NotificationSource,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent, NotificationLevel, NotificationSource,
     ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
     ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RowHeightsOutcome, RowsError,
     RunPlacement, ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec,

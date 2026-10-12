@@ -91,6 +91,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "retry_exhausted");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "summary");
     try expectExplicitNullRejected(protocol.NotificationEvent, "desktop");
+    try expectExplicitNullRejected(protocol.NotificationEvent, "reply");
     try expectExplicitNullRejected(protocol.NotificationEvent, "source");
     try expectExplicitNullRejected(protocol.OutputEvent, "colors");
     try expectExplicitNullRejected(protocol.OverflowEvent, "scope");

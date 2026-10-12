@@ -84,6 +84,9 @@ final class NotificationCenterService {
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
+        desktop.onReply = { [weak self] _, surface, text in
+            self?.reply(surface: surface.map(SurfaceID.init(rawValue:)), text: text)
+        }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
@@ -154,6 +157,23 @@ final class NotificationCenterService {
         let context = AppActionContext(services: services)
         context.reveal(located)
         interacted(.open, tabID: located.tab.id)
+    }
+
+    /// A reply banner's text (`notify --reply`) for the terminal of `surface`:
+    /// pasted, then Return as its own key, as the old app sent it (a full-screen
+    /// agent editor reads a pasted newline as a line break, not a submit). The
+    /// reply answered the notification, so its tab is read.
+    func reply(surface: SurfaceID?, text: String) {
+        guard let services, let surface, !text.isEmpty, let located = locate(surface: surface, in: services.daemon.store),
+              located.tab.kind == .pty else { return }
+        let target = located.tab.surface
+        // The tab's own machine: a Cloud terminal's input goes over its link.
+        services.daemon(for: located.pane).send("notification-reply") { connection in
+            try await connection.send(target, text: text, paste: true)
+            try await connection.send(target, text: "\r")
+        }
+        note("reply \(located.tab.id)")
+        acknowledge(located.tab)
     }
 
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
@@ -276,7 +296,8 @@ final class NotificationCenterService {
         let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
-                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
+                     reply: notification.reply && tab?.kind == .pty)
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
     }
