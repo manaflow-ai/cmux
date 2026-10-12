@@ -126,7 +126,7 @@ public final class AgentPaneView: NSView {
             })
         } else {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
+            configuration.websiteDataStore = AgentPaneWarmup.dataStore
             // One process pool for every agent page: a fresh pool per page made WebKit list the
             // user-installed fonts again for each new page (registerUserInstalledFonts, about
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.

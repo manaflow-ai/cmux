@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when the user reloads a browser tab.
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
-        services.newTabSpares.start()
+        launchSettle.whenSettled { [weak services] in services?.newTabSpares.start() } // after the first agent page paints (cx-z9kz0)
         services.pageHostPool.start(
             isMainWindow: { [weak services] window in
                 services?.windows.controllers.contains { $0.window === window } == true
@@ -279,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1)
+            await settings.waitForLoad(atLeast: 1); await LaunchImageHold.shared.clear() // control socket: after the first agent page paints (cx-z9kz0)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
             _ = try? await settings.migrateLegacyQuitBehavior()
             // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
