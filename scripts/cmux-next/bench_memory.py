@@ -256,6 +256,10 @@ def launch(bundle: str):
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
     os.makedirs(env["TMPDIR"], exist_ok=True)
+    # Sparkle would otherwise download a newer nightly into the bundle under
+    # test mid-run (and its installer counts as the bundle's process).
+    with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
+        json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
     dirs = ["/tmp", env["TMPDIR"]]
     started = time.time()
     argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
