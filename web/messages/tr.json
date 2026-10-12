@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Dil",
     "assets": "Varlıklar",
+    "art": "Sanat",
     "openSource": "Açık kaynak",
     "guides": "Kılavuzlar",
     "compare": "Karşılaştır"
@@ -3330,6 +3331,23 @@
   "wallOfLove": {
     "title": "Sevgi Duvarı",
     "description": "cmux hakkında söylenenler."
+  },
+  "art": {
+    "metaTitle": "cmux arka planları için sanat",
+    "metaDescription": "cmux'ın pencere arka planı olarak sunduğu kamu malı tablolara göz atın: Van Gogh, Friedrich, Goya, Doré ve daha fazlası, kaynakları ve lisanslarıyla birlikte.",
+    "title": "Sanat",
+    "description": "Terminallerinizin arkasına koyabileceğiniz ünlü kamu malı tablolar ve baskılar. Tüm eserlerin sanatçıları 70 yıldan uzun süre önce öldü ve her eser 1931'den önce yayımlandı.",
+    "howToUse": "Yakında cmux'ta: Bu eserlerden herhangi birini terminallerinizin arkasına arka plan olarak koyun.",
+    "loading": "Koleksiyon yükleniyor…",
+    "unavailable": "Koleksiyon yüklenemedi. Birkaç dakika sonra tekrar deneyin.",
+    "collectionsLabel": "Koleksiyonlar",
+    "source": "Kamu malı · Kaynak",
+    "collections": {
+      "darkArt": "Karanlık Sanat",
+      "museumIcons": "Müze İkonları",
+      "calm": "Sakin",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Bir gün daha, bir libghostty tabanlı proje daha, bu sefer dikey sekmeli, daha iyi düzenleme/bildirimli, gömülü/betiklenebilir tarayıcılı, özellikle terminal tabanlı ajan iş akışlarını çok kullanan kişilere yönelik bir macOS terminali.",

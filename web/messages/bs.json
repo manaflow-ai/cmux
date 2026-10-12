@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
     "assets": "Materijali",
+    "art": "Umjetnost",
     "openSource": "Otvoreni kod",
     "guides": "Vodiči",
     "compare": "Uporedi"
@@ -3332,6 +3333,23 @@
   "wallOfLove": {
     "title": "Zid ljubavi",
     "description": "Šta ljudi kažu o cmux-u."
+  },
+  "art": {
+    "metaTitle": "Umjetnost za pozadine u cmuxu",
+    "metaDescription": "Pregledajte slike u javnom vlasništvu koje cmux nudi kao pozadine prozora: Van Gogh, Friedrich, Goya, Doré i drugi, s izvorima i licencama.",
+    "title": "Umjetnost",
+    "description": "Poznate slike i grafike u javnom vlasništvu koje možete postaviti iza svojih terminala. Autori svih djela umrli su prije više od 70 godina, a svako djelo objavljeno je prije 1931. godine.",
+    "howToUse": "Uskoro u cmux-u: postavite bilo koje od ovih djela kao pozadinu iza terminala.",
+    "loading": "Učitavanje kolekcije…",
+    "unavailable": "Kolekciju nije moguće učitati. Pokušajte ponovo za nekoliko minuta.",
+    "collectionsLabel": "Kolekcije",
+    "source": "Javno vlasništvo · Izvor",
+    "collections": {
+      "darkArt": "Mračna umjetnost",
+      "museumIcons": "Muzejska remek-djela",
+      "calm": "Smireno",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Još jedan dan, još jedan projekat baziran na libghostty-ju, ovaj put macOS terminal sa vertikalnim tabovima, boljom organizacijom/notifikacijama, ugrađenim/skriptabilnim preglednikom specifično usmjeren na ljude koji koriste mnogo terminalskih agentskih tokova rada.",
