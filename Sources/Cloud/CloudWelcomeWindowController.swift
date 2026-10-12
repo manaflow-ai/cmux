@@ -2,6 +2,26 @@ import AppKit
 import CmuxSettings
 import SwiftUI
 
+/// Whether a Cloud creation action (New Cloud Workspace, New Cloud Machine)
+/// may run, or must first introduce Cloud with the welcome card so the person
+/// can enable it, sign in, or upgrade instead of getting no response.
+enum CloudCreationGate: Equatable {
+    case proceed
+    case introduceCloud
+
+    /// - Parameters:
+    ///   - isAvailable: Managed policy allows Cloud. A policy-disabled Mac
+    ///     keeps the action's existing handling; the welcome is not for it.
+    ///   - isEnabled: The local first-use activation is on.
+    ///   - canRunCloudOperations: The Cloud operation controller admits work
+    ///     (enabled and signed in), or nil before app composition.
+    static func resolve(isAvailable: Bool, isEnabled: Bool, canRunCloudOperations: Bool?) -> CloudCreationGate {
+        guard isAvailable else { return .proceed }
+        guard isEnabled else { return .introduceCloud }
+        return canRunCloudOperations == false ? .introduceCloud : .proceed
+    }
+}
+
 /// Shows the 0.65.1 Cloud welcome once, whether Cloud is on or off, unless
 /// MDM blocks Cloud. Debug builds can reopen it from Help.
 @MainActor
@@ -13,6 +33,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
+    /// The Cloud action that opened this card, run again once Enable succeeds.
+    private var onEnabled: (@MainActor () -> Void)?
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
     /// because MDM policy changed since; an unseen welcome waits for next launch.
@@ -96,9 +118,11 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         posterShowsTitle: Bool = true,
         posterShowsIcon: Bool = true,
         showsNewBadge: Bool = false,
-        footerHasNotNow: Bool = false
+        footerHasNotNow: Bool = false,
+        onEnabled: (@MainActor () -> Void)? = nil
     ) {
         window?.close()
+        self.onEnabled = onEnabled
         let window = makeWindow(
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
@@ -211,6 +235,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     private func perform(_ step: CloudWelcomeNextStep) {
+        let onEnabled = self.onEnabled
         dismiss()
         let app = AppDelegate.shared
         switch step {
@@ -221,19 +246,36 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             ProUpgradePresenter.present(source: .cloudWelcome)
         case .enable:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
-            app?.cloudActivationCoordinator.enable()
+            guard let activation = app?.cloudActivationCoordinator else { return }
+            activation.enable()
+            if let onEnabled {
+                Task { @MainActor in await Self.resume(onEnabled, after: activation) }
+            }
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
         }
     }
 
+    /// Continues the Cloud action that opened the card once the activation
+    /// Enable started has finished preparing, and only if it ended enabled.
+    static func resume(
+        _ action: @MainActor () -> Void,
+        after activation: CloudActivationCoordinator
+    ) async {
+        await activation.activationTask?.value
+        guard activation.state == .enabled else { return }
+        action()
+    }
+
     func dismiss() {
         window?.close()
         window = nil
+        onEnabled = nil
     }
 
     func windowWillClose(_ notification: Notification) {
         window = nil
+        onEnabled = nil
     }
 }
 

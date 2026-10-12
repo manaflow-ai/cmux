@@ -287,4 +287,43 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
+
+    @Test("Cloud creation actions introduce Cloud while it is off or signed out")
+    func creationGate() {
+        #expect(CloudCreationGate.resolve(isAvailable: true, isEnabled: false, canRunCloudOperations: false) == .introduceCloud)
+        #expect(CloudCreationGate.resolve(isAvailable: true, isEnabled: true, canRunCloudOperations: false) == .introduceCloud)
+        #expect(CloudCreationGate.resolve(isAvailable: true, isEnabled: true, canRunCloudOperations: true) == .proceed)
+        // Before app composition there is no operation answer to act on.
+        #expect(CloudCreationGate.resolve(isAvailable: true, isEnabled: true, canRunCloudOperations: nil) == .proceed)
+        // Managed policy that disables Cloud keeps the action's own handling.
+        #expect(CloudCreationGate.resolve(isAvailable: false, isEnabled: false, canRunCloudOperations: false) == .proceed)
+    }
+
+    @Test("Enable from the welcome continues the original action only once Cloud is enabled")
+    @MainActor
+    func resumeAfterEnable() async throws {
+        struct PreparationFailed: Error {}
+        let suiteName = "CloudWelcomeTests.resume.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let succeeding = CloudActivationCoordinator(
+            defaults: defaults, notificationCenter: NotificationCenter(),
+            isAvailable: { true }, prepare: {}, observeChanges: false
+        )
+        succeeding.enable()
+        var resumed = 0
+        await CloudWelcomeWindowController.resume({ resumed += 1 }, after: succeeding)
+        #expect(resumed == 1)
+
+        defaults.removeObject(forKey: CloudActivationCoordinator.activationKey)
+        let failing = CloudActivationCoordinator(
+            defaults: defaults, notificationCenter: NotificationCenter(),
+            isAvailable: { true }, prepare: { throw PreparationFailed() }, observeChanges: false
+        )
+        failing.enable()
+        await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
+        #expect(failing.state == .failed(.serviceUnavailable))
+        #expect(resumed == 1)
+    }
 }
