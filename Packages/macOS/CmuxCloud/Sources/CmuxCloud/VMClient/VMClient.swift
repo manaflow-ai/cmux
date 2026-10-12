@@ -293,6 +293,35 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
     return String(singleLine[..<index]) + "..."
 }
 
+/// Server-derived readiness for the desktop computer-use bridge. It is
+/// optional so clients remain compatible with control planes deployed before
+/// the computer-use contract was added.
+nonisolated public struct VMComputerUseReadiness: Equatable, Sendable {
+    public enum Status: String, Equatable, Sendable {
+        case unsupported
+        case starting
+        case ready
+        case failed
+    }
+
+    public init(
+        status: Status,
+        driver: String = "cua-driver",
+        errorCode: String? = nil,
+        errorMessage: String? = nil
+    ) {
+        self.status = status
+        self.driver = driver
+        self.errorCode = errorCode
+        self.errorMessage = errorMessage
+    }
+
+    public let status: Status
+    public let driver: String
+    public let errorCode: String?
+    public let errorMessage: String?
+}
+
 public struct VMSummary: Sendable {
     public init(
         id: String,
@@ -312,7 +341,8 @@ public struct VMSummary: Sendable {
         createdBy: VMCreator? = nil,
         agentUpdates: CloudAgentUpdates? = nil,
         resourceReservation: CloudVMResourceReservation? = nil,
-        resourcePoolClaim: CloudVMResourceReservation? = nil
+        resourcePoolClaim: CloudVMResourceReservation? = nil,
+        computerUse: VMComputerUseReadiness? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -330,6 +360,7 @@ public struct VMSummary: Sendable {
         self.cmuxTuiContract = cmuxTuiContract
         self.createdBy = createdBy
         self.agentUpdates = agentUpdates
+        self.computerUse = computerUse
         self.resourceReservation = resourceReservation
         self.resourcePoolClaim = resourcePoolClaim
     }
@@ -352,6 +383,7 @@ public struct VMSummary: Sendable {
             cmuxTuiContract: cmuxTuiContract,
             createdBy: createdBy,
             agentUpdates: agentUpdates,
+            computerUse: computerUse,
             resourceReservation: resourceReservation,
             resourcePoolClaim: resourcePoolClaim
         )
@@ -389,6 +421,9 @@ public struct VMSummary: Sendable {
     public var cmuxTuiContract: String?
     /// Whether the machine keeps its image's coding agents or updates them on attach.
     public var agentUpdates: CloudAgentUpdates?
+    /// Server-derived computer-use state. Nil means the control plane predates
+    /// the feature and the sidebar leaves its existing presentation unchanged.
+    public var computerUse: VMComputerUseReadiness?
     /// The machine's server-recorded compute reservation for shared-pool math.
     /// This remains separate from live guest stats, which can be stale or absent.
     public var resourceReservation: CloudVMResourceReservation?
@@ -1516,6 +1551,36 @@ public actor VMClient {
         return VMMachineKind(rawValue: raw.lowercased())
     }
 
+    /// `vms[].computerUse` is optional for older control planes. Unknown
+    /// statuses are ignored so a newer server cannot make an older client
+    /// claim a state it does not understand.
+    static func decodeComputerUse(_ raw: Any?) -> VMComputerUseReadiness? {
+        guard let object = raw as? [String: Any],
+              let statusValue = object["status"] as? String,
+              let status = VMComputerUseReadiness.Status(rawValue: statusValue.lowercased())
+        else { return nil }
+        let driver = (object["driver"] as? String)
+            .flatMap { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            } ?? "cua-driver"
+        let error = object["error"] as? [String: Any]
+        let errorCode = (error?["code"] as? String).flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let errorMessage = (error?["message"] as? String).flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return VMComputerUseReadiness(
+            status: status,
+            driver: driver,
+            errorCode: errorCode,
+            errorMessage: errorMessage
+        )
+    }
+
     /// `limits.imageKinds: [{kind, image}]`; malformed entries are skipped.
     static func decodeImageKinds(_ raw: Any?) -> [VMImageKindOption] {
         guard let items = raw as? [[String: Any]] else { return [] }
@@ -1642,6 +1707,7 @@ public actor VMClient {
             // response and a client that did merge this into the row it already
             // listed would otherwise blank the author out.
             summary.createdBy = VMCreator(vmResponse: obj)
+            summary.computerUse = Self.decodeComputerUse(obj["computerUse"])
             // The create receipt names the new machine's private address and
             // attach contract, so the app can register and dial it without a
             // fleet re-read or an attach request (see createdMachineAttach).
@@ -1701,6 +1767,7 @@ public actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(vmResponse: obj)
+        summary.computerUse = Self.decodeComputerUse(obj["computerUse"])
         machineCache.record(hasAnyMachine: true)
         return summary
     }
@@ -1730,6 +1797,7 @@ public actor VMClient {
             // The panel's per-machine refresh goes through `SurfaceCatalog`,
             // not through here.
             summary.createdBy = VMCreator(vmResponse: obj)
+            summary.computerUse = Self.decodeComputerUse(obj["computerUse"])
             if let address = obj["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1936,6 +2004,7 @@ public actor VMClient {
                 base: nil
             )
             forked.capabilities = VMCapabilities(vmResponse: obj)
+            forked.computerUse = Self.decodeComputerUse(obj["computerUse"])
             machineCache.record(hasAnyMachine: true)
             return (
                 snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
@@ -1968,6 +2037,7 @@ public actor VMClient {
             let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
             restored.capabilities = VMCapabilities(vmResponse: obj)
+            restored.computerUse = Self.decodeComputerUse(obj["computerUse"])
             machineCache.record(hasAnyMachine: true)
             return restored
         }

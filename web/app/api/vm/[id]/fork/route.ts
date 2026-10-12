@@ -16,6 +16,8 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
 import { forkVm } from "../../../../../services/vms/workflows";
 import { vmModelPlaneGatewayFor } from "../../../../../services/vms/modelPlaneGateway";
+import { computerUseReadinessFor } from "../../../../../services/vms/computerUse";
+import { vmImageKindFor } from "../../../../../services/vms/images/resolver";
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import {
   idempotencyKeyFromRequest,
@@ -110,6 +112,14 @@ export async function POST(
         provider: result.fork.provider,
         image: result.fork.image,
         imageVersion: result.fork.imageVersion,
+        kind: vmImageKindFor(result.fork.provider, result.fork.image),
+        ...(typeof result.fork.status === "string" ? {
+          computerUse: computerUseReadinessFor({
+            provider: result.fork.provider,
+            kind: vmImageKindFor(result.fork.provider, result.fork.image),
+            status: result.fork.status,
+          }),
+        } : {}),
         status: result.fork.status,
         createdAt: result.fork.createdAt,
         capabilities: vmCapabilitiesFor(result.fork.provider),

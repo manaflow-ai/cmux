@@ -68,6 +68,21 @@ VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
 mine() { pgrep -u "$(id -u)" "$@" >/dev/null 2>&1; }
+# Wait for the driver's own status endpoint while the per-user start lock is
+# held. The desktop supervisor and a Cloud guest-heal can otherwise both see a
+# just-spawned daemon as down; one can then kill the other's still-binding
+# process. `timeout` is present in the image, while the date fallback keeps
+# the helper safe on older minimal images.
+cua_wait_ready() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 15 sh -c 'until cua-driver status >/dev/null 2>&1; do :; done'
+    return $?
+  fi
+  deadline=$(( $(date +%s) + 15 ))
+  until cua-driver status >/dev/null 2>&1; do
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+  done
+}
 # Bounded wait for a listener that has no readiness signal of its own
 # (websockify): probes the socket table until the port is bound or the
 # deadline (seconds) passes. Returns the port's state at the deadline.
@@ -227,6 +242,50 @@ fi
 if [ -n "$CMUX_NOTIFY_SOCKET" ] && command -v systemd-notify >/dev/null 2>&1; then
   if listening 5901 && wait_listening 6901 10 && [ "$published" = 1 ]; then
     NOTIFY_SOCKET="$CMUX_NOTIFY_SOCKET" systemd-notify --ready --status="desktop up on $DISPLAY: RFB 5901 (loopback), noVNC 6901" 2>>"$LOG_DIR/notify.log" || true
+  fi
+fi
+
+# Keep one driver daemon beside the desktop. Agent MCP clients and the Cloud
+# MCP proxy use the same per-user socket, which preserves driver state between
+# requests. Desktop/window modality is selected per action by the Cloud bridge;
+# the driver deliberately has no persistent capture-scope setting. The command
+# is intentionally idempotent: the desktop supervisor runs this file repeatedly
+# and a healthy driver is left alone. The guest exec path has the same fallback
+# for machines created from an older image.
+if command -v cua-driver >/dev/null 2>&1 && [ -r "$RUNTIME_DIR/env" ]; then
+  # The runtime env is the desktop session's lifecycle hand-off. Source it
+  # before both status and serve so a newly started daemon inherits the
+  # accessibility bus addresses (AT_SPI_BUS_ADDRESS/AT_SPI_BUS), not just
+  # DISPLAY. This also lets status inspect the same session as the daemon.
+  [ -r "$RUNTIME_DIR/env" ] && . "$RUNTIME_DIR/env"
+  # A process-name match is not a liveness check: a wedged daemon can leave
+  # the socket occupied and prevent every later MCP client from recovering.
+  cua_lock_held=0
+  if command -v flock >/dev/null 2>&1; then
+    cua_old_umask=$(umask)
+    umask 000
+    exec 9>"/tmp/cmux-cua-$(id -u).lock"
+    umask "$cua_old_umask"
+    flock -x 9
+    cua_lock_held=1
+  fi
+  if ! cua-driver status >/dev/null 2>&1; then
+    stale_cua_pids=$(pgrep -u "$(id -u)" -f '[c]ua-driver serve' 2>/dev/null || true)
+    if [ -n "$stale_cua_pids" ]; then
+      kill -KILL $stale_cua_pids 2>/dev/null || true
+    fi
+    if ! cua-driver status >/dev/null 2>&1; then
+      (exec 9>&-; cua-driver serve --no-permissions-gate \
+        >>"$LOG_DIR/cua-driver.log" 2>&1) &
+      if ! cua_wait_ready; then
+        echo "cua-driver did not report readiness within 15 s" >>"$LOG_DIR/cua-driver.log"
+        stale_cua_pids=$(pgrep -u "$(id -u)" -f '[c]ua-driver serve' 2>/dev/null || true)
+        [ -z "$stale_cua_pids" ] || kill -KILL $stale_cua_pids 2>/dev/null || true
+      fi
+    fi
+  fi
+  if [ "$cua_lock_held" = 1 ]; then
+    exec 9>&-
   fi
 fi
 

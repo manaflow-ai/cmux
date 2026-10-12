@@ -7,4 +7,5 @@ if [ "$#" -eq 1 ]; then
 fi
 . /etc/cmux/agent-config.sh
 cmux_ensure_opencode_config
+cmux_write_cua_mcp_config allow-missing
 exec /usr/local/libexec/cmux-opencode-real "$@"

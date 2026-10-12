@@ -864,6 +864,19 @@ extension TerminalController {
         if let agentUpdates = vm.agentUpdates {
             payload["agentUpdates"] = agentUpdates.rawValue
         }
+        if let computerUse = vm.computerUse {
+            var readiness: [String: Any] = [
+                "status": computerUse.status.rawValue,
+                "driver": computerUse.driver,
+            ]
+            if computerUse.errorCode != nil || computerUse.errorMessage != nil {
+                readiness["error"] = [
+                    "code": computerUse.errorCode.map { $0 as Any } ?? NSNull(),
+                    "message": computerUse.errorMessage.map { $0 as Any } ?? NSNull(),
+                ]
+            }
+            payload["computerUse"] = readiness
+        }
         if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
             payload["resources"] = [
                 "vcpus": claim.vcpus,

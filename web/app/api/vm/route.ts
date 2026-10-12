@@ -90,6 +90,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
+import { computerUseReadinessFor } from "../../../services/vms/computerUse";
 
 
 // Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
@@ -184,6 +185,16 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         kind: vmImageKindFor(entry.provider, entry.image),
+        // Computer-use readiness is a durable image/lifecycle fact. Do not
+        // probe every guest from a list request; the first MCP action heals
+        // the daemon and returns any guest-specific error.
+        ...(typeof entry.status === "string" ? {
+          computerUse: computerUseReadinessFor({
+            provider: entry.provider,
+            kind: vmImageKindFor(entry.provider, entry.image),
+            status: entry.status,
+          }),
+        } : {}),
         // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
         // the app when false; the CLI errors before calling).
         capabilities: vmCapabilitiesFor(entry.provider),
@@ -413,6 +424,13 @@ export async function POST(request: Request): Promise<Response> {
         image: created.image,
         imageVersion: created.imageVersion,
         kind: vmImageKindFor(created.provider, created.image),
+        ...(typeof created.status === "string" ? {
+          computerUse: computerUseReadinessFor({
+            provider: created.provider,
+            kind: vmImageKindFor(created.provider, created.image),
+            status: created.status,
+          }),
+        } : {}),
         ...(imageSelection.size ? { size: imageSelection.size } : {}),
         createdAt: created.createdAt,
         capabilities: vmCapabilitiesFor(created.provider),

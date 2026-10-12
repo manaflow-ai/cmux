@@ -75,9 +75,70 @@ cmux_write_agent_configs() {
   # Parse logical TOML keys, including quoted and dotted forms. Invalid user
   # configuration is preserved so a shell startup cannot damage it further.
   if [ -n "${OPENAI_BASE_URL-}" ] && python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
-import pathlib, sys, tomllib
+import pathlib, re, sys
+
 config = pathlib.Path(sys.argv[1])
-data = tomllib.loads(config.read_text()) if config.exists() else {}
+if not config.exists():
+    sys.exit(0)
+
+text = config.read_text()
+try:
+    import tomllib
+except ImportError:
+    # Ubuntu 24.04 has tomllib in its system Python, but the macOS developer
+    # image used by the template tests still ships Python 3.9. The fallback
+    # only answers the narrow question this guard needs: whether an existing
+    # config already owns the model provider/history tables. It is conservative
+    # around malformed quoted lines so a shell startup never replaces a file
+    # that the full parser would reject.
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        quote_count = 0
+        escaped = False
+        for char in stripped:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char in ("'", '"'):
+                quote_count += 1
+        if quote_count % 2:
+            sys.exit(1)
+
+    current_table = ""
+    key_pattern = re.compile(r"^\s*(?P<key>(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+))*)\s*=")
+    table_pattern = re.compile(r"^\s*\[\s*(?P<table>.*?)\s*\]\s*$")
+
+    def unquote(part):
+        part = part.strip()
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ("'", '"'):
+            value = part[1:-1]
+            if part[0] == '"':
+                value = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), value)
+            return value
+        return part
+
+    def parts(value):
+        return [unquote(part) for part in re.split(r"\s*\.\s*", value)]
+
+    for line in text.splitlines():
+        table = table_pattern.match(line)
+        if table:
+            current_table = ".".join(parts(table.group("table")))
+            if current_table in ("history", "model_providers.cmux"):
+                sys.exit(1)
+            continue
+        key = key_pattern.match(line)
+        if not key:
+            continue
+        path = parts(key.group("key"))
+        if (not current_table and path[:1] in (["model_provider"], ["history"])) or path[:2] == ["model_providers", "cmux"]:
+            sys.exit(1)
+    sys.exit(0)
+
+data = tomllib.loads(text)
 providers = data.get("model_providers", {})
 managed = "model_provider" in data or "history" in data or not isinstance(providers, dict) or "cmux" in providers
 sys.exit(1 if managed else 0)
@@ -258,7 +319,140 @@ opencode() {
     case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
   fi
   cmux_ensure_opencode_config || return $?
+  cmux_write_cua_mcp_config allow-missing || return $?
   command opencode "$@"
+}
+
+# OpenCUA is a local MCP server, not a model-plane service. Keep its setup in
+# the image's normal agent initialization path so a fresh shell configures
+# Claude and Codex before launch, while the OpenCode wrapper adds the entry
+# after its optional provider discovery has completed. Existing agent config
+# and comments are preserved; malformed files are left untouched for the user
+# to repair. The operation is safe to repeat on every login and after a VM
+# pause/resume.
+cmux_write_cua_mcp_config() {
+  local mode="${1-}" driver
+  driver=$(command -v cua-driver 2>/dev/null || true)
+  [ -x "$driver" ] || return 0
+  CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" python3 - <<'CMUX_CUA_CONFIG'
+import json, os, pathlib, stat, sys, tempfile
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+home = pathlib.Path(os.environ["CMUX_CUA_CONFIG_HOME"])
+driver = os.environ["CMUX_CUA_DRIVER_BIN"]
+allow_missing = os.environ.get("CMUX_CUA_ALLOW_MISSING") == "allow-missing"
+
+def atomic_json(path, document):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(document, stream, indent=2)
+            stream.write("\n")
+            os.fchmod(stream.fileno(), mode)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+def load_json(path):
+    # Never replace a user-owned link, including a dangling one.
+    if path.is_symlink():
+        return None
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+# Claude's user-scoped MCP entries live in ~/.claude.json. This file is also
+# where the surrounding function stores its first-run acceptance flags.
+claude = home / ".claude.json"
+document = load_json(claude)
+if document is not None:
+    servers = document.get("mcpServers")
+    if servers is None:
+        document["mcpServers"] = {"cua-computer-use": {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]}}
+        atomic_json(claude, document)
+    elif isinstance(servers, dict) and "cua-computer-use" not in servers:
+        servers["cua-computer-use"] = {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]}
+        atomic_json(claude, document)
+
+# Codex's TOML parser lets us validate before replacing. Appending preserves
+# comments and every existing table, including the hook state cmux writes.
+codex = home / ".codex" / "config.toml"
+try:
+    raw = codex.read_text() if codex.exists() else ""
+    if codex.is_symlink():
+        raise ValueError("refusing to replace a symlinked Codex config")
+    if raw and tomllib is None:
+        # The image has Python 3.12, while the macOS test host may still have
+        # Python 3.9. Without tomllib, reject only files with an obviously
+        # unterminated quoted value; the append below adds a complete table
+        # and does not rewrite any existing bytes.
+        for line in raw.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            quote_count = 0
+            escaped = False
+            for char in stripped:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char in ("'", '"'):
+                    quote_count += 1
+            if quote_count % 2:
+                raise ValueError("existing Codex config has an unterminated quoted value")
+    parsed = tomllib.loads(raw) if raw and tomllib is not None else {}
+    has_cua_server = (
+        "[mcp_servers.cua-driver]" in raw
+        if tomllib is None
+        else isinstance(parsed.get("mcp_servers", {}), dict)
+        and "cua-driver" in parsed.get("mcp_servers", {})
+    )
+    if not has_cua_server:
+        addition = "\n[mcp_servers.cua-driver]\ncommand = " + json.dumps(driver) + "\nargs = [\"mcp\"]\n"
+        candidate = raw.rstrip() + addition
+        if tomllib is not None:
+            tomllib.loads(candidate)
+        codex.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(codex.stat().st_mode) if codex.exists() else 0o600
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(codex.parent))
+        try:
+            with os.fdopen(fd, "w") as stream:
+                stream.write(candidate)
+                os.fchmod(stream.fileno(), mode)
+            os.replace(temporary, codex)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+except (OSError, ValueError, TypeError):
+    pass
+
+# OpenCode provider discovery is deliberately lazy. During normal shell
+# startup only amend a config that already exists; the opencode() wrapper
+# passes allow-missing after discovery so the local MCP entry is available on
+# the first actual launch without preventing provider discovery.
+opencode = home / ".config" / "opencode" / "opencode.json"
+document = load_json(opencode)
+if document is not None and (opencode.exists() or allow_missing):
+    servers = document.get("mcp")
+    if servers is None:
+        document["mcp"] = {"cua-driver": {"type": "local", "command": [driver, "mcp"], "enabled": True}}
+        atomic_json(opencode, document)
+    elif isinstance(servers, dict) and "cua-driver" not in servers:
+        servers["cua-driver"] = {"type": "local", "command": [driver, "mcp"], "enabled": True}
+        atomic_json(opencode, document)
+CMUX_CUA_CONFIG
+  return 0
 }
 
 # claude folder-trust gate: claude's trust check short-circuits on
@@ -329,4 +523,5 @@ x-cmux-surface-id: $CMUX_SURFACE_ID"
 fi
 
 cmux_write_agent_configs
+cmux_write_cua_mcp_config
 unset -f cmux_write_agent_configs

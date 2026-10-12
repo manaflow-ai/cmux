@@ -1,9 +1,11 @@
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmImageKindFor } from "../../../../services/vms/images/resolver";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
 import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
+import { computerUseReadinessFor } from "../../../../services/vms/computerUse";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -132,11 +134,20 @@ export async function POST(request: Request): Promise<Response> {
       });
       if (!run.ok) return run.response;
       const restored = run.value;
+      const kind = vmImageKindFor(restored.provider, restored.image);
       return jsonResponse({
         id: restored.providerVmId,
         provider: restored.provider,
         image: restored.image,
         imageVersion: restored.imageVersion,
+        kind,
+        ...(typeof restored.status === "string" ? {
+          computerUse: computerUseReadinessFor({
+            provider: restored.provider,
+            kind,
+            status: restored.status,
+          }),
+        } : {}),
         status: restored.status,
         createdAt: restored.createdAt,
         capabilities: vmCapabilitiesFor(restored.provider),

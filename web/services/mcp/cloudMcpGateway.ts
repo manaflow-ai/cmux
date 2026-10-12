@@ -1,4 +1,10 @@
 import { cmuxTuiRunCommand } from "../vms/drivers/cmuxTuiDaemon";
+import {
+  GUEST_CUA_MAX_COMMAND_BYTES,
+  guestCuaCommand,
+  guestCuaSession,
+  type GuestCuaTool,
+} from "../vms/guestCua";
 import type { VmRouteResult } from "../vms/routeWorkflow";
 import { execVm, listUserVms, type VmModelPlaneRevoker, type VmWorkflowProgram } from "../vms/workflows";
 import { CloudMcpToolError, type CloudMcpGateway } from "./cloudMcp";
@@ -70,6 +76,35 @@ export function cloudMcpGatewayFor(
         callerPlanId: scope.planId,
         providerVmId: machineId,
         command: cmuxTuiRunCommand(args),
+        timeoutMs,
+        modelPlane,
+      }));
+      if (!result.ok) throw await toolErrorFromResponse(result.response);
+      return result.value;
+    },
+    runCua: async (machineId, tool, args, timeoutMs) => {
+      const scope = await caller.accessScope();
+      // The session label is caller-bound and opaque. It is stable across
+      // MCP reconnects for this VM, while the workflow below still performs
+      // the normal organization and ownership lookup on every call.
+      const command = guestCuaCommand(tool as GuestCuaTool, {
+        ...args,
+        session: guestCuaSession(caller.userId, machineId),
+      });
+      if (Buffer.byteLength(command, "utf8") > GUEST_CUA_MAX_COMMAND_BYTES) {
+        throw new CloudMcpToolError(
+          "invalid_arguments",
+          "The computer-use request is too large once quoted for the machine. Shorten the text and try again.",
+        );
+      }
+      const result = await run(execVm({
+        userId: caller.userId,
+        billingTeamId: scope.billingTeamId,
+        teamIds: caller.teamIds,
+        maxActiveVms: scope.maxActiveVms,
+        callerPlanId: scope.planId,
+        providerVmId: machineId,
+        command,
         timeoutMs,
         modelPlane,
       }));

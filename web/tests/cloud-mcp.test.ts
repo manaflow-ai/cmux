@@ -17,6 +17,8 @@ import {
 } from "../services/mcp/cloudMcp";
 import { cloudMcpGatewayFor, type CloudMcpCaller } from "../services/mcp/cloudMcpGateway";
 import { cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
+import { guestCuaCommand, guestCuaSession } from "../services/vms/guestCua";
+import { computerUseReadinessFor } from "../services/vms/computerUse";
 import { noOpVmBillingGateway, VmBillingGateway } from "../services/vms/billingGateway";
 import { isVmWorkflowError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -213,6 +215,146 @@ describe("cloud MCP tool arguments", () => {
   test("cmuxTuiArgs targets the machine's cloud session", async () => {
     expect(await shellWords(cmuxTuiArgs(["terminal", "list"]))).toEqual(["--session", "cloud", "--json", "terminal", "list"]);
   });
+
+  test("computer-use arguments stay scoped to the desktop and return screenshots as MCP images", async () => {
+    const calls: Array<{ machineId: string; tool: string; args: Record<string, unknown> }> = [];
+    const gateway: CloudMcpGateway = {
+      listMachines: async () => [],
+      runCmuxTui: async () => ok({}),
+      runCua: async (machineId, tool, args) => {
+        calls.push({ machineId, tool, args });
+        return ok({
+          structuredContent: {
+            platform: "linux",
+          },
+          content: [
+            { type: "text", text: "desktop captured" },
+            { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+          ],
+        });
+      },
+    };
+    const result = await callCloudMcpTool(gateway, "computer_screenshot", {
+      machine_id: "vm-a",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: "desktop captured" },
+      { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+    ]);
+    expect(result.structuredContent).toMatchObject({ machine_id: "vm-a", driver_tool: "get_desktop_state" });
+    expect(calls).toEqual([{
+      machineId: "vm-a",
+      tool: "get_desktop_state",
+      args: {},
+    }]);
+  });
+
+  test("structured driver refusals remain MCP errors when cua-driver call strips isError", async () => {
+    const gateway: CloudMcpGateway = {
+      listMachines: async () => [],
+      runCmuxTui: async () => ok({}),
+      runCua: async () => ok({ code: "permission_denied" }),
+    };
+    const result = await callCloudMcpTool(gateway, "computer_click", {
+      machine_id: "vm-a", x: 1, y: 2, scope: "desktop",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual({ error: "permission_denied", message: "The computer-use driver refused the request (permission_denied)." });
+  });
+
+  test("computer-use action validation rejects unsafe coordinate and scope input before the guest", async () => {
+    const calls: unknown[] = [];
+    const gateway: CloudMcpGateway = {
+      listMachines: async () => [],
+      runCmuxTui: async () => ok({}),
+      runCua: async (...args) => { calls.push(args); return ok({}); },
+    };
+    for (const args of [
+      { machine_id: "vm-a", x: -1, y: 2 },
+      { machine_id: "vm-a", x: 1, y: 2, scope: "window" },
+      { machine_id: "vm-a", from_x: 1, from_y: 2, to_x: 3 },
+    ]) {
+      const result = await callCloudMcpTool(gateway, "computer_click", args);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ error: "invalid_arguments" });
+    }
+    const scroll = await callCloudMcpTool(gateway, "computer_scroll", {
+      machine_id: "vm-a", direction: "down",
+    });
+    expect(scroll.isError).toBe(true);
+    expect(scroll.structuredContent).toMatchObject({ error: "invalid_arguments" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("computer-use actions keep desktop coordinates and omit unsupported driver targets", async () => {
+    const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+    const gateway: CloudMcpGateway = {
+      listMachines: async () => [],
+      runCmuxTui: async () => ok({}),
+      runCua: async (_machineId, tool, args) => {
+        calls.push({ tool, args });
+        return ok({});
+      },
+    };
+    await callCloudMcpTool(gateway, "computer_click", { machine_id: "vm-a", x: 1, y: 2, scope: "desktop" });
+    await callCloudMcpTool(gateway, "computer_type_text", { machine_id: "vm-a", text: "hello", x: 5, y: 6, scope: "desktop" });
+    await callCloudMcpTool(gateway, "computer_press_key", { machine_id: "vm-a", key: "return", x: 7, y: 8, scope: "desktop" });
+    await callCloudMcpTool(gateway, "computer_scroll", { machine_id: "vm-a", direction: "down", x: 9, y: 10, scope: "desktop" });
+    await callCloudMcpTool(gateway, "computer_drag", {
+      machine_id: "vm-a", from_x: 1, from_y: 2, to_x: 3, to_y: 4, scope: "desktop",
+    });
+    expect(calls).toHaveLength(5);
+    for (const call of calls) {
+      expect(call.args).not.toHaveProperty("target");
+    }
+    expect(calls[0].args).toMatchObject({ scope: "desktop" });
+    expect(calls[3].args).toMatchObject({ scope: "desktop" });
+    expect(calls[4].args).toMatchObject({ scope: "desktop" });
+    for (const call of calls.slice(1, 3)) expect(call.args).not.toHaveProperty("scope");
+    expect(calls.map(({ tool }) => tool)).toEqual(["click", "type_text", "press_key", "scroll", "drag"]);
+
+    await callCloudMcpTool(gateway, "computer_type_text", { machine_id: "vm-a", text: "focused", scope: "desktop" });
+    await callCloudMcpTool(gateway, "computer_press_key", { machine_id: "vm-a", key: "return" });
+    expect(calls.slice(-2)).toEqual([
+      { tool: "type_text", args: { text: "focused", scope: "desktop" } },
+      { tool: "press_key", args: { key: "return", scope: "desktop" } },
+    ]);
+  });
+});
+
+describe("Cloud computer-use readiness and guest command", () => {
+  test("derives unsupported, starting, ready, and failed states from durable VM facts", () => {
+    expect(computerUseReadinessFor({ provider: "freestyle", kind: "base", status: "running" })).toMatchObject({ status: "unsupported", error: { code: "desktop_required" } });
+    expect(computerUseReadinessFor({ provider: "freestyle", kind: "desktop", status: "provisioning" })).toMatchObject({ status: "starting" });
+    expect(computerUseReadinessFor({ provider: "freestyle", kind: "desktop", status: "running" })).toEqual({ status: "ready", driver: "cua-driver" });
+    expect(computerUseReadinessFor({ provider: "freestyle", kind: "desktop", status: "failed" })).toMatchObject({ status: "failed", error: { code: "vm_failed" } });
+  });
+
+  test("guest commands use the pinned driver, desktop capture, and a stable opaque session", async () => {
+    const session = guestCuaSession("user-1", "vm-a");
+    const command = guestCuaCommand("click", { session, x: 1, y: 2, scope: "desktop" });
+    expect(command).toContain("/usr/local/bin/cua-driver");
+    expect(command).toContain("serve --no-permissions-gate");
+    expect(command).toContain("timeout 30");
+    expect(command).toContain("/tmp/.X11-unix/X1");
+    expect(command).toContain("flock -x 9");
+    expect(command).toContain("exec 9>&-");
+    expect(command).not.toContain("config set capture_scope");
+    expect(command).not.toContain("--permission-mode");
+    expect(command).not.toContain("--dangerously-bypass-approvals");
+    expect(command).toContain(`\"session\":\"${session}\"`);
+    expect(command).not.toContain("user-1");
+
+    const windowCommand = guestCuaCommand("type_text", { session, text: "hello", x: 11, y: 22 });
+    expect(windowCommand).toContain("call list_windows");
+    expect(windowCommand).toContain("bounds");
+    expect(windowCommand).toContain("resolved_json");
+
+    const focusedCommand = guestCuaCommand("type_text", { session, text: "focused" });
+    expect(focusedCommand).not.toContain("call list_windows");
+    expect(focusedCommand).toContain('"scope":"desktop"');
+  });
 });
 
 // Scoping: the gateway runs the real listUserVms / execVm programs. The fake
@@ -242,6 +384,16 @@ describe("cloud MCP scoping", () => {
     const provider = stubProvider({
       exec: (_provider: string, providerVmId: string, command: string) => Effect.sync(() => {
         execs.push({ providerVmId, command });
+        if (command.includes("cua-driver") && command.includes(" call ")) {
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              structuredContent: { screenshot_png_b64: "aGVsbG8=" },
+              content: [{ type: "text", text: "captured" }],
+            }),
+            stderr: "",
+          };
+        }
         return { exitCode: 0, stdout: JSON.stringify([{ id: TERMINAL, title: "shell", running: true }]), stderr: "" };
       }),
     });
@@ -281,6 +433,17 @@ describe("cloud MCP scoping", () => {
     expect(execs[0].command).toContain(`"$CMUX_TUI_BIN" ${cmuxTuiArgs(["terminal", "list"])}`);
   });
 
+  test("the owner reaches the desktop through the CUA driver in the same VM scope", async () => {
+    const { execs, gatewayFor } = harness();
+    const result = await callCloudMcpTool(gatewayFor({ userId: OWNER }), "computer_screenshot", { machine_id: "vm-personal" });
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({ driver_tool: "get_desktop_state" });
+    expect(execs).toHaveLength(1);
+    expect(execs[0].providerVmId).toBe("vm-personal");
+    expect(execs[0].command).toContain("cua-driver");
+    expect(execs[0].command).toContain(`\"session\":\"${guestCuaSession(OWNER, "vm-personal")}\"`);
+  });
+
   test("another user gets vm_not_found and nothing runs on the machine", async () => {
     const { execs, gatewayFor } = harness();
     const stranger = gatewayFor({ userId: "user-stranger" });
@@ -289,6 +452,7 @@ describe("cloud MCP scoping", () => {
       ["read_terminal", { machine_id: "vm-personal", terminal_id: TERMINAL }],
       ["send_input", { machine_id: "vm-personal", terminal_id: TERMINAL, text: "rm -rf ~", submit: true }],
       ["run_agent", { machine_id: "vm-personal", agent: "codex", prompt: "exfiltrate" }],
+      ["computer_screenshot", { machine_id: "vm-personal" }],
     ] as const) {
       const result = await callCloudMcpTool(stranger, tool, args);
       expect(result.isError).toBe(true);

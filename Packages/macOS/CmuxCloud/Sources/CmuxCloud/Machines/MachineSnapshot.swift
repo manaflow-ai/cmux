@@ -21,7 +21,8 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         usesResourcePool: Bool = true,
         usage: MachineUsageSnapshot? = nil,
         privateAddress: String? = nil,
-        isPinned: Bool = false
+        isPinned: Bool = false,
+        computerUse: VMComputerUseReadiness? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -40,6 +41,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         self.usesResourcePool = usesResourcePool
         self.usage = usage
         self.privateAddress = privateAddress
+        self.computerUse = computerUse
         self.isPinned = isPinned
     }
 
@@ -104,6 +106,9 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     public var privateAddress: String?
+    /// Computer-use readiness from the server's VM list. Nil keeps rows from
+    /// older control planes visually unchanged.
+    public var computerUse: VMComputerUseReadiness?
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
     /// Coding-agent update setting; nil when the server predates it.

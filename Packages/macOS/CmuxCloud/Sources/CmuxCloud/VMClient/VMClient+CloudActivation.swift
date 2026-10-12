@@ -71,6 +71,7 @@ extension VMClient {
                 summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 summary.createdBy = VMCreator(vmResponse: dict)
                 summary.agentUpdates = CloudAgentUpdates(wireValue: dict["agentUpdates"])
+                summary.computerUse = Self.decodeComputerUse(dict["computerUse"])
                 // `resources` is the pool claim used by limits.used*. A
                 // legacy row may conservatively claim the provider maximum;
                 // only the explicit marker is safe as the live grow-only
