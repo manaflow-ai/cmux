@@ -15,6 +15,9 @@ Loop log for the agent building this. Updated in place.
   relay) and Aziz's other MacBook (direct, host/host candidates) connected at once; a Ghostty
   terminal on the MacBook printed `hi from Abdulaziz's MacBook Pro (2) on 27.2`. The MacBook host is
   stopped after each run (it is paired to the shared test account).
+- Agent chat (ACP features verified on the distant mini, 2026-10-12): photo attachments (Claude described
+  the photo), slash-command menu from `available_commands_update`, mode picker (`session/set_mode` → Plan),
+  Plan mode with the plan rendered in the approval card, approve/deny edits with diffs, thinking, tool rows.
 - Auth decision (user, 2026-10-12): Apple sign-in only for now. Email codes stay behind
   `-cnm-email-auth` for automated test accounts.
 

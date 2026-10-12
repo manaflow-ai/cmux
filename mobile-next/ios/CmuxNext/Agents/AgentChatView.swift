@@ -473,6 +473,15 @@ struct PermissionCard: View {
                 Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
                 Text(request.title).font(.system(size: 15, weight: .semibold)).lineLimit(3)
             }
+            if let body = request.body, !body.isEmpty {
+                ScrollView {
+                    MarkdownView(text: body)
+                        .font(.system(size: 15))
+                        .padding(12)
+                }
+                .frame(maxHeight: request.resolved == nil ? 320 : 120)
+                .background(Color(.systemBackground).opacity(0.7), in: .rect(cornerRadius: 12, style: .continuous))
+            }
             if let detail = request.detail {
                 Text(detail)
                     .font(.system(size: 13, design: .monospaced))

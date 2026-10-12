@@ -105,6 +105,8 @@ struct PermissionRequest: Equatable, Identifiable {
     let id: String
     let title: String
     let detail: String?
+    /// Markdown the agent wants reviewed with the request (Claude's plan).
+    var body: String? = nil
     let options: [Option]
     var resolved: String??
 }
@@ -159,6 +161,7 @@ struct TranscriptBuilder {
                 id: event.payload["requestID"]?.stringValue ?? key,
                 title: toolCall?["title"]?.stringValue ?? String(localized: "The agent wants to continue"),
                 detail: command ?? toolCall?["rawInput"]?["file_path"]?.stringValue,
+                body: toolCall?["rawInput"]?["plan"]?.stringValue,
                 options: options,
                 resolved: nil
             )))

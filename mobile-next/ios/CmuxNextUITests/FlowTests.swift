@@ -337,6 +337,28 @@ final class FlowTests: XCTestCase {
         snap(app, "92-mode-changed")
     }
 
+    /// Plan mode: the agent plans, then asks to start coding.
+    func testAgentPlanMode() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS 'What is in this photo'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        pause(2)
+        field.tap()
+        field.typeText("Plan how to add a --shout flag to greet.py that uppercases the greeting. Keep the plan to 3 steps.")
+        app.buttons["agent.send"].tap()
+        pause(50)
+        snap(app, "93-plan")
+        let reject = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'permission.reject'")).firstMatch
+        if reject.exists { reject.tap(); pause(2) }
+        snap(app, "94-plan-after")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
