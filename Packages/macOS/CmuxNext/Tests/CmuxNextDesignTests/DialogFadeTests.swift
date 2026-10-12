@@ -31,6 +31,8 @@ import Testing
     @Test func aClosedDialogAndItsScrimFadeOutThenGo() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        // On screen, as a dialog's window is: a change in a window with no screen applies at once.
+        window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         let host = WindowOverlayHost.host(for: window)
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
