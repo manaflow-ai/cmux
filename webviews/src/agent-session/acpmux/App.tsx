@@ -95,8 +95,8 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
-import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
-import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { SessionCwdContext, SessionRowsContext, isEditRow } from "./turnChanges/sessionRows";
+import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
@@ -109,7 +109,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, turnView } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -768,12 +768,7 @@ function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-const rowKind = (row: AcpmuxRow) =>
-  row.kind === "activity" &&
-  !isFoldedCopy(row) &&
-  row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
-    ? "editedFiles"
-    : row.kind;
+const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1281,7 +1276,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1368,9 +1363,14 @@ export function VirtualTranscript({
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  // A report that came due while the pane was hidden, sent once it has a viewport again.
+  const anchorDeferred = useRef(false);
   const reportAnchor = () => {
     const node = ref.current;
     if (!node || !onAnchor) return;
+    // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
+    anchorDeferred.current = node.clientHeight === 0;
+    if (anchorDeferred.current) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1381,8 +1381,14 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  useEffect(() => {
+    if (height > 0 && anchorDeferred.current) reportAnchor();
+  });
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
+    // keeps following until the reader scrolls a visible one.
+    if (event.currentTarget.clientHeight === 0) return;
     const next = event.currentTarget.scrollTop;
     scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
     flushSync(() => {
@@ -1766,7 +1772,6 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
-  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
   // another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -1808,6 +1813,7 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck]);
+  const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -4263,6 +4269,24 @@ function AcpmuxPane() {
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
+                      // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
+                      onApplyWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string) =>
+                              callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
+                      // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
+                      onRemoveWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string, discard: boolean) =>
+                              callNative("git.worktree.remove", {
+                                session_id: snapshot.sessionId,
+                                idempotency_key: key,
+                                ...(discard ? { discard: true } : {}),
+                              })
+                          : undefined
+                      }
                       // A merge asks the header again, so the chip shows the pull request merged.
                       onMergePullRequest={
                         localCwd

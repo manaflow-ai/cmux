@@ -532,13 +532,13 @@ body {
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
   padding: 5px 8px 7px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
   cursor: default;
   user-select: none;
@@ -1879,6 +1879,13 @@ svg[data-icon-fill] {
   background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
   color: var(--cmux-diff-fg);
 }
+/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+.diff-pill-button[aria-disabled="true"],
+.diff-pill-button[aria-disabled="true"]:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--cmux-diff-fg) 30%, var(--cmux-diff-solid-bg));
+  cursor: default;
+}
 /* The 20 px stroke glyphs at 19 px: about 14 px of ink, as in the classic pill. */
 .diff-pill-button svg {
   width: 19px;
@@ -1963,7 +1970,7 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
   box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
 }
@@ -1972,15 +1979,14 @@ svg[data-icon-fill] {
   border-bottom: 0;
 }
 .base-picker-input {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .base-picker-input:focus,
 .base-picker-input:focus-visible {
   outline: none;
 }
 .base-picker-row {
-  min-height: 30px;
-  border-radius: 7px;
+  border-radius: 6px;
 }
 /* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
    header: language icon, dim directory + bright file name, collapse caret,

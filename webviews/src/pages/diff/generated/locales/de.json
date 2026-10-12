@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "Gestaged",
   "diffViewer.sourceUncommitted": "Nicht committet",
   "diffViewer.sourceUnstaged": "Nicht gestaged",
+  "diffViewer.splitDiffNeedsWiderPane": "Geteilter Diff braucht einen breiteren Bereich",
   "diffViewer.switchToSplitDiff": "Zu geteilter Aufteilung wechseln",
   "diffViewer.switchToUnifiedDiff": "Zu zusammengeführtem Diff wechseln",
   "diffViewer.untitled": "Unbenannt",

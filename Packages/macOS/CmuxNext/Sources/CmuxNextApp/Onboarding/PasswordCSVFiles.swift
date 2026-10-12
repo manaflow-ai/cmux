@@ -33,7 +33,11 @@ struct PasswordCSVFiles {
 
     /// Imports a CSV the person picked, then moves it to the Trash; the failure, if any.
     func importFile(_ url: URL, profile: String) async -> ActionWorkFailure? {
-        await importCSV(trashing: url, profile: profile) { try await $0.run(file: url, intoProfile: profile) }
+        // A header with no known website or password column: the person matches the columns by name.
+        let name = url.lastPathComponent
+        return await importCSV(trashing: url, profile: profile) {
+            try await $0.run(file: url, intoProfile: profile) { header in await PasswordCSVColumnSheet.choose(header, fileName: name) }
+        }
     }
 
     /// Imports a CSV from an export archive, then moves the archive (`file`) to the Trash.
@@ -51,6 +55,8 @@ struct PasswordCSVFiles {
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
             Self.trash(url, report: report) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+            return nil
+        } catch PasswordCSVImporter.Failure.cancelled {
             return nil
         } catch {
             return ActionWorkFailure(PasswordCSVStrings.failure(error))
@@ -131,6 +137,7 @@ enum PasswordCSVStrings {
         case .storeUnavailable: unavailable
         case .unreadable: t("passwords.csv.unreadable", "The file couldn’t be read.")
         case .noPasswordColumns: t("passwords.csv.noColumns", "The file has no website and password columns.")
+        case .cancelled: t("passwords.csv.failed", "The passwords couldn’t be saved.")
         case nil: t("passwords.csv.failed", "The passwords couldn’t be saved.")
         }
     }

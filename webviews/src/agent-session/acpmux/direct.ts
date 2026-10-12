@@ -514,6 +514,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
+  /// before it, so the call and its updates draw no tool row.
+  private planCalls = new Set<string>();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold();
   private readonly listener: Listener;
@@ -761,6 +764,8 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
+    this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
@@ -1254,6 +1259,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
@@ -1305,8 +1311,10 @@ export class AcpmuxDirectClient {
       }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") {
+    else if (event.kind === "permission_request") {
+      this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
+      this.applyPermission({ ...msg, sessionId: event.sessionId });
+    } else if (event.kind === "permission_decision") {
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
@@ -1481,6 +1489,9 @@ export class AcpmuxDirectClient {
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      const tool = update._meta?.claude?.tool ?? update.title;
+      if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
@@ -1511,6 +1522,11 @@ export class AcpmuxDirectClient {
         this.planRow = undefined;
         return;
       }
+      // A new checklist ends the text and tool fold before it, as the call it stands for would.
+      if (!existing) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
       this.rows.set(id, {
@@ -1521,6 +1537,20 @@ export class AcpmuxDirectClient {
         ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
     }
+  }
+
+  /// A call that asks before it runs waits on its permission ("pending") until an update moves it
+  /// on: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
+  private markAwaitingPermission(callId: unknown): void {
+    const id = callId == null ? undefined : this.toolRows.get(String(callId));
+    const row = id ? this.rows.get(id) : undefined;
+    if (!row) return;
+    const items = (row.items ?? []).map((item) =>
+      item.tool?.id === String(callId) && item.tool.status === "in_progress"
+        ? { ...item, tool: { ...item.tool, status: "pending" } }
+        : item,
+    );
+    this.rows.set(row.id, { ...row, version: row.version + 1, items });
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued

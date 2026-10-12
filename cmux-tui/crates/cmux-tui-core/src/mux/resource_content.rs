@@ -14,8 +14,7 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
-    ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot, WorkspaceMutation,
-    WorkspaceRegistry,
+    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
@@ -393,7 +392,10 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        json!({"terminal":terminal_id,"value":terminal_snapshot(&topology.tabs)?}),
+                        |after| {
+                            let value = terminal_snapshot(&after.tabs)?;
+                            Ok(json!({"terminal":terminal_id,"value":value}))
+                        },
                     );
                 }
                 let mut source_pane = topology
@@ -533,33 +535,38 @@ impl Mux {
                     .collect::<Vec<_>>();
                 let terminal_value = terminal_snapshot(&moved_tabs)?;
                 after.tabs = moved_tabs;
-                // The source and destination screens list the moved tab in
-                // their layouts, and a focus change unfocuses the screen that
-                // was focused: the delta restates them first, as a tab
-                // create's projection does (cx-gzh.25).
-                let mut restated = vec![source_pane.screen_id.clone(), target_screen_public];
-                if let Some(workspace) = &topology.active_workspace
-                    && let Some((_, Some(screen))) =
-                        topology.active_screens.iter().find(|(candidate, _)| candidate == workspace)
-                {
-                    restated.push(screen.clone());
-                }
-                let mut seen = HashSet::new();
-                restated.retain(|screen| seen.insert(screen.clone()));
-                let mut deltas = screen_upserts(&after, &restated)?;
+                // The focus change and the source and destination screens,
+                // whose layouts list the moved tab, come first (cx-gzh.25,
+                // cx-gzh.26).
+                let mut deltas = super::resource_topology::focus_change_deltas(
+                    state,
+                    &topology,
+                    &after,
+                    &[source_pane.screen_id.clone(), target_screen_public],
+                    &[&source_pane.public_id, &target_pane.public_id],
+                )?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
                 let target_delta_tabs = target_tabs.clone();
+                // The source pane's active tab, chosen once here: the live
+                // pane takes the same tab the durable row stores (cx-gzh.27).
+                let source_active = source_pane
+                    .active_tab
+                    .as_ref()
+                    .and_then(|active| source_tabs.iter().position(|tab| &tab.public_id == active))
+                    .unwrap_or(0);
                 let source_delta_pane = source_pane;
                 let target_delta_pane = target_pane;
                 deltas.extend(move_deltas(
+                    state,
+                    &after,
                     &source_delta_pane,
                     &target_delta_pane,
                     &source_delta_tabs,
                     &target_delta_tabs,
                     source_pane_id == target_pane_id,
-                ));
+                )?);
                 for (sequence, delta) in deltas.iter_mut().enumerate() {
                     delta["sequence"] = json!(sequence);
                 }
@@ -611,8 +618,7 @@ impl Mux {
                                     .get_mut(&source_pane_slot)
                                     .expect("source pane validated before commit");
                                 source.tabs.remove(source_old_index);
-                                source.active_tab =
-                                    source.active_tab.min(source.tabs.len().saturating_sub(1));
+                                source.active_tab = source_active;
                             }
                             let target = state
                                 .panes
@@ -845,17 +851,28 @@ fn reindex_tabs(tabs: &mut [RegistryTab], pane: &PanePublicId) {
     }
 }
 
+/// The pane and tab upserts of a move; each pane value comes from the one
+/// pane builder over `after`, so focus and zoom match the stored state.
 fn move_deltas(
+    state: &State,
+    after: &crate::workspace_registry::ResourceTopologySnapshot,
     source_pane: &RegistryPane,
     target_pane: &RegistryPane,
     source_tabs: &[RegistryTab],
     target_tabs: &[RegistryTab],
     same_pane: bool,
-) -> Vec<Value> {
+) -> anyhow::Result<Vec<Value>> {
     let mut changes = Vec::new();
-    push_pane_delta(&mut changes, source_pane, same_pane);
-    if !same_pane {
-        push_pane_delta(&mut changes, target_pane, true);
+    let panes = if same_pane { vec![source_pane] } else { vec![source_pane, target_pane] };
+    for pane in panes {
+        let value = super::resource_topology::pane_value(state, pane, after)?;
+        changes.push(json!({
+            "kind": "upsert",
+            "sequence": changes.len(),
+            "resource": "pane",
+            "id": pane.public_id,
+            "value": value,
+        }));
     }
     for tab in source_tabs {
         push_tab_delta(&mut changes, tab, source_pane.active_tab.as_ref() == Some(&tab.public_id));
@@ -869,58 +886,7 @@ fn move_deltas(
             );
         }
     }
-    changes
-}
-
-fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool) {
-    let sequence = changes.len();
-    changes.push(json!({
-        "kind": "upsert",
-        "sequence": sequence,
-        "resource": "pane",
-        "id": pane.public_id,
-        "value": {
-            "id": pane.public_id,
-            "screen_id": pane.screen_id,
-            "name": pane.name,
-            "focused": focused,
-            "zoomed": false,
-        },
-    }));
-}
-
-/// Upserts of `screens` as `topology` holds them, from the one screen
-/// builder, so each equals the session snapshot at the delta's revision.
-fn screen_upserts(
-    topology: &ResourceTopologySnapshot,
-    screens: &[crate::resource::ScreenPublicId],
-) -> anyhow::Result<Vec<Value>> {
-    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
-    let panes_by_id = crate::resource_screen::panes_by_id(&topology.panes);
-    screens
-        .iter()
-        .enumerate()
-        .map(|(sequence, id)| {
-            let screen = topology
-                .screens
-                .iter()
-                .find(|screen| &screen.public_id == id)
-                .context("restated screen is absent from durable topology")?;
-            let value = crate::resource_screen::public_screen_value(
-                topology,
-                screen,
-                &tabs_by_pane,
-                &panes_by_id,
-            )?;
-            Ok(json!({
-                "kind": "upsert",
-                "sequence": sequence,
-                "resource": "screen",
-                "id": id,
-                "value": value,
-            }))
-        })
-        .collect()
+    Ok(changes)
 }
 
 /// `terminal`'s tab ids in canonical order among `tabs`.

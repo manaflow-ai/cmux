@@ -25,12 +25,24 @@ pub fn home() -> PathBuf {
 }
 
 /// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short path in a private per-user
-/// directory under /tmp, derived from the home path so daemon and clients
-/// agree.
+/// long home directory, or an `ACPMUX_SOCKET` past the limit, falls back to
+/// a short path in a private per-user directory under /tmp, derived from
+/// the home or the configured path so daemon and clients agree.
 pub fn socket_path() -> PathBuf {
     if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
-        return PathBuf::from(v);
+        let given = PathBuf::from(v);
+        // A configured path past sun_path (a long TMPDIR or home) binds and
+        // connects at a short alias named by the path itself, so the daemon
+        // and every client given the same path agree.
+        // Only an absolute path names one socket wherever it is read from.
+        #[cfg(unix)]
+        if given.is_absolute()
+            && !cmux_unix_socket::fits(&given)
+            && let Some(short) = short_socket(&given.to_string_lossy())
+        {
+            return short;
+        }
+        return given;
     }
     let preferred = home().join("acpmux.sock");
     if preferred.as_os_str().len() < 96 {
@@ -39,21 +51,27 @@ pub fn socket_path() -> PathBuf {
     // Windows port: the socket path rule there is `cmux::local_socket`'s (a
     // later landing).
     #[cfg(unix)]
-    {
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for b in home().to_string_lossy().bytes() {
-            hash ^= b as u64;
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-        let uid = unsafe { libc::getuid() };
-        let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
-        if private_dir(&dir, uid) {
-            return dir.join(format!("{hash:016x}.sock"));
-        }
+    if let Some(short) = short_socket(&home().to_string_lossy()) {
+        return short;
     }
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     preferred
+}
+
+/// `/tmp/acpmux-<uid>/<hash of key>.sock`, when that directory is this
+/// user's alone.
+#[cfg(unix)]
+fn short_socket(key: &str) -> Option<PathBuf> {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    private_dir(&dir, uid).then(|| dir.join(format!("{hash:016x}.sock")))
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory

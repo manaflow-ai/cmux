@@ -227,15 +227,13 @@ pub fn count(events: &[Value], kind: &str, pointer: &str, text: &str) -> usize {
 pub const USER_TEXT: &str = "/text";
 pub const AGENT_TEXT: &str = "/params/update/content/text";
 
-/// An agent tab of `machine`'s store bound to acpmux chat `session`.
+/// A chat tab of `machine`'s store bound to acpmux chat `session`, as the app
+/// files a chat of its own acpmux (`install:` host). A `registry:` tab is a
+/// machine's own chat and binds only through agent-session-start (cx-k21v).
 pub fn bound_agent_tab(machine: &Machine, session: &str) -> u64 {
-    // An install host, as a client's own tab records it: a `registry:` tab of
-    // this store takes its session only from agent-session-start (cx-k21v).
-    let identity = machine.rpc(json!({"id": 1, "cmd": "identify"}));
-    let store = identity["data"]["session_id"].as_str().unwrap().to_owned();
     assert_eq!(machine.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
     let tab = machine.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
-        "agent_session": {"host": format!("install:journey-{store}"), "session": session}}));
+        "agent_session": {"host": "install:cloud-move-journey", "session": session}}));
     assert_eq!(tab["ok"], true, "{tab}");
     let surface = tab["data"]["surface"].as_u64().unwrap();
     let source = machine.rpc(json!({"id": 4, "cmd": "agent-transfer-source", "surface": surface}));

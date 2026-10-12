@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "스테이징됨",
   "diffViewer.sourceUncommitted": "커밋 안 됨",
   "diffViewer.sourceUnstaged": "스테이징 안 됨",
+  "diffViewer.splitDiffNeedsWiderPane": "분할 diff에는 더 넓은 창이 필요합니다",
   "diffViewer.switchToSplitDiff": "분할 뷰로 전환",
   "diffViewer.switchToUnifiedDiff": "통합 뷰로 전환",
   "diffViewer.untitled": "제목 없음",
