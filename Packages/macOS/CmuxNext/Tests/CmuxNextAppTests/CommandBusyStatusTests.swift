@@ -65,7 +65,7 @@ struct CommandBusyStatusTests {
 }
 
 /// Set once from an observation's `onChange` (any thread).
-private final class Flag: @unchecked Sendable {
+private nonisolated final class Flag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
     var isSet: Bool { lock.withLock { value } }
