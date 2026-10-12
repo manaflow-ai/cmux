@@ -142,6 +142,7 @@ public actor CloudWireGuardHub {
     /// A child can exit after readiness wins but before the shared startup task
     /// publishes `.running`. Keep that signal until the state transition commits.
     private var pendingStartupExit: (processID: UUID, status: Int32)?
+    private var startEnrolled = false // This attempt enrolled; recovery reads it.
     private var refreshTask: Task<Ready, Error>?
     private var lastRefresh: ContinuousClock.Instant?
 
@@ -461,38 +462,36 @@ public actor CloudWireGuardHub {
         }
     }
 
-    /// Enrollment and startup recovery belong to the one shared startup task.
-    /// Explicit opens and background warmup await the same final result; no
-    /// caller can fail early while another caller is still recovering it.
+    /// Enrollment and startup recovery belong to the one shared startup task, so no open or warmup
+    /// fails early while another recovers it. `CloudWireGuardHubRecoveryPlan` decides each retry.
     private func startWithRecovery(
         generation startGeneration: UInt64,
         allowWhenCloudDisabled: Bool,
         expectedTeamScope: AuthenticatedTeamScope?
     ) async throws -> Ready {
-        let delays = Array(configuration.restartBackoff.prefix(3))
-        for attempt in 0...delays.count {
+        var plan = CloudWireGuardHubRecoveryPlan(backoff: Array(configuration.restartBackoff.prefix(3)))
+        while true {
             try Task.checkCancellation()
             guard generation == startGeneration else { throw CancellationError() }
-            // Each child owns its own startup-exit signal. A late callback from
-            // a failed child cannot poison a later recovery attempt because its
-            // process identity no longer matches the replacement.
+            // Each child owns its startup-exit signal: a late callback from a failed child
+            // cannot poison a later attempt, whose process identity differs.
             pendingStartupExit = nil
+            startEnrolled = false
             do {
                 return try await start(
                     generation: startGeneration,
                     allowWhenCloudDisabled: allowWhenCloudDisabled,
                     expectedTeamScope: expectedTeamScope,
-                    refreshEnrollment: attempt > 0
+                    refreshEnrollment: plan.refreshesNextEnrollment
                 )
             } catch {
                 try Task.checkCancellation()
                 guard generation == startGeneration else { throw CancellationError() }
                 lastError = CloudMachineLink.errorText(error)
-                guard attempt < delays.count else { throw error }
-                try await configuration.sleep(delays[attempt])
+                guard let wait = plan.wait(after: error, enrolled: startEnrolled) else { throw error }
+                try await configuration.sleep(wait)
             }
         }
-        throw HubError.notReady("hub startup failed without a reported error")
     }
 
     private func start(
@@ -521,6 +520,7 @@ public actor CloudWireGuardHub {
         } else {
             enrollment = try await configuration.enroll()
         }
+        if generation == startGeneration { startEnrolled = true } // A cancelled start's late enroll must not leak.
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()
