@@ -6,7 +6,8 @@ import CmuxNextDesign
 /// overlay one whatever the macOS "Show scroll bars" setting (``SystemScrollers/nativeStyle``):
 /// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard,
 /// search), never for output that only follows the bottom. It takes no clicks, so the last column
-/// stays the terminal's. (The legacy branches below stay for a style a test sets.)
+/// stays the terminal's. The style is pinned: AppKit resets a scroll view to the system's style
+/// when the setting changes, which here would briefly reserve a legacy strip and take clicks.
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so
 /// AppKit draws and animates a native scroller in either style.
@@ -61,6 +62,12 @@ final class TerminalScroller: NSScrollView {
         MainActor.assumeIsolated {
             if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
         }
+    }
+
+    /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = SystemScrollers.nativeStyle }
     }
 
     private func apply(_ style: NSScroller.Style) {

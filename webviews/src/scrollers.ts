@@ -96,8 +96,10 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 const installed = new WeakSet<Document>();
 
 /**
- * Marks the element each wheel event scrolls (one passive capture listener per document; wheel
- * events cross shadow roots, scroll events do not). Idempotent.
+ * Marks the element each wheel event scrolls, and every element that scrolls however it does
+ * (keys, a click on the track, find, code), the page's own scroller as <html> (passive capture
+ * listeners, one each per document: scroll events do not bubble and do not cross shadow roots,
+ * wheel events do). Idempotent.
  */
 export function installScrollingMarks(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (installed.has(document)) return;
@@ -107,6 +109,15 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     (event) => {
       const target = wheelTarget(event as WheelEvent);
       if (target) markScrolling(target, timers);
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      const target = event.target;
+      if (target === document) markScrolling(document.documentElement, timers);
+      else if (target && "setAttribute" in target) markScrolling(target as Element, timers);
     },
     { capture: true, passive: true },
   );
@@ -195,6 +206,7 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb {
 }
 html[data-scrollers="legacy"] [${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);

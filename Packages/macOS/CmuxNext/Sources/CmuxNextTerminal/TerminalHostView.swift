@@ -166,7 +166,7 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
-    /// The surface's frame: the host, less the legacy scroller's strip ("Always").
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
     private var surfaceFrame: CGRect {
         CGRect(x: bounds.minX, y: bounds.minY, width: max(0, bounds.width - scroller.reservedWidth), height: bounds.height)
     }

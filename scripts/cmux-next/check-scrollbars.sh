@@ -38,11 +38,10 @@ WEB_ROOTS = ["webviews/src"]
 
 # path suffix -> reason
 ALLOWED = {
-    # The one place that applies the system's style.
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift": "applies NSScroller.preferredScrollerStyle",
+    # The one place that sets a native scroller style (SystemScrollers.nativeStyle).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift": "applies the shared native style",
     # The Home transcript (vendored MessagesLab): rows are drawn under the scroller across the
-    # full width, so a legacy scroller would cover them. Overlay: correct. "Always": hidden at
-    # rest (known gap, SCROLLBARS-THIN audit in .cmux-scratch/nx-scrollbars/STATUS.md).
+    # full width, so a legacy scroller would cover them. Overlay, as SCROLLBARS-THIN asks.
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift": "Home transcript, vendored",
     # The shared rules for library scrollers (strings, not page CSS).
     "webviews/src/scrollers.ts": "library scroller rules",
