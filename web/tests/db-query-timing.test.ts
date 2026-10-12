@@ -126,16 +126,23 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     const { sql } = await import("drizzle-orm");
     const timings: CloudDbQueryTiming[] = [];
     setCloudDbQueryObserver(() => (timing) => timings.push(timing));
-    const controller = new AbortController();
+    const savedPoolMax = process.env.CMUX_DB_POOL_MAX;
+    process.env.CMUX_DB_POOL_MAX = "1";
     try {
-      // Aborted at once: the wrapper cancels the query whether postgres.js has
-      // queued it or already sent it.
+      await cloudDb().execute(sql`select 1 as warm`);
+      // Aborted before postgres.js sends it: the query is cancelled, and the
+      // pool's only connection still serves the next query. (Cancelling an
+      // unsent query used to wedge that connection for good.)
+      const controller = new AbortController();
       const running = runWithCloudDbQuerySignal(controller.signal, async () => await cloudDb().execute(sql`select pg_sleep(5) as cancellation_probe`));
       controller.abort();
       expect(await running.then(() => "resolved", () => "rejected")).toBe("rejected");
+      expect(await cloudDb().execute(sql`select 1 as next_query`).then(() => "served")).toBe("served");
+      expect(timings.some((timing) => timing.failed)).toBe(true);
     } finally {
       await closeCloudDbForTests();
+      if (savedPoolMax === undefined) delete process.env.CMUX_DB_POOL_MAX;
+      else process.env.CMUX_DB_POOL_MAX = savedPoolMax;
     }
-    expect(timings.at(-1)?.failed).toBe(true);
   }, 15_000);
 });
