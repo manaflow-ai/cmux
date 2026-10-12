@@ -5,14 +5,17 @@ use rusqlite::{Transaction, params};
 use serde_json::json;
 
 use super::super::WorkspaceRegistry;
-use super::super::personal_store::{PersonalGroup, commit_personal, read_group, subject};
-use super::super::presentation_store::{validate_presentation_icon, validate_workspace_group_id};
+use super::super::personal_store::{
+    PersonalGroup, commit_personal, read_group, require_icon_asset, subject,
+};
+use super::super::presentation_store::validate_workspace_group_id;
 
 impl WorkspaceRegistry {
     /// Set (`Some`) or clear (`None`) the icon of group `id` inside the
     /// caller's transaction (the v2 `workspace_group.update {icon}`
-    /// commit). The icon is the shared icon string: one emoji or an SF
-    /// Symbol name.
+    /// commit). The icon is the shared icon string: one emoji, an SF Symbol
+    /// name or a stored image or SVG, checked in this transaction so no blob
+    /// sweep runs in between.
     pub(crate) fn set_personal_group_icon_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -20,7 +23,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<(PersonalGroup, bool)> {
         validate_workspace_group_id(id)?;
         if let Some(icon) = icon {
-            validate_presentation_icon(icon)?;
+            require_icon_asset(tx, icon)?;
         }
         let before =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
