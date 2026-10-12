@@ -5,12 +5,16 @@ import Foundation
 /// What the workspace hover card says (Leo 2026-10-08, Codex parity): a
 /// title row (the name, a kind or host icon, the relative age) and one row
 /// per meaningful fact, each with an icon: folder, branch, pull request,
-/// computer, and the agent working there (cx-13w3). CPU and memory show as one line,
-/// and only when notable.
+/// computer, the agent working there (cx-13w3), and each reported status entry with its own
+/// icon (cx-qno.11.1). CPU and memory show as one line, and only when notable.
 struct WorkspaceHoverCardContent: Equatable {
     struct Fact: Equatable {
         var icon: IconName
         var text: String
+        /// A status entry's own icon (an SF Symbol name or one emoji), drawn instead of `icon`.
+        var mark: String?
+        /// A status entry's stored image or SVG, drawn instead of both.
+        var image: SidebarFavicon?
     }
 
     var title: String
@@ -31,6 +35,9 @@ struct WorkspaceHoverCardContent: Equatable {
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
         if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
         if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
+        for entry in workspace.reported?.entries ?? [] {
+            facts.append(Fact(icon: .listBulletItem, text: entry.displayText, mark: entry.icon, image: entry.image))
+        }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts)

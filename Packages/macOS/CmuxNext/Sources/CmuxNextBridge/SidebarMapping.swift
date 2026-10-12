@@ -44,7 +44,10 @@ public struct SidebarMapping {
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
                                 pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
                                 tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
-                                iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> [SidebarRowSection] {
+                                iconAsset: (String) -> SidebarFavicon? = { _ in nil },
+                                groupIconAsset: ((String) -> SidebarFavicon?)? = nil) -> [SidebarRowSection] {
+        // A personal group's icon lives on the home daemon, whichever machine's section shows it.
+        let groupIconAsset = groupIconAsset ?? iconAsset
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -63,7 +66,7 @@ public struct SidebarMapping {
                     custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
-                    icon: group.icon.flatMap { WorkspaceIcon.parse($0) },
+                    icon: group.icon.flatMap { groupIconAsset($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
                     workspaces: rows
                 )))
             } else {
@@ -135,7 +138,7 @@ public struct SidebarMapping {
         row.presence = presence(tabs)
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
-        row.reported = Self.reported(workspace.status)
+        row.reported = Self.reported(workspace.status, asset: iconAsset)
         return row
     }
 
@@ -226,12 +229,14 @@ public struct SidebarMapping {
     }
 
     /// The status block: every entry but the ones other elements show, the
-    /// newest log line and the progress label; nil when none is reported.
-    static func reported(_ status: WorkspaceStatus?) -> SidebarWorkspaceStatus? {
+    /// newest log line and the progress label; nil when none is reported. `asset` draws an
+    /// entry's stored image or SVG icon.
+    static func reported(_ status: WorkspaceStatus?, asset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspaceStatus? {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
             entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
-                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color))
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color),
+                                             image: $0.icon.flatMap(asset))
             },
             log: status.lastLog.map {
                 SidebarWorkspaceStatus.LogLine(level: SidebarWorkspaceStatus.LogLevel(rawValue: $0.level) ?? .info, text: $0.text)
