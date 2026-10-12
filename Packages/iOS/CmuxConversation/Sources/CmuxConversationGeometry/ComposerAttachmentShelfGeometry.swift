@@ -112,3 +112,20 @@ public enum ComposerAttachmentShelfMotion {
         return CGFloat(1 - exp(-omega * elapsed) * (1 + omega * elapsed))
     }
 }
+
+/// The Photos drawer under the composer, Messages' app-card sheet: a card
+/// inset 8 pt from the sides and bottom, as tall as ChatKit's compact
+/// detent plus 20 pt (318 pt on iOS 26.5, 301 pt on 27.0 in the iPhone 17
+/// Pro simulators: frames {8, 528, 386, 338} and {8, 544.3, 386, 321.7}),
+/// with the message field 22 pt (26) or 21.3 pt (27) above its top.
+public enum PhotoDrawerGeometry {
+    public static let inset: CGFloat = 8
+
+    public static func height(iOS27: Bool) -> CGFloat {
+        iOS27 ? 321.7 : 338
+    }
+
+    public static func fieldGap(iOS27: Bool) -> CGFloat {
+        iOS27 ? 21.3 : 22
+    }
+}

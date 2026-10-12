@@ -84,6 +84,24 @@ import Testing
         #expect(t < 1.2)
     }
 
+    /// iOS 26.5 Messages, a 120 pt drag held 0.6 s then released (60 fps):
+    /// the bubbles start back at about 230 pt/s and are 0.52 of the way
+    /// out after 0.095 s and 0.24 after 0.2 s. UIKit still reports the
+    /// drag's speed after the finger has rested; Messages ignores it.
+    @Test func aRestingReleaseIgnoresTheStaleDragVelocity() throws {
+        var p = TimestampDrawerPhysics(maxOffset: 38.7)
+        p.begin(translation: .zero)
+        drag(&p, to: CGPoint(x: -400, y: 0))
+        var q = p
+        let staleEnd = p.end(velocity: CGPoint(x: -150, y: 0), stillFor: 0.6)
+        let stillEnd = q.end(velocity: .zero, stillFor: 0.6)
+        let stale = try #require(staleEnd)
+        let still = try #require(stillEnd)
+        #expect(stale == still)
+        #expect(abs(still.offset(at: 0.095) / 38.7 - 0.517) < 0.03)
+        #expect(abs(still.offset(at: 0.2) / 38.7 - 0.243) < 0.03)
+    }
+
     @Test func aFlingWaitsAtTheStopBeforeFallingBack() throws {
         var p = TimestampDrawerPhysics(maxOffset: 58)
         p.begin(translation: .zero)

@@ -20,8 +20,10 @@ import Foundation
 /// identical XCUITest drags on iOS 26.5 and 27.0 (same on both): offset
 /// `d * (1 - 1 / (1 + c * x / d))` with c = 0.44, d = 600 (within 0.3 pt),
 /// and on release a critically damped spring (omega 10.5 /s) whose start
-/// velocity is the finger's minus 0.75 * omega * offset, clamped to the
-/// drawer, so a fling waits at the stop before it falls back.
+/// velocity is the finger's minus 0.6 * omega * offset, clamped to the
+/// drawer, so a fling waits at the stop before it falls back. A finger that
+/// rested before lifting has no velocity, whatever the pan still reports
+/// (fitted to a held release in the iOS 26.5 simulator).
 public struct TimestampDrawerPhysics: Sendable, Equatable {
     /// ChatKit's finger travel past the last sample before the drawer opens.
     public static let chatKitPeekDistance: CGFloat = 20
@@ -32,7 +34,9 @@ public struct TimestampDrawerPhysics: Sendable, Equatable {
     public static let rubberBandCoefficient: CGFloat = 0.44
     public static let rubberBandDimension: CGFloat = 600
     public static let releaseOmega: CGFloat = 10.5
-    public static let releaseInwardVelocityFactor: CGFloat = 0.75
+    public static let releaseInwardVelocityFactor: CGFloat = 0.6
+    /// A finger still this long before lifting releases at rest.
+    public static let restingReleaseInterval: TimeInterval = 0.05
     /// Points left of zero below which a released drawer counts as closed.
     public static let restThreshold: CGFloat = 0.05
 
@@ -110,13 +114,14 @@ public struct TimestampDrawerPhysics: Sendable, Equatable {
         offset = min(max(0, Self.rubberBand(overshoot)), maxOffset)
     }
 
-    /// The drag ended; `velocity` is the finger's, in points per second
-    /// (negative = leftward). Returns the release, or nil when already closed.
-    public mutating func end(velocity: CGPoint) -> Release? {
+    /// The drag ended; `velocity` is the pan's, in points per second
+    /// (negative = leftward), and `stillFor` how long the finger rested
+    /// before lifting. Returns the release, or nil when already closed.
+    public mutating func end(velocity: CGPoint, stillFor: TimeInterval = 0) -> Release? {
         isPeeking = false
         sample = .zero
         guard offset > 0 else { return nil }
-        let outward = -velocity.x
+        let outward = stillFor >= Self.restingReleaseInterval ? 0 : -velocity.x
         let v0 = outward - Self.releaseInwardVelocityFactor * Self.releaseOmega * offset
         return Release(start: offset, velocity: v0, maxOffset: maxOffset)
     }
