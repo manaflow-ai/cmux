@@ -682,17 +682,20 @@ worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
 
 `git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
-run in such a worktree, brings its work back to the main checkout, in the
-user's environment and only on this machine. Everything the worktree changed
-since the merge base with its recorded base (its commits, its uncommitted edits
-and the new files it never added) lands in the main checkout's files as
-uncommitted changes; HEAD and the index of both checkouts stay as they are.
-The result is `main_root` and the `files` it changed. It refuses, changing
-nothing, with `not_a_worktree`, `no_base`, `no_merge_base`, `nothing_to_apply`,
-`main_checkout_changed` (the main checkout has changes of its own at those
-paths, listed in `extra.files`), `does_not_apply` or `git_failed`; a retry
-after a lost reply or a timeout finds the work applied instead of applying it
-twice.
+run in a worktree whose branch `git worktree create` recorded a base for, brings
+its work back to the main checkout, in the user's environment and only on this
+machine. Everything the worktree changed since the merge base with that base
+(its commits, its uncommitted edits and the new files it never added) lands in
+the main checkout's files as uncommitted changes; submodules are left out. HEAD
+and the index of both checkouts stay as they are, and the user's diff and apply
+settings change nothing. The result is `main_root` and the `files` it changed.
+It refuses, changing nothing, with `not_a_worktree`, `no_base`, `unmerged`
+(mid-merge or mid-rebase), `no_merge_base`, `nothing_to_apply`,
+`main_checkout_changed` (the main checkout has a change of its own, or a file git
+does not track, at those paths, listed in `extra.files`), `does_not_apply` or
+`git_failed`. A retry after a lost reply or a timeout finds the work applied
+instead of applying it twice; one stopped while git wrote the files is refused
+as `interrupted`, as the main checkout may hold part of it.
 
 ## Local sidebar plugins
 

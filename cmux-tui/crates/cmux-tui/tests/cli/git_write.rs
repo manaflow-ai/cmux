@@ -290,6 +290,9 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     git(&repo, &["add", "a.txt", "gone.txt"]);
     git(&repo, &["commit", "-q", "-m", "first"]);
     let head = git(&repo, &["rev-parse", "HEAD"]);
+    // The user's own diff and apply settings change nothing about what lands.
+    git(&repo, &["config", "diff.noprefix", "true"]);
+    git(&repo, &["config", "apply.whitespace", "error"]);
 
     let args = ["worktree", "create", "--name", "chat", "--idempotency-key", "c1"];
     assert_success(&git_cli(&server, &repo, &args));
@@ -300,6 +303,8 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     fs::write(worktree.join("a.txt"), "three\n").unwrap();
     fs::remove_file(worktree.join("gone.txt")).unwrap();
     fs::write(worktree.join("new.txt"), "new\n").unwrap();
+    fs::create_dir_all(worktree.join("src/lib")).unwrap();
+    fs::write(worktree.join("src/lib/new.rs"), "fn f() {} \n").unwrap();
 
     let apply = ["worktree", "apply", "--idempotency-key", "a1"];
     let applied = git_cli(&server, &worktree, &apply);
@@ -315,12 +320,13 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
         .filter_map(|file| file.as_str())
         .collect();
     files.sort_unstable();
-    assert_eq!(files, ["a.txt", "gone.txt", "new.txt"], "{value}");
+    assert_eq!(files, ["a.txt", "gone.txt", "new.txt", "src/lib/new.rs"], "{value}");
 
     // The main checkout has the chat's work as changes of its own: HEAD and the index stay.
     assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "three\n");
     assert!(!repo.join("gone.txt").exists());
     assert_eq!(fs::read_to_string(repo.join("new.txt")).unwrap(), "new\n");
+    assert_eq!(fs::read_to_string(repo.join("src/lib/new.rs")).unwrap(), "fn f() {} \n");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
     assert_eq!(git(&repo, &["diff", "--cached", "--name-only"]), "");
     // The worktree is as the chat left it: its new file is still its own, never added.
@@ -334,6 +340,7 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     // A main checkout with its own changes to those files is refused and left as it was.
     git(&repo, &["checkout", "-q", "--", "."]);
     fs::remove_file(repo.join("new.txt")).unwrap();
+    fs::remove_dir_all(repo.join("src")).unwrap();
     fs::write(repo.join("a.txt"), "mine\n").unwrap();
     let args = ["worktree", "apply", "--idempotency-key", "a2"];
     let refused = git_cli(&server, &worktree, &args);
@@ -348,5 +355,7 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     let args = ["worktree", "apply", "--idempotency-key", "a3"];
     let refused = git_cli(&server, &repo, &args);
     assert!(!refused.status.success(), "the main checkout applied to itself");
+    let reason = String::from_utf8_lossy(&refused.stderr).to_string();
+    assert!(reason.contains("not_a_worktree"), "{reason}");
     let _ = fs::remove_dir_all(root);
 }

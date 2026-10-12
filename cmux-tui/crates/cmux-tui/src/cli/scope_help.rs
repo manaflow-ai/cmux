@@ -166,9 +166,10 @@ suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
 as it is.
 
 worktree apply, run in such a worktree, brings everything it changed since its
-base (commits, edits and new files) to the main checkout as uncommitted changes.
-HEAD and the index stay; it is refused when the main checkout has changes of its
-own to those files, or when the work does not apply cleanly there.
+recorded base (commits, edits and new files; not submodules) to the main checkout
+as uncommitted changes. HEAD and the index stay; it is refused when the main
+checkout has changes of its own (or untracked files) at those paths, or when the
+work does not apply cleanly there.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
