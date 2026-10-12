@@ -34,7 +34,14 @@ export default agentPaneEntry({
           ctx.document.querySelector('[role="alert"]')?.textContent?.includes("links outside the chat folder"),
         );
         await ctx.click({ role: "button", name: "Retry" });
-        await ctx.waitFor(() => asked(ctx) === 2);
+        // Poll by hand so a failure says what the host was asked.
+        for (let tries = 0; asked(ctx) < 2; tries++) {
+          if (tries > 60) {
+            const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: Log }).cmuxGalleryLog;
+            throw new Error(`Retry asked nothing: ${JSON.stringify(log.map(({ method }) => method))}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         await ctx.click({ role: "button", name: "Dismiss" });
         await ctx.waitFor(() => !ctx.document.querySelector('[role="alert"]'));
       },
