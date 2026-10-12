@@ -4203,8 +4203,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func completeSessionRestoreOperation(isManualReopen: Bool) {
-        let restoredSessionSnapshot = startupSessionSnapshot
+    private func completeSessionRestoreOperation(
+        isManualReopen: Bool,
+        restoredSnapshot: AppSessionSnapshot? = nil,
+        afterRestore: (() -> Void)? = nil
+    ) {
+        let restoredSessionSnapshot = restoredSnapshot ?? startupSessionSnapshot
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
@@ -4238,6 +4242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+        afterRestore?()
         presentSessionRestoreOmissionNoticeIfNeeded(for: restoredSessionSnapshot)
     }
 
@@ -4324,18 +4329,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        completeSessionRestoreOperation(isManualReopen: true)
-        presentSessionRestoreOmissionNoticeIfNeeded(for: snapshot)
-
-        if shouldActivate,
-           let primaryWindowId = createdWindowIds.first,
-           let primaryWindow = mainWindow(for: primaryWindowId) {
-            primaryWindow.makeKeyAndOrderFront(nil)
-            setActiveMainWindow(primaryWindow)
-            NSRunningApplication.current.activate(
-                options: [.activateAllWindows, .activateIgnoringOtherApps]
-            )
-        }
+        completeSessionRestoreOperation(
+            isManualReopen: true,
+            restoredSnapshot: snapshot,
+            afterRestore: { [self] in
+                guard shouldActivate,
+                      let primaryWindowId = createdWindowIds.first,
+                      let primaryWindow = mainWindow(for: primaryWindowId) else {
+                    return
+                }
+                primaryWindow.makeKeyAndOrderFront(nil)
+                setActiveMainWindow(primaryWindow)
+                NSRunningApplication.current.activate(
+                    options: [.activateAllWindows, .activateIgnoringOtherApps]
+                )
+            }
+        )
 
         return true
     }

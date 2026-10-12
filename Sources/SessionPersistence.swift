@@ -234,7 +234,7 @@ enum SessionPersistencePolicy {
 }
 
 /// Describes the restorable workspaces retained in a bounded session snapshot.
-nonisolated struct SessionWorkspaceRetention: Equatable, Sendable {
+struct SessionWorkspaceRetention: Equatable, Sendable {
     let retainedIndices: [Int]
     let selectedWorkspaceIndex: Int?
     let omittedWorkspaceCount: Int?
