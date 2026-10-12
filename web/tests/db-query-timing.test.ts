@@ -74,7 +74,7 @@ describe("postgres.js query timing", () => {
 // Against a real Postgres (CMUX_TEST_PG_URL): with a one-connection pool, a
 // query queued behind a 300 ms query reports that wait as its acquire wait.
 const pgUrl = process.env.CMUX_TEST_PG_URL;
-describe.skipIf(!pgUrl)("postgres.js query timing against a real pool", () => {
+(pgUrl ? describe : describe.skip)("postgres.js query timing against a real pool", () => {
   test("a queued query's acquire wait is the time it waited for the connection", async () => {
     const timings: Array<CloudDbQueryTiming & { label: string }> = [];
     let label = "";
