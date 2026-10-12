@@ -159,14 +159,16 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
   private readonly log: Logger;
 
   private readonly resolveBrowser?: BrowserResolver;
+  private readonly showBrowserInApp?: (tabResourceId: string) => Promise<void>;
 
   constructor(
     private readonly socketPath: () => string | null,
-    opts: { log?: Logger; resolveBrowser?: BrowserResolver } = {},
+    opts: { log?: Logger; resolveBrowser?: BrowserResolver; showBrowserInApp?: (tabResourceId: string) => Promise<void> } = {},
   ) {
     super();
     this.log = opts.log ?? (() => {});
     this.resolveBrowser = opts.resolveBrowser;
+    this.showBrowserInApp = opts.showBrowserInApp;
   }
 
   /** Recomputes the layout soon (e.g. the Mac's browser targets changed). */
@@ -252,6 +254,12 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
         if (!screens[si]!.active) await c.request("select-screen", { index: si });
         await c.request("focus-pane", { pane });
         await c.request("select-tab", { pane, index });
+        // The app window keeps its own tab selection; for a browser tab, ask
+        // the app to show it too (a hidden page sends no frames).
+        const tab = (p.tabs ?? [])[index]!;
+        if (this.showBrowserInApp && tab.tab_resource_id && tab.kind !== "pty" && tab.kind !== "conversation") {
+          await this.showBrowserInApp(tab.tab_resource_id).catch((err) => this.log(`show ${tab.tab_resource_id} in the app failed: ${(err as Error).message}`));
+        }
         await this.refresh(true);
         return;
       }

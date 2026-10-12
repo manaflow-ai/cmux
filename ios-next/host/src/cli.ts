@@ -164,6 +164,8 @@ interface RunOptions {
   acpmuxSocket?: string;
 }
 
+/** The bridge's MacBrowser, for the layout's "Show on Mac". */
+let macRef: MacBrowser | undefined;
 /** Maps a Mac browser pane to browser.* (set by run once the core exists). */
 let browserResolver: BrowserResolver = () => ({ reason: "not ready" });
 
@@ -192,7 +194,11 @@ async function setupBridge(opts: RunOptions, log: (m: string) => void) {
     terminals: targets.daemonSocket ? new DaemonTerminals(() => targets.daemonSocket, { log: makeLogger("bridge") }) : undefined,
     agents: targets.acpmuxSocket ? new AcpmuxAgents(() => targets.acpmuxSocket, { log: makeLogger("bridge") }) : undefined,
     layout: targets.daemonSocket
-      ? new DaemonLayout(() => targets.daemonSocket, { log: makeLogger("bridge"), resolveBrowser: (t) => browserResolver(t) })
+      ? new DaemonLayout(() => targets.daemonSocket, {
+          log: makeLogger("bridge"),
+          resolveBrowser: (t) => browserResolver(t),
+          showBrowserInApp: (id) => (macRef ? macRef.showInApp(id) : Promise.resolve()),
+        })
       : undefined,
     mac: targets.daemonSocket
       ? new MacBrowser({
@@ -216,6 +222,7 @@ async function run(opts: RunOptions): Promise<void> {
   enableRtcLoggingFromEnv(makeLogger("rtc"));
   const bridge = await setupBridge(opts, log);
   const mac = bridge?.mac;
+  macRef = mac;
   if (mac) await mac.start();
   const core: HostCore = new HostCore({
     hostId: cfg.hostId,

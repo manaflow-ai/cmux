@@ -228,3 +228,11 @@ describe("devtools.json discovery", () => {
     }
   });
 });
+
+describe("show a Mac tab in the app", () => {
+  it("refuses malformed tab ids and dead pids", async () => {
+    const { selectTabInApp } = await import("../src/bridge/macBrowser.ts");
+    await expect(selectTabInApp(process.pid, "tab_; rm -rf ~")).rejects.toThrow(/bad tab id/);
+    await expect(selectTabInApp(999_999, "tab_0123456789abcdef0123456789abcdef")).rejects.toThrow(/not running/);
+  });
+});

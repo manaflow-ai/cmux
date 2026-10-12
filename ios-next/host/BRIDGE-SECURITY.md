@@ -120,7 +120,12 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
   turns off. Panes are paired with targets only through the mapping the app
   publishes; nothing is guessed from URL or title. `browser.attach
   bringForward:true` (phone opt-in) and "Show on Mac" use the same
-  allowlisted `layout.focusTab` selection. It sends no `--remote-allow-origins`-style
+  allowlisted `layout.focusTab` selection. The app window keeps its own tab
+  selection, so for a browser tab the host also runs the validated app's
+  bundled CLI with a fixed argv (`<app>/Contents/Resources/bin/cmux browser
+  <tab_…> select`, no shell, tab id must match `tab_[0-9a-f]+`, app path from
+  the pid that wrote `devtools.json` and passed the cmux-next check). It only
+  selects an existing tab. It sends no `--remote-allow-origins`-style
   Origin and connects only to loopback. Through it, the phone can see and
   drive (input, navigate, reload) the Mac user's tabs, which is what the
   setting grants. It never creates, closes or activates a Mac tab, never

@@ -76,16 +76,40 @@ export interface DevtoolsFile {
   targets?: { tabId: string | number; targetId: string }[];
 }
 
-/** Is `pid` a running cmux-next app (an .app whose bundle ships the cmux-tui daemon)? */
-export function isCmuxNextPid(pid: number): Promise<boolean> {
+/** The .app bundle of a running cmux-next app (one that ships the cmux-tui daemon), or null. */
+export function cmuxNextBundleOf(pid: number): Promise<string | null> {
   return new Promise((resolve) => {
     execFile("/bin/ps", ["-p", String(pid), "-o", "command="], { timeout: 10_000 }, (err, stdout) => {
-      if (err) return resolve(false);
+      if (err) return resolve(null);
       const cmd = String(stdout).trim();
       const m = /^(.*?\.app)\/Contents\/MacOS\//.exec(cmd);
-      resolve(Boolean(m && existsSync(join(m[1]!, "Contents", "Resources", "bin", "cmux-tui"))));
+      resolve(m && existsSync(join(m[1]!, "Contents", "Resources", "bin", "cmux-tui")) ? m[1]! : null);
     });
   });
+}
+
+/** Is `pid` a running cmux-next app? */
+export async function isCmuxNextPid(pid: number): Promise<boolean> {
+  return (await cmuxNextBundleOf(pid)) !== null;
+}
+
+/**
+ * Shows a browser tab in the cmux-next app's window ("Show on Mac"). The
+ * daemon's select-tab moves the shared selection, but the app window keeps
+ * its own selection; the app's bundled CLI (`cmux browser <tab_…> select`,
+ * fixed argv, no shell) selects it in the window. Only the bundle of the
+ * validated app pid is used.
+ */
+export async function selectTabInApp(pid: number, tabResourceId: string): Promise<void> {
+  if (!/^tab_[0-9a-f]{16,64}$/.test(tabResourceId)) throw new Error("bad tab id");
+  const bundle = await cmuxNextBundleOf(pid);
+  if (!bundle) throw new Error("the cmux-next app is not running");
+  const cli = join(bundle, "Contents", "Resources", "bin", "cmux");
+  const env = { ...process.env };
+  delete env.CMUX_SOCKET_PATH;
+  await new Promise<void>((resolve, reject) =>
+    execFile(cli, ["browser", tabResourceId, "select"], { timeout: 10_000, env }, (err) => (err ? reject(err) : resolve())),
+  );
 }
 
 export interface MacBrowserOptions {
@@ -145,6 +169,14 @@ export class MacBrowser extends EventEmitter<{ status: [status: MacBrowserStatus
     return this.hasTargets;
   }
   private hasTargets = false;
+  /** pid of the app that wrote the validated file (state "on"). */
+  appPid: number | null = null;
+
+  /** Shows a tab in the Mac app's window (see selectTabInApp). */
+  async showInApp(tabResourceId: string): Promise<void> {
+    if (this.status.state !== "on" || !this.appPid) throw new Error("Mac browser tab sharing is not on");
+    await selectTabInApp(this.appPid, tabResourceId);
+  }
 
   start(): Promise<void> {
     this.watchDir();
@@ -251,6 +283,7 @@ export class MacBrowser extends EventEmitter<{ status: [status: MacBrowserStatus
     if (!(await (this.opts.pidCheck ?? isCmuxNextPid)(pid!))) return unavailable("the cmux-next app that opened DevTools is not running");
     const base = `http://127.0.0.1:${port}`;
     if (!(await fetchVersion(base, 2_000))) return unavailable("the cmux-next DevTools endpoint is not answering");
+    this.appPid = pid!;
     const targets = new Map<string, string>();
     for (const t of Array.isArray(data.targets) ? data.targets : []) {
       if (t && (typeof t.tabId === "string" || typeof t.tabId === "number") && typeof t.targetId === "string" && t.targetId) targets.set(String(t.tabId), t.targetId);

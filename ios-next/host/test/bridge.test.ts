@@ -59,7 +59,7 @@ async function fakeDaemon() {
   const commands: any[] = [];
   const tabs: any[] = [
     { surface: 2, kind: "pty", name: null, title: "~", size: { cols: 104, rows: 40 }, cwd: "/Users/me", dead: false },
-    { surface: 5, kind: "browser", title: "about:blank", size: { cols: 80, rows: 24 } },
+    { surface: 5, kind: "browser", title: "about:blank", size: { cols: 80, rows: 24 }, tab_resource_id: "tab_00000000000000000000000000000005" },
   ];
   let nextSurface = 10;
   const state = { activeTab: 0 };
@@ -160,7 +160,8 @@ describe("daemon layout bridge", () => {
     const d = await fakeDaemon();
     cleanups.push(() => d.srv.close());
     const { DaemonLayout } = await import("../src/layout/index.ts");
-    const layout = new DaemonLayout(() => d.path);
+    const shown: string[] = [];
+    const layout = new DaemonLayout(() => d.path, { showBrowserInApp: async (id) => void shown.push(id) });
     const { core, client } = await connectedCore({ bridge: { layout } });
     cleanups.push(() => core.shutdown());
     const { layout: l } = await client.request("layout.get");
@@ -182,6 +183,10 @@ describe("daemon layout bridge", () => {
       { id: 0, cmd: "select-tab", pane: 3, index: 1 },
     ]);
     await waitFor(() => changed.some((x) => x.workspaces[0].panes[0].focusedTabId === "t5"));
+    // A browser tab is also shown in the app window (its own selection).
+    expect(shown).toEqual(["tab_00000000000000000000000000000005"]);
+    await client.request("layout.focusTab", { paneId: "p3", tabId: "t2" });
+    expect(shown).toHaveLength(1); // not for terminals
     await expect(client.request("layout.focusTab", { paneId: "p3", tabId: "t99" })).rejects.toMatchObject({ code: "not_found" });
     await expect(client.request("layout.focusTab", { paneId: "p77", tabId: "t2" })).rejects.toMatchObject({ code: "not_found" });
   });
