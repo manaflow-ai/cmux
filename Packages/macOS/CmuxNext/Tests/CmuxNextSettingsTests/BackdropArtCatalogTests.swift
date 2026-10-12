@@ -1,0 +1,60 @@
+import AppKit
+import CmuxNextDesign
+@testable import CmuxNextSettings
+import Foundation
+import Testing
+
+/// The bundled backdrop art (cx-t2x.7): well-known public-domain paintings in four picker
+/// collections, labelled "Title — Artist", each a 1600×1000 image that decodes, and every id a
+/// cmux.json saved before the set changed still choosing art.
+@Suite struct BackdropArtCatalogTests {
+    /// Ids the earlier bundled set wrote to `appearance.background` and `appearance.backdropArt`.
+    static let retiredIDs = [
+        "wheat-field-with-cypresses", "met-saint-catherine-436908", "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536", "met-sunflowers-436524", "nga-degas-halevy-standing-66489",
+        "nga-degas-dancer-from-behind-32137", "nga-carpaccio-groups-of-male-figures-73858",
+        "nga-perino-del-vaga-figure-studies-57613", "nga-rubens-battle-of-nude-men-63034",
+        "nga-teniers-market-figures-62615",
+    ]
+
+    @Test func thePickerGroupsArtIntoFourCollections() {
+        let collections = BackdropCatalog.bundled.compactMap { choice -> String? in
+            if case .art(let art) = choice { return art.collection.rawValue }
+            return nil
+        }
+        var order: [String] = []
+        for collection in collections where order.last != collection { order.append(collection) }
+        #expect(order == ["darkArt", "museumIcons", "calm", "dore"])
+    }
+
+    @Test func everyArtChoiceIsLabelledTitleAndArtist() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath))
+        guard case .choice(let choices) = descriptor.kind else {
+            Issue.record("appearance.background is not a choice")
+            return
+        }
+        let art = choices.filter { BackdropArt(rawValue: $0.value) != nil }
+        #expect(art.count >= 60)
+        for choice in art {
+            let parts = choice.title.components(separatedBy: " — ")
+            #expect(parts.count == 2 && parts.allSatisfy { !$0.isEmpty }, "\(choice.value): \(choice.title)")
+        }
+    }
+
+    @Test(arguments: retiredIDs)
+    func aRetiredIDStillChoosesArt(id: String) {
+        for path in [["appearance", "background"], ["appearance", "backdropArt"]] {
+            let root = JSONValue.object([path[0]: .object([path[1]: .string(id)])])
+            let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+            #expect(snapshot.backdropArt != nil, "\(path.joined(separator: ".")) = \(id)")
+            #expect(!snapshot.diagnostics.contains { $0.path.hasPrefix("appearance.") }, "\(id)")
+        }
+    }
+
+    @MainActor @Test(arguments: BackdropArt.allCases)
+    func everyBundledImageDecodesAtBackdropSize(art: BackdropArt) throws {
+        let image = try #require(art.image(), "\(art.rawValue) is missing or does not decode")
+        let rep = try #require(image.representations.first)
+        #expect(rep.pixelsWide == 1600 && rep.pixelsHigh == 1000, "\(art.rawValue): \(rep.pixelsWide)×\(rep.pixelsHigh)")
+    }
+}
