@@ -27,6 +27,10 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var persists = true
     public var showsOnTab = true
     public var showsOnSidebar = true
+    /// A notification for a pane the user is not looking at moves its
+    /// workspace to the top of the unpinned rows (classic's
+    /// `app.reorderOnNotification`).
+    public var movesToTop = true
 
     public init() {}
 

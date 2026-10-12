@@ -10,8 +10,9 @@ import type { Root } from "react-dom/client";
 import type { PermissionClientState, PermissionGroup } from "../src/agent-session/acpmux/permissions/protocol";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+const added: string[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
 
@@ -22,13 +23,21 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The panel draws an edit's diff card, whose registered elements read DOM constructors at import.
+  for (const key of Object.getOwnPropertyNames(window))
+    if (/^(HTML|SVG|CSS|Shadow|Document|Element|Node|MutationObserver)/.test(key) && !(key in scope)) {
+      added.push(key);
+      scope[key] = (window as unknown as Record<string, unknown>)[key];
+    }
   host = window.document.getElementById("root")!;
 });
 
 afterAll(() => {
   act(() => root?.unmount());
+  for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

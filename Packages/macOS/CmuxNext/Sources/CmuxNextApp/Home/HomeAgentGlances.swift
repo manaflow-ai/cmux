@@ -18,12 +18,12 @@ struct HomeAgentGlances {
     /// Reading this inside an `ObservationStream` tracks every value it
     /// reads (the tab records, acpmux turn states, seen records).
     var current: [HomeAgentGlance] {
-        let pageTabs = services.agentTabs.pageTabs.ids
+        let agentTabs = services.agentTabs
         var glances: [HomeAgentGlance] = []
         for (workspace, _) in services.machines.allWorkspaces {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 let isChat = tab.agentSession != nil
-                guard isChat ? !pageTabs.contains(tab.id) : tab.agent != nil && !tab.dead else { continue }
+                guard isChat ? !RestoredNewTabPages.shows(tab, in: agentTabs) : tab.agent != nil && !tab.dead else { continue }
                 let item = TabItemMapping.shared.item(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession) : Strings.untitledTerminal)
                 glances.append(HomeAgentGlance(id: tab.id, title: item.title, icon: isChat ? .agentChat : .terminal,
                                                status: glanceStatus(item.status, working: StatusMapping.shared.isWorking(tabs: [tab]))))
