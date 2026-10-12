@@ -333,15 +333,18 @@ def main():
                     help="capture the React update surfaces: the staged card's highlights popover before the "
                          "restart and the Updated card after it, light and dark (debug.window_snapshot)")
     ap.add_argument("--island-lifecycle", action="store_true",
-                    help="with --surface-shots: check that each update page exists only while its card shows "
-                         "(debug.update_surfaces state): the Updated card's page at launch and none after its x, no "
-                         "highlights page before staging, the highlights page and 3 items once staged, the Updated "
-                         "card's page after the restart")
+                    help="with --surface-shots and --notes: check that each update page exists only while its card "
+                         "shows (debug.update_surfaces state): the Updated card's page at launch and none after its x, "
+                         "no highlights page before staging, the highlights page drawn (the popover opens only with "
+                         "a measured page) and 3 staged items (the updater's data) once staged, the Updated card's "
+                         "page drawn after the restart")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
+    if a.island_lifecycle and not (a.surface_shots and a.notes):
+        ap.error("--island-lifecycle needs --surface-shots and --notes")
 
     if a.port == 0:
         probe = socket.socket()
@@ -684,7 +687,8 @@ def main():
     if a.island_lifecycle:
         log("island lifecycle", json.dumps(result.get("island_lifecycle")))
         if result.get("island_failures") or len(result.get("island_lifecycle", {})) != 4:
-            raise SystemExit(f"island lifecycle failed: {result.get('island_failures')}")
+            raise SystemExit(f"island lifecycle failed: {result.get('island_failures')}, "
+                             f"phases {sorted(result.get('island_lifecycle', {}))} of 4")
 
 
 if __name__ == "__main__":
