@@ -243,7 +243,7 @@ final class TiledBody {
         if p.outgoing {
             fill.backgroundColor = nil
             cell.fillGradient.isHidden = false
-            RowCell.placeFill(cell.fillGradient, windowTop: cell.windowY, width: spec.width, span: cell.fillSpan, reachBelow: cell.fillReachBelow)
+            RowCell.placeFill(cell.fillGradient, windowTop: cell.contentWindowY, width: spec.width, span: cell.fillSpan, reachBelow: cell.fillReachBelow)
         } else {
             cell.fillGradient.isHidden = true
             fill.backgroundColor = Fixture.incoming.cgColor

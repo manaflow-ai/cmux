@@ -374,6 +374,7 @@
       "description" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "daily",
         "david-death-of-marat",
         "goya-saturn",
         "velde-small-ship-storm",
@@ -1729,6 +1730,28 @@
       "minimum" : 1,
       "title" : "Timeout",
       "type" : "number"
+    },
+    "palette.aliases" : {
+      "default" : {
+
+      },
+      "description" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first.",
+      "properties" : {
+
+      },
+      "title" : "Command Aliases",
+      "type" : "object"
+    },
+    "palette.pins" : {
+      "default" : [
+
+      ],
+      "description" : "Commands shown first when the command palette opens, in this order, by action id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Commands",
+      "type" : "array"
     },
     "palette.scopes.commands.prefix" : {
       "default" : ">",

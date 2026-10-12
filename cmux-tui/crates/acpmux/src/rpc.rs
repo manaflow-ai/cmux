@@ -281,6 +281,12 @@ pub mod method {
     pub const MUX_HANDOFF_DRAFT: &str = "_acpmux/handoff_draft";
     pub const MUX_HANDOFF_START: &str = "_acpmux/handoff_start";
     pub const MUX_HANDOFF_DISCARD: &str = "_acpmux/handoff_discard";
+    /// An agent asks the person for a secret (`hub/secrets.rs`); the
+    /// person's card answers with `secret_submit`, and `secret_run` spends
+    /// the ref the agent got.
+    pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
+    pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
+    pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

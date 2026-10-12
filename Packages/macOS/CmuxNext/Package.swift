@@ -804,7 +804,9 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                           // GhosttyGlassMinimumContrastTests builds a Ghostty config.
+                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

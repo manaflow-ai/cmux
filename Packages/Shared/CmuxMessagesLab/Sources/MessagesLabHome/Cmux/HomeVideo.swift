@@ -59,7 +59,8 @@ final class HomeVideo {
                 badges[key]?.removeFromSuperlayer()
                 continue
             }
-            let body = RowDraw.bodyRect(spec)
+            // On the row's content, which RowCell.snapRow moves onto the window's device pixels (MessagesLab c1457e5).
+            let body = RowDraw.bodyRect(spec).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y)
             if layer.superlayer !== cell.layer { cell.layer.addSublayer(layer) }
             layer.frame = body
             let mask = masks[key] ?? CAShapeLayer()

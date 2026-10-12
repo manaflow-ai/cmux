@@ -1,5 +1,7 @@
 import React, {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -60,6 +62,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle } from "./Composer";
@@ -83,7 +86,6 @@ import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
-import { DiffPanel } from "./DiffPanel";
 import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -104,6 +106,8 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
+import { loadHighlightedCode } from "./conversation/CodeBlock";
+import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
@@ -201,6 +205,13 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { experimentArm } from "../../experiments/experiment";
+
+/// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
+/// packages, which a New Tab page never shows, so the page's first script parses without them.
+/// It starts loading once the page has painted, with the transcript's highlighted code and edit
+/// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
+const loadDiffPanel = () => import("./DiffPanel");
+const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -845,6 +856,12 @@ const WARM_VIEWPORTS = 1;
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
 const JUMP_LATEST_SETTLE_MS = 600;
+/// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
+/// transcript this long before it) and that stays within about a line of it is not a scroll up.
+/// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
+/// the latest line, which stopped the chat following for good (cx-02st5).
+const READER_SCROLL_MS = 1000;
+const STRAY_SCROLL_PX = 24;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
 function scrollRangeIn(scroller: HTMLElement, range: Range) {
   const box = range.getBoundingClientRect();
@@ -1156,6 +1173,11 @@ export function VirtualTranscript({
     };
   }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
+  const strayFrom = (top: number, latest: number) =>
+    latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -1416,7 +1438,10 @@ export function VirtualTranscript({
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
       const atLatest =
-        clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+        clamped || unmoved
+          ? scrolledTo.current.atLatest
+          : top >= old.totalHeight - node.clientHeight - 1 ||
+            (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
@@ -1424,7 +1449,10 @@ export function VirtualTranscript({
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
-        if (Math.abs(step) > 0.5) node.scrollTop = latest;
+        if (Math.abs(step) > 0.5) {
+          node.scrollTop = latest;
+          followTrace.set(latest);
+        }
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
@@ -1449,6 +1477,7 @@ export function VirtualTranscript({
       const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
       const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
       node.scrollTop = top;
+      followTrace.set(top);
       setScroll({ top, delta: 0 });
       setFollowing(top >= latest - 1);
       didOpenAtLatest.current = true;
@@ -1457,6 +1486,7 @@ export function VirtualTranscript({
     previousRows.current = rows;
     previousViewport.current = { height, width };
     if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -1584,8 +1614,27 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
-    const next = event.currentTarget.scrollTop;
-    scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
+    const node = event.currentTarget;
+    const next = node.scrollTop;
+    const was = scrolledTo.current;
+    scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+    if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
+      // Not the reader's scroll: the view keeps following the reply.
+      scrolledTo.current = { top: latest, atLatest: true };
+      node.scrollTop = latest;
+      followTrace.set(latest);
+      return;
+    }
+    if (was.atLatest && !scrolledTo.current.atLatest)
+      followTrace.stopped({
+        top: next,
+        previous: was.top,
+        latest,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+      });
+    followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
@@ -1618,6 +1667,8 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     const reader = () => {
+      readerAt.current = performance.now();
+      followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
     };
@@ -2717,7 +2768,14 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        void callNative("pane.painted").catch(() => undefined);
+        void loadDiffPanel();
+        void loadHighlightedCode();
+        void loadEditDiffHunks();
+      }, 0),
+    );
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
@@ -3305,6 +3363,15 @@ function AcpmuxPane() {
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
+          // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
+          "models.refresh": async () => {
+            try {
+              await client.refreshModels();
+            } finally {
+              // A refused or failed probe still re-reads what acpmux has.
+              await queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+            }
+          },
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation
           // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing;
@@ -4729,29 +4796,31 @@ function AcpmuxPane() {
                   />
                 )}
                 {diffView && diffFiles && (
-                  <DiffPanel
-                    files={diffDisplay?.files ?? diffFiles}
-                    turn={diffDisplay}
-                    initialPath={diffView.path}
-                    onClose={closeDiff}
-                    source={changesSource}
-                    onOpenFile={openChangedFile}
-                    checkpointAction={
-                      checkpoints.supported ? (
-                        <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
-                          {checkpointLabels.createCheckpoint}
-                        </button>
-                      ) : undefined
-                    }
-                    checkpointReview={checkpoints.review}
-                    review={hunkReview}
-                    reviewFiles={diffFiles}
-                    gitIntent={diffView.gitIntent}
-                    onGitIntentHandled={clearGitIntent}
-                    writeKeys={writeKeysFor(diffView.sessionId)}
-                    onAddressThread={addressThread}
-                    findHandle={diffFindRef}
-                  />
+                  <Suspense fallback={null}>
+                    <DiffPanel
+                      files={diffDisplay?.files ?? diffFiles}
+                      turn={diffDisplay}
+                      initialPath={diffView.path}
+                      onClose={closeDiff}
+                      source={changesSource}
+                      onOpenFile={openChangedFile}
+                      checkpointAction={
+                        checkpoints.supported ? (
+                          <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                            {checkpointLabels.createCheckpoint}
+                          </button>
+                        ) : undefined
+                      }
+                      checkpointReview={checkpoints.review}
+                      review={hunkReview}
+                      reviewFiles={diffFiles}
+                      gitIntent={diffView.gitIntent}
+                      onGitIntentHandled={clearGitIntent}
+                      writeKeys={writeKeysFor(diffView.sessionId)}
+                      onAddressThread={addressThread}
+                      findHandle={diffFindRef}
+                    />
+                  </Suspense>
                 )}
               </div>
               {asks}

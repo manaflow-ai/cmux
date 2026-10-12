@@ -260,6 +260,8 @@ public struct DaemonCapabilities: Sendable {
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
+    /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
+    public let keybindings = "keybindings-v1"
     /// `project.list|observe|add|update|remove|sync`: the device project list
     /// (plans/cmux-next/projects.md).
     public let projectList = "project-list-v1"
@@ -313,7 +315,7 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, sessionJournal, terminalResources] }
+                                            originClaim, sessionJournal, terminalResources, keybindings] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
