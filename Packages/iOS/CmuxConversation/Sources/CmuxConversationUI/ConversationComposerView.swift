@@ -106,6 +106,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private var sendLaterHeight: CGFloat { sendLaterDate == nil ? 0 : SendLaterChipView.height + 10 }
 
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
+    /// The text width the draft was last measured at.
+    private var measurement = ComposerFieldMeasurement()
     /// Messages' photo shelf: 155 pt previews inset 6 pt, then a 1 pt divider.
     private var attachmentBand: CGFloat { ComposerAttachmentShelfGeometry.bandHeight }
     /// How far the keyboard has risen (0 hidden, 1 fully shown). Messages
@@ -318,6 +320,12 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
         micButton.frame = CGRect(x: field.width - 40, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
         fieldGlass.layer.cornerRadius = min(fieldHeight, t.composerMinHeight) / 2
+        // A draft measured at another width (keyboard insets, reply mode,
+        // the Photos drawer, rotation, a first pass before layout) wraps
+        // differently here: measure it again.
+        if field.width > 0, measurement.needsRemeasure(textWidth: textWidth(forFieldWidth: field.width)) {
+            updateHeight()
+        }
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -477,12 +485,19 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     /// Grows by whole lines in the same frame as the edit, with no animation;
+    /// The text column inside a field `fieldWidth` wide (the send button's
+    /// column is kept clear on the trailing side).
+    private func textWidth(forFieldWidth fieldWidth: CGFloat) -> CGFloat {
+        max(1, fieldWidth - fieldTextInset - sendSize.width - 10)
+    }
+
     /// `animated` (the photo shelf opening or closing) moves on the shelf spring.
     func updateHeight(animated: Bool = false) {
-        let width = max(1, (fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120) - fieldTextInset - sendSize.width - 10)
+        let width = textWidth(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        let lines = max(1, round((textSize.height - 2 * verticalPadding) / ConversationTheme.lineHeight))
-        var natural = ConversationTheme.composerMinHeight + (lines - 1) * ConversationTheme.lineHeight
+        measurement.didMeasure(textWidth: width)
+        let lines = ComposerFieldMeasurement.lineCount(textHeight: textSize.height, verticalPadding: verticalPadding, lineHeight: ConversationTheme.lineHeight)
+        var natural = ComposerFieldMeasurement.fieldHeight(lines: lines, oneLineHeight: ConversationTheme.composerMinHeight, lineHeight: ConversationTheme.lineHeight)
         if emojiPointSize != nil { natural = max(ConversationTheme.composerMinHeight, ceil(textSize.height)) }
         if !attachments.isEmpty { natural += attachmentBand }
         natural += linkPreview.height(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
