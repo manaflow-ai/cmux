@@ -145,4 +145,43 @@ struct AgentPaneGitPullRequestTests {
         #expect((remote["error"] as? [String: Any])?["code"] as? String == "git.remote", "\(remote)")
         #expect(try Self.git(rig.remote, "branch", "--list", "feature").isEmpty)
     }
+
+    /// A worktree chat's branch (cx-lyqio.6) opens its pull request against the branch it was made
+    /// from (`branch.<b>.cmuxBase`, New Worktree), not the repository's default: by the name that
+    /// branch has on the remote. A base with no branch on the remote (a commit, a local branch never
+    /// pushed, the remote's HEAD) leaves gh's default, as before.
+    @Test func aWorktreeChatsPullRequestTargetsItsRecordedBase() async throws {
+        let rig = try Self.rig()
+        // `release` is on the remote as `rel`; the chat's branch was made from it.
+        try Self.git(rig.repo, "checkout", "-q", "-b", "release", "main")
+        try Self.git(rig.repo, "push", "-q", "--set-upstream", "origin", "release:rel")
+        try Self.git(rig.repo, "checkout", "-q", "-b", "cmux/fix-login", "release")
+        try "three\n".write(toFile: rig.repo + "/b.txt", atomically: true, encoding: .utf8)
+        try Self.git(rig.repo, "add", "b.txt")
+        try Self.git(rig.repo, "commit", "-q", "-m", "Say three")
+        try Self.git(rig.repo, "push", "-q", "--set-upstream", "origin", "cmux/fix-login")
+        let request = try Self.request(rig.repo)
+        let creates = { rig.calls.filter { $0.hasPrefix("pr create") } }
+
+        try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "release")
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh) == .opened(url: "https://github.com/o/r/pull/7", number: 7))
+        #expect(creates().last == "pr create --fill --base rel")
+
+        // A remote branch as the base: its name on that remote.
+        try FileManager.default.removeItem(atPath: rig.gh + ".pr")
+        try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "origin/rel")
+        _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh)
+        #expect(creates().last == "pr create --fill --base rel")
+
+        // No branch on the remote to target: a commit, a local branch never pushed, the remote's HEAD.
+        try Self.git(rig.repo, "branch", "local-only", "release")
+        try Self.git(rig.repo, "remote", "set-head", "origin", "main")
+        for base in [try Self.git(rig.repo, "rev-parse", "release"), "local-only", "origin/HEAD"] {
+            try FileManager.default.removeItem(atPath: rig.gh + ".pr")
+            try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", base)
+            _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh)
+            #expect(creates().last == "pr create --fill", "\(base)")
+        }
+        #expect(creates().count == 5)
+    }
 }

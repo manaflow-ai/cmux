@@ -84,17 +84,19 @@ nonisolated final class TaggingAcpmux {
     private let listener: Int32
     private struct State: Sendable {
         var tags: [String: [String: String]]
+        /// More fields of each session's summary (`title`, `name`, `lastPrompt`).
+        var fields: [String: [String: String]] = [:]
         var watcher: Int32 = -1
         var connections: [Int32] = []
     }
     private let state: OSAllocatedUnfairLock<State>
 
-    init(sessions: [String: [String: String]]) throws {
+    init(sessions: [String: [String: String]], fields: [String: [String: String]] = [:]) throws {
         path = "/tmp/cmux-chat-mute-\(getpid())-\(UInt32.random(in: 0 ... .max)).sock"
         unlink(path)
         let server = socket(AF_UNIX, SOCK_STREAM, 0)
         listener = server
-        state = OSAllocatedUnfairLock(initialState: State(tags: sessions))
+        state = OSAllocatedUnfairLock(initialState: State(tags: sessions, fields: fields))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
@@ -140,21 +142,21 @@ nonisolated final class TaggingAcpmux {
         let params = request["params"] as? [String: Any] ?? [:]
         switch request["method"] as? String {
         case "_acpmux/watch":
-            let tags = state.withLock { $0.tags }
-            let page = tags.keys.sorted().map { summary($0, tags: tags[$0] ?? [:]) }
+            let (tags, fields) = state.withLock { ($0.tags, $0.fields) }
+            let page = tags.keys.sorted().map { summary($0, tags: tags[$0] ?? [:], fields: fields[$0] ?? [:]) }
             write(fd, initialized + line(["jsonrpc": "2.0", "id": 2, "result": ["sessions": page]]))
             state.withLock { $0.watcher = fd }
         case "_acpmux/tag":
             let session = params["sessionId"] as? String ?? ""
             let set = params["set"] as? [String: String] ?? [:], remove = params["remove"] as? [String] ?? []
-            let (tags, watcher) = state.withLock { current -> ([String: String], Int32) in
+            let (tags, fields, watcher) = state.withLock { current -> ([String: String], [String: String], Int32) in
                 var tags = current.tags[session] ?? [:]
                 for (key, value) in set { tags[key] = value }
                 for key in remove { tags.removeValue(forKey: key) }
                 current.tags[session] = tags
-                return (tags, current.watcher)
+                return (tags, current.fields[session] ?? [:], current.watcher)
             }
-            let changed = summary(session, tags: tags)
+            let changed = summary(session, tags: tags, fields: fields)
             write(fd, initialized + line(["jsonrpc": "2.0", "id": 2, "result": changed]))
             if watcher >= 0 {
                 write(watcher, line(["jsonrpc": "2.0", "method": "_acpmux/session_changed",
@@ -165,8 +167,9 @@ nonisolated final class TaggingAcpmux {
         }
     }
 
-    private static func summary(_ session: String, tags: [String: String]) -> [String: Any] {
-        ["sessionId": session, "status": "idle", "indicator": "done", "unread": false, "tags": tags]
+    private static func summary(_ session: String, tags: [String: String], fields: [String: String]) -> [String: Any] {
+        let summary: [String: Any] = ["sessionId": session, "status": "idle", "indicator": "done", "unread": false, "tags": tags]
+        return summary.merging(fields) { current, _ in current }
     }
 
     private static func line(_ object: [String: Any]) -> Data {
