@@ -14,6 +14,9 @@ final class AppModel {
     var user: BackendUser?
     var hosts: [HostConnection] = []
     var hostsLoaded = false
+    /// The first presence snapshot arrived; until then a Mac is "connecting",
+    /// never "offline".
+    var presenceKnown = false
     var lastError: String?
 
     let backend: BackendClient
@@ -96,6 +99,7 @@ final class AppModel {
         for host in hosts { host.disconnect() }
         hosts = []
         hostsLoaded = false
+        presenceKnown = false
         store.clear()
         session = nil
         user = nil
@@ -156,6 +160,7 @@ final class AppModel {
                 switch event {
                 case .welcome(_, let peers), .presence(let peers):
                     await self.applyPresence(peers)
+                    self.presenceKnown = true
                 case .closed:
                     for host in self.hosts { host.setOnline(false) }
                 default:

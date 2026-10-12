@@ -43,3 +43,9 @@ Tracked with `tools/anim/track_bubble.py` (lowest blue bubble bbox per frame, pt
 
 Fixes: one rise spring shared by the scroll and the row; rows keyed by client id so the
 pending → confirmed swap doesn't replay the send (the "ghost bubble" in r14).
+
+## Push / pop / edge swipe (reference: iMessage §3.1–3.3)
+
+cmux uses the system `NavigationStack` push, which is the same UIKit navigation transition Messages
+uses (measured there: push spring 0.30/0.98, 30% parallax, ~9% dim). Marker tracking on run r27 loses
+the outgoing row under the incoming card, as expected for that transition; no custom animation to tune.

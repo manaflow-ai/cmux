@@ -248,7 +248,7 @@ struct HostsConnectingRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if model.hosts.contains(where: { if case .connecting = $0.status { true } else { false } }) {
+            if !model.presenceKnown || model.hosts.contains(where: { if case .connecting = $0.status { true } else { false } }) {
                 ProgressView()
                 Text("Connecting to your Mac…")
             } else if model.connectedHosts.isEmpty {
