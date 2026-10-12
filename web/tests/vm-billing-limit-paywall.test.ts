@@ -238,6 +238,27 @@ describe("active-limit response as the paywall moment", () => {
     const payload = await body(response);
     expect(payload.message).toContain("1 Cloud VM.");
   });
+
+  test("a paid plan over the limit names the machines that count", async () => {
+    const response = await vmActiveLimitExceededResponse({
+      limit: 2,
+      planId: "pro",
+      retryAction: "Delete one first.",
+      activeMachines: [
+        { id: "freestyle-a", name: "solar-olive-bee", status: "running" },
+        { id: "freestyle-b", name: "happy-tan-warbler", status: "provisioning" },
+      ],
+    });
+    const payload = await body(response);
+    expect(payload.message).toBe(
+      "This plan allows 2 active Cloud VMs at a time. " +
+        "Counted now: solar-olive-bee, happy-tan-warbler (provisioning). Paused machines do not count.",
+    );
+    expect((payload.details as Record<string, unknown>).activeMachines).toEqual([
+      { id: "freestyle-a", name: "solar-olive-bee", status: "running" },
+      { id: "freestyle-b", name: "happy-tan-warbler", status: "provisioning" },
+    ]);
+  });
 });
 
 describe("free access window", () => {
