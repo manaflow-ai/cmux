@@ -58,3 +58,16 @@ the outgoing row under the incoming card, as expected for that transition; no cu
 | Agent chat | T3 Code chat (App Store) | Finished turns fold work into "Worked for 6s · 2 steps ›" above the answer (was: every tool row expanded). Terminal button added to the toolbar like T3's glass action group. |
 | Terminal | T3 Code terminal | Equivalent key bar (esc/tab/ctrl/arrows); cmux keeps its dark Ghostty theme. |
 | Welcome | ChatGPT auth sheet | Same layout; one button because sign-in is Apple-only for now. |
+
+## Timestamp reveal (reference: iMessage §3.7), run r36
+
+| Measure | iMessage | cmux |
+| --- | --- | --- |
+| Sent bubble right edge at rest | 386 pt | 385 pt |
+| Follow factor (300 pt/s finger) | ~2.5 pt/frame (0.5×) | ~2.7 pt/frame |
+| Clamp | 328 pt (−58) | 327 pt |
+| Release, 2 frames in | +10.7 pt | +11 pt |
+| Release to ~3 pt from rest | 333 ms | 290 ms |
+| At rest | ~530 ms | ~620 ms (sub-pixel tail) |
+
+Times now show for received rows too (only sent bubbles slide), as in Messages.

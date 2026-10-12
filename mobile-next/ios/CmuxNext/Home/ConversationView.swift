@@ -76,7 +76,8 @@ struct ConversationView: View {
                             onSendAnimated: { if let id = message.clientID { animatedSends.insert(id) } },
                             fieldWidth: fieldWidth,
                             maxWidth: viewWidth * Messages.maxWidthFraction,
-                            timestampOffset: mine ? timestampOffset : 0
+                            timestampOffset: mine ? timestampOffset : 0,
+                            reveal: -timestampOffset / 58
                         )
                         .padding(.top, index == 0 || Self.timestamp(for: message, after: previous) != nil ? 0
                                  : (groupedAbove ? Messages.groupSpacing : Messages.breakSpacing))
@@ -283,6 +284,8 @@ struct BubbleRow: View {
     let fieldWidth: CGFloat
     let maxWidth: CGFloat
     var timestampOffset: CGFloat = 0
+    /// 0…1 while the transcript is dragged left; every row shows its time.
+    var reveal: CGFloat = 0
 
     @State private var phase: SendPhase = .settled
     @State private var screenFraction: CGFloat = 0.8
@@ -322,12 +325,12 @@ struct BubbleRow: View {
         }
         .padding(.horizontal, Messages.margin)
         .overlay(alignment: .trailing) {
-            if isMine, timestampOffset < 0 {
+            if reveal > 0 {
                 Text(message.sentAt.formatted(date: .omitted, time: .shortened))
                     .font(.system(size: 11))
                     .foregroundStyle(Messages.secondary)
                     .padding(.trailing, 3)
-                    .opacity(Double(-timestampOffset / 58))
+                    .opacity(Double(reveal))
             }
         }
         .padding(.top, message.reactions.isEmpty ? 0 : 14)

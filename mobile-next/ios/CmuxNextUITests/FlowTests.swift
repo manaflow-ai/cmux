@@ -383,6 +383,20 @@ final class FlowTests: XCTestCase {
         snap(app, "97-spawned-agent")
     }
 
+    /// Drag left on the transcript to reveal send times (for frame analysis).
+    func testTimestampReveal() throws {
+        let app = launchSignedIn()
+        let chief = app.descendants(matching: .any)["home.pin.cv_chief"]
+        XCTAssertTrue(chief.waitForExistence(timeout: 60))
+        chief.tap()
+        XCTAssertTrue(app.textFields["conversation.field"].waitForExistence(timeout: 10))
+        pause(2)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        start.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)),
+                    withVelocity: 300, thenHoldForDuration: 1.0)
+        pause(1.5)
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
