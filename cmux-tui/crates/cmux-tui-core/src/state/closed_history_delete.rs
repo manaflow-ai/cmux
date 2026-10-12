@@ -11,6 +11,7 @@
 //! result, so a retry replays it.
 
 use rusqlite::{Transaction, params};
+use serde_json::Map;
 
 use crate::mux::*;
 use crate::state::closed_history_query::{closed_record, keep_members, remove_closed};
@@ -34,6 +35,54 @@ pub(crate) struct DeleteRequest {
 }
 
 impl DeleteRequest {
+    /// The request a `closed.delete` call's fields name.
+    pub(crate) fn from_fields(fields: &Map<String, Value>) -> Result<Self, ResourceError> {
+        let decimal = |name: &'static str| match fields.get(name).and_then(Value::as_str) {
+            Some(text) => text.parse::<i64>().map(Some).map_err(|_| {
+                ResourceError::validation_invalid(None, format!("{name} must be a decimal"))
+            }),
+            None => Ok(None),
+        };
+        let members = match fields.get("members").and_then(Value::as_array) {
+            Some(members) => Some(
+                members
+                    .iter()
+                    .map(|member| {
+                        member.as_u64().and_then(|m| usize::try_from(m).ok()).ok_or_else(|| {
+                            ResourceError::validation_invalid(
+                                Some("members"),
+                                "members must be member indexes",
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            None => None,
+        };
+        let keep_newest = match fields.get("keep_newest") {
+            Some(keep) => Some(
+                keep.as_u64()
+                    .and_then(|keep| u32::try_from(keep).ok())
+                    .filter(|keep| *keep >= 1)
+                    .ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("keep_newest"),
+                        "keep_newest must be a whole number of at least 1",
+                    )
+                })?,
+            ),
+            None => None,
+        };
+        Ok(Self {
+            closed: fields.get("closed").and_then(Value::as_str).map(str::to_string),
+            all: fields.get("all").and_then(Value::as_bool).unwrap_or(false),
+            members,
+            since_ms: decimal("since_ms")?,
+            before_ms: decimal("before_ms")?,
+            keep_newest,
+        })
+    }
+
     fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.closed.is_some() != self.all,

@@ -560,7 +560,7 @@ fn state_cli_closed_clear_before_and_keep_newest_through_a_real_daemon() {
         let workspace = workspace_id_named(&server, name);
         state_cli(&server, None, &["workspace", &workspace, "close"]);
         // Distinct close times, so before-ms can split them.
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(20));
     }
     let closed_names = || -> Vec<String> {
         let mut names = state_cli(&server, None, &["closed", "list"])
