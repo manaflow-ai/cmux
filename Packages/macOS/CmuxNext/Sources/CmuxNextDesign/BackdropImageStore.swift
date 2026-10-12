@@ -24,6 +24,8 @@ public final class BackdropImageStore {
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 
+    /// Fetches the full image of art that does not ship in the app.
+    private let downloads: BackdropArtDownloads
     private var images: [Key: NSImage] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
@@ -55,9 +57,11 @@ public final class BackdropImageStore {
     /// - Parameters:
     ///   - maxPixelSize: The longest side of a decoded backdrop; nil for the largest screen's.
     ///   - snapshots: Where to keep snapshots for the next launch; nil keeps none.
-    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil) {
+    ///   - downloads: Where art that does not ship in the app comes from.
+    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared) {
         self.maxPixelSize = max(maxPixelSize ?? Self.screenPixelSize(), 64)
         self.snapshots = snapshots
+        self.downloads = downloads
     }
 
     /// The longest side of the largest screen, in pixels.
@@ -72,11 +76,18 @@ public final class BackdropImageStore {
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
-    /// before ``image(_:texture:)`` finishes; nil without one.
+    /// before ``image(_:texture:)`` finishes; without one, the art's bundled thumbnail (art that
+    /// still has to download shows it at once). Nil when there is neither.
     func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? {
-        guard let file = snapshotURL(selection, texture: texture),
-              let image = Self.decode(file, maxPixelSize: min(Self.previewPixelSize, maxPixelSize)) else { return nil }
-        return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+        let size = min(Self.previewPixelSize, maxPixelSize)
+        let image = snapshotURL(selection, texture: texture).flatMap { Self.decode($0, maxPixelSize: size) }
+            ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
+        return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+    }
+
+    private static func thumbnail(of selection: BackdropSelection) -> URL? {
+        guard case .art = selection else { return nil }
+        return selection.thumbnailURL
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
@@ -97,6 +108,11 @@ public final class BackdropImageStore {
     func image(_ selection: BackdropSelection, texture: BackdropTexture = .default) async -> NSImage? {
         let key = Key(id: selection.id, texture: texture)
         if let image = images[key] { return image }
+        if case .art(let art) = selection, art.imageURL == nil {
+            // Not bundled and not downloaded yet: fetch it once, then decode as usual.
+            guard await downloads.file(for: art) != nil else { return nil }
+            if let image = images[key] { return image }
+        }
         let load: Task<Decoded?, Never>
         if let running = loads[key] {
             load = running
