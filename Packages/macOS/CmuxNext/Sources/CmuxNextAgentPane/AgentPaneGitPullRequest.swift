@@ -144,7 +144,7 @@ extension AgentPaneGitPullRequest {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        switch await run(request, roots: model.roots() + model.transport.addedRoots, gh: gh) {
+        switch await run(request, roots: model.fileOpenRoots(), gh: gh) {
         case .opened(let url, let number): return AgentPaneReply.success(["url": url, "number": number.map { $0 as Any } ?? NSNull()])
         case .threads(let url, let number, let threads):
             return AgentPaneReply.success(["url": url.map { $0 as Any } ?? NSNull(), "number": number.map { $0 as Any } ?? NSNull(),

@@ -201,7 +201,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The list (in the clip move's transaction) moved from `old` to `y`.
     private func paceClipMove(from old: CGFloat, to y: CGFloat) {
         let now = CACurrentMediaTime(), dt = frameInterval
-        let frames = ((now - lastClipTime) / dt).rounded() // cmux: crash program, no trap on NaN or infinity (dt 0, a first move)
+        // Int() traps on NaN or infinity (a 0 or NaN dt on the first move); the 2...4 frame test is unchanged.
+        let frames = ((now - lastClipTime) / dt).rounded()
         let n = frames.isFinite ? CrashGuard.int(min(max(frames, 0), 1_000), in: 0...1_000) : 0
         lastClipTime = now
         guard Self.liftPacing, appMove == 0, liveScrolling, (2...4).contains(n), !fingerPhase(NSApp.currentEvent), let demo else {

@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 
 use super::*;
 
+#[path = "agent_chat_notices.rs"]
+mod agent_chat_notices;
+
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 
 struct Daemon {

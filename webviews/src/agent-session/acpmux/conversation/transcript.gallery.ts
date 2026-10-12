@@ -398,6 +398,23 @@ export default agentPaneEntry({
         );
       },
     },
+    "mark-unread-menu": {
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: {
+        longFrameFailMs: {
+          value: 140,
+          reason:
+            "Opening Chat actions costs one 64-122 ms frame in dev React, on base too (agent-pane.inspector chat-menu); cx-ncc.87 owns that cost.",
+        },
+      },
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+      },
+    },
     "thought-row": {
       note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
       snapshot: chat(

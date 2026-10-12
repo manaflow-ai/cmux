@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -78,6 +79,11 @@ extension TabHandlers {
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.shared.notificationAck), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
+            if !tab.hasUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
+                Task { if await !AgentPaneMarkUnread(view.model).run() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                return
+            }
             guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported) }
             let surface = tab.surface
             ctx.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }

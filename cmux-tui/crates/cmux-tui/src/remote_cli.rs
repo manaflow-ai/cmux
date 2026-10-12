@@ -1963,6 +1963,8 @@ pub const PROBE_CAPABILITIES: &[&str] = &[
     "browser-proxy",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
     cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
+    cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY,
+    cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
 ];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
@@ -1976,8 +1978,6 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // Client-side transport capabilities a control plane can key routing on.
-        // `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
-        // hosted ingress on branded machine domains requires.
         "capabilities": PROBE_CAPABILITIES,
     });
     if args.iter().any(|argument| argument == "--json") {
