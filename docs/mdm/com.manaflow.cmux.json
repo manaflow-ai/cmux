@@ -58,6 +58,12 @@
       "title" : "Show Context Usage",
       "type" : "boolean"
     },
+    "agentPane.showDictation" : {
+      "default" : true,
+      "description" : "The microphone beside Send in every composer, including the New Tab page.",
+      "title" : "Show Dictation Button",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",
@@ -1619,7 +1625,7 @@
       "type" : "boolean"
     },
     "sidebar.minimalMode" : {
-      "default" : "off",
+      "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
       "enum" : [
         "off",
