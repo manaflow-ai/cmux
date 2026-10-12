@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "Staged",
   "diffViewer.sourceUncommitted": "Ikke committet",
   "diffViewer.sourceUnstaged": "Ikke staged",
+  "diffViewer.splitDiffNeedsWiderPane": "Delt diff kræver en bredere rude",
   "diffViewer.switchToSplitDiff": "Skift til delt diff",
   "diffViewer.switchToUnifiedDiff": "Skift til samlet diff",
   "diffViewer.untitled": "Uden titel",

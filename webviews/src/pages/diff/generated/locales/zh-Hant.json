@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "已暫存",
   "diffViewer.sourceUncommitted": "未提交",
   "diffViewer.sourceUnstaged": "未暫存",
+  "diffViewer.splitDiffNeedsWiderPane": "分割 diff 需要更寬的窗格",
   "diffViewer.switchToSplitDiff": "切換至分割差異",
   "diffViewer.switchToUnifiedDiff": "切換至合併差異",
   "diffViewer.untitled": "未命名",

@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "បាន stage",
   "diffViewer.sourceUncommitted": "មិនទាន់ commit",
   "diffViewer.sourceUnstaged": "មិនទាន់ stage",
+  "diffViewer.splitDiffNeedsWiderPane": "diff បំបែកត្រូវការផ្ទាំងធំជាងនេះ",
   "diffViewer.switchToSplitDiff": "ប្តូរទៅ diff បំបែក",
   "diffViewer.switchToUnifiedDiff": "ប្តូរទៅ diff រួម",
   "diffViewer.untitled": "គ្មានចំណងជើង",

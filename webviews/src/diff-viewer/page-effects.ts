@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } from "../files-panel-motion";
 import { applyDiffViewerStatusToDocument } from "../status";
 import { type DiffFindController } from "../find/useDiffFind";
-import { type AppAction, type AppState } from "./state";
+import { renderedDiffOptions, type AppAction, type AppState } from "./state";
 
 function setDataset(dataset: DOMStringMap, key: string, value: string): void {
   if (dataset[key] !== value) dataset[key] = value;
@@ -36,7 +36,7 @@ export function usePageDataAttributes(state: AppState) {
     const body = document.body.dataset;
     const root = document.documentElement.dataset;
     setDataset(body, "loading", state.status.loading ? "true" : "false");
-    setDataset(root, "layout", state.options.layout);
+    setDataset(root, "layout", renderedDiffOptions(state).layout);
     setDataset(root, "wordWrap", String(state.options.wordWrap));
     setDataset(root, "diffIndicators", state.options.diffIndicators);
     setDataset(body, "generatedPathCount", String(state.generatedPaths.length));

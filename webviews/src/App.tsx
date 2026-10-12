@@ -52,7 +52,14 @@ import {
   pendingSessionID,
   validDiffSource,
 } from "./diff-viewer/session";
-import { type DiffViewerLayout, initialAppState, itemCollapsedFileKey, reducer } from "./diff-viewer/state";
+import {
+  type DiffViewerLayout,
+  initialAppState,
+  itemCollapsedFileKey,
+  drawnDiffOptions,
+  reducer,
+  splitFits,
+} from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { diffGitSource, diffStageAction } from "./diff-viewer/git";
 import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
@@ -120,6 +127,17 @@ export function App({ config, initialStatus }: ConfigProps) {
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const adoptedSessionRef = useRef<AdoptedDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<HTMLElement | null>(null);
+  // The viewer's width, which decides whether a split diff fits.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) =>
+      dispatch({ type: "set-viewer-width", width: Math.round(entry?.contentRect.width ?? 0) }),
+    );
+    observer.observe(viewer);
+    return () => observer.disconnect();
+  }, []);
   useDiffLanguageChanges(dispatch);
   const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
@@ -157,12 +175,15 @@ export function App({ config, initialStatus }: ConfigProps) {
   // every mounted file whenever the viewer re-rendered (a tree selection
   // change, a Viewed toggle).
   const gutterClick = useSyncedRef(comments.onGutterUtilityClick);
+  // A split preference draws unified while the viewer is too narrow for two readable sides.
+  const fits = splitFits(state.viewerWidth);
+  const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
   const renderedCodeViewOptions = useMemo(() => {
-    const options = codeViewOptions(state.options, appearance);
+    const options = codeViewOptions(drawnOptions, appearance);
     options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
       gutterClick.current(range, context)) as any;
     return options;
-  }, [appearance, gutterClick, state.options]);
+  }, [appearance, gutterClick, drawnOptions]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -711,7 +732,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           dispatch={dispatch}
           state={state}
         />
-        <main id="viewer" aria-label={label("diffViewer")}>
+        <main id="viewer" ref={viewerRef} aria-label={label("diffViewer")}>
           {state.findOpen ? (
             <FindBar controller={find} label={label} query={state.findQuery} requestToken={state.findRequest} />
           ) : null}

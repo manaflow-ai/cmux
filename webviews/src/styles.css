@@ -1917,6 +1917,13 @@ svg[data-icon-fill] {
   background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
   color: var(--cmux-diff-fg);
 }
+/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+.diff-pill-button[aria-disabled="true"],
+.diff-pill-button[aria-disabled="true"]:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--cmux-diff-fg) 30%, var(--cmux-diff-solid-bg));
+  cursor: default;
+}
 /* The 20 px stroke glyphs at 19 px: about 14 px of ink, as in the classic pill. */
 .diff-pill-button svg {
   width: 19px;

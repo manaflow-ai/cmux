@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "В індексі",
   "diffViewer.sourceUncommitted": "Незафіксовані",
   "diffViewer.sourceUnstaged": "Не в індексі",
+  "diffViewer.splitDiffNeedsWiderPane": "Для розділеного diff потрібна ширша панель",
   "diffViewer.switchToSplitDiff": "Перемкнути на розділений diff",
   "diffViewer.switchToUnifiedDiff": "Перемкнути на уніфікований diff",
   "diffViewer.untitled": "Без назви",

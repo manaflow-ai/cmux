@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "U stageu",
   "diffViewer.sourceUncommitted": "Nekomitovano",
   "diffViewer.sourceUnstaged": "Nije u stageu",
+  "diffViewer.splitDiffNeedsWiderPane": "Podijeljeni diff treba širi panel",
   "diffViewer.switchToSplitDiff": "Prebaci na podijeljeni diff",
   "diffViewer.switchToUnifiedDiff": "Prebaci na jedinstveni diff",
   "diffViewer.untitled": "Bez naslova",

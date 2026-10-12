@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "Staged",
   "diffViewer.sourceUncommitted": "Uncommitted",
   "diffViewer.sourceUnstaged": "Unstaged",
+  "diffViewer.splitDiffNeedsWiderPane": "Split diff needs a wider pane",
   "diffViewer.switchToSplitDiff": "Switch to split diff",
   "diffViewer.switchToUnifiedDiff": "Switch to unified diff",
   "diffViewer.untitled": "Untitled",

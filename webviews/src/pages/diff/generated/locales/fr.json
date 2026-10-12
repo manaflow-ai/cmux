@@ -108,6 +108,7 @@
   "diffViewer.sourceStaged": "Indexées",
   "diffViewer.sourceUncommitted": "Non validées",
   "diffViewer.sourceUnstaged": "Non indexées",
+  "diffViewer.splitDiffNeedsWiderPane": "Le diff partagé nécessite un panneau plus large",
   "diffViewer.switchToSplitDiff": "Passer au diff divisé",
   "diffViewer.switchToUnifiedDiff": "Passer au diff unifié",
   "diffViewer.untitled": "Sans titre",
