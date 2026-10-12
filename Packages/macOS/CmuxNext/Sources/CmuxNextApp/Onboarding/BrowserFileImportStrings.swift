@@ -51,10 +51,12 @@ nonisolated enum BrowserFileImportStrings {
         case .chromium:
             [String(format: t("import.files.chromium.passwords",
                               "Passwords: in %1$@, open %2$@, click Download File next to Export Passwords, then save the CSV file."),
-                    source.name, source.passwords ?? ""),
-             String(format: t("import.files.chromium.bookmarks",
-                              "Bookmarks: in %1$@, open %2$@, open the ⋮ menu, choose Export Bookmarks, then save the HTML file."),
-                    source.name, source.bookmarks ?? "")]
+                    source.name, source.passwords ?? "")]
+                + (source.bookmarks.map {
+                    [String(format: t("import.files.chromium.bookmarks",
+                                      "Bookmarks: in %1$@, open %2$@, open the ⋮ menu, choose Export Bookmarks, then save the HTML file."),
+                            source.name, $0)]
+                } ?? [])
         case .firefox:
             [t("import.files.firefox.passwords",
                "Passwords: in Firefox, open about:logins, open the ⋯ menu, choose Export Passwords…, then save the CSV file."),
@@ -64,6 +66,9 @@ nonisolated enum BrowserFileImportStrings {
             [t("import.files.safari.passwords",
                "Passwords: in the Passwords app, choose File > Export All Passwords to File… (on macOS 14 or earlier, in Safari: File > Export > Passwords…)."),
              t("import.files.safari.bookmarks", "Bookmarks: in Safari, choose File > Export > Bookmarks…, then save the HTML file.")]
+        // The password managers: the guided CSV import's export steps, without its last "choose it here" step.
+        case .onePassword: Array(PasswordCSVGuideStrings.steps(.onePassword).dropLast())
+        case .bitwarden: Array(PasswordCSVGuideStrings.steps(.bitwarden).dropLast())
         }
     }
 }
