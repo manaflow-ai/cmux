@@ -517,6 +517,52 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         XCTAssertEqual(savedDeveloperToolsVisibility, false)
     }
 
+    func testDockClosedPanelSnapshotReconcilesPendingAttachedInspectorClose() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(store.newSurface(
+            kind: .browser,
+            inPane: rootPane,
+            url: URL(string: "https://example.com/dock-manual-inspector-close")
+        ))
+        let tabId = try XCTUnwrap(store.surfaceId(forPanelId: panelId))
+        let browserPanel = try XCTUnwrap(store.panel(for: tabId) as? BrowserPanel)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let inspector = FakeInspector(hideBehavior: .hides)
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if let contentView = window.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
+        }
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        browserPanel.noteDeveloperToolsHostAttached()
+
+        // As in the workspace path: the delayed detector is still pending when the Dock
+        // panel's closed-item snapshot is taken, so the snapshot must consume the close.
+        inspector.hide()
+        browserPanel.cancelPendingDeveloperToolsVisibilityLossCheck()
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(browserPanel.preferredDeveloperToolsVisible)
+
+        let snapshot = try XCTUnwrap(store.closedPanelSessionSnapshot(
+            panelId: panelId,
+            restorableAgentIndex: nil
+        ))
+        XCTAssertEqual(snapshot.browser?.developerToolsVisible, false)
+    }
+
     func testLegacyBrowserStackHistoryEntryRestoresInteractionState() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
