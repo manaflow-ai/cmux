@@ -38,7 +38,7 @@ export async function GET(
         callerPlanId: account.entitlements.planId,
         teamIds: user.teamIds,
         providerVmId: id,
-      }), { request, deadline: { operation: "sessionList" } });
+      }), { request });
       if (!run.ok) return run.response;
       return jsonResponse({ sessions: run.value.map(sessionPayload) });
     },

@@ -74,20 +74,6 @@ describe("VM route answer deadlines", () => {
     expect(answer?._tag === "Left" ? answer.left : null).toBe(refused);
   });
 
-  test("a read that never answers is a provider timeout at its client's budget", async () => {
-    const { answer, virtualMs } = await underDeadline("stats", Effect.never);
-    expect(virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.stats.clientTimeoutMs - 5_000 + 250);
-    const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
-    expect(error?._tag).toBe("VmOperationDeadlineError");
-    expect(error?.mutating).toBe(false);
-  });
-
-  test("a read keeps a provider failure that arrives before the deadline", async () => {
-    const failed = providerFailure("getStats", new ProviderError("freestyle", "getStats", gateway502()));
-    const { answer } = await underDeadline("stats", Effect.fail(failed));
-    expect(answer?._tag === "Left" ? answer.left : null).toBe(failed);
-  });
-
   test("a finished operation answers its value", async () => {
     const { answer, background } = await underDeadline("resume", Effect.succeed("running"));
     expect(answer?._tag === "Right" ? answer.right : null).toBe("running");
@@ -103,19 +89,16 @@ describe("VM route answer deadlines", () => {
   });
 });
 
-// The remaining provider-bound routes: machine read and rename, private
-// network enrollment (190 s worst case in production), attach, sessions and
+// The remaining provider-bound mutations: rename, private network enrollment
+// (190 s worst case in production) and revoke, attach, session open and
 // create. Each answers inside its legacy caller's budget when the client
 // states none, and a create still running answers in progress.
 describe("remaining VM routes", () => {
   const expected: Array<[VmRouteDeadlineOperation, number, boolean]> = [
-    ["getVm", 55_000, false],
     ["rename", 55_000, true],
     ["tunnelEnroll", 55_000, true],
-    ["tunnelRead", 55_000, false],
     ["tunnelRevoke", 15_000, true],
     ["attach", 955_000, true],
-    ["sessionList", 55_000, false],
     ["sessionOpen", 955_000, true],
     // A create answers early enough to keep its whole provider deadline:
     // "in progress" is then true (it ends running, or failed and refunded).
@@ -194,9 +177,9 @@ describe("client-stated budgets", () => {
 
   test("a stated budget is clamped to the 10 s floor and below the route's maxDuration", async () => {
     expect((await underDeadline("pause", Effect.never, 0, 1_000)).virtualMs).toBeLessThanOrEqual(10_250);
-    const capped = await underDeadline("stats", Effect.never, 0, 3_600_000);
-    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.stats.maxDurationMs - 5_000 + 250);
-    expect(capped.virtualMs).toBeGreaterThanOrEqual(VM_ROUTE_DEADLINES.stats.maxDurationMs - 5_000);
+    const capped = await underDeadline("pause", Effect.never, 0, 3_600_000, 1_000);
+    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000 + 1_000);
+    expect(capped.virtualMs).toBeGreaterThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000);
   });
 });
 
