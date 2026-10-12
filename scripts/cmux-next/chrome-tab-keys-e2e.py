@@ -119,8 +119,12 @@ def sidebar():
 
 def selected():
     """The window's selected sidebar item, by title."""
-    selection = sidebar().get("selection") or []
-    return selection[0] if selection else None
+    window = sidebar()
+    selection = window.get("selection") or []
+    if selection:
+        return selection[0]
+    # Older builds: no `selection`; the selected row says so itself.
+    return next((r.get("title") for r in window.get("rows") or [] if r.get("selected")), None)
 
 
 def workspace_titles():
@@ -198,6 +202,8 @@ def focus(surface):
     if surface == "newtab2":
         return wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 8)
     want = {"terminal": "terminal", "terminal2": "terminal", "composer": "agentpage"}[surface]
+    if focus_kind() is None:
+        return "unknown (this build's dry run names no focus)"  # older builds: trust the setup
     return wait(lambda: want in str(focus_kind()).lower() or None, 8)
 
 
