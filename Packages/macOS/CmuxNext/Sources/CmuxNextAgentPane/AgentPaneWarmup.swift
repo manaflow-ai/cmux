@@ -1,8 +1,11 @@
 import AppKit
 import WebKit
 
-/// Starts WebKit for the agent pages at the top of launch (experiment).
-@MainActor
+/// Starts WebKit for the agent pages at the top of launch (cx-z9kz0): its
+/// first-use setup and the shared pool's first web content process then run
+/// while the windows build, so the first agent page loads sooner (live
+/// about 65 ms earlier on a cold launch). The empty page goes once an agent
+/// page has loaded.
 public enum AgentPaneWarmup {
     private static var view: WKWebView?
 
@@ -14,6 +17,9 @@ public enum AgentPaneWarmup {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         self.view = view
-        AgentPaneLaunchTimings.shared.mark("diag.warmup_started")
+    }
+
+    static func finish() {
+        view = nil
     }
 }

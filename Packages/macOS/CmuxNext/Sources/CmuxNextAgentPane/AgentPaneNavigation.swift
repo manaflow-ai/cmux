@@ -37,6 +37,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
+        AgentPaneWarmup.finish()
         let dump = "JSON.stringify(performance.getEntries().map(e => [e.entryType + '.' + e.name.split('/').pop(), performance.timeOrigin + e.startTime, performance.timeOrigin + (e.responseEnd || e.startTime + e.duration)]).concat([['timeOrigin', performance.timeOrigin, performance.timeOrigin]]))"
         webView.evaluateJavaScript(dump) { result, _ in
             guard let text = result as? String, let data = text.data(using: .utf8),
