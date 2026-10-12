@@ -284,10 +284,14 @@ export type PillButton = {
   labelKey: DiffViewerLabelKey;
   pressed?: boolean;
   expanded?: boolean;
+  /** Shown with its reason as the label, but does nothing. */
+  unavailable?: boolean;
 };
 
 export function toolbarPillButtons(state: {
   options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
+  /** False when the viewer is too narrow for split, which then draws unified. */
+  splitFits?: boolean;
   filesVisible: boolean;
   optionsOpen: boolean;
   findOpen: boolean;
@@ -308,7 +312,9 @@ export function toolbarPillButtons(state: {
       id: "layout",
       domId: "layout-toggle",
       icon: "pillLayout",
-      labelKey: options.layout === "split" ? "switchToUnifiedDiff" : "switchToSplitDiff",
+      ...(state.splitFits === false
+        ? { labelKey: "splitDiffNeedsWiderPane" as const, unavailable: true }
+        : { labelKey: options.layout === "split" ? ("switchToUnifiedDiff" as const) : ("switchToSplitDiff" as const) }),
     },
     {
       id: "files",

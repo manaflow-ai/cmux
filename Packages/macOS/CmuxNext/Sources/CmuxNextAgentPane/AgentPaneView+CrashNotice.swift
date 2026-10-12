@@ -28,7 +28,7 @@ extension AgentPaneView {
         guard crashNotice == nil else { return }
         let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
-        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
+        let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
         let notice = NSStackView(views: [message, reload])
         notice.orientation = .vertical
         notice.spacing = 12
