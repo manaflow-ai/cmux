@@ -20,14 +20,18 @@ public struct ClosedRetention: Sendable, Equatable {
         public var keepNewest: Int?
     }
 
-    /// The prune that brings `items` (one per closed group) within the
-    /// limits at `nowMs`, nil when they already are.
+    /// The prune that brings `items` (a mirror's closed items, one per
+    /// group, newest `SessionStateMirror.closedLimit` at most) within the
+    /// limits at `nowMs`, nil when they already are. A full mirror may lack
+    /// older groups, so with a limit set it always asks; the daemon then
+    /// deletes only what is over.
     public func prune(_ items: [ClosedItem], nowMs: UInt64) -> Prune? {
+        let full = items.count >= SessionStateMirror.closedLimit
         var prune = Prune()
-        if maxGroups > 0, items.count > maxGroups { prune.keepNewest = maxGroups }
+        if maxGroups > 0, full || items.count > maxGroups { prune.keepNewest = maxGroups }
         if maxAgeDays > 0 {
             let cutoff = nowMs.subtractingReportingOverflow(UInt64(maxAgeDays) * 86_400_000)
-            if !cutoff.overflow, items.contains(where: { $0.closedAtMs < cutoff.partialValue }) {
+            if !cutoff.overflow, full || items.contains(where: { $0.closedAtMs < cutoff.partialValue }) {
                 prune.beforeMs = cutoff.partialValue
             }
         }

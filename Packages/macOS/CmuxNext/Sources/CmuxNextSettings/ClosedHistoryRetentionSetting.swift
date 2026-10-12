@@ -5,7 +5,7 @@
 public struct ClosedHistoryRetentionSetting: Sendable, Equatable {
     public static let maxGroupsPath = ["history", "closed", "maxGroups"]
     public static let maxAgeDaysPath = ["history", "closed", "maxAgeDays"]
-    public static let groupRange: ClosedRange<Int> = 0...100_000
+    public static let groupRange: ClosedRange<Int> = 0...10_000
     public static let dayRange: ClosedRange<Int> = 0...3650
 
     /// Groups each machine keeps; 0 keeps every group.
@@ -35,7 +35,16 @@ public struct ClosedHistoryRetentionSetting: Sendable, Equatable {
             }
             return number
         }
-        return Self(maxGroups: value(maxGroupsPath, groupRange, "expected a whole number of groups from 0 to 100000, such as 200"),
+        return Self(maxGroups: value(maxGroupsPath, groupRange, "expected a whole number of groups from 0 to 10000, such as 200"),
                     maxAgeDays: value(maxAgeDaysPath, dayRange, "expected a whole number of days from 0 to 3650, such as 30"))
+    }
+}
+
+extension CmuxConfigSnapshot {
+    /// `history.*`: terminal command recording and its retention, and the
+    /// diagnostics of `history.closed.*` (read where they apply).
+    mutating func parseHistory(_ root: JSONValue) {
+        parseTerminalCommandHistory(root)
+        _ = ClosedHistoryRetentionSetting.parse(root, diagnostics: &diagnostics)
     }
 }

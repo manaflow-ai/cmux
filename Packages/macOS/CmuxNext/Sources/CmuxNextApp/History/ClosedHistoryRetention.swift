@@ -9,8 +9,10 @@ import Foundation
 /// `history.closed.maxAgeDays`. The daemons store no limit, so this compares
 /// each mirror with the limits whenever either changes, and sends
 /// `closed.delete` when one is over: at most once a minute per machine. A
-/// deadline per machine checks again when the minute is up, or when its
-/// oldest group passes `maxAgeDays`; nothing wakes in between.
+/// deadline per machine checks again when the minute is up, when its oldest
+/// group passes `maxAgeDays`, an hour after a failed delete (an older daemon
+/// refuses the fields), or hourly while its mirror is full (it then cannot
+/// see the oldest groups); nothing wakes in between.
 final class ClosedHistoryRetention {
     private unowned let services: AppServices
     private var observation: Task<Void, Never>?
@@ -18,6 +20,7 @@ final class ClosedHistoryRetention {
     private var lastPrune: [String: ContinuousClock.Instant] = [:]
     private var limits = ClosedRetention(maxGroups: 0, maxAgeDays: 0)
     private static let interval = Duration.seconds(60)
+    private static let retry = Duration.seconds(3600)
 
     init(services: AppServices) {
         self.services = services
@@ -76,8 +79,8 @@ final class ClosedHistoryRetention {
             guard let prune = limits.prune(items, nowMs: nowMs) else {
                 // Within the limits: check again when the oldest group gets too old.
                 if limits.maxAgeDays > 0, let oldest = items.map(\.closedAtMs).min() {
-                    let due = oldest + UInt64(limits.maxAgeDays) * 86_400_000
-                    recheck(machine, after: .milliseconds(Int64(clamping: due > nowMs ? due - nowMs : 0) + 1))
+                    let due = oldest &+ UInt64(limits.maxAgeDays) * 86_400_000
+                    recheck(machine, after: .milliseconds(Int64(clamping: (due > nowMs ? due - nowMs : 0) &+ 1)))
                 } else {
                     deadlines[machine]?.cancel()
                 }
@@ -88,8 +91,14 @@ final class ClosedHistoryRetention {
                 continue
             }
             lastPrune[machine] = .now
-            deadlines[machine]?.cancel()
-            daemon.send("closed.delete") { connection in try await connection.state.pruneClosed(prune) }
+            if limits.maxAgeDays > 0, items.count >= SessionStateMirror.closedLimit {
+                recheck(machine, after: Self.retry)
+            } else {
+                deadlines[machine]?.cancel()
+            }
+            daemon.send("closed.delete", onFailure: { [weak self] _ in self?.recheck(machine, after: Self.retry) }) { connection in
+                try await connection.state.pruneClosed(prune)
+            }
         }
     }
 
