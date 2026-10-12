@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 /// Why a Cloud terminal attachment stopped for good.
@@ -19,6 +20,11 @@ enum CloudTuiManualMirrorStopReason: Equatable, Sendable {
     case signInRevoked
     /// Cloud Machines were disabled or suspended while the pane stayed open.
     case cloudUnavailable
+
+    /// The stop a permanent access loss ends attachments with.
+    init(accessLoss: CloudMachineAccessLoss) {
+        self = accessLoss.isMachineScoped ? .accessLost : .signInRevoked
+    }
 
     /// The card a pane keeps after the stop; nil when the pane is closing.
     var endedPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {

@@ -455,11 +455,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func retainedForeignTeamMachineIDs(activeTeamID active: String?) -> Set<String> {
         guard let catalog else { return [] }
         let projected = catalog.projectedMachines.union(catalog.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud))
-        return Set(providers.compactMap { id, provider in
-            guard let owner = provider.ownerTeamID, owner != active,
-                  !provider.hasLostAccess, projected.contains(.cloud(id)) else { return nil }
-            return id
-        })
+        return Self.retainedForeignMachineIDs(providers, projected: projected, activeTeamID: active)
     }
 
     /// Restored panes of another team whose provider is not registered yet.
@@ -515,11 +511,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let needed = Set(catalog.projectedMachines.compactMap(\.cloudMachineID)).union(catalog.pendingRestoredMachineIDs)
         let targets: [(id: String, team: String)] = needed.sorted().compactMap { id in
             if let provider = providers[id] {
-                // A machine-scoped loss keeps its status read, so an
-                // authorized answer can clear a loss that was wrong.
-                guard let owner = provider.ownerTeamID, owner != active,
-                      provider.accessLoss?.isMachineScoped != false else { return nil }
-                return (id, owner)
+                return Self.foreignStatusReadTeam(of: provider, activeTeamID: active).map { (id, $0) }
             }
             guard let team = adoptedOwnerTeams[id], team != active else { return nil }
             return (id, team)
@@ -536,12 +528,12 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let loss = CloudMachineAccessLoss(error: error) else { continue }
                 if let provider = providers[target.id] {
                     provider.noteAccessLost(loss)
-                } else {
+                } else if loss.isMachineScoped {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
                     adoptedOwnerTeams[target.id] = nil
                     unregisterMachine(target.id)
-                }
+                } // A revoked sign-in keeps the owning team for the next sign-in.
                 continue
             }
             guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
@@ -779,9 +771,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
                 if statusAccepted {
-                    // The owning team's list names the machine: the user can
-                    // reach it, whatever an earlier answer said.
-                    provider.noteAccessConfirmed()
+                    provider.noteAccessConfirmed() // The owning team's list names it.
                     provider.update(summary: summary)
                     if CloudMachineLinkManager.isAsleepStatus(summary.status) {
                         scheduleTransportTeardown(summary.id, provider: provider)
@@ -813,7 +803,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             let fetchedSummary: VMSummary?
             do {
                 fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
-            } catch where CloudMachineAccessLoss(error: error) != nil {
+            } catch let error where CloudMachineAccessLoss(error: error)?.isMachineScoped == true {
                 guard !isRetired, generation == refreshGeneration else { return }
                 // Access is gone: the restored panes leave instead of reconnecting
                 // through a provider built from persisted metadata.

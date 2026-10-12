@@ -93,7 +93,9 @@ extension VMClientError {
         if let value = object["retryAfterSeconds"] as? Int {
             seconds = value
         } else if let value = object["retryAfterSeconds"] as? Double {
-            seconds = Int(value.rounded(.up))
+            // Bound before converting: an out-of-range Double traps in Int().
+            guard value.isFinite, value > 0 else { return nil }
+            seconds = Int(min(value, Double(Self.maximumServerRetryAfterSeconds)).rounded(.up))
         } else {
             seconds = nil
         }
@@ -102,4 +104,15 @@ extension VMClientError {
     }
 
     static let maximumServerRetryAfterSeconds = 60
+
+    /// The JSON `error` code of an HTTP answer; nil for other errors or a
+    /// body without one.
+    public var serverErrorCode: String? {
+        guard case let .httpStatus(_, body) = self,
+              let data = body.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let code = (object["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !code.isEmpty else { return nil }
+        return code
+    }
 }

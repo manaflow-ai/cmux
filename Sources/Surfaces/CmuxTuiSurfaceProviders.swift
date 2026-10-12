@@ -22,10 +22,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Mac's Cloud sign-in was revoked. Refreshes stop dialing and every
     /// attached pane shows the matching card. An authorized read that lists
     /// the machine again clears a machine-scoped loss.
-    private(set) var accessLoss: CloudMachineAccessLoss?
+    var accessLoss: CloudMachineAccessLoss?
     var hasLostAccess: Bool { accessLoss != nil }
     /// Panes whose attachment the access loss ended, rebuilt when access returns.
-    private var accessLostPanelIDs: Set<UUID> = []
+    var accessLostPanelIDs: Set<UUID> = []
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -323,46 +323,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
-    /// The control plane answered that this user can no longer reach the
-    /// machine. Automatic reconnects stop, and every attached pane shows the
-    /// access-lost card; the pane itself stays open so the user decides.
-    func noteAccessLost(_ loss: CloudMachineAccessLoss = .forbidden) {
-        guard accessLoss == nil else { return }
-        accessLoss = loss
-        let stopReason: CloudTuiManualMirrorStopReason = loss.isMachineScoped ? .accessLost : .signInRevoked
-        for task in restoredAttachTasks.values { task.cancel() }
-        restoredAttachTasks.removeAll()
-        attachmentRetry.cancel()
-        for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
-        accessLostPanelIDs.formUnion(manualMirrorSessions.keys)
-        manualMirrorSessions.removeAll()
-        manualMirrorSurfaceIDsSocketPath = nil
-        let detail = stopReason.endedPresentation?.detail ?? ""
-        // Cloud browser and display panes of this machine keep the same state,
-        // in the browser's own unavailable card.
-        for task in browserPaneTasks.values { task.cancel() }
-        browserPaneTasks.removeAll()
-        for projection in catalog.projections where projection.resource.machine == machine {
-            AppDelegate.shared?.browserPanel(for: projection.panelID)?.cloudAccess.showUnavailable(detail)
-        }
-        guard isRegisteredInCatalog() else { return }
-        info.linkState = .error
-        info.linkError = detail
-        catalog.updateMachine(info, from: self)
-    }
-    /// An authorized read listed the machine for its owning team, so a
-    /// machine-scoped loss was wrong or is over. Refreshes resume, and the
-    /// panes the loss ended are rebuilt by the next refresh's reprojection.
-    /// A revoked sign-in stays: listing machines does not need the Mac's
-    /// network enrollment, so it cannot prove that the sign-in works again.
-    func noteAccessConfirmed() {
-        guard let accessLoss, accessLoss.isMachineScoped else { return }
-        self.accessLoss = nil
-        materializedPanels.subtract(accessLostPanelIDs)
-        accessLostPanelIDs.removeAll()
-        guard isRegisteredInCatalog() else { return }
-        info.linkState = .connecting
-        info.linkError = nil
+    /// Publishes a link state the provider decided outside a refresh pass.
+    func publishLinkStatus(_ state: SurfaceLinkState, error: String?) {
+        info.linkState = state
+        info.linkError = error
         catalog.updateMachine(info, from: self)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
@@ -633,8 +597,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 self.catalog.updateMachine(self.info, from: self)
             case .failure(let error):
                 // A carrier link can outlive a revoked membership; the owning
-                // team's authorized read is the first to learn it.
-                guard self.isCurrentLifecycleGeneration(lifecycle),
+                // team's authorized read is the first to learn it. Only the
+                // current refresh may report it: an older read failing late
+                // would undo an access confirmation that came after it.
+                guard self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation),
                       let loss = CloudMachineAccessLoss(error: error) else { return }
                 self.noteAccessLost(loss)
             }

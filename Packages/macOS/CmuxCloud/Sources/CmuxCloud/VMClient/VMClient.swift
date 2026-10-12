@@ -1130,16 +1130,18 @@ public actor VMClient {
         )
     }
 
-    /// Revoke every Freestyle peer for this Mac during native sign-out.
+    /// Deletes this build's own tunnels during native sign-out. Other builds
+    /// on this Mac keep their tunnels: each signs out on its own, and removing
+    /// the whole Mac is an explicit action on its device page.
     @MainActor
-    public static func revokeCloudAccess(
-        deviceID: String,
+    public static func revokeTunnelRoles(
+        _ roles: [CloudTunnelRole],
         accessToken: String?,
         refreshToken: String?
     ) async {
         guard let shared else { return }
-        await shared.revokeCloudAccess(
-            deviceID: deviceID,
+        await shared.revokeTunnelRoles(
+            roles,
             accessToken: accessToken,
             refreshToken: refreshToken
         )
@@ -2124,38 +2126,22 @@ public actor VMClient {
         }
     }
 
-    /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
-    /// config still on disk stops working immediately.
-    public func revokeCloudAccess(deviceID: String) async throws {
+    /// Unenroll this build's tunnels. The server deletes each provider-side
+    /// tunnel, so its config on disk stops working immediately. Other builds
+    /// on this Mac keep theirs.
+    public func revokeTunnelRoles(_ roles: [CloudTunnelRole]) async throws {
         return try await withOperation(.tunnel, foreground: true) {
-            let revocation = Self.cloudAccessRevocationRequest(deviceID: deviceID)
-            let (data, http) = try await request(
-                "DELETE",
-                path: revocation.path,
-                jsonBody: revocation.body,
-                allowedUnderManagedPolicy: true
-            )
-            try ensureOK(http, data: data)
+            for role in roles {
+                let revocation = Self.tunnelRoleRevocationRequest(role)
+                let (data, http) = try await request(
+                    "DELETE",
+                    path: revocation.path,
+                    jsonBody: revocation.body,
+                    allowedUnderManagedPolicy: true
+                )
+                try ensureOK(http, data: data)
+            }
         }
-    }
-
-    public struct CloudAccessRevocationRequest: Sendable {
-        public let path: String
-        public let deviceID: String
-
-        public var body: [String: Any] { ["deviceId": deviceID] }
-
-        public init(
-            path: String,
-            deviceID: String
-        ) {
-            self.path = path
-            self.deviceID = deviceID
-        }
-    }
-
-    public nonisolated static func cloudAccessRevocationRequest(deviceID: String) -> CloudAccessRevocationRequest {
-        CloudAccessRevocationRequest(path: "/api/vm/tunnel", deviceID: deviceID)
     }
 
     public nonisolated static func decodeTunnelEndpoint(
@@ -2366,8 +2352,8 @@ public actor VMClient {
         }
     }
 
-    private func revokeCloudAccess(
-        deviceID: String,
+    private func revokeTunnelRoles(
+        _ roles: [CloudTunnelRole],
         accessToken: String?,
         refreshToken: String?
     ) async {
@@ -2379,16 +2365,20 @@ public actor VMClient {
             return
         }
         url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + "/api/vm/tunnel"
-        url.queryItems = [URLQueryItem(name: "deviceId", value: deviceID)]
-        guard let resolved = url.url else { return }
-        var request = URLRequest(url: resolved)
-        request.httpMethod = "DELETE"
-        request.timeoutInterval = 8
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        do {
-            _ = try await session.data(for: request)
-        } catch {
+        for role in roles {
+            url.queryItems = Self.tunnelRoleRevocationRequest(role).queryItems
+            guard let resolved = url.url else { continue }
+            var request = URLRequest(url: resolved)
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = 8
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+            do {
+                _ = try await session.data(for: request)
+            } catch {
+                // Best effort, like the other sign-out tails: the stale-tunnel
+                // reaper removes a tunnel this request could not reach.
+            }
         }
     }
 
