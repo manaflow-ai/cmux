@@ -5,6 +5,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
+import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
@@ -48,6 +49,10 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
+  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
+  loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -223,6 +228,14 @@ export function createAcpmuxDebug(
     },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
+    },
+    loadSeed(turns = 5000) {
+      const automationHost = host.automation;
+      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+    },
+    loadRun(options = {}) {
+      return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
 }
