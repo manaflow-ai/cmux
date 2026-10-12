@@ -181,7 +181,8 @@ final class PromptBarView: NSView {
         case .savePassword(let username, let update):
             let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
             messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"
-            addButton(Strings.passwordNever, prominent: false, response: .deny)
+            // An update is for a saved sign-in: Chromium's update bubble has no Never either.
+            if !update { addButton(Strings.passwordNever, prominent: false, response: .deny) }
             addButton(Strings.passwordNotNow, prominent: false, response: .cancel)
             addButton(update ? Strings.passwordUpdate : Strings.passwordSave, prominent: true, response: .accept)
         }
