@@ -788,8 +788,8 @@
   }
 }
 
-/* Settings > iPhone: the pairing code beside its QR code. The QR sits on white in a small-radius
-   rect (scanners need the light quiet zone in dark mode too); the code is large monospace. */
+/* Settings > iPhone: the pairing code beside its QR code (the PNG carries its own white quiet
+   zone, so it scans in dark mode too); the code is large monospace. */
 .phone-pairing-body {
   display: flex;
   align-items: center;
@@ -802,9 +802,7 @@
 
 .phone-qr {
   flex: none;
-  padding: 8px;
   border-radius: 4px;
-  background: #fff;
   image-rendering: pixelated;
 }
 

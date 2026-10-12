@@ -133,7 +133,7 @@ function PairingPanel({
   return (
     <section className="group phone-pairing" data-card="phone-pairing">
       <div className="phone-pairing-body">
-        {pairing.qr && left && <img className="phone-qr" src={pairing.qr} alt={pairing.url} width={164} height={164} />}
+        {pairing.qr && left && <img className="phone-qr" src={pairing.qr} alt={pairing.url} width={180} height={180} />}
         <div className="phone-pairing-text">
           <div className="phone-code" data-expired={left === null}>
             {pairing.code}

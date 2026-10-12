@@ -89,7 +89,11 @@ enum NativePhoneQRCode {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         filter.setValue(Data(text.utf8), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage?.samplingNearest().transformed(by: CGAffineTransform(scaleX: scale, y: scale)) else { return nil }
+        guard let code = filter.outputImage?.samplingNearest().transformed(by: CGAffineTransform(scaleX: scale, y: scale)) else { return nil }
+        // Black on a white quiet zone of four modules, baked in: scanners need it on a dark page too.
+        let frame = code.extent.insetBy(dx: -4 * scale, dy: -4 * scale)
+        let output = code.composited(over: CIImage(color: .white).cropped(to: frame))
+            .transformed(by: CGAffineTransform(translationX: -frame.minX, y: -frame.minY))
         let rep = NSBitmapImageRep(ciImage: output)
         guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
         let url = "data:image/png;base64," + png.base64EncodedString()
