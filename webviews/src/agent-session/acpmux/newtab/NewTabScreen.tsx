@@ -415,8 +415,8 @@ export function NewTabScreen(props: Props) {
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
           {props.onAddHarness && (
-            <button type="button" className="nt-tool nt-add-harness" onClick={() => props.onAddHarness?.()}>
-              <span className="nt-tool-icon" aria-hidden="true">
+            <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => props.onAddHarness?.()}>
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
                 <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>

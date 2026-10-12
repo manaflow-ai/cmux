@@ -234,11 +234,11 @@
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-card-host,.nt-row-host{display:contents}
-/* "Integrate a harness" in the note under the field when no agent is installed. */
-.nt-tool{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;cursor:default}
+/* "Integrate a harness" in the note under the field when no agent is installed. Geometry and type:
+   the shared ghost button (ui/ghost.css, cx-s6zvc). */
+.nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-no-agent{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 4px 0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.nt-tool-icon{display:inline-grid;place-items:center;width:16px}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
    the window is too short. Marks are muted at rest: color is for state, not for every row. */
