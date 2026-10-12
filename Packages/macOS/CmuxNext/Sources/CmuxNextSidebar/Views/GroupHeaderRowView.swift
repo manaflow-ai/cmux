@@ -319,16 +319,4 @@ final class GroupHeaderRowView: SidebarRowView {
         super.hoverChanged()
         needsLayout = true
     }
-
-    /// A new group's chip arrives once: it fades and scales up (Reduce
-    /// Motion: no scale, the row's fade only).
-    func playAppear() {
-        guard Motion.animatesMovement else { return }
-        let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 0.86
-        scale.toValue = 1
-        scale.duration = Motion.duration(MotionSpring.appear)
-        scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        pill.add(scale, forKey: "cmux.groupAppear")
-    }
 }
