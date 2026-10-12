@@ -63,7 +63,10 @@ final class BrowserSSLTrustBypassState {
     }
 
     func isBypassed(protectionSpace: URLProtectionSpace, serverTrust: SecTrust) -> Bool {
-        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+        // Nearly every challenge has no grant; skip hashing the certificate.
+        guard isBypassAllowed(),
+              let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+              bypassedTrusts.contains(where: { $0.scope == scope }),
               let fingerprint = BrowserServerTrustFingerprint(serverTrust: serverTrust) else {
             return false
         }
