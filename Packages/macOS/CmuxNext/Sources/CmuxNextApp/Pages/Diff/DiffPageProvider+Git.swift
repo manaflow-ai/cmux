@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextPages
+import CryptoKit
 import Foundation
 
 /// Runs the diff tab's git reads and writes (cx-ueuc8) in a repository: the agent pane's git
@@ -18,6 +19,8 @@ protocol DiffGitRunning: AnyObject {
 
 /// The diff tab's Stage, Commit and Push (cx-ueuc8): `cmux.diff.git.status {}`,
 /// `cmux.diff.git.diff {scope}` (the files only, for Commit's "Include new files"),
+/// `cmux.diff.git.fingerprint {scope}` (a hash of the scope's diff, patches included, so the
+/// viewer sees an agent's edit without moving the diff over the bridge; cx-9ce.34),
 /// `cmux.diff.git.commit` and `cmux.diff.git.push` with the changes view's params (no
 /// `session_id`), and `cmux.diff.git.stage`, `.unstage`, `.stageHunk`, `.unstageHunk` with
 /// `{paths, hunk?}`. Each runs in the tab's own repository, the one its grant covers: a `cwd`
@@ -25,7 +28,7 @@ protocol DiffGitRunning: AnyObject {
 /// Writes need a real click or key in the page (``PageCallContext/userGesture``).
 extension DiffPageProvider {
     static let gitOps: Set<String> = [
-        "cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.commit", "cmux.diff.git.push",
+        "cmux.diff.git.status", "cmux.diff.git.diff", "cmux.diff.git.fingerprint", "cmux.diff.git.commit", "cmux.diff.git.push",
         "cmux.diff.git.stage", "cmux.diff.git.unstage", "cmux.diff.git.stageHunk", "cmux.diff.git.unstageHunk",
     ]
     /// The session the writes name: the diff tab has no chat, and the session host keys only on
@@ -38,13 +41,16 @@ extension DiffPageProvider {
         guard let git else { throw PageError.unknownOp(op) }
         let repository = try await gitRepository()
         let method = "git." + op.dropFirst("cmux.diff.git.".count)
-        if method == "git.status" || method == "git.diff" {
-            let scope = params["scope"]?.stringValue.flatMap(AgentPaneGitScope.init(rawValue:)) ?? .uncommitted
-            do {
-                return method == "git.status" ? try await git.status(repository) : try await git.diff(repository, scope: scope, includePatch: false)
-            } catch {
-                throw Self.pageError(error)
+        let scope = params["scope"]?.stringValue.flatMap(AgentPaneGitScope.init(rawValue:)) ?? .uncommitted
+        do {
+            switch method {
+            case "git.status": return try await git.status(repository)
+            case "git.diff": return try await git.diff(repository, scope: scope, includePatch: false)
+            case "git.fingerprint": return ["fingerprint": .string(Self.fingerprint(try await git.diff(repository, scope: scope, includePatch: true)))]
+            default: break
             }
+        } catch {
+            throw Self.pageError(error)
         }
         guard context.userGesture else {
             throw PageError(code: "transport.gesture_required", message: AgentPaneGitStage.needsGestureMessage)
@@ -78,6 +84,11 @@ extension DiffPageProvider {
         guard git != nil, case .object(var members) = config, members["pick"] == nil else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + Self.gitOps.sorted().map(JSONValue.string))
         return .object(members)
+    }
+
+    /// SHA-256 of the diff's compact JSON, hex.
+    static func fingerprint(_ diff: JSONValue) -> String {
+        SHA256.hash(data: Data(diff.compactText.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The repository the tab's grant covers.
