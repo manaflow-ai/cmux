@@ -121,9 +121,10 @@ case "$(cd "$package_path" && pwd -P)" in
       (
         cd "$script_dir/../.." || exit 0
         export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
-        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
+        pin="${CMUX_PIN_CMUX_TUI:-scripts/cmux-next/pin-cmux-tui.sh}"
+        tree_path="$(bash "$pin" path 2>/dev/null)" || exit 0
         if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
-          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
+          bash "$pin" fetch >&2 \
             || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
         fi
         printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
