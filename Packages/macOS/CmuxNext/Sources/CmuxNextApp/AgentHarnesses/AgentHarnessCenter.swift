@@ -27,6 +27,7 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    @ObservationIgnored private var lastRescan: ContinuousClock.Instant?
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -144,9 +145,22 @@ final class AgentHarnessCenter {
         try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
     }
 
-    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
-    func health(refresh: Bool = false) async throws -> [JSONValue] {
-        try await call(.health, refresh ? ["refresh": true] : [:])["harnesses"]?.arrayValue ?? []
+    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness; `rescan` has
+    /// acpmux look for harnesses first.
+    func health(refresh: Bool = false, rescan: Bool = false) async throws -> [JSONValue] {
+        if rescan { await self.rescan() }
+        return try await call(.health, refresh ? ["refresh": true] : [:])["harnesses"]?.arrayValue ?? []
+    }
+
+    /// `_acpmux/reload_config` (cx-apoko): acpmux reads its profiles and looks on PATH again, for
+    /// a harness the Harnesses page just installed. A reload restarts pooled sessions, so one runs
+    /// at most every few seconds. A daemon without a config file refuses; the health check after
+    /// it still runs.
+    private func rescan() async {
+        let now = ContinuousClock.now
+        if let lastRescan, now - lastRescan < .seconds(5) { return }
+        lastRescan = now
+        _ = try? await call(.reload)
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {
