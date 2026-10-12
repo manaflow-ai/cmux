@@ -72,6 +72,34 @@ struct CmuxToastSurfaceTests {
         #expect(handle.isDismissed)
         #expect(center.toasts(in: window).isEmpty)
     }
+
+    /// A repeated toast (the same refusal again) takes the shown one's place in one frame: it
+    /// neither blinks out and fades back in from nothing nor rises again (motion pass, 2026-10-12).
+    @Test func aSameIdToastReplacesTheShownOneInPlace() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let first = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        let shown = try #require(Self.toastViews(in: window).first)
+        #expect(shown.layer?.animation(forKey: "opacity") != nil, "a new toast fades in")
+
+        let second = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
+        #expect(first.isDismissed)
+        let views = Self.toastViews(in: window)
+        #expect(views.count == 1)
+        let replacement = try #require(views.first)
+        #expect(replacement !== shown)
+        #expect(replacement.layer?.animation(forKey: "opacity") == nil, "the replacement faded in from nothing")
+        #expect(replacement.layer?.animation(forKey: "transform.translation.y") == nil, "the replacement rose again")
+        second.dismiss()
+    }
+
+    private static func toastViews(in window: NSWindow) -> [CmuxToastView] {
+        func walk(_ view: NSView) -> [CmuxToastView] {
+            (view as? CmuxToastView).map { [$0] } ?? view.subviews.flatMap(walk)
+        }
+        return (window.contentView?.superview ?? window.contentView).map(walk) ?? []
+    }
 }
 
 @MainActor
