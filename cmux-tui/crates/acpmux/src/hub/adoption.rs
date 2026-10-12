@@ -156,14 +156,13 @@ impl Hub {
         )))
     }
 
-    /// Why `session`'s agent refused its `session/load`, if it did.
+    /// Why `session`'s agent refused its `session/load`, if it did: the error's message and its
+    /// `data` (where codex-acp puts the reason), as one text.
     fn load_error(&self, session: &Session) -> Option<String> {
         let events = self.events(&session.id, 0, 1_000).ok()?;
-        events
-            .iter()
-            .rev()
-            .find(|e| e.dir == "mux" && e.kind == "resume_failed")
-            .and_then(|e| e.msg.get("error").and_then(Value::as_str).map(str::to_owned))
+        let failed = events.iter().rev().find(|e| e.dir == "mux" && e.kind == "resume_failed")?;
+        let message = failed.msg.get("error").and_then(Value::as_str).unwrap_or_default();
+        Some(format!("{message} {}", failed.msg.get("data").unwrap_or(&Value::Null)))
     }
 }
 
