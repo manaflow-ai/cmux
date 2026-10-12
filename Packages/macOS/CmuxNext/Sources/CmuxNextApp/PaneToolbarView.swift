@@ -22,7 +22,7 @@ final class PaneToolbarView: NSView {
     var moreMenu: (() -> NSMenu?)?
 
     private(set) var shown: [PaneToolbarItem] = []
-    private(set) var hidden: [PaneToolbarItem] = []
+    private(set) var hiddenItems: [PaneToolbarItem] = []
     private(set) var hasMore = false
     private(set) var buttons: [TitlebarBandButton] = []
     let moreButton = TitlebarBandButton(symbol: "ellipsis")
@@ -46,7 +46,7 @@ final class PaneToolbarView: NSView {
 
     /// The buttons to show, whether "…" shows, and the hidden ones Show brings back.
     func show(_ shown: [PaneToolbarItem], more: Bool, hidden: [PaneToolbarItem]) {
-        self.hidden = hidden
+        hiddenItems = hidden
         guard shown != self.shown || more != hasMore else { return }
         self.shown = shown
         hasMore = more
@@ -112,9 +112,9 @@ final class PaneToolbarView: NSView {
 
     /// The row's right-click: Show <title> Button for each hidden one; none with nothing hidden.
     func showMenu() -> NSMenu? {
-        guard !hidden.isEmpty else { return nil }
+        guard !hiddenItems.isEmpty else { return nil }
         let menu = NSMenu()
-        hidden.forEach { menu.addItem(menuItem(PaneToolbarStrings.show($0.title), $0, shown: true)) }
+        hiddenItems.forEach { menu.addItem(menuItem(PaneToolbarStrings.show($0.title), $0, shown: true)) }
         return menu
     }
 
