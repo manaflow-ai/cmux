@@ -71,7 +71,7 @@ fn open_options() -> std::fs::OpenOptions {
 /// The file's bytes when it is a regular file of this user within the size
 /// bound, read through one handle (no symlink, no swap after the check).
 fn read_trusted(path: &Path) -> Option<Vec<u8>> {
-    let mut file = open_options().read(true).open(path).ok()?;
+    let file = open_options().read(true).open(path).ok()?;
     let meta = file.metadata().ok()?;
     if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
         return None;
@@ -85,7 +85,7 @@ fn read_trusted(path: &Path) -> Option<Vec<u8>> {
         }
     }
     let mut bytes = Vec::new();
-    file.by_ref().take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
     (bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes)
 }
 
