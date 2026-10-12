@@ -8,8 +8,8 @@
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "89dc50175b2f6bcd95ee93611bbd70130d6ed4e2",
-    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598 (3320bd06e; 2199dc93e changes only src/renderer/Thread.zig 3339f2ada only src/terminal (OSC 7501), CI files and NEXT.md, and 673a6369c only src/build (libSystem override), src/terminal and src/terminfo (Pst), c41410256 only src/, include/ghostty.h and CI files (link filter), and 89dc50175 only src/config/c_get.zig (TerminalColor getter), so LICENSE, build.zig.zon, pkg/ and vendor/ are identical)",
+    "commit": "03ddb28693a58ace2fbcae5d78eb1c36b80af7be",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598 (3320bd06e; 2199dc93e changes only src/renderer/Thread.zig 3339f2ada only src/terminal (OSC 7501), CI files and NEXT.md, and 673a6369c only src/build (libSystem override), src/terminal and src/terminfo (Pst), c41410256 only src/, include/ghostty.h and CI files (link filter), 89dc50175 only src/config/c_get.zig (TerminalColor getter), and 03ddb2869 only src/renderer and NEXT.md (glass minimum contrast), so LICENSE, build.zig.zon, pkg/ and vendor/ are identical)",
     "owners": {
       "ghostty-next": {
         "name": "Ghostty",
