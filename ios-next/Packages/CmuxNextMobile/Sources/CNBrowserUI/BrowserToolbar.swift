@@ -53,7 +53,7 @@ struct ToolbarLayout {
 struct BrowserToolbar: View {
     @Bindable var chrome: BrowserChromeState
     var tab: BrowserTab?
-    /// A terminal, agent or Mac-only tab: the capsule shows its title and a
+    /// A terminal or Mac-only tab: the capsule shows its title and a
     /// subtitle (`host ~/cwd`); no back/forward, no reload, no address editing.
     var local: LocalPageTitle? = nil
     var showsStartPage: Bool

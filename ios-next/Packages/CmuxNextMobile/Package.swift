@@ -53,7 +53,7 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
             ]
         ),
-        .target(name: "CNBrowserUI", dependencies: ["CNCore", "CNTransport", "CNDesign", "CNTerminalUI", "CNAgentUI"]),
+        .target(name: "CNBrowserUI", dependencies: ["CNCore", "CNTransport", "CNDesign", "CNTerminalUI"]),
         .target(name: "CNSettingsUI", dependencies: ["CNCore", "CNBackend", "CNTransport", "CNDesign"]),
         // Development fixture: an in-process host behind the loopback
         // transport, for previews, UI capture and offline UI tests.

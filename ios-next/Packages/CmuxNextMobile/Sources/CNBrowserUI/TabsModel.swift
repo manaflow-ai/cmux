@@ -9,14 +9,11 @@ import UIKit
 enum TabItem: Identifiable, Hashable {
     case browser(BrowserTab)
     case terminal(Terminal)
-    /// An agent session (Mac layout tab).
-    case agent(id: String, title: String, preview: String?)
     /// A Mac tab the phone cannot open live (a CEF browser pane, a
     /// conversation, an unknown kind): shown as a placeholder.
     case macOnly(LayoutTab)
 
     static let terminalPrefix = "term:"
-    static let agentPrefix = "agent:"
     static let macPrefix = "mac:"
 
     /// Grid key. Browser tabs keep their tab id (the browser screen's own
@@ -25,7 +22,6 @@ enum TabItem: Identifiable, Hashable {
         switch self {
         case .browser(let t): t.id
         case .terminal(let t): Self.terminalPrefix + t.id
-        case .agent(let id, _, _): Self.agentPrefix + id
         case .macOnly(let t): Self.macPrefix + t.id
         }
     }
@@ -39,7 +35,6 @@ enum TabItem: Identifiable, Hashable {
         switch self {
         case .browser(let t): t.title.isEmpty ? t.displayHost : t.title
         case .terminal(let t): t.title.isEmpty ? "Terminal" : t.title
-        case .agent(_, let title, _): title.isEmpty ? "Agent" : title
         case .macOnly(let t): t.title.isEmpty ? (t.url ?? "Tab") : t.title
         }
     }
@@ -48,7 +43,6 @@ enum TabItem: Identifiable, Hashable {
         switch self {
         case .browser: "globe"
         case .terminal: "apple.terminal"
-        case .agent: "sparkles"
         case .macOnly(let t): t.kind == .browser ? "globe" : "macwindow"
         }
     }
@@ -58,7 +52,7 @@ enum TabItem: Identifiable, Hashable {
     }
 
     static func isBrowserKey(_ key: String) -> Bool {
-        !key.hasPrefix(terminalPrefix) && !key.hasPrefix(agentPrefix) && !key.hasPrefix(macPrefix)
+        !key.hasPrefix(terminalPrefix) && !key.hasPrefix(macPrefix)
     }
 }
 
@@ -74,12 +68,11 @@ final class TabsModel {
     private(set) var terminals: [Terminal] = []
     /// Item keys in grid order.
     private(set) var order: [String] = []
-    /// The selected non-browser item's key (terminal, agent, Mac-only);
+    /// The selected non-browser item's key (terminal, Mac-only);
     /// nil while a browser tab is selected.
     private(set) var activeTerminalKey: String?
     /// The Mac's workspaces and panes (`layout.v1`); nil without it.
     private(set) var layout: MacLayout?
-    private(set) var agentSessions: [AgentSession] = []
     /// Whether the host serves the Mac's own browser tabs (`browser.mac.v1`).
     var browserAccess: BrowserMacStatus?
     private(set) var terminalThumbnails: [String: UIImage] = [:]
@@ -162,11 +155,6 @@ final class TabsModel {
             if let id = tab.refId, let t = terminals.first(where: { $0.id == id }) { return .terminal(t) }
         case .browser:
             if tab.streamable, let id = tab.refId, let t = browser.tabs.first(where: { $0.id == id }) { return .browser(t) }
-        case .agent:
-            if let id = tab.refId {
-                let s = agentSessions.first { $0.id == id }
-                return .agent(id: id, title: s?.title ?? tab.title, preview: s?.preview)
-            }
         default:
             break
         }
@@ -235,7 +223,6 @@ final class TabsModel {
             if let list = try? await client.listTerminals() { terminals = list }
             let caps = connection.hostInfo
             if caps?.supports(.layout) ?? false { layout = try? await client.layout() }
-            if caps?.supports(.agent) ?? true, let sessions = try? await client.listAgentSessions() { agentSessions = sessions }
             if caps?.supports(.browserMac) ?? false { browserAccess = try? await client.browserMacStatus() }
         }
         syncOrder(initial: true)
@@ -250,8 +237,6 @@ final class TabsModel {
             if let i = terminals.firstIndex(where: { $0.id == t.id }) { terminals[i] = t } else { terminals.append(t) }
         case .terminalExited(let id, _):
             if let i = terminals.firstIndex(where: { $0.id == id }) { terminals[i].running = false }
-        case .agentSession(let a):
-            if let i = agentSessions.firstIndex(where: { $0.id == a.id }) { agentSessions[i] = a } else { agentSessions.append(a) }
         default:
             break
         }

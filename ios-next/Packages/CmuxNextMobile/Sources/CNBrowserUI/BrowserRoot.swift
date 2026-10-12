@@ -30,8 +30,6 @@ struct TabsScreenHost: View {
     let connection: HostConnection
     var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
     var terminalFontStep: (Int) -> Void = { _ in }
-    /// Live agent session content (the tabs root wires the agent module).
-    var agentContent: (String) -> AnyView = { _ in AnyView(Color.clear) }
     /// A terminal's composer row and key bar, placed above the toolbar.
     var terminalAccessory: (String) -> AnyView = { _ in AnyView(EmptyView()) }
 
@@ -48,7 +46,7 @@ struct TabsScreenHost: View {
                     BrowserScreen(tabs: tabs, size: full.size, safeTop: outer.safeAreaInsets.top,
                                   safeBottom: outer.safeAreaInsets.bottom,
                                   keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0,
-                                  terminalContent: terminalContent, agentContent: agentContent,
+                                  terminalContent: terminalContent,
                                   terminalAccessory: terminalAccessory, terminalFontStep: terminalFontStep)
                 }
                 .ignoresSafeArea()
@@ -146,8 +144,6 @@ struct BrowserScreen: View {
 
     /// Live terminal content for a terminal tab (from the tabs root).
     var terminalContent: (String, CGSize?) -> AnyView = { _, _ in AnyView(Color.black) }
-    /// Live agent session content for an agent tab (from the tabs root).
-    var agentContent: (String) -> AnyView = { _ in AnyView(Color.clear) }
     /// The open terminal's composer row and key bar (from the tabs root).
     var terminalAccessory: (String) -> AnyView = { _ in AnyView(EmptyView()) }
 
@@ -206,8 +202,6 @@ struct BrowserScreen: View {
             let host = tabs.connection.hostInfo?.hostName ?? ""
             let cwd = t.cwd.isEmpty ? host : (host.isEmpty ? t.cwd : "\(host)  \(t.cwd)")
             return LocalPageTitle(title: t.title.isEmpty ? "Terminal" : t.title, subtitle: cwd, monospaced: true)
-        case .agent(_, let title, _)?:
-            return LocalPageTitle(title: title.isEmpty ? "Agent" : title, subtitle: "Agent")
         case .macOnly(let t)?:
             return LocalPageTitle(title: t.title.isEmpty ? "Untitled" : t.title, subtitle: t.url.flatMap { URL(string: $0)?.host() } ?? "On your Mac")
         default:
@@ -260,9 +254,6 @@ struct BrowserScreen: View {
                 Group {
                     if let item = zoomTabId.flatMap(tabs.item), case .macOnly(let t) = item {
                         localPageScaled(MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom), g.rect)
-                    } else if let item = zoomTabId.flatMap(tabs.item), case .agent(let id, _, _) = item {
-                        // The live session laid out at full page size, scaled to the rect.
-                        localPageScaled(agentContent(id).padding(.bottom, pageBottom + 64).background(Color.cn(\.elevated)), g.rect)
                     } else if content.terminal, let id = zoomTabId.flatMap(TabItem.terminalId(fromKey:)) {
                         // The live terminal laid out at full page size, scaled to the rect.
                         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
@@ -406,7 +397,7 @@ struct BrowserScreen: View {
 
     private var hostName: String { tabs.connection.hostInfo?.hostName ?? "" }
 
-    /// A local page (agent, Mac-only) laid out at full size, scaled into `rect`.
+    /// A local page (Mac-only) laid out at full size, scaled into `rect`.
     private func localPageScaled(_ page: some View, _ rect: CGRect) -> some View {
         let scale = size.width > 0 ? max(0.01, rect.width / size.width) : 1
         return page
@@ -422,15 +413,6 @@ struct BrowserScreen: View {
                 MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom)
             } else {
                 style.colors.startBackground
-            }
-        } else if case .agent(let id, _, _)? = tabs.activeItem, !chrome.swiping {
-            if zoomState.phase == .page {
-                agentContent(id)
-                    .padding(.bottom, pageBottom + 64)
-                    .frame(width: size.width, height: size.height)
-                    .background(Color.cn(\.elevated))
-            } else {
-                Color.cn(\.elevated)
             }
         } else if let terminal = tabs.activeTerminal, !chrome.swiping {
             // A terminal tab: its live terminal fills the page (the terminal
@@ -622,9 +604,6 @@ struct BrowserScreen: View {
                     UIPasteboard.general.string = t.url
                 }),
             ]]
-        }
-        if case .agent? = tabs.activeItem {
-            return [[PageMenuItem(title: "Show All Panes", symbol: "square.grid.2x2", action: menuAction(openOverview))]]
         }
         let tab = model.activeTab
         let desktop = model.isDesktop(model.activeTabId)
