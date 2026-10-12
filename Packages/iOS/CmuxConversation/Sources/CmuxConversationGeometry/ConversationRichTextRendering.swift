@@ -397,23 +397,39 @@ public final class ConversationTextEffectLayer: CALayer {
         var opacities: [Double]
     }
 
-    /// One pose per 60 Hz frame of the cycle, as a transform and an opacity.
+    /// One pose per 60 Hz frame of the cycle, as a transform and an opacity,
+    /// without the frames inside a run of equal poses: linear interpolation
+    /// between a run's first and last frame gives the same pose at every
+    /// time in between, so the motion is unchanged while a glyph that rests
+    /// for most of the loop sends a few dozen keyframes instead of 181. An
+    /// effect that never fades carries no opacity track (the layer is opaque).
     static func loopKeyframes(_ effect: ConversationTextEffect, index: Int, count: Int, fontSize: CGFloat, seed: UInt64) -> LoopKeyframes {
         let cycle = ConversationTextEffectMotion.cycle
         let fps = 60.0
         let frames = Int(cycle * fps)
-        var result = LoopKeyframes(transformTimes: [], transforms: [], opacityTimes: [], opacities: [])
-        result.transforms.reserveCapacity(frames + 1)
+        var poses: [ConversationTextEffectMotion.Pose] = []
+        poses.reserveCapacity(frames + 1)
         for frame in 0...frames {
-            let t = Double(frame) / fps
-            let pose = ConversationTextEffectMotion.pose(effect, index: index, count: count, time: t, seed: seed)
+            poses.append(ConversationTextEffectMotion.pose(effect, index: index, count: count, time: Double(frame) / fps, seed: seed))
+        }
+        // Frame `i` is needed unless it equals both neighbors.
+        func kept(_ same: (Int, Int) -> Bool) -> [Int] {
+            (0...frames).filter { i in i == 0 || i == frames || !same(i, i - 1) || !same(i, i + 1) }
+        }
+        var result = LoopKeyframes(transformTimes: [], transforms: [], opacityTimes: [], opacities: [])
+        for i in kept({ poses[$0].dx == poses[$1].dx && poses[$0].dy == poses[$1].dy && poses[$0].rotation == poses[$1].rotation && poses[$0].scale == poses[$1].scale }) {
+            let pose = poses[i]
             var transform = CATransform3DMakeTranslation(CGFloat(pose.dx) * fontSize, CGFloat(pose.dy) * fontSize * flipSign, 0)
             transform = CATransform3DRotate(transform, CGFloat(pose.rotation) * flipSign, 0, 0, 1)
             transform = CATransform3DScale(transform, CGFloat(pose.scale), CGFloat(pose.scale), 1)
             result.transforms.append(transform)
-            result.transformTimes.append(t / cycle)
-            result.opacities.append(pose.opacity)
-            result.opacityTimes.append(t / cycle)
+            result.transformTimes.append(Double(i) / fps / cycle)
+        }
+        if poses.contains(where: { $0.opacity != 1 }) {
+            for i in kept({ poses[$0].opacity == poses[$1].opacity }) {
+                result.opacities.append(poses[i].opacity)
+                result.opacityTimes.append(Double(i) / fps / cycle)
+            }
         }
         return result
     }
