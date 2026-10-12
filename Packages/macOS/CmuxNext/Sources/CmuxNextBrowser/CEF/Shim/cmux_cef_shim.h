@@ -499,6 +499,12 @@ CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Clear Browsing Data: deletes the cookies of profile_cache_path (a
+// persistent profile; an off-the-record key returns 0) created at or after
+// `since` (microseconds since 1601; 0 deletes every cookie), creating the
+// context when no tab opened it yet. REPLY with `reply` and browser 0
+// follows: a = cookies deleted. Returns 0 when nothing was started.
+CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* profile_cache_path, int reply, int64_t since);
 // Browser import: saved passwords into the Chromium password store of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // the store autofill reads, encrypted with cmux's own Keychain key. Every
