@@ -47,6 +47,8 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
     await dialog.waitFor({ state: "visible" });
     const alpha = await dialog.evaluate((element) => {
       const probe = document.createElement("canvas").getContext("2d")!;
+      // Start transparent, so a color the canvas rejects reads as see-through, never as solid black.
+      probe.fillStyle = "transparent";
       probe.fillStyle = getComputedStyle(element).backgroundColor;
       probe.fillRect(0, 0, 1, 1);
       return probe.getImageData(0, 0, 1, 1).data[3];
