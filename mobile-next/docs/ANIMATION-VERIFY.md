@@ -49,3 +49,12 @@ pending → confirmed swap doesn't replay the send (the "ghost bubble" in r14).
 cmux uses the system `NavigationStack` push, which is the same UIKit navigation transition Messages
 uses (measured there: push spring 0.30/0.98, 30% parallax, ~9% dim). Marker tracking on run r27 loses
 the outgoing row under the incoming card, as expected for that transition; no custom animation to tune.
+
+## Static design comparisons (2026-10-12)
+
+| Screen | Reference | Result |
+| --- | --- | --- |
+| Drawer | ChatGPT sidebar (Mobbin) | Same structure (search + compose, places, dated sections, profile row). cmux keeps a project · Mac subtitle per chat (T3 density) for multi-Mac use. |
+| Agent chat | T3 Code chat (App Store) | Finished turns fold work into "Worked for 6s · 2 steps ›" above the answer (was: every tool row expanded). Terminal button added to the toolbar like T3's glass action group. |
+| Terminal | T3 Code terminal | Equivalent key bar (esc/tab/ctrl/arrows); cmux keeps its dark Ghostty theme. |
+| Welcome | ChatGPT auth sheet | Same layout; one button because sign-in is Apple-only for now. |

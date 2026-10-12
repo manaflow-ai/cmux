@@ -16,6 +16,7 @@ struct AgentChatView: View {
     @State private var error: String?
     @State private var pendingPrompt: String?
     @State private var attachments: [ComposerImage] = []
+    @State private var expandedTurns: Set<String> = []
     @State private var viewportHeight: CGFloat = 600
     @FocusState private var focused: Bool
 
@@ -52,6 +53,47 @@ struct AgentChatView: View {
         return turns
     }
 
+    enum DisplayEntry: Identifiable {
+        case item(TranscriptItem)
+        case worked(duration: TimeInterval?, steps: Int, expanded: Bool)
+
+        var id: String {
+            switch self {
+            case .item(let item): item.id
+            case .worked: "worked"
+            }
+        }
+    }
+
+    /// A finished turn folds its work (thinking, tool calls, interim text,
+    /// answered approvals) into one "Worked for 1m 12s ›" row above the final
+    /// answer, as T3 Code and Claude do. A running turn shows everything.
+    static func display(_ turn: Turn, expanded: Bool) -> [DisplayEntry] {
+        guard let end = turn.items.last, case .turnEnd(_, let duration, _) = end else {
+            return turn.items.map(DisplayEntry.item)
+        }
+        let finalIndex = turn.items.lastIndex { if case .assistant = $0 { true } else { false } }
+        var head: [DisplayEntry] = []
+        var work: [TranscriptItem] = []
+        var tail: [DisplayEntry] = []
+        for (index, item) in turn.items.enumerated() {
+            switch item {
+            case .user, .userImages:
+                head.append(.item(item))
+            case .plan, .notice, .turnEnd:
+                tail.append(.item(item))
+            case .permission(let request) where request.resolved == nil:
+                tail.append(.item(item))
+            default:
+                if index == finalIndex { tail.insert(.item(item), at: 0) } else { work.append(item) }
+            }
+        }
+        guard !work.isEmpty else { return turn.items.map(DisplayEntry.item) }
+        let steps = work.filter { if case .tool = $0 { true } else { false } }.count
+        return head + [.worked(duration: duration, steps: steps, expanded: expanded)]
+            + (expanded ? work.map(DisplayEntry.item) : []) + tail
+    }
+
     static func blocks(text: String, images: [ComposerImage]) -> [JSONValue] {
         var blocks: [JSONValue] = images.map { image in .object(image.block.mapValues(JSONValue.string)) }
         if !text.isEmpty { blocks.append(["type": "text", "text": .string(text)]) }
@@ -76,10 +118,19 @@ struct AgentChatView: View {
                         let turns = Self.turns(transcript.items, pending: pendingPrompt)
                         ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
                             VStack(alignment: .leading, spacing: 14) {
-                                ForEach(turn.items) { item in
-                                    row(item, lastID: transcript.items.last?.id, transcript: transcript)
-                                        .id(item.id)
-                                        .transition(.opacity)
+                                ForEach(Self.display(turn, expanded: expandedTurns.contains(turn.id))) { entry in
+                                    switch entry {
+                                    case .item(let item):
+                                        row(item, lastID: transcript.items.last?.id, transcript: transcript)
+                                            .id(item.id)
+                                            .transition(.opacity)
+                                    case .worked(let duration, let steps, let expanded):
+                                        WorkedRow(duration: duration, steps: steps, expanded: expanded) {
+                                            withAnimation(.snappy) {
+                                                if expandedTurns.contains(turn.id) { expandedTurns.remove(turn.id) } else { expandedTurns.insert(turn.id) }
+                                            }
+                                        }
+                                    }
                                 }
                                 if index == turns.count - 1, working || pendingPrompt != nil,
                                    !(turn.items.last.map(isStreamingRow) ?? false)
@@ -146,6 +197,15 @@ struct AgentChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { DrawerButton() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showTerminal = true
+                    } label: {
+                        Image(systemName: "apple.terminal")
+                    }
+                    .accessibilityLabel("Terminal in this folder")
+                    .accessibilityIdentifier("agent.terminal")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
@@ -250,6 +310,37 @@ struct AgentChatView: View {
                 draft = text
             }
         }
+    }
+}
+
+/// "Worked for 1m 12s · 6 steps ›": the folded work of a finished turn.
+struct WorkedRow: View {
+    let duration: TimeInterval?
+    let steps: Int
+    let expanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 15, weight: .medium))
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("agent.worked")
+    }
+
+    private var label: String {
+        var parts: [String] = []
+        if let duration, duration >= 1 { parts.append(String(localized: "Worked for \(TurnEndRow.format(duration))")) }
+        else { parts.append(String(localized: "Worked")) }
+        if steps > 0 { parts.append(steps == 1 ? String(localized: "1 step") : String(localized: "\(steps) steps")) }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -558,8 +649,6 @@ struct TurnEndRow: View {
             }
             if reason == "cancelled" {
                 Text("Stopped").font(.footnote)
-            } else if let duration, duration > 4 {
-                Text("Worked for \(Self.format(duration))").font(.footnote)
             }
             Spacer()
         }
