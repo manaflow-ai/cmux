@@ -3,22 +3,32 @@
 //! machine daemon's `fs-v1` ops (Move to Cloud, cmuxterm-hq#1874 slice 2).
 //! `--socket` is the machine daemon's socket as this Mac reaches it (the
 //! machine link's local socket); `REMOTE` is an absolute folder under the
-//! machine's home. What goes is in [`local`].
+//! machine's home. What goes is in [`local`]. `cmux link sync pull` brings
+//! it back by a three-way merge against the push ([`pull`]).
 //!
 //! A manifest on the machine (`REMOTE/.git/cmux-sync.json` in a git
 //! working copy, else `REMOTE/.cmux-sync.json`) records each pushed file's
-//! SHA-256, permissions and the revision the machine gave it. A file
+//! SHA-256, permissions and the revision the machine gave it, and in git
+//! the branch, HEAD commit and staged changes the push left
+//! ([`git_back::GitBase`]). A file
 //! whose hash, permissions and revision still match is not written again,
 //! and a file the manifest lists but the folder no longer has is deleted
 //! while the machine still has it as this push left it. Files the machine
-//! made or changed itself are never deleted.
+//! made or changed itself are never deleted. This Mac keeps a copy of the
+//! manifest ([`base`]); a pull trusts only that copy.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"written":N,"unchanged":N,
-//! "deleted":N,"skipped":N,"bytes":N}`, exit 0; on failure
-//! `{"ok":false,"error":...,"error_code":...}` on stdout, exit 1; bad usage
-//! exits 64.
+//! "deleted":N,"skipped":N,"bytes":N}` (a pull adds `fast_forwarded` and
+//! `head`), exit 0; on failure `{"ok":false,"error":...,"error_code":...}`
+//! on stdout (a pull's conflict adds `"conflicts":[paths]` under
+//! `sync_conflict`), exit 1; bad usage exits 64. Unix only, like the link.
 
+mod base;
+mod git_back;
 mod local;
+mod names;
+mod place;
+mod pull;
 mod remote;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -34,16 +44,20 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
 
-/// What the machine holds of earlier pushes.
-#[derive(Default, Serialize, Deserialize)]
+/// What the machine holds of earlier pushes; this Mac keeps a copy
+/// ([`base`]), which is what a pull trusts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Manifest {
     version: u32,
     files: BTreeMap<String, Pushed>,
+    /// The git state the push left; None outside git and from older pushes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    git: Option<git_back::GitBase>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Pushed {
     sha256: String,
     permissions: u32,
@@ -64,10 +78,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
-    let Some((socket, local, remote)) = parse(args) else {
+    let Some((action, socket, local, remote)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
     };
+    if action == Action::Pull {
+        return finish_pull(pull::pull(&socket, &local, &remote));
+    }
     match push(&socket, &local, &remote) {
         Ok(summary) => {
             println!(
@@ -94,11 +111,44 @@ pub(super) fn run(args: &[String]) -> i32 {
     }
 }
 
-fn parse(args: &[String]) -> Option<(PathBuf, PathBuf, String)> {
+/// Prints a pull's answer line and returns its exit code.
+fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
+    let line = match pulled {
+        Ok(pull::Pulled::Done(summary)) => {
+            println!("{summary}");
+            return 0;
+        }
+        Ok(pull::Pulled::Conflict(conflicts, reasons)) => {
+            let mut error = format!(
+                "{} changed both here and on the machine; nothing was brought back",
+                conflicts.join(", ")
+            );
+            if !reasons.is_empty() {
+                error = format!("{error} ({})", reasons.join("; "));
+            }
+            json!({ "ok": false, "error": error, "error_code": "sync_conflict",
+                    "conflicts": conflicts })
+        }
+        Err(error) => json!({ "ok": false, "error": format!("{error:#}"),
+                              "error_code": pull::failure_code(&error) }),
+    };
+    println!("{line}");
+    1
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Push,
+    Pull,
+}
+
+fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
     let [action, rest @ ..] = args else { return None };
-    if action != "push" {
-        return None;
-    }
+    let action = match action.as_str() {
+        "push" => Action::Push,
+        "pull" => Action::Pull,
+        _ => return None,
+    };
     let mut socket = None;
     let mut positional = Vec::new();
     let mut rest = rest.iter();
@@ -113,7 +163,7 @@ fn parse(args: &[String]) -> Option<(PathBuf, PathBuf, String)> {
     if !remote.starts_with('/') {
         return None;
     }
-    Some((socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
+    Some((action, socket?, PathBuf::from(local), remote.trim_end_matches('/').to_string()))
 }
 
 fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
@@ -126,6 +176,8 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
         set.skipped += 1;
     }
     let mut summary = Summary { skipped: set.skipped, ..Summary::default() };
+    // What a pull compares the machine's branch and staged changes with.
+    let git = if set.git { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
@@ -156,7 +208,7 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
     listings.clear();
 
     let mut made: BTreeSet<String> = BTreeSet::new();
-    let mut next = Manifest { version: 1, files: BTreeMap::new() };
+    let mut next = Manifest { version: 1, files: BTreeMap::new(), git };
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
@@ -184,6 +236,8 @@ fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summar
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    // A pull's base is this copy, never the machine's.
+    base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     Ok(summary)
 }
 
