@@ -7,6 +7,8 @@
 //   the transcript or the composer;
 // - the keyboard stays in the prompt: ArrowDown moves the host's highlight;
 // - a pick in the host runs the page's row (the command lands in the prompt) and ends the panel.
+// In a pane 180px tall, the prompt's context menu has room on neither side of the pointer: its rows
+// go to the host the same way, the arrows move the host's highlight, and a pick runs the item.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -127,6 +129,57 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     );
     await page.waitForSelector("#acpmux-slash-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain(name);
+    expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
+    await page.close();
+  });
+
+  test("a short pane sends the prompt's context menu past its edge, keyboard and pick intact", async () => {
+    const page = await stage("agent-pane.composer", "context-menu", { width: 600, height: 180 });
+    // The variant's play opened the menu before the recorder; close it and open it again.
+    await page.dispatchEvent(".ui-context-menu-backdrop", "pointerdown");
+    await page.waitForSelector(".ui-context-menu", { state: "detached" });
+    await recordPopups(page);
+    const under = [".acpmux-composer-box"];
+    const before = await boxes(page, under);
+    // Right-click over the selected prompt text, as the variant's play does.
+    await page.evaluate(() => {
+      const field = document.querySelector(".acpmux-md")!;
+      getSelection()!.selectAllChildren(field);
+      const box = field.getBoundingClientRect();
+      field.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: box.left + 40,
+          clientY: box.top + 12,
+        }),
+      );
+    });
+    await page.waitForSelector(".ui-context-menu[data-escaped]", { state: "attached", timeout: 10_000 });
+    const rows = await page.locator(".ui-context-menu [role=menuitem]").count();
+    const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
+    expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
+    const next = String(Number(show?.params.highlighted) + 1);
+    expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
+    expect(rows).toBeGreaterThan(3);
+    expect(await page.$eval(".ui-context-menu", (menu) => getComputedStyle(menu).opacity)).toBe("0");
+    expect(await boxes(page, under)).toEqual(before);
+    await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(
+      (next) =>
+        (window as unknown as { popupCalls: { method: string; params: { highlighted?: string } }[] }).popupCalls.some(
+          (call) => call.method === "popup.update" && call.params.highlighted === next,
+        ),
+      next,
+    );
+    // Insert Mention, the last row, picked in the host: its @ lands in the prompt, the panel ends.
+    const last = String(rows - 1);
+    await page.evaluate(
+      (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
+      last,
+    );
+    await page.waitForSelector(".ui-context-menu", { state: "detached" });
+    expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
     await page.close();
   });
