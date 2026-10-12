@@ -33,7 +33,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           ctx.document.querySelector('[role="alert"]')?.textContent?.includes("links outside the chat folder"),
         );
-        await ctx.click({ role: "button", name: "Retry" });
+        // The notice's own Retry (the transcript's turn has a Retry too).
+        await ctx.click({ selector: ".acpmux-instructions-notice button:not([data-notice-action])" });
         // Poll by hand so a failure says what the host was asked.
         for (let tries = 0; asked(ctx) < 2; tries++) {
           if (tries > 60) {
@@ -42,7 +43,7 @@ export default agentPaneEntry({
           }
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        await ctx.click({ role: "button", name: "Dismiss" });
+        await ctx.click({ selector: '.acpmux-instructions-notice button[data-notice-action="dismiss"]' });
         await ctx.waitFor(() => !ctx.document.querySelector('[role="alert"]'));
       },
     },
