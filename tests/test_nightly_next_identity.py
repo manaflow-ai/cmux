@@ -83,6 +83,20 @@ def test_packaging_scripts_know_the_next_channel():
     assert 'next) ENTITLEMENTS_NAME="cmux.next-dev.entitlements"' in notarize
 
 
+def test_a_pending_notarization_keeps_its_recovery_artifact():
+    # notarize-nightly-dmg.sh records CMUX_CHANNEL (sign_channel, `next`) in the
+    # state file; the recovery artifact must compare against that, not the
+    # release channel, or a submission past the wait is stranded.
+    step = WORKFLOW[WORKFLOW.index("- name: Prepare pending notarization recovery artifact"):]
+    step = step[:step.index("\n      - name:", 10)]
+    assert '"${{ needs.decide.outputs.sign_channel }}"' in step
+    assert 'state["channel"] != sign_channel' in step
+
+
+def test_release_notes_history_carries_over_from_the_old_feed():
+    assert '"${NIGHTLY_NEXT_LEGACY_FEED_BASE}/notes/index.json"' in WORKFLOW
+
+
 def main() -> int:
     tests = [(name, fn) for name, fn in globals().items() if name.startswith("test_") and callable(fn)]
     failed = 0
