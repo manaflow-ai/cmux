@@ -286,16 +286,6 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Creates an executable (0755) script without this process ever holding a
-/// write descriptor for it.
-///
-/// Tests run on many threads. A sibling test that forks while this process
-/// holds such a descriptor hands a copy to its child until that child execs,
-/// and executing the script in that window fails with ETXTBSY ("Text file
-/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
-/// rename does not either (the child holds the same inode). A short-lived
-/// `sh` opens, writes, and closes the file in its own process, so no fork of
-/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
 /// A home, socket and TMPDIR so deep that the configured socket path is past
 /// the Unix socket limit (a CI worker's long TMPDIR): the daemon still binds,
 /// at a short alias, and a client given the same long path reaches it.
@@ -355,6 +345,16 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     assert!(!bound.exists(), "the short socket stayed after shutdown");
 }
 
+/// Creates an executable (0755) script without this process ever holding a
+/// write descriptor for it.
+///
+/// Tests run on many threads. A sibling test that forks while this process
+/// holds such a descriptor hands a copy to its child until that child execs,
+/// and executing the script in that window fails with ETXTBSY ("Text file
+/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
+/// rename does not either (the child holds the same inode). A short-lived
+/// `sh` opens, writes, and closes the file in its own process, so no fork of
+/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
     use std::process::{Command, Stdio};

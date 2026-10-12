@@ -34,8 +34,10 @@ pub fn socket_path() -> PathBuf {
         // A configured path past sun_path (a long TMPDIR or home) binds and
         // connects at a short alias named by the path itself, so the daemon
         // and every client given the same path agree.
+        // Only an absolute path names one socket wherever it is read from.
         #[cfg(unix)]
-        if !cmux_unix_socket::fits(&given)
+        if given.is_absolute()
+            && !cmux_unix_socket::fits(&given)
             && let Some(short) = short_socket(&given.to_string_lossy())
         {
             return short;
