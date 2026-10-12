@@ -3306,7 +3306,8 @@ function AcpmuxPane() {
           // Enables a folder profile, then starts the chat on it. The request goes out before any
           // await, inside the click or key handler that called this: the host's confirmation
           // takes that gesture. A Cancel there (`transport.harness_not_confirmed`) changes nothing;
-          // acpmux refusing the prompt shows its reason (cx-cuk4).
+          // acpmux refusing the prompt shows its reason (cx-cuk4); acpmux giving none (down, too
+          // slow) says so (cx-nt39g).
           "chat.harness.enable": ({ folder, id }) =>
             client.harnessEnable(String(folder), String(id)).then(
               async (result) => {
@@ -3316,8 +3317,10 @@ function AcpmuxPane() {
                 return result;
               },
               (error: unknown) => {
-                const refused = error as { code?: unknown; detail?: unknown } | null;
+                const refused = error as { code?: unknown; detail?: unknown; reason?: unknown } | null;
                 if (typeof refused?.detail === "string") client.notice(refused.detail);
+                else if (refused?.reason === "harness.prompt_unavailable")
+                  client.notice(translate("harnesses.enableUnavailable"));
                 else if (refused?.code !== "transport.harness_not_confirmed")
                   client.notice(errorMessage(error) || String(error));
                 return undefined;
