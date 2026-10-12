@@ -7,7 +7,7 @@ use super::*;
 /// `extra.program_status` of the harness's only terminal.
 /// Without `updated_at_ms`: the host and the daemon each stamp a report
 /// when their own parser reads it.
-fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
+pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     let terminals = resource_request(
         &harness.socket,
         "program-status-list",
@@ -24,7 +24,10 @@ fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     status
 }
 
-fn wait_for_program_status(harness: &RecoveryHarness, records: usize) -> serde_json::Value {
+pub(super) fn wait_for_program_status(
+    harness: &RecoveryHarness,
+    records: usize,
+) -> serde_json::Value {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let status = program_status(harness);

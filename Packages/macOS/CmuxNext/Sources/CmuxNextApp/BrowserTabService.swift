@@ -81,8 +81,8 @@ final class BrowserTabService {
     var writeBackDelay: Duration = .milliseconds(500)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
-    private var writers: [String: BrowserRecordWriter] = [:]
-    private var historyWriters: [String: BrowserHistoryWriter] = [:]
+    private(set) var writers: [String: BrowserRecordWriter] = [:]
+    private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
@@ -157,6 +157,7 @@ final class BrowserTabService {
             }
             return nil
         }
+        DaemonService.prepareClose = { [weak self] machine, surfaces in await self?.flushHistory(machine: machine, surfaces: surfaces) }
     }
 
     /// The daemon that owns `tab`.
