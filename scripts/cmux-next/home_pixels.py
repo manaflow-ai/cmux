@@ -180,7 +180,8 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
         elif r["outgoing"]:
             # My row's anchored side (MessagesLab 82ccac1: my rows snap their right edge). A 1-line balloon is a pill:
             # its side is straight only at the vertical centre; the 3 pixel lines there (the curve leaves the
-            # tangent by under 0.02 px within 1.5 px of it at a 15 pt radius, 2x).
+            # tangent by about 0.04 px within 1.5 px of it at a 15 pt radius, 2x; the 1-line right inset is 0.21 px,
+            # so the tolerance there is 0.106 px).
             c = (bt + bb) / 2
             expected["right"] = (br, fr, range(int(c - 1), int(c + 2)), 3)
         line = []

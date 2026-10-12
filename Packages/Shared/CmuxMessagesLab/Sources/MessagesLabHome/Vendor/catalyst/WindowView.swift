@@ -195,6 +195,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Display scale
 
+    /// cmux: the scale this view last rasterized and snapped at (setRenderScale).
+    private(set) var appliedRenderScale: CGFloat = Fixture.renderScale
+
     /// The window moved to a display with another scale (or a test forced
     /// one): drop every cached row bitmap and re-rasterize all bitmaps of the
     /// window at the new scale. Live morphs keep their bitmaps until they land.
@@ -205,7 +208,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// this on its backing scale change (appkit-native: HostView
     /// viewDidChangeBackingProperties -> ChatController.displayScaleChanged).
     func setRenderScale(_ s: CGFloat) {
-        guard s > 0, Fixture.renderScale != s else { return }
+        // cmux: the guard is this view's own scale, not only the shared Fixture.renderScale: cmux Home has a window
+        // view per pane, and a second pane (or a tab shown again) whose scale is behind must still re-rasterize and
+        // re-snap after the first pane set the shared value.
+        guard s > 0, Fixture.renderScale != s || appliedRenderScale != s else { return }
+        appliedRenderScale = s
         Fixture.renderScale = s
         RowBitmaps.shared.removeAll()
         compose.rescale()

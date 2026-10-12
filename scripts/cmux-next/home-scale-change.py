@@ -8,8 +8,9 @@ row's anchored side (incoming left, my rows right) and top on whole device pixel
 virtual display (MessagesLab's tools/interactions/vdisplay.m, hidpi 0; the display ends by itself after 240 s)
 and moves the window onto it (`debug.window_frame {screen: last}`): the window's backing scale changes to 1, Home's
 host calls MessagesWindowView.setRenderScale (HostView.viewDidChangeBackingProperties ->
-ChatController.displayScaleChanged), and the rows must snap again. With the transcript moved to half a point
-(half a device pixel at 1x), every text row's anchored side and top must be on whole points. The window then
+ChatController.displayScaleChanged), and the rows must snap again: read right after the move (no other move
+of the transcript, so only setRenderScale can have re-snapped them), then again with the transcript on half a
+point (half a device pixel at 1x): every text row's anchored side and top must be on whole points. The window then
 moves back (2x) and the rows must be on whole device pixels again. Snapshots at each scale.
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); ends with the DEBUG quit fixture,
 the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
@@ -137,6 +138,12 @@ try:
     check("the window moves onto the virtual display", moved.get("screen") == "MessagesLab Rig", moved)
     r1 = poll(lambda: (r := rows_report()) and r.get("scale") == 1 and r, timeout=10) or rows_report()
     check("the window's backing scale is 1 on the virtual display", r1.get("scale") == 1, {k: r1.get(k) for k in ("scale", "error")})
+    # Before any move of the transcript: only setRenderScale re-snaps the rows here (the transcript sits 0.25 pt off
+    # the grid, a quarter pixel at 1x; rows still on the 2x snap would sit half a point off).
+    time.sleep(0.3)  # test harness: display frames after the move
+    r1 = rows_report()
+    if r1.get("scale") == 1:
+        rows_on_grid("1x right after the scale change (no other move)", r1, 1)
     # Half a point is half a device pixel at 1x (the 0.25 pt move made it a quarter).
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
     time.sleep(0.3)  # test harness: display frames for the move to show
@@ -152,6 +159,10 @@ try:
         rpc("debug.window_frame", {"frame": home_frame})
     rb = poll(lambda: (r := rows_report()) and r.get("scale") == 2 and r, timeout=10) or rows_report()
     check("the window's backing scale is 2 again", rb.get("scale") == 2, {k: rb.get(k) for k in ("scale", "error")})
+    time.sleep(0.3)  # test harness: display frames after the move
+    rb = rows_report()
+    if rb.get("scale") == 2:
+        rows_on_grid("2x right after the scale change back (no other move)", rb, 2)
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
     time.sleep(0.2)  # test harness: one display frame for the move to show
     rb = rows_report()

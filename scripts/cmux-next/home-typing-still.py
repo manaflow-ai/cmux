@@ -190,8 +190,6 @@ try:
     # outgoing rows must already end 80 pt further left, and no width pass may be deferred.
     base = rpc("debug.home.drive", {"action": "rows"}) or {}
     paced = rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM + 40, FRACTION_TRIM + 80]}) or {}
-    after_frame = rpc("debug.home.drive", {"action": "rows"}) or {}  # a later request: at least one display frame later
-    rpc("debug.home.drive", {"action": "resize", "trims": [0]})
     steps = paced.get("steps") or []
     check("resize pace: two width changes in one turn", bool(paced.get("ok")) and len(steps) == 2 and bool(base.get("ok")), paced)
     if len(steps) == 2 and base.get("ok"):
@@ -215,14 +213,18 @@ try:
             print(f"SKIP resize pace same-frame proof: the first pass took {first_ms:.2f} ms (budget {budget:.2f} ms), so the"
                   " deferral is the intended one", flush=True)
             SKIPPED.append("resize pace same-frame")
-            later = outgoing_right(after_frame.get("rows") or [])
+            # Rows read until they follow (a display frame must pass first; at most 2 s).
+            follows = lambda r: bool(keys) and all(k in r and abs(b0[k] - r[k] - 80) <= 0.6 for k in keys)
+            later = poll(lambda: (r := outgoing_right((rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []))
+                         and follows(r) and r, timeout=2) or {}
             check("resize pace: after the deferral the rows follow the new width a frame later (outgoing right edges 80 pt left)",
                   bool(keys) and all(k in later and abs(b0[k] - later[k] - 80) <= 0.6 for k in keys),
-                  {k: round(b0[k] - later.get(k, b0[k]), 2) for k in keys})
+                  {k: round(b0[k] - later[k], 2) for k in keys if k in later})
         else:
             check("resize pace: the second width change in the frame ran its pass at once (none deferred)", deferred == 0, steps)
             check("resize pace: after the second change the rows are laid out for the new width (outgoing right edges 80 pt left)",
                   bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
+    rpc("debug.home.drive", {"action": "resize", "trims": [0]})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
