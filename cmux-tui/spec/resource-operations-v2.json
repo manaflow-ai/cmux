@@ -8328,6 +8328,21 @@
       },
       "extra": false
     },
+    "GitStatusWorktree": {
+      "kind": "object",
+      "fields": {
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout the worktree belongs to."
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -8380,7 +8395,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+          "description": "The branch the branch scope compares with: the base the current branch was made from (branch.<branch>.cmuxBase, git.worktree.create), else origin's default branch, else main or master."
         },
         "ahead": {
           "required": true,
@@ -8397,6 +8412,14 @@
             "name": "uint32"
           },
           "description": "Commits behind upstream; 0 without one."
+        },
+        "worktree": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitStatusWorktree"
+          },
+          "description": "Present in a linked worktree (git worktree add, git.worktree.create); absent in the main checkout."
         }
       },
       "extra": false
