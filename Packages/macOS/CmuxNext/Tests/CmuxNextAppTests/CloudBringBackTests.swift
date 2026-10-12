@@ -496,7 +496,8 @@ struct CloudBringBackTests {
                     echo '{"ok":true,"answered":[],"ask":[],"errors":[]}'
                 fi ;;
             "link access answer")
-                case " $* " in *" --share-secret "*) /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest)' ;; esac
+                # A slow CLI: its call is logged a second before it has read stdin (a loaded test host).
+                case " $* " in *" --share-secret "*) sleep 1; /usr/bin/openssl dgst -sha256 -r 2> '\(secretDigest).err' | cut -d ' ' -f 1 > '\(secretDigest)' ;; esac
                 touch '\(answered)'; echo '{"ok":true}' ;;
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
             "link access upload")
