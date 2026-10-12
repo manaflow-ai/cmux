@@ -8,6 +8,8 @@
 //
 // --css-inputs <file> lists, one per line relative to webviews/, every stylesheet the bundle
 // imports. The bundle drops CSS, so the page build checks each one ships in the page.
+// --css-inputs-only writes just that list: no React Compiler, no minify, nothing written to
+// <outfile>, so a test can ask for it in about a second.
 //
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
@@ -33,6 +35,7 @@ const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
 const split = rest.includes("--split");
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
+const cssInputsOnly = rest.includes("--css-inputs-only");
 const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
 
 const mode = reactCompilerMode();
@@ -52,7 +55,8 @@ const result = await build({
   platform: "browser",
   target: "es2022",
   define: { "process.env.NODE_ENV": '"production"' },
-  minify: true,
+  minify: !cssInputsOnly,
+  write: !cssInputsOnly,
   legalComments: "none",
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
@@ -64,7 +68,7 @@ const result = await build({
         chunkNames: "chunks/[name]-[hash]",
       }
     : { outfile }),
-  plugins: [reactCompiler, tailwindPlugin, jsonParsePlugin],
+  plugins: cssInputsOnly ? [tailwindPlugin, jsonParsePlugin] : [reactCompiler, tailwindPlugin, jsonParsePlugin],
   metafile: Boolean(cssInputsFile),
 });
 if (cssInputsFile) {

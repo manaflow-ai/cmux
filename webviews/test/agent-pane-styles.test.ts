@@ -41,6 +41,7 @@ describe.skipIf(!built)("agent pane page", () => {
           "--split",
           "--css-inputs",
           list,
+          "--css-inputs-only",
         ],
         { cwd: webviews, encoding: "utf8" },
       );
