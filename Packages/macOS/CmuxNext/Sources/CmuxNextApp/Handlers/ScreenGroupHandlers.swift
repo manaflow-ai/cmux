@@ -24,7 +24,7 @@ enum ScreenGroupHandlers {
         registry.bind("screenGroup.create", invoke: { invocation in
             guard let ref = ctx.screen(invocation), ctx.require(DaemonCapabilities.shared.screenGroups, on: ref.daemon) else { return }
             guard !ref.screen.pinned else { return ctx.refuse(ScreenStrings.pinnedCannotGroup) }
-            let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
+            let color = invocation["color"]?.stringValue.flatMap(GroupTint.init(wire:))
             ScreenGroupCommands.create([ref.screen], in: ref.workspace, name: invocation["name"]?.stringValue, color: color, daemon: ref.daemon)
         })
         registry.bind("screenGroup.addScreen", invoke: { invocation in
@@ -58,14 +58,15 @@ enum ScreenGroupHandlers {
         })
         registry.bind("screenGroup.setColor", invoke: { invocation in
             guard let ref = group(invocation, ctx) else { return }
-            guard let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
+            // The catalog offers palette tokens; read as a tint so a custom `#RRGGBB` (cx-wqn5) also lands.
+            guard let color = invocation["color"]?.stringValue.flatMap(GroupTint.init(wire:))
                 ?? ctx.refuse(RefusalStrings.colorArgumentRequired) else { return }
             ScreenGroupCommands.update(ref.group.id, color: color, daemon: ref.daemon)
         })
         for color in GroupColor.allCases {
             registry.bind(ActionID(rawValue: "screenGroup.color.\(color.rawValue)"), invoke: { invocation in
                 guard let ref = group(invocation, ctx) else { return }
-                ScreenGroupCommands.update(ref.group.id, color: color, daemon: ref.daemon)
+                ScreenGroupCommands.update(ref.group.id, color: .palette(color), daemon: ref.daemon)
             })
         }
         let collapse: [(ActionID, (Bool) -> Bool)] = [("screenGroup.toggleCollapsed", { !$0 }), ("screenGroup.collapse", { _ in true }),
