@@ -26,8 +26,8 @@ while IFS= read -r f; do files+=( "$src/catalyst/Sources/$f" ); done \
 files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
 xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 -module-name MessagesLabAppKitNative \
   -o "$app/Contents/MacOS/MessagesLabAppKitNative" "${files[@]}" > "$out/build.log" 2>&1 || { grep -m10 'error:' "$out/build.log"; exit 3; }
-cp "$src/catalyst/springs.json" "$src/shared/conversation.json" "$app/Contents/Resources/"
-cp -R "$src/shared/assets" "$app/Contents/Resources/assets"; cp -R "$src/catalyst/Fixtures/real" "$app/Contents/Resources/real"
+cp "$src/catalyst/springs.json" "$src/shared/conversation.json" "$app/Contents/Resources/" || exit 3
+cp -R "$src/shared/assets" "$app/Contents/Resources/assets" && cp -R "$src/catalyst/Fixtures/real" "$app/Contents/Resources/real" || exit 3
 # Its own bundle id per run: `open -n` and the PID lookup below can only find this build.
 id="com.cmux.prototype.MessagesLab.appkit-native.gate$$"
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -35,6 +35,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 exe="$app/Contents/MacOS/MessagesLabAppKitNative"
 json="$out/selftest.json"
+vd=""
+# On every exit (also when nx-remote stops this script): this run's app (only its own unique path, by
+# PID) and the virtual display end.
+cleanup() {
+  for p in $(pgrep -f "^$exe"); do kill -TERM "$p" 2>/dev/null; done
+  [ -n "$vd" ] && kill "$vd" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
 
 # Waits for PID up to SECS (a test harness bound on an external process, not app code), then stops it.
 stop_after() {
@@ -42,7 +51,8 @@ stop_after() {
   while kill -0 "$pid" 2>/dev/null && [ $k -lt $((secs * 4)) ]; do sleep 0.25; k=$((k + 1)); done
   if kill -0 "$pid" 2>/dev/null; then
     echo "selftest: still running after ${secs} s, stopping pid $pid"
-    kill -TERM "$pid" 2>/dev/null; sleep 2; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+    kill -TERM "$pid" 2>/dev/null; sleep 2
+    pgrep -f "^$exe" | grep -qx "$pid" && kill -KILL "$pid" 2>/dev/null
   fi
   return 0
 }
@@ -58,8 +68,8 @@ if [ "$key" = "--key" ]; then
   wait "$opener" 2>/dev/null
 else
   clang -fobjc-arc -framework Foundation -framework CoreGraphics -framework AppKit "$src/tools/interactions/vdisplay.m" -o "$out/vdisplay" || exit 3
-  token=$((5000 + $$ % 4000)); "$out/vdisplay" 1800 1169 60 $token > "$out/vd.log" 2>&1 & vd=$!
-  trap 'kill $vd 2>/dev/null' EXIT
+  # The 4th argument is the display's own lifetime (s): it ends by itself even if this script is killed.
+  "$out/vdisplay" 1800 1169 60 400 > "$out/vd.log" 2>&1 & vd=$!
   for _ in $(seq 80); do grep -q origin "$out/vd.log" && break; sleep 0.25; done  # test harness: wait for the display
   "$exe" -ApplePersistenceIgnoreState YES --selftest "$json" > "$out/app.log" 2>&1 & p=$!
   stop_after "$p" 300
