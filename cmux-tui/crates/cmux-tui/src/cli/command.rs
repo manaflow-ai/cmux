@@ -13,6 +13,7 @@ use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod browser;
+mod bulk_close;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
 mod conversation;
@@ -621,10 +622,7 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
-        [selector, "close"] => {
-            selectors.insert("workspace", "ws", selector)?;
-            request(ResourceOperation::WorkspaceClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
             let mut params = run_params(tail, argv, flags)?;
@@ -763,10 +761,7 @@ fn parse_pane_strings(
             insert_positive_u16(&mut params, "columns", "--columns", flags.required("columns")?)?;
             request(ResourceOperation::PaneViewportWidthSet, selectors, flags, params)
         }
-        [selector, "close"] => {
-            selectors.insert("pane", "pane", selector)?;
-            request(ResourceOperation::PaneClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("pane", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = run_params(tail, argv, flags)?;
@@ -841,10 +836,7 @@ fn parse_tab_strings(
             selectors.insert("tab", "tab", selector)?;
             state::tab_change(action, rest, selectors, flags)
         }
-        [selector, "close"] => {
-            selectors.insert("tab", "tab", selector)?;
-            request(ResourceOperation::TabClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("tab", selector, selectors, flags),
         [selector, "terminal", tail @ ..] => {
             selectors.insert("tab", "tab", selector)?;
             let tail = tail.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
@@ -1914,6 +1906,7 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalHookPut
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
+                | ResourceOperation::LayoutBulk
         )
 }
 
