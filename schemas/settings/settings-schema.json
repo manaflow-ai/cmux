@@ -72,7 +72,9 @@
             "rows" : [
               "navigation.historyScope",
               "navigation.history.scope",
-              "history.commandRetentionDays"
+              "history.commandRetentionDays",
+              "history.closed.maxGroups",
+              "history.closed.maxAgeDays"
             ],
             "title" : {
               "key" : "settings.group.history",
@@ -1151,6 +1153,123 @@
       "title" : {
         "key" : "settings.history.commandRetentionDays",
         "text" : "Keep Terminal Commands For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        100000,
+        50000
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxGroups.help",
+        "text" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxGroups",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxGroups"
+      ],
+      "range" : {
+        "max" : 100000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -100000,
+        200000,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxGroups",
+        "text" : "Recently Closed Items to Keep"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3650,
+        1825
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxAgeDays.help",
+        "text" : "Each machine deletes closed items that are older. 0 keeps them however old they are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxAgeDays",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy",
+        "days"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxAgeDays"
+      ],
+      "range" : {
+        "max" : 3650,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -3650,
+        7300,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxAgeDays",
+        "text" : "Keep Recently Closed Items For"
       },
       "validation" : "portable"
     },
@@ -22515,7 +22634,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b76af01b0c129afec6406a271ac8e2d336de1f8a51e68ce971538d331d49e53d",
+  "schema_hash" : "8b6f4359f1b6d5b54ac8fe437c5678f4a612ee7bfb4649ffe748ed5edd9a814d",
   "sections" : [
     {
       "id" : "general",
