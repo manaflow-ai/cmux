@@ -1004,6 +1004,7 @@
 		6F6B37F1DF451D8C7725CBCF /* CloudTreeCreateActionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */; };
 		B230FE89CFE03BF5B61ADA8C /* CloudTreeCreationRevealPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85DDFC2EEB8994C011145B9 /* CloudTreeCreationRevealPresentation.swift */; };
 		10B044F8DE6D88B54A8FBED9 /* CloudTreeCreationRevealTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63E1F1333570F56125051370 /* CloudTreeCreationRevealTests.swift */; };
+		7AD3F117BFD4825DDAE4D691 /* CloudTreeCrossWindowSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */; };
 		C12575000000000000000046 /* CloudTreeDeletionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000047 /* CloudTreeDeletionPresentation.swift */; };
 				DEC1CE000000000000000036 /* CloudTreeDeviceRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000035 /* CloudTreeDeviceRowContent.swift */; };
 				8C03E14179CE9409E306054B /* CloudTreeDevicesEmptyCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0E1505C0F4E87D29858B72 /* CloudTreeDevicesEmptyCell.swift */; };
@@ -5672,6 +5673,7 @@
 		E9F1AC4DB302C65ABFE57B89 /* CloudTreeCreateActionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeCreateActionView.swift; sourceTree = "<group>"; };
 		B85DDFC2EEB8994C011145B9 /* CloudTreeCreationRevealPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeCreationRevealPresentation.swift; sourceTree = "<group>"; };
 		63E1F1333570F56125051370 /* CloudTreeCreationRevealTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeCreationRevealTests.swift"; sourceTree = "<group>"; };
+		0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeCrossWindowSelectionTests.swift"; sourceTree = "<group>"; };
 		C12575000000000000000047 /* CloudTreeDeletionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeDeletionPresentation.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000035 /* CloudTreeDeviceRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeDeviceRowContent.swift; sourceTree = "<group>"; };
 				5F0E1505C0F4E87D29858B72 /* CloudTreeDevicesEmptyCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeDevicesEmptyCell.swift; sourceTree = "<group>"; };
@@ -13797,6 +13799,7 @@
 				2C7DBD4A0D4E5A763491210A /* ChromeTabKeysTests.swift */,
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
 				4D7B132532B469F533014740 /* TerminalFocusTestFixture.swift */,
+				0EE248B0768496360DBB65A0 /* CloudTreeCrossWindowSelectionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18083,6 +18086,7 @@
 				0D2B8B4ED780A0163CEF8D19 /* CloudTreeCategoryCreateActionTests.swift in Sources */,
 				6D0AAF2659F856C3E6562FF0 /* CloudTreeCompactLayoutTests.swift in Sources */,
 				10B044F8DE6D88B54A8FBED9 /* CloudTreeCreationRevealTests.swift in Sources */,
+				7AD3F117BFD4825DDAE4D691 /* CloudTreeCrossWindowSelectionTests.swift in Sources */,
 				D7AF2016D1AEEA02D5F0DE94 /* CloudTreeDisclosureIntentTests.swift in Sources */,
 				4A8510AA9EECB3A3A60F8881 /* CloudTreeExpansionPreferencesTests.swift in Sources */,
 				804D4B1A5D2D5447573018FE /* CloudTreeHeaderActionsTests.swift in Sources */,
