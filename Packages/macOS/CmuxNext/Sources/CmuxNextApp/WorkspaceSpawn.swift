@@ -182,10 +182,10 @@ struct WorkspaceSpawner {
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
-        let spawn = spawn
+        let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
-                workspace: .key(created), command: spawn.command, cwd: cwd,
+                workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
             return created.rawValue
         }
