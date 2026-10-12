@@ -61,7 +61,7 @@ import {
   splitFits,
 } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
-import { diffGitSource, diffStageAction } from "./diff-viewer/git";
+import { diffGitSource, useDiffStageAction } from "./diff-viewer/git";
 import { diffFingerprintReader, useDiffFreshness } from "./diff-viewer/freshness";
 import { diffPageClient, type DiffPageConfig } from "./diff/page";
 import { GitToolbarButtons, GitWriteBar } from "./agent-session/acpmux/changes/GitActions";
@@ -593,10 +593,15 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (op === "commit") setCommitOpen(false);
     if (op !== "push") refreshRef.current();
   });
-  const stageAction = diffStageAction(gitSource, resolvedSessionSource ?? activeSessionSource, {
-    staged: () => refreshRef.current(),
-    failed: (message) => dispatch({ type: "set-copy-feedback", message }),
-  });
+  const stageAction = useDiffStageAction(
+    gitSource,
+    resolvedSessionSource ?? activeSessionSource,
+    state.renderGeneration,
+    {
+      staged: () => refreshRef.current(),
+      failed: (message) => dispatch({ type: "set-copy-feedback", message }),
+    },
+  );
   // An agent's edit after load (cx-9ce.34): coming back refreshes, unless a comment draft or the
   // commit form would be lost; then the bar says the files changed.
   const shownSource = resolvedSessionSource ?? activeSessionSource;

@@ -20,11 +20,15 @@ export function diffFingerprintReader(
   shown: DiffSource | null,
 ): (() => Promise<string | undefined>) | undefined {
   if (!page || !ops?.includes(DIFF_FINGERPRINT_OP) || !shown) return undefined;
+  // Branch, as the chat's ± opens it (cx-4ukqc), reads the host's branch scope: any edit to the
+  // work tree changes it, as it changes the viewer's.
   const scope =
     shown.kind === "unstaged" || shown.kind === "staged"
       ? shown.kind
-      : shown.kind === "branch" && shown.baseRef === "HEAD"
-        ? "uncommitted"
+      : shown.kind === "branch"
+        ? shown.baseRef === "HEAD"
+          ? "uncommitted"
+          : "branch"
         : undefined;
   if (!scope) return undefined;
   return () =>
