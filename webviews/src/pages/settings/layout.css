@@ -817,7 +817,7 @@
 
 .phone-code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 30px;
+  font-size: calc(var(--text-heading) * 1.75);
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text);

@@ -96,7 +96,8 @@ final class NativePhoneHost {
         let daemon = daemon
         daemonWatch = Task { [weak self] in
             for await identity in ObservationStream({ daemon.identity }) {
-                let path = identity == nil ? nil : try? await daemon.endpoint().socketPath
+                var path: String?
+                if identity != nil { path = try? await daemon.endpoint().socketPath }
                 guard let self, !Task.isCancelled else { return }
                 self.socket.set(path)
                 self.hasDaemon = path != nil
