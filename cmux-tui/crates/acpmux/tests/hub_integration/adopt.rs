@@ -34,6 +34,11 @@ async fn adopt_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf, std::path::
     let mut agents = BTreeMap::new();
     agents.insert("fakecodex".to_owned(), profile(&[]));
     agents.insert("noload".to_owned(), profile(&[("FAKE_NO_LOAD", "1")]));
+    // codex-acp's answer while another Codex (classic cmux's terminal) holds the thread.
+    agents.insert(
+        "heldcodex".to_owned(),
+        profile(&[("FAKE_LOAD_ERROR", "thread 0199 already has an active writer")]),
+    );
     let mut cfg = Config {
         harnesses: agents,
         default_harness: Some("fakecodex".into()),
@@ -176,6 +181,19 @@ async fn adopt_refuses_unknown_ids_and_agents_that_cannot_resume() {
     assert!(path.unwrap_err().contains("not a session id"));
     let no_load = c.request(method::SESSION_NEW, adopt("noload", &chat)).await;
     assert!(no_load.unwrap_err().contains("could not resume"));
+    assert!(hub.sessions().is_empty());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A Codex chat another Codex still writes, though nothing showed it live
+/// (classic cmux's terminal runs a bare `codex`, idle for minutes), says where
+/// it is open and what to do, not that the agent "could not resume" it (cx-l7g6k).
+#[tokio::test]
+async fn adopt_of_a_chat_another_codex_holds_says_to_quit_it_there() {
+    let (hub, mut c, root, _, chat) = adopt_setup().await;
+    let held = c.request(method::SESSION_NEW, adopt("heldcodex", &chat)).await.unwrap_err();
+    assert!(held.contains("is still open in another app"), "{held}");
+    assert!(held.contains("quit it there, then open it again"), "{held}");
     assert!(hub.sessions().is_empty());
     let _ = std::fs::remove_dir_all(root);
 }
