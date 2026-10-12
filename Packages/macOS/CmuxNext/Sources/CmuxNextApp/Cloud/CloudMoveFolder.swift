@@ -10,7 +10,9 @@ nonisolated struct CloudMoveFolder: Sendable, Equatable {
     let subpath: String
 
     init(chat folder: String) {
-        let start = URL(fileURLWithPath: folder, isDirectory: true).standardizedFileURL.path
+        // The path as the chat reports it: standardizing would turn /private/tmp into /tmp.
+        var start = folder
+        while start.count > 1, start.hasSuffix("/") { start.removeLast() }
         // The folder and each folder above it, up to the disk's root ("/" is its own parent).
         let folders = sequence(first: start) { folder in
             let parent = (folder as NSString).deletingLastPathComponent

@@ -161,7 +161,8 @@ struct CloudMoveTests {
     }
 
     /// A stand-in `cmux`: records each call's arguments (unit-separated) and answers
-    /// `link sync push` and `link agent move` with their success lines.
+    /// `link sync push` and `link agent move` with their success lines. Like the real sync,
+    /// `link sync push` creates the synced folder.
     private static func standInCLI(in root: URL, log: URL) throws -> URL {
         let url = root.appendingPathComponent("cmux")
         let script = """
@@ -170,7 +171,7 @@ struct CloudMoveTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push") echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
+            "link sync push") for target in "$@"; do :; done; mkdir -p "$target"; echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
             "link agent move") echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}' ;;
             *) exit 64 ;;
             esac
