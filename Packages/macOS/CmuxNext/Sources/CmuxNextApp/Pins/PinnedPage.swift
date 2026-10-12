@@ -17,14 +17,16 @@ enum PinnedPage {
         // the row (its handler reports why).
         ActionTargetVisibility.hide("browser.resetPinnedTab", in: registry) { invocation in
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return false }
-            return page(of: tab).map { $0.absoluteString == tab.url } ?? true
+            return target(of: tab, ctx).map { $0.absoluteString == tab.url } ?? true
         }
     }
 
     /// The page `tab` was pinned on; nil unless it is a pinned browser tab
-    /// whose daemon recorded one.
+    /// whose daemon recorded one. An incognito tab's record is a placeholder,
+    /// never its page.
     static func page(of tab: TabModel) -> URL? {
-        guard tab.kind == .browser, tab.pinned, let raw = tab.pinnedURL else { return nil }
+        guard tab.kind == .browser, tab.pinned, let raw = tab.pinnedURL,
+              raw != BrowserTabService.incognitoPlaceholderURL else { return nil }
         return URL(string: raw)
     }
 
@@ -39,10 +41,17 @@ enum PinnedPage {
         openedHere ? nil : page(of: tab)?.absoluteString
     }
 
+    /// Where Back to Pinned Page takes `tab`: its pinned page (a remote
+    /// machine's only when it opens here); nil for an incognito tab.
+    private static func target(of tab: TabModel, _ ctx: AppActionContext) -> URL? {
+        guard !ctx.services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+        return ctx.services.machines.daemon(forTab: tab).isLocal ? page(of: tab) : remotePage(of: tab)
+    }
+
     private static func reset(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard let (tab, _) = ctx.daemonTab(invocation) else { return }
         let daemon = ctx.services.machines.daemon(forTab: tab)
-        guard let page = daemon.isLocal ? page(of: tab) : remotePage(of: tab) else { return ctx.refuse(PinStrings.noPinnedPage) }
+        guard let page = target(of: tab, ctx) else { return ctx.refuse(PinStrings.noPinnedPage) }
         // A loaded page goes there (its record follows); a page not loaded
         // here yet opens there, from its record.
         if let entry = ctx.services.cache.existingBrowser(tab.id) {

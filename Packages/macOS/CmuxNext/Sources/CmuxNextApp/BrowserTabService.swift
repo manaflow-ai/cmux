@@ -201,6 +201,11 @@ final class BrowserTabService {
         incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? PinnedPage.restoreURL(tab, openedHere: wasOpenedHere(tab)) ?? tab.url
     }
 
+    /// The page `tab` was last on: an incognito tab's from app memory, else its record's.
+    func lastURL(for tab: TabModel) -> String? {
+        incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? tab.url
+    }
+
     /// Forgets incognito start URLs (the incognito session ended).
     func forgetIncognitoURLs() { incognitoURLs.removeAll() }
 

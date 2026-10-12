@@ -7,7 +7,7 @@ import Testing
 
 /// cx-lle.6, Chrome's pinned tabs: a pinned browser tab keeps the page it was pinned on. The
 /// app's Pin Tab records it on the daemon, the tab reports it after it browses away, and Back to
-/// Pinned Page (`browser.resetPinnedTab`, tab menu, palette, `cmux browser reset-pinned-tab`)
+/// Pinned Page (`browser.resetPinnedTab`, tab menu, palette, `cmux browser back-to-pinned-page`)
 /// takes the tab back there. Runs the app's action registry against a same-tree cmux-tui daemon,
 /// as the tab menu and the CLI reach it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
