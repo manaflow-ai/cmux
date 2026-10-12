@@ -17,3 +17,14 @@ export function archiveRow(
     onSelect: () => archive(!chat.archived),
   };
 }
+
+// The chat menu's Mark as Unread (cx-ncc.78, Codex parity): the app asks acpmux to mark the chat
+// unread (`chat.markUnread`), and it stays unread until the chat is hidden and shown again.
+export function markUnreadRow(
+  chat: { sessionId: string | undefined; archived: boolean; local: boolean; unread: boolean },
+  markUnread: () => void,
+  t: Translate = translate,
+): Exclude<ChatMenuItem, "separator"> | undefined {
+  if (!chat.sessionId || !chat.local || chat.archived || chat.unread) return undefined;
+  return { key: "markUnread", label: t("chatMenu.markUnread"), icon: "unread.dot", onSelect: markUnread };
+}
