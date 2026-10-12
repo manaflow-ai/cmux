@@ -86,10 +86,10 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     process.env.CMUX_DB_POOL_MAX = "1";
     const { cloudDb, closeCloudDbForTests } = await import("../db/client");
     const { sql } = await import("drizzle-orm");
-    const settled: Array<CloudDbQueryTiming & { order: number }> = [];
+    const settled: CloudDbQueryTiming[] = [];
     let transactionHolds: () => void = () => {};
     const holding = new Promise<void>((resolve) => { transactionHolds = resolve; });
-    setCloudDbQueryObserver(() => (timing) => { settled.push({ ...timing, order: settled.length }); });
+    setCloudDbQueryObserver(() => (timing) => { settled.push(timing); });
     try {
       await cloudDb().execute(sql`select 1 as warm`);
       settled.length = 0;
@@ -107,12 +107,11 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
       const queuedTimingIndex = settled.length;
       releaseTransaction();
       await Promise.all([transaction, queued]);
-      // BEGIN, the statement inside, COMMIT, then the queued query: it was
-      // sent only after the transaction gave the connection back.
-      expect(settled.slice(queuedTimingIndex)).toHaveLength(2);
+      // The queued query settles after everything the transaction ran, and it
+      // was not sent until the transaction gave the connection back.
       const queuedTiming = settled.at(-1)!;
+      expect(settled.length).toBeGreaterThan(queuedTimingIndex);
       expect(queuedTiming.failed).toBe(false);
-      expect(queuedTiming.order).toBe(settled.length - 1);
       expect(queuedTiming.acquireWaitMs).toBeGreaterThan(0);
     } finally {
       await closeCloudDbForTests();

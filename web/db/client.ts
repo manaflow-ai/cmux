@@ -91,8 +91,10 @@ function watchPostgresJsQuery(
     }
   };
   signal.addEventListener("abort", abort, { once: true });
-  if (signal.aborted) abort();
+  // `then` hands the query to postgres.js, which is what gives it a canceller:
+  // a signal already aborted is only honoured after that, never as a no-op.
   void query.then(cleanup, cleanup);
+  if (signal.aborted) abort();
 }
 
 class CancellableRdsClient extends Client {}
