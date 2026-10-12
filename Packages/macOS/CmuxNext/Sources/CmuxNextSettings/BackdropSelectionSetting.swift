@@ -1,7 +1,8 @@
 public import CmuxNextDesign
 
-/// Persists the selected background: bundled art, a macOS system wallpaper, the desktop picture
-/// (`desktop`), or `none`. Unset is ``defaultSelection``.
+/// Persists the selected background: bundled art, a macOS system wallpaper (`system:<path>`), the
+/// person's own image (`file:<path>`), the desktop picture (`desktop`), or `none`. Unset is
+/// ``defaultSelection``.
 public struct BackdropSelectionSetting: Sendable {
     /// The shared Settings, CLI and cmux.json path.
     public let configPath = ["appearance", "background"]
@@ -22,11 +23,11 @@ public struct BackdropSelectionSetting: Sendable {
     /// publishes a different wallpaper set.
     static var acceptedSamples: [JSONValue] {
         [.string("none"), .string(BackdropSelection.desktopID)] + BackdropArt.allCases.map { .string($0.rawValue) } +
-            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic")]
+            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"), .string("file:/Users/Shared/Harbor.png")]
     }
 
     static var refusedSamples: [JSONValue] {
-        [.string("system:relative/path.heic"), .string("system:"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
+        [.string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"), .string("file:"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in
@@ -44,13 +45,13 @@ public struct BackdropSelectionSetting: Sendable {
         if let value = root.value(at: configPath) {
             guard let raw = value.stringValue else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, desktop, bundled art or an absolute system wallpaper path"))
+                                                      message: "expected none, desktop, bundled art, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             if raw == "none" { return nil }
             guard let selection = BackdropSelection(id: raw) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.background",
-                                                      message: "expected none, desktop, bundled art or an absolute system wallpaper path"))
+                                                      message: "expected none, desktop, bundled art, or an absolute system wallpaper or image path"))
                 return Self.defaultSelection
             }
             return selection
