@@ -28,6 +28,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
     /// always for the site) or `.cancel`.
     case openExternalApp(app: String, scheme: String)
+    /// cmux refused a passkey request of a page an agent drives
+    /// (plans/cmux-next/passkeys.md 3.5): only the person signs in with a
+    /// passkey. One action, "Sign in yourself" (`.accept`), ends the agent's
+    /// control of the tab and reopens its page; agents never answer it.
+    case agentPasskeyRefused
 }
 
 /// The user's answer to a prompt.

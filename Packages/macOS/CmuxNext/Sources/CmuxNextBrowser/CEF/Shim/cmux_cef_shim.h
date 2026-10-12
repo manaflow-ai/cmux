@@ -157,6 +157,10 @@ typedef enum {
   // Chromium ended a waiting PERMISSION_PROMPT itself (the page navigated or
   // closed); request = its token. Not sent after the host's answer.
   CMUX_SHIM_PERMISSION_DISMISSED = 42,
+  // The fork refused a WebAuthn request of a tab in refuse mode
+  // (cmux_shim_set_webauthn_mode, fork API 23), before any system UI.
+  // browser = the tab whose frame asked.
+  CMUX_SHIM_WEBAUTHN_REFUSED = 43,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -539,6 +543,12 @@ CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
 // page, plans/cmux-next/passwords.md 1.4). Metadata only, never key
 // material. 1 when this fork has both calls.
 CMUX_SHIM_EXPORT int cmux_shim_passkeys_available(void);
+// WebAuthn mode of one tab (fork API 23, cmux_tab_set_webauthn_mode): 0
+// allows (Chromium's behavior), 1 refuses every request with NotAllowedError
+// before any system UI and reports WEBAUTHN_REFUSED. An agent-driven tab
+// refuses (plans/cmux-next/passkeys.md 3.5); its popups inherit the mode.
+// Returns 0 when the fork lacks the call or the tab is unknown.
+CMUX_SHIM_EXPORT int cmux_shim_set_webauthn_mode(int browser_id, int mode);
 // REPLY with `reply` and browser 0 follows once the profile is initialized:
 // a = 1 and s1 = the fork's JSON array [{"rp_id","credential_id" (base64url),
 // "user_name","user_display_name"}], or a = 0 and s1 empty when the keychain

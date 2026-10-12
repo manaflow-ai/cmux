@@ -69,6 +69,11 @@ public enum BrowserTabIntent {
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.
     case resizePopup(BrowserPopupRequest)
+    /// The person chose "Sign in yourself" after cmux refused an agent's
+    /// passkey request (`BrowserPromptKind.agentPasskeyRefused`). The host
+    /// ends the agent's control of the tab and reopens its page, which may
+    /// then use passkeys; an agent's next operation takes the tab back.
+    case endAgentControl
 }
 
 /// Receives intents from a tab.

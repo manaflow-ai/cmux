@@ -89,6 +89,9 @@ struct ForkApi {
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
+  // API version 23: WebAuthn per tab (agent-driven tabs refuse every request).
+  int (*tab_set_webauthn_mode)(int, int) = nullptr;
+  void (*set_webauthn_refused_handler)(void (*)(void*, int), void*) = nullptr;
 };
 
 struct Host {
@@ -216,6 +219,8 @@ void InstallWindowRequestHandler();
 // applies the New Tab page URL and native messaging folders stored before
 // CefInitialize (shim_extensions_ui.mm).
 void InstallExtensionUIHandlers();
+// WEBAUTHN_REFUSED events from the fork (API 23; shim_passkeys.mm).
+void InstallWebAuthnRefusedHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);

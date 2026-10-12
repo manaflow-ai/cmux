@@ -170,6 +170,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             break
         case .takeFocus:
             services.focusAddressBarAfterPage(key)
+        case .endAgentControl:
+            AppBrowserPage.endAgentControl(key, services: services)
         }
     }
 

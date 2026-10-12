@@ -178,6 +178,9 @@ final class PromptBarView: NSView {
             alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .agentPasskeyRefused:
+            messageLabel.stringValue = Strings.agentPasskeyRefused(prompt.origin)
+            addButton(Strings.agentPasskeySignInYourself, prominent: true, response: .accept)
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)

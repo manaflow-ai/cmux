@@ -144,10 +144,12 @@ final class BrowserPopupPanels {
             // A panel has no tab to select, no chrome for notices or an
             // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab, .download, .openLocalFile, .webNotification:
+        case .openURL, .adoptTab, .download, .openLocalFile, .webNotification, .endAgentControl:
             // A download joins the App's list through the opener's tab, a
             // handed-off file opens in the opener's pane, and a notification
-            // is the opener tab's.
+            // is the opener tab's. "Sign in yourself" in a popup ends the
+            // agent's control of its opener's tab, whose new page the person
+            // signs in from.
             return false
         }
         return true

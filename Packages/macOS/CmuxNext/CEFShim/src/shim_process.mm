@@ -233,6 +233,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(password_export, "cmux_password_export");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(tab_set_webauthn_mode, "cmux_tab_set_webauthn_mode");
+  CMUX_BIND(set_webauthn_refused_handler, "cmux_set_webauthn_refused_handler");
 #undef CMUX_BIND
 }
 
@@ -364,6 +366,9 @@ void cmux_shim_shutdown(void) {
   }
   if (fork_api().set_omnibox_suggestions_handler) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
+  }
+  if (fork_api().set_webauthn_refused_handler) {
+    fork_api().set_webauthn_refused_handler(nullptr, nullptr);
   }
   host() = Host();
   // Preference observer registrations go before their contexts.
