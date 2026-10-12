@@ -30,7 +30,10 @@ struct PaletteUserRankingTests {
         settings.value = PaletteRankSettings(aliases: ["newWindow": ["vs"]], pins: ["closeTab", "splitDown"])
         var sources = PaletteSources()
         sources.rankSettings = { settings.value }
-        let palette = PaletteController(registry: .standard(), sources: sources, frecencyPersistence: nil)
+        // An alias puts an enabled command first: New Window has a handler, as in the app.
+        let registry = ActionRegistry.standard()
+        registry.bind("newWindow") {}
+        let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
         defer { palette.hide() }
 
         palette.show(.commands)
