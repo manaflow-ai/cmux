@@ -252,3 +252,84 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
         "closed.reopen published tab {reopened} with no screen that holds it: {changes:?}"
     );
 }
+
+/// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
+fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
+    fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if node["kind"] == "leaf" && node["pane_id"] == pane {
+            return Some(node["tab_ids"].clone());
+        }
+        ["first", "second"]
+            .iter()
+            .find_map(|side| find(&node[*side], pane))
+            .or_else(|| node["columns"].as_array()?.iter().find_map(|column| find(column, pane)))
+    }
+    changes
+        .iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "screen")
+        .find_map(|change| find(&change["value"]["layout"]["root"], pane))
+}
+
+/// `terminal.move` to another pane restates the screen in the delta that
+/// moves the tab, so a client that builds pane tabs from the screen layout
+/// shows the tab in its new pane at once (cx-gzh.25).
+#[test]
+fn terminal_move_to_another_pane_publishes_the_changed_screen() {
+    let server = HeadlessServer::start("terminal-move-screen");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let first = snapshot["tabs"].as_array().unwrap()[0].clone();
+    let source = first["pane_id"].as_str().unwrap().to_string();
+    let before = tab_ids(&server);
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &source]);
+    let moved = new_tab(&before, &tab_ids(&server));
+    let before = state_cli_topology(&server)["panes"].as_array().unwrap().clone();
+    state_cli(&server, None, &["pane", &source, "split", "--right"]);
+    let snapshot = state_cli_topology(&server);
+    let target = snapshot["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pane| !before.contains(pane) && pane["id"] != source.as_str())
+        .and_then(|pane| pane["id"].as_str())
+        .expect("the split made no pane")
+        .to_string();
+    let find = |kind: &str, field: &str, value: &str| {
+        snapshot[kind]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item[field] == value)
+            .unwrap_or_else(|| panic!("no {kind} with {field} {value}: {snapshot}"))
+            .clone()
+    };
+    let terminal = find("terminals", "tab_id", &moved)["id"].as_str().unwrap().to_string();
+    let screen = find("panes", "id", &target)["screen_id"].as_str().unwrap().to_string();
+    let workspace = find("screens", "id", &screen)["workspace_id"].as_str().unwrap().to_string();
+    let (_stream, rx) = session_events(&server);
+
+    state_cli(
+        &server,
+        None,
+        &[
+            "terminal",
+            &terminal,
+            "move",
+            "--workspace",
+            &workspace,
+            "--screen",
+            &screen,
+            "--pane",
+            &target,
+            "--index",
+            "0",
+        ],
+    );
+    let changes = changes_through_tab_upsert(&rx, &moved);
+    let Some(target_tabs) = leaf_tabs(&changes, &target) else {
+        panic!("terminal.move published no screen with pane {target}: {changes:?}");
+    };
+    assert!(target_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
+    let source_tabs = leaf_tabs(&changes, &source).expect("no source leaf");
+    assert!(!source_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
+}
