@@ -23,7 +23,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository
     }
 
@@ -47,6 +47,15 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
+    /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
+    /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
+    /// CLI, MCP or a script seeded: the relay refuses it and it waits in the composer.
+    public var promptTicket: PromptTicket?
+    public nonisolated struct PromptTicket: Codable, Sendable, Equatable {
+        public var promptId: String
+        public var ticket: String
+    }
     /// The harness a new chat starts on before `prompt` is sent. Pages that
     /// predate it ignore it (the chat starts on the default harness).
     public var harness: String?
