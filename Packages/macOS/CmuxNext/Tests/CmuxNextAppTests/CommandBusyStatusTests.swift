@@ -32,35 +32,29 @@ struct CommandBusyStatusTests {
         SidebarMapping.shared.row(try #require(store.workspaces.first), machine: .local).activity
     }
 
-    /// Runs `body` with `status.*` changed, then restores it.
-    func with(_ change: (inout StatusBehaviorSettings) -> Void, _ body: () async throws -> Void) async rethrows {
-        let saved = DesignSettings.shared.statusBehavior
-        defer { DesignSettings.shared.statusBehavior = saved }
-        change(&DesignSettings.shared.statusBehavior)
-        try await body()
-    }
-
     @Test func aCommandRunningPastTheThresholdShowsRunningOnItsRow() throws {
         #expect(try activity(store(extra: running(since: 10))) == .busy(progress: nil))
     }
 
     @Test func aCommandShowsOnceItHasRunTheThresholdAndTheRowRedraws() async throws {
-        try await with({ $0.inferCommandBusyAfter = 0.3 }) {
-            let store = try store(extra: running(since: 0))
-            let changed = Flag()
-            let before = withObservationTracking { (try? activity(store)) ?? .idle } onChange: { changed.set() }
-            #expect(before == .idle)
-            for _ in 0..<60 where !changed.isSet { try await Task.sleep(for: .milliseconds(50)) }
-            #expect(changed.isSet, "the row was not told to redraw when the command came of age")
-            #expect(try activity(store) == .busy(progress: nil))
-        }
+        let saved = DesignSettings.shared.statusBehavior
+        defer { DesignSettings.shared.statusBehavior = saved }
+        DesignSettings.shared.statusBehavior.inferCommandBusyAfter = 0.3
+        let store = try store(extra: running(since: 0))
+        let changed = Flag()
+        let before = withObservationTracking { (try? activity(store)) ?? .idle } onChange: { changed.set() }
+        #expect(before == .idle)
+        for _ in 0..<60 where !changed.isSet { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(changed.isSet, "the row was not told to redraw when the command came of age")
+        #expect(try activity(store) == .busy(progress: nil))
     }
 
-    @Test func aPromptOrTheSettingOffShowsIdle() async throws {
+    @Test func aPromptOrTheSettingOffShowsIdle() throws {
         #expect(try activity(store(extra: "{}")) == .idle)
-        try await with({ $0.inferCommandBusy = false }) {
-            #expect(try activity(store(extra: running(since: 10))) == .idle)
-        }
+        let saved = DesignSettings.shared.statusBehavior
+        defer { DesignSettings.shared.statusBehavior = saved }
+        DesignSettings.shared.statusBehavior.inferCommandBusy = false
+        #expect(try activity(store(extra: running(since: 10))) == .idle)
     }
 }
 
