@@ -499,6 +499,13 @@ public struct VMListPage: Sendable {
 
     public let vms: [VMSummary]
     public let limits: VMPlanLimits?
+
+    /// Machines the server counts against `limits.maxActiveVms`: running and
+    /// provisioning ones. Paused machines are listed but free their slot, so
+    /// `vms.count` overstates usage.
+    public var activeMachineCount: Int {
+        vms.count
+    }
 }
 
 public struct VMBaseSummary: Sendable {
