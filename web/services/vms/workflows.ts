@@ -17,7 +17,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, type CreateOptions } from "./drivers/types";
+import { hasProviderGuestUnresponsiveCause, hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, type CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -121,6 +121,7 @@ import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -345,8 +346,11 @@ export const vmWorkflowRuntime = ManagedRuntime.make(VmWorkflowLive);
  * to an HTTP response through the responder table in `routeHelpers`, a defect
  * is a bug and propagates as a thrown error.
  */
-export function runVmWorkflowExit<A>(program: VmWorkflowProgram<A>): Promise<Exit.Exit<A, VmWorkflowError>> {
-  return vmWorkflowRuntime.runPromiseExit(program);
+export function runVmWorkflowExit<A>(
+  program: VmWorkflowProgram<A>,
+  options: { readonly readDeadline?: VmReadDeadline } = {},
+): Promise<Exit.Exit<A, VmWorkflowError>> {
+  return vmWorkflowRuntime.runPromiseExit(options.readDeadline ? withVmReadDeadline(program, options.readDeadline) : program);
 }
 
 /**
@@ -3679,12 +3683,14 @@ function withResumeOnSuspendedAfterFailure<A>(
   maxActiveVms?: number | null,
   /** The caller's current plan, whose shared pool a resumed machine draws from. */
   callerPlanId?: string | null,
+  /** Failures a status probe and resume cannot fix; they are returned as they are. */
+  isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
       const getStatus = providers.getStatus;
       const resume = providers.resume;
-      if (!getStatus || !resume) return Effect.fail(originalError);
+      if (!getStatus || !resume || isUnrecoverable(originalError)) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
         const status = yield* getStatus(vm.provider, providerVmId).pipe(
@@ -5044,7 +5050,24 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   });
 }
 
+/**
+ * How long the SCP setup route has to answer, from the request's start. The
+ * Mac client's URLRequest gives up after 60 s without a response byte, so a
+ * later answer (a provider exec poll that hung for 4 minutes, production
+ * 2026-10-11) reaches nobody. 45 s leaves room for the response to arrive.
+ */
+export const SCP_ANSWER_BUDGET_MS = 45_000;
+/** The operation always gets this long, even when auth and lookup spent the budget. */
+const SCP_PREPARE_MIN_WINDOW_MS = 25_000;
+
+/** What remains of the SCP answer budget after `elapsedMs` of it went to auth and lookup. */
+export function scpAnswerBudgetMs(elapsedMs: number): number {
+  return Math.max(0, SCP_ANSWER_BUDGET_MS - elapsedMs);
+}
+
 export function prepareScpEndpoint(input: {
+  /** Milliseconds from now within which the route must answer; defaults to SCP_ANSWER_BUDGET_MS. */
+  readonly answerWithinMs?: number;
   readonly publicKey: string;
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -5055,23 +5078,55 @@ export function prepareScpEndpoint(input: {
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
+    const deadlineAtMs = (yield* Clock.currentTimeMillis) + (input.answerWithinMs ?? SCP_ANSWER_BUDGET_MS);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
+    const prepareSCP = providers.prepareSCP;
+    if (!prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
     if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
-      forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
-    });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "scp",
-      providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey),
-      input.maxActiveVms,
-      input.callerPlanId,
+    const setupStartedAtMs = yield* Clock.currentTimeMillis;
+    const setupWindowMs = Math.max(SCP_PREPARE_MIN_WINDOW_MS, deadlineAtMs - setupStartedAtMs);
+    const isUnanswered = (error: VmWorkflowError) =>
+      error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause);
+    // The first setup failure, kept so a deadline that fires during recovery
+    // answers with it: an early refusal (a 401, a fast 500) keeps its own code.
+    let firstSetupFailure: VmWorkflowError | undefined;
+    const atDeadline = (): VmWorkflowError => firstSetupFailure && !isUnanswered(firstSetupFailure)
+      ? firstSetupFailure
+      : new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "prepareSCP",
+        cause: new ProviderGuestUnresponsiveError(vm.provider, `SCP preparation in ${input.providerVmId}: no answer within ${Math.round(setupWindowMs / 1000)}s`),
+      });
+    const setup = prepareSCP(vm.provider, input.providerVmId, input.publicKey).pipe(
+      Effect.tapError((error) => Effect.sync(() => { firstSetupFailure ??= error; })),
+    );
+    // One deadline covers the preflight resume, the setup, and any status
+    // probe, resume and second attempt after it: a later answer reaches no
+    // one. At the deadline the answer is the first setup failure when there
+    // was one that is not a hang, else the stuck guest. The work is disconnected, so a resume past the deadline still
+    // finishes its bookkeeping in the background instead of being interrupted
+    // midway. A guest that did not answer is not retried here: a probe or
+    // resume inside the same request does not fix it.
+    const endpoint = yield* Effect.gen(function* () {
+      yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
+        forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane,
+      });
+      return yield* withResumeOnSuspendedAfterFailure(
+        repo,
+        providers,
+        vm,
+        input.providerVmId,
+        "scp",
+        setup,
+        input.maxActiveVms,
+        input.callerPlanId,
+        isUnanswered,
+      );
+    }).pipe(
+      Effect.disconnect,
+      Effect.timeoutFail({ duration: setupWindowMs, onTimeout: atDeadline }),
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,

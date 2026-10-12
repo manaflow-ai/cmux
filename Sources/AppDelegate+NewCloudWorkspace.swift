@@ -14,6 +14,19 @@ extension AppDelegate {
         debugSource: String = "newCloudWorkspace",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
+        if introduceCloudIfNeeded(
+            over: preferredWindow ?? preferredTabManager.flatMap { mainWindowContext(for: $0) }.flatMap { resolvedWindow(for: $0) },
+            resume: { [weak self, weak preferredTabManager, weak preferredWindow] in
+                _ = self?.performNewCloudWorkspaceOnResolvedMachineAction(
+                    tabManager: preferredTabManager,
+                    preferredWindow: preferredWindow,
+                    debugSource: "\(debugSource).afterEnable",
+                    destination: destination
+                )
+            }
+        ) {
+            return true
+        }
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
               coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else {
@@ -37,12 +50,17 @@ extension AppDelegate {
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
+        // Hold the manager weakly so a create in flight does not keep a closed
+        // window's manager alive.
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
             let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
                 guard let self, !Task.isCancelled else { return }
+                let fallbackWindow = self.mainWindowContexts.values
+                    .first(where: { $0.windowId == windowID })
+                    .flatMap { self.resolvedWindow(for: $0) }
                 _ = self.performNewCloudMachineAction(
                     tabManager: manager,
-                    preferredWindow: self.resolvedWindow(for: context),
+                    preferredWindow: fallbackWindow,
                     debugSource: "\(debugSource).fallback"
                 )
             }
@@ -66,7 +84,9 @@ extension AppDelegate {
                     destination?.apply(workspaceID: workspaceID)
                     return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
                 }
-                if accessBecameUnavailable {
+                // Losing access mid-create falls back to New Machine only
+                // while Cloud can still run; the welcome is for a direct press.
+                if accessBecameUnavailable, self?.cloudCreationGate() == .proceed {
                     fallbackToNewMachine()
                 }
             } catch CloudWorkspaceCreationError.noMachines {
@@ -134,10 +154,21 @@ extension AppDelegate {
 
     /// Returns the workspace it selected, which the window's Cloud tree then reveals.
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
-        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+        guard let manager,
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
+
+        // Admission selects the loading workspace before provider lookup. That
+        // intentional selection advances the navigation fence once; accept it
+        // only when it is exactly that admission revision. A later away/back
+        // navigation leaves the same workspace selected but has a newer fence,
+        // so it still withdraws the reveal instead of stealing focus.
+        if manager.selectedTabId == workspaceID {
+            guard manager.cloudWorkspaceSelection.revision == revision &+ 1 else { return nil }
+            return workspace
+        }
+        guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil
     }
@@ -151,8 +182,20 @@ extension AppDelegate {
         debugSource: String = "newCloudMachine",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
-        if CloudMachinesFeature.isAvailable, !CloudMachinesFeature.isEnabled {
-            Self.presentPreferencesWindow(navigationTarget: .cloudMachines)
+        let introductionWindow = preferredWindow
+            ?? preferredTabManager.flatMap { mainWindowContext(for: $0) }.flatMap { resolvedWindow(for: $0) }
+            ?? event?.window
+        if introduceCloudIfNeeded(
+            over: introductionWindow,
+            resume: { [weak self, weak preferredTabManager, weak introductionWindow] in
+                _ = self?.performNewCloudMachineAction(
+                    tabManager: preferredTabManager,
+                    preferredWindow: introductionWindow,
+                    debugSource: "\(debugSource).afterEnable",
+                    destination: destination
+                )
+            }
+        ) {
             return true
         }
         guard let operationController = cloudWorkspaceOperationController,
@@ -170,5 +213,29 @@ extension AppDelegate {
                 destination?.apply(workspaceID: workspaceID)
             }
         }
+    }
+
+    private func cloudCreationGate() -> CloudCreationGate {
+        CloudCreationGate.resolve(
+            isAvailable: CloudMachinesFeature.isAvailable,
+            isEnabled: CloudMachinesFeature.isEnabled,
+            canRunCloudOperations: cloudWorkspaceOperationController?.isCurrentlyAvailable,
+            isAuthInProgress: auth?.accountFlow.isWorkingOnAuth == true
+        )
+    }
+
+    /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
+    /// or signed out, instead of doing nothing. The welcome card's own next
+    /// step decides between Enable and Upgrade; Enable then resumes `resume`.
+    private func introduceCloudIfNeeded(
+        over window: NSWindow?,
+        resume: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard cloudCreationGate() == .introduceCloud else { return false }
+        cloudWelcomeWindowController.present(
+            over: window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            onEnabled: resume
+        )
+        return true
     }
 }

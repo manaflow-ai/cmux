@@ -146,7 +146,7 @@ extension KeyboardShortcutSettings.Action {
 
     var usesNumberedDigitMatching: Bool {
         switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
             return true
         default:
             return false

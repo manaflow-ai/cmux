@@ -26,6 +26,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_surface_handle_ignores_stale_workspace.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -373,6 +378,10 @@ path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_memory_pressure_coalition.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_pr_watch_private_state.py"
 lane = "macos-shell"
 
@@ -502,6 +511,22 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_change_areas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_release_profile.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dead_code_stripping.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_computer_use_helper_icon_depth.py"
 lane = "linux-guard"
 
 [[test]]
@@ -669,6 +694,10 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_result_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_ghostty_sha.py"
 lane = "linux-guard"
 
@@ -694,6 +723,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_test_execution_registry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_python_test_lane_shards.py"
 lane = "linux-guard"
 
 [[test]]
@@ -730,6 +763,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -990,6 +1031,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_binaries_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1696,4 +1749,20 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_release_per_arch_stable.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compose_stable_appcast.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_package_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_merge_tree.py"
 lane = "linux-guard"

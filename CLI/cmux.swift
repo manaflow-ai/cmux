@@ -305,6 +305,20 @@ private struct CodexMonitorLeaseRecord: Codable {
 
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
+
+    /// Describes the pane still owned by a session before an accepted move.
+    struct AuthoritativeSessionStartResult {
+        /// The pane the session owned before this SessionStart, when still authoritative.
+        struct PreviousOwnedSurface {
+            let workspaceId: String
+            let surfaceId: String
+        }
+
+        /// Whether the incoming SessionStart established an authoritative owner.
+        let accepted: Bool
+        /// The prior surface when this session moved away from its live owner.
+        let previousOwnedSurface: PreviousOwnedSurface?
+    }
     typealias CursorShellApprovalResolution = (
         matched: Bool,
         hasRemaining: Bool,
@@ -1505,7 +1519,6 @@ final class ClaudeHookSessionStore {
     /// allows replacement or the incoming process is demonstrably newer. This
     /// keeps /clear as an ordering barrier without treating a launch-time
     /// `--resume` argument as identity.
-    @discardableResult
     func upsertAuthoritativeClaudeSessionStart(
         sessionId: String,
         source: String?,
@@ -1517,12 +1530,12 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         hookEventName: String? = nil,
         turnId: String? = nil
-    ) throws -> Bool {
+    ) throws -> AuthoritativeSessionStartResult {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty,
               let normalizedWorkspaceId = normalizeOptional(workspaceId),
               let normalizedSurfaceId = normalizeOptional(surfaceId) else {
-            return false
+            return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
         }
         return try withLockedState { state in
             let active = state.activeSessionsBySurface[normalizedSurfaceId]
@@ -1540,9 +1553,57 @@ final class ClaudeHookSessionStore {
                 || existing == nil
                 || acceptsReplacement
                 || incomingProcessIsNewer
-            guard accepted else { return false }
+            guard accepted else {
+                return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
+            }
+
+            let previousOwnedSurface: AuthoritativeSessionStartResult.PreviousOwnedSurface? =
+                existing.flatMap { prior in
+                    guard let priorSurfaceId = normalizeOptional(prior.surfaceId),
+                          priorSurfaceId != normalizedSurfaceId,
+                          state.activeSessionsBySurface[priorSurfaceId]?.sessionId == normalizedSessionId else {
+                        return nil
+                    }
+                    return .init(workspaceId: prior.workspaceId, surfaceId: priorSurfaceId)
+                }
 
             let now = Date().timeIntervalSince1970
+            // Installing a new authoritative owner retires the previous
+            // claimant on this pane. Clear its cached StopFailure summary and
+            // lifecycle so store readers cannot keep surfacing a superseded
+            // error after restart, /clear, or auto-resume.
+            // Surface ownership is authoritative for pane retirement. A
+            // workspace slot is only a routing fallback and may point at a
+            // sibling pane in the same workspace.
+            let supersededSessionIDs = Set(
+                [state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId]
+                    .compactMap { $0 }
+                    .filter { $0 != normalizedSessionId }
+            )
+            for supersededSessionId in supersededSessionIDs {
+                if var superseded = state.sessions[supersededSessionId] {
+                    let supersededWorkspaceId = superseded.workspaceId
+                    let ownsTargetSurface = superseded.surfaceId == normalizedSurfaceId
+                    superseded.agentLifecycle = .idle
+                    superseded.lastSubtitle = nil
+                    superseded.lastBody = nil
+                    superseded.lastNotificationStatus = nil
+                    superseded.runtimeStatus = .idle
+                    superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.updatedAt = now
+                    state.sessions[supersededSessionId] = superseded
+                    if ownsTargetSurface,
+                       state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
+                        state.activeSessionsByWorkspace.removeValue(forKey: supersededWorkspaceId)
+                    }
+                }
+                // Only the target surface changed ownership. A stale duplicate
+                // mapping on a sibling pane must not be evicted as a side effect
+                // of this boundary; surface ownership is the source of truth.
+                if state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId == supersededSessionId {
+                    state.activeSessionsBySurface.removeValue(forKey: normalizedSurfaceId)
+                }
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalizedSessionId,
@@ -1569,6 +1630,17 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: false,
                 now: now
             )
+            // A new authoritative boundary cannot inherit a prior turn's
+            // summary or notification dedupe receipt, even when it reuses the
+            // same native session id after recovery.
+            record.lastEmittedNotificationFingerprint = nil
+            record.lastEmittedNotificationAt = nil
+            record.recentEmittedNotificationFingerprints = nil
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            record.runtimeStatus = .idle
+            record.hadPendingBackgroundWorkAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -1589,7 +1661,10 @@ final class ClaudeHookSessionStore {
             )
             state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
             state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
-            return true
+            return AuthoritativeSessionStartResult(
+                accepted: true,
+                previousOwnedSurface: previousOwnedSurface
+            )
         }
     }
 
@@ -5458,6 +5533,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "vpn" {
+            _ = try Self.validatedVPNSubcommand(commandArgs)
+        }
         if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
             try validateNotificationCommandArguments(command: command, args: commandArgs)
         }
@@ -7226,8 +7304,8 @@ struct CMUXCLI {
                 commandName: "new-split"
             )
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             let direction = try validatedSplitDirection(rem5.first, commandName: "new-split")
             if let unknown = rem5.dropFirst().first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
@@ -7460,9 +7538,9 @@ struct CMUXCLI {
                     defaultValue: "Window handle is blank"
                 ))
             }
-            let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = csWsFlag ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7565,15 +7643,15 @@ struct CMUXCLI {
             let explicitWorkspaceArg = tfWsFlag
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let callerWorkspaceArg = preferTTYFallback
-                ? nil
-                : (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowRaw == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil
             let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
+            let callerWorkspaceArg = preferTTYFallback || explicitWorkspaceArg != nil
+                ? nil
+                : callerWorkspace(owningSurface: surfaceArg, windowRaw: windowRaw, client: client)
+            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7634,10 +7712,14 @@ struct CMUXCLI {
             }
 
         case "focus-panel":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let panelRaw = optionValue(commandArgs, name: "--panel") else {
                 throw CLIError(message: "focus-panel requires --panel")
             }
+            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? callerWorkspace(
+                owningSurface: panelRaw,
+                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId),
+                client: client
+            )
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -9829,6 +9911,56 @@ struct CMUXCLI {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
+    /// The workspace to pair with an explicit surface handle when the caller named no
+    /// workspace or window.
+    ///
+    /// A pane keeps the `CMUX_WORKSPACE_ID` it started with after it moves to another
+    /// workspace, so that value can name a workspace the surface has left. A UUID or
+    /// `surface:<n>` ref names one surface wherever it is, so when the caller's
+    /// workspace does not list it, this looks for the workspace that does. An index
+    /// only means something inside a workspace and keeps the caller's. Outside cmux
+    /// there is no caller workspace and nothing is looked up.
+    func callerWorkspace(
+        owningSurface raw: String?,
+        windowRaw: String?,
+        client: SocketClient
+    ) -> String? {
+        guard windowRaw == nil,
+              let callerWorkspace = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] else {
+            return nil
+        }
+        let handle = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !callerWorkspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              isUUID(handle) || (isHandleRef(handle) && handle.lowercased().hasPrefix("surface:")) else {
+            return callerWorkspace
+        }
+
+        func lists(_ params: [String: Any]) -> Bool {
+            guard let listed = try? client.sendV2(method: "surface.list", params: params) else {
+                return false
+            }
+            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+            return surfaces.contains { surfaceHandleMatches(handle, item: $0) }
+        }
+
+        if let callerWorkspaceId = try? resolveWorkspaceId(callerWorkspace, client: client),
+           lists(["workspace_id": callerWorkspaceId]) {
+            return callerWorkspace
+        }
+        // A relay that cannot enumerate windows keeps the caller's workspace.
+        let windows = (try? client.sendV2(method: "window.list"))?["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            guard let windowId = window["id"] as? String, !windowId.isEmpty else { continue }
+            let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+            for workspace in listed?["workspaces"] as? [[String: Any]] ?? [] {
+                guard let workspaceId = workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                if lists(["workspace_id": workspaceId, "window_id": windowId]) {
+                    return workspaceId
+                }
+            }
+        }
+        return callerWorkspace
+    }
     private func validateSurfaceHandleInWindow(
         _ surfaceHandle: String,
         client: SocketClient,
@@ -10831,12 +10963,17 @@ struct CMUXCLI {
 
         let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
         let windowRaw = windowOpt ?? windowOverride
-        let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let tabArg = tabOpt
             ?? surfaceOpt
             ?? (workspaceOpt == nil && windowRaw == nil
                 ? (ProcessInfo.processInfo.environment["CMUX_TAB_ID"] ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
                 : nil)
+        let workspaceArg = workspaceOpt
+            ?? callerWorkspace(
+                owningSurface: tabArg.map(canonicalSurfaceHandleFromTabInput),
+                windowRaw: windowRaw,
+                client: client
+            )
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceId = try normalizeWorkspaceHandle(
@@ -18510,10 +18647,9 @@ struct CMUXCLI {
             let remainder = Array(subArgs.dropFirst())
             switch dialogVerb {
             case "accept":
-                let text = remainder.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 var params: [String: Any] = ["surface_id": sid]
-                if !text.isEmpty {
-                    params["text"] = text
+                if !remainder.isEmpty {
+                    params["text"] = remainder.joined(separator: " ")
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.dialog.accept", params: params)
                 output(payload, fallback: "OK")
@@ -29240,7 +29376,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseClearHistory(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
@@ -29331,7 +29467,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parsePasteBuffer(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             let name = parsed.name ?? "default"
             let store = try loadTmuxCompatStore()
@@ -29358,7 +29494,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseRespawnPane(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let commandText = parsed.commandText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [
@@ -29599,9 +29735,9 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+            let sessionStartResult: ClaudeHookSessionStore.AuthoritativeSessionStartResult? = parsedInput.sessionId.flatMap { sessionId in
                 guard sessionId != forkParentSessionId else { return nil }
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
+                return try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
                     source: sessionStartSource,
                     workspaceId: workspaceId,
@@ -29612,15 +29748,38 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     turnId: parsedInput.turnId
-                )) == true
-                return accepted ? sessionId : nil
+                )
             }
+            let acceptedSessionId = sessionStartResult?.accepted == true ? parsedInput.sessionId : nil
             guard isForkSessionLaunch || acceptedSessionId != nil else {
                 telemetry.breadcrumb("claude-hook.session-start.stale")
                 printClaudeHookAck()
                 return
             }
             if let acceptedSessionId {
+                if !isForkSessionLaunch {
+                    // A SessionStart is a recovery/ownership boundary. Retire the
+                    // previous turn's summary before any notification hook can
+                    // reuse its StopFailure text for the recovered session. The
+                    // accepted upsert clears these fields in the same transaction.
+                    if let priorSurface = sessionStartResult?.previousOwnedSurface,
+                       !suppressVisibleMutations {
+                        // A moved session leaves a physical notification/status
+                        // behind on its old pane; retire that pane explicitly.
+                        _ = try? sendV1Command(
+                            "clear_notifications --tab=\(priorSurface.workspaceId) --panel=\(priorSurface.surfaceId)",
+                            client: client
+                        )
+                        try? setClaudeStatus(
+                            client: client,
+                            workspaceId: priorSurface.workspaceId,
+                            surfaceId: priorSurface.surfaceId,
+                            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                            icon: "pause.circle.fill",
+                            color: "#8E8E93"
+                        )
+                    }
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -29650,8 +29809,8 @@ struct CMUXCLI {
                 )
             }
             // SessionStart establishes session identity and process ownership.
-            // Keep ordinary startup/resume visually quiet; actual work starts at
-            // UserPromptSubmit, while the PID still binds later hooks to this surface.
+            // The pane is idle until UserPromptSubmit, and any prior status or
+            // notification is retired at this boundary.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -29668,13 +29827,19 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if acceptedSessionId != nil,
+               !isForkSessionLaunch,
+               !suppressVisibleMutations {
+                // SessionStart is the ownership/recovery boundary. Clear the
+                // pane's previous hook notification and status before the
+                // next turn so a StopFailure cannot remain visible while the
+                // recovered process is idle.
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
+                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                     icon: "pause.circle.fill",
                     color: "#8E8E93",
                     pid: claudePid
@@ -34053,7 +34218,53 @@ struct CMUXCLI {
                 )
                 return false
             }
-        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+        } else if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp",
+                  launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
+            // An OMP hook with no capture can only preserve a binding that is
+            // still owned by this session. A capture-less hook from another
+            // process must not leave its checkpoint available for restore, but
+            // the clear remains guarded by the binding's own checkpoint ID.
+            guard let normalizedSessionID = normalizedHookValue(sessionId) else {
+                return false
+            }
+            let currentBinding: [String: Any]?
+            do {
+                let payload = try client.sendV2(
+                    method: "surface.resume.get",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+                currentBinding = payload["resume_binding"] as? [String: Any]
+            } catch {
+                // A failed read cannot establish ownership. Leave the binding
+                // untouched and avoid synthesizing a PATH-dependent command.
+                return false
+            }
+            guard let currentBinding else {
+                return false
+            }
+            let existingCheckpointID = normalizedHookValue(currentBinding["checkpoint_id"] as? String)
+            guard existingCheckpointID != normalizedSessionID else {
+                return false
+            }
+            _ = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: existingCheckpointID,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
+            return false
+        } else if let launchCommand,
+                  !agentHookSessionHasDurableResumeEvidence(
+                      kind: kind,
+                      launchCommand: launchCommand
+                  ) {
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,

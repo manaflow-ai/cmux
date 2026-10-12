@@ -15,6 +15,7 @@ import {
   type VmCreateCreditReservation,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
@@ -9002,6 +9003,115 @@ describe("private SCP workflow", () => {
     expect(result).toEqual(endpoint);
     expect(leases).toHaveLength(0);
     expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
+  });
+
+  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
+  // background-request poll for 3-4 minutes, then failed 502, while the Mac
+  // client had given up at 60 s. The setup now answers inside that budget.
+  test("answers a hung guest setup within the client's request budget", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareSCP: () => Effect.never,
+    });
+    const { error, elapsedMs } = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(prepareScpEndpoint({
+        userId: vm.userId, providerVmId: "vm-scp-hung", publicKey: "client-key", callerPlanId: "pro",
+      }).pipe(Effect.flip, Effect.provide(layer)));
+      let elapsedMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber)) && elapsedMs < 300_000) {
+        yield* TestClock.adjust(500);
+        elapsedMs += 500;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      const done = yield* Fiber.poll(fiber);
+      if (Option.isNone(done)) {
+        yield* Fiber.interrupt(fiber);
+        return { error: null, elapsedMs };
+      }
+      return { error: yield* Fiber.join(fiber), elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    // The Mac's URLRequest gives up after 60 s without a response byte.
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
+    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  });
+
+  const scpOnTestClock = (layer: ReturnType<typeof workflowLayer>, providerVmId: string, userId: string) =>
+    Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(prepareScpEndpoint({ userId, providerVmId, publicKey: "client-key", callerPlanId: "pro" })
+        .pipe(Effect.flip, Effect.provide(layer)));
+      let elapsedMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber)) && elapsedMs < 300_000) {
+        yield* TestClock.adjust(500);
+        elapsedMs += 500;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      const done = yield* Fiber.poll(fiber);
+      if (Option.isNone(done)) {
+        yield* Fiber.interrupt(fiber);
+        return { error: null, elapsedMs };
+      }
+      return { error: yield* Fiber.join(fiber), elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+
+  test("the answer bound covers a slow status probe after a failed setup", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-slow-probe", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // The preflight probe answers; the recovery probe after the failed setup hangs.
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(providerOperationError("prepareSCP", "Internal server error")),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-slow-probe", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(probes).toBeGreaterThanOrEqual(2);
+    // The setup failed before the deadline, so its own error is the answer.
+    expect(error && "cause" in error ? (error.cause as Error).message : "").toBe("Internal server error");
+  });
+
+  test("an early refusal keeps its own error when the recovery probe stalls past the deadline", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-early-401", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const refused = providerOperationError("prepareSCP", "401 Unauthorized: invalid api key");
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(refused),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-early-401", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error).toBe(refused);
+  });
+
+  test("a guest that did not answer is not probed or resumed again in the same request", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-unanswered", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    let setups = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // A recovery probe would see "paused" and resume; only the preflight may probe.
+      getStatus: () => Effect.succeed(probes++ === 0 ? "running" as const : "paused" as const),
+      resume: () => Effect.die("must not resume a guest that did not answer"),
+      prepareSCP: () => {
+        setups++;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "prepareSCP",
+          cause: new ProviderGuestUnresponsiveError("freestyle", "the machine did not answer the setup command"),
+        }));
+      },
+    });
+    const { error } = await scpOnTestClock(layer, "vm-scp-unanswered", vm.userId);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(setups).toBe(1);
+    // Only the preflight probe ran; the failure skipped the recovery probe.
+    expect(probes).toBe(1);
   });
 
   test("refuses an inaccessible VM before installing a public key", async () => {

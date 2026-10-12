@@ -43,7 +43,7 @@ export async function GET(
         // A status read is how a gone machine is usually noticed first, and the
         // row it retires is one no destroy or cron pass can revisit.
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, readDeadline: { operation: "getVm" } });
       if (!run.ok) return run.response;
       const vm = run.value;
       // The same machine shape `GET /api/vm` lists: `kind` is what the client

@@ -165,6 +165,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         var terminalContext = CommandPaletteContextSnapshot()
         terminalContext.setBool(ContentView.commandPaletteShortcutTerminalFocusedKey, true)
+        var agentTurnsContext = CommandPaletteContextSnapshot()
+        agentTurnsContext.setBool(ContentView.commandPaletteAgentTurnsAvailableKey, true)
         var browserContext = CommandPaletteContextSnapshot()
         browserContext.setBool(CommandPaletteContextKeys.panelIsBrowser, true)
         var workspaceContext = CommandPaletteContextSnapshot()
@@ -183,6 +185,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(contribution.when(emptyContext), command.rawValue)
             let visibleContext: CommandPaletteContextSnapshot = switch command.scope {
             case .terminal: terminalContext
+            case .agentTurns: agentTurnsContext
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
@@ -193,6 +196,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let covered = Set(ShortcutParityPaletteCommand.allCases.map(\.shortcutAction))
         for action: KeyboardShortcutSettings.Action in [
             .toggleTerminalCopyMode,
+            .previousAgentTurn, .nextAgentTurn,
             .increaseWorkspaceTerminalFontSize,
             .decreaseWorkspaceTerminalFontSize,
             .resetWorkspaceTerminalFontSize,

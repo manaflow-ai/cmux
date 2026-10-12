@@ -20,7 +20,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Workspace
     case toggleSidebar
+    /// Gives the workspace sidebar the keyboard (arrows, Return), revealing it first.
+    case focusSidebar
+    /// Labels the window's clickable controls; typing a label clicks it.
+    case showWindowHints
     case newTab
+    case newLocalWorkspace
     case newBrowserWorkspace
     case newCloudWorkspace
     case newCloudMachine
@@ -109,6 +114,12 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reopenClosedBrowserPanel
     case newSurface
     case toggleTerminalCopyMode
+    /// Jumps the focused terminal's scrollback to the previous agent prompt
+    /// on its agent turn rail.
+    case previousAgentTurn
+    /// Jumps the focused terminal's scrollback to the next agent prompt on
+    /// its agent turn rail.
+    case nextAgentTurn
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.
     case cycleTextBoxSubmitAction
@@ -129,6 +140,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusDown
     case focusPreviousPane
     case focusNextPane
+    /// Focuses pane 1…9 in spatial order; 9 picks the last pane.
+    case focusPaneByNumber
     case splitRight
     case splitDown
     case newPaneAutoLayout
@@ -257,7 +270,7 @@ extension ShortcutAction {
     /// range. All other actions match a single concrete keystroke.
     public var usesNumberedDigitMatching: Bool {
         switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber:
             return true
         default:
             return false
@@ -321,7 +334,8 @@ extension ShortcutAction {
             return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
+        case .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback,
+             .previousAgentTurn, .nextAgentTurn:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .focusHistoryBack, .focusHistoryForward:
             return .not(.atom(.browserFocus))

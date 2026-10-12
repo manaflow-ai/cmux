@@ -30,6 +30,16 @@
       "message": "这台机器创建于 Cloud 更新之前，无法连接。",
       "action": "请创建一台新机器，用 cmux vm pull 和 cmux vm push 复制文件，然后删除这台机器。"
     },
+    "guestUnresponsive": {
+      "title": "机器无响应",
+      "message": "这台机器未能及时响应，因此请求无法完成。",
+      "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
+    },
+    "providerTimeout": {
+      "title": "云服务提供商响应缓慢",
+      "message": "云服务提供商未能及时响应。",
+      "action": "请稍后重试。"
+    },
     "networkRuleCapacity": {
       "title": "网络规则已达上限",
       "message": "网络策略已保存，但未应用：cmux Cloud 的网络规则已达上限。",
@@ -188,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "语言",
     "assets": "素材",
+    "art": "艺术",
     "openSource": "开源",
     "guides": "指南",
     "compare": "对比"
@@ -1122,7 +1133,7 @@
       "transferUnavailableError": "转移暂时不可用，或账号正在刷新。请稍后重试。",
       "shareWithTeam": "与团队共享",
       "makePrivate": "设为私有",
-      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "privateImportHint": "在组织中，新账号会与团队及其 Cloud VM 共享。在你的个人团队中，新账号仅你本人可用。可用“设为私有”或“与团队共享”更改某个账号。",
       "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
       "cancelAction": "取消",
       "apiKeysTitle": "API 密钥",
@@ -2210,6 +2221,13 @@
           "indentGuides": "在内置文件编辑器中，用一条细竖线标出每一级缩进。",
           "currentLineHighlight": "在没有选中内容时，为光标所在的行着色。",
           "tabWidth": "一个制表位占用的列数。缩进参考线使用相同的间距。"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3195,8 +3213,8 @@
       "cloudLink": "Cloud 机器上的代理是如何配置的",
       "teamsTitle": "团队与共享",
       "teamsScope": "账户属于你当前登录的团队。cr org list 显示你的团队，cr org switch 切换 cr 使用的团队。cmux coderouter 命令接受 --team '<id>'。",
-      "teamsPrivate": "新账户仅对添加它的人可见。在控制台中，“与团队共享”会让它对所有成员和团队的 Cloud 机器可用，“设为私有”则撤销共享。",
-      "teamsPersonal": "在你的个人团队中，你的私有账户也会为你自己的 Cloud 机器提供服务。组织的 Cloud 机器只使用共享账户，因此在希望机器使用某个账户之前，请先共享它。",
+      "teamsPrivate": "添加到组织的账号会与团队共享，所有成员和团队的 Cloud 机器都可以使用。在控制台中，“设为私有”会将其限制为添加者本人可用，“与团队共享”则恢复共享。",
+      "teamsPersonal": "在你的个人团队中，新账号是私有的，你的私有账号也供你自己的 Cloud 机器使用。组织的 Cloud 机器只使用共享账号，因此私有账号必须先共享，机器才能使用。",
       "teamsManage": "任何团队成员都可以添加、重命名、停用、转移和移除团队的共享账户。cr transfer 在你确认后将账户转移到另一个团队。",
       "usageTitle": "用量与限制",
       "usageLimits": "每个提供商按照处理请求的账户自身的套餐和限制进行计量。CodeRouter 会把工作分散到多个账户，但不会提高任何单个账户的上限。",
@@ -3315,6 +3333,23 @@
   "wallOfLove": {
     "title": "用户好评",
     "description": "大家对 cmux 的评价。"
+  },
+  "art": {
+    "metaTitle": "cmux 背景艺术",
+    "metaDescription": "浏览 cmux 提供的可用作窗口背景的公有领域画作：梵高、弗里德里希、戈雅、多雷等，附来源和许可信息。",
+    "title": "艺术",
+    "description": "可以放在终端背后的公有领域名画与版画。每件作品的作者均已去世 70 年以上，且作品发表于 1931 年之前。",
+    "howToUse": "即将登陆 cmux：可将其中任意作品设为终端背后的背景。",
+    "loading": "正在加载作品集…",
+    "unavailable": "无法加载作品集。请几分钟后再试。",
+    "collectionsLabel": "作品集",
+    "source": "公有领域 · 来源",
+    "collections": {
+      "darkArt": "暗黑艺术",
+      "museumIcons": "博物馆名作",
+      "calm": "宁静",
+      "dore": "多雷"
+    }
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",

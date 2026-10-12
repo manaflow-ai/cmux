@@ -235,9 +235,13 @@ extension CmuxSettingsFileStore {
         "shortcuts.showModifierHoldHints",
         "rightSidebar.beta.feed.enabled",
         "extensions.beta.enabled",
+        "windowHints.beta.enabled",
         "customSidebars.beta.enabled",
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
         "remoteTmux.multiplexer.beta.enabled",
+        "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        "remoteTmux.beta.originHostTitles.enabled",
+        "remoteTmux.beta.originColors.enabled",
     ]
 }

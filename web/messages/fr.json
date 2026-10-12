@@ -30,6 +30,16 @@
       "message": "Cette machine a été créée avant une mise à jour de Cloud et ne peut pas être connectée.",
       "action": "Créez une nouvelle machine, copiez vos fichiers avec cmux vm pull et cmux vm push, puis supprimez celle-ci."
     },
+    "guestUnresponsive": {
+      "title": "La machine ne répond pas",
+      "message": "Cette machine n'a pas répondu à temps, la requête n'a donc pas pu aboutir.",
+      "action": "Mettez la machine en pause, reprenez-la, puis réessayez. Dans l'app Mac, choisissez Mettre la machine en pause, puis Reprendre la machine. Dans un terminal, exécutez cmux vm pause '<machine>', puis cmux vm resume '<machine>'."
+    },
+    "providerTimeout": {
+      "title": "Le fournisseur cloud est lent",
+      "message": "Le fournisseur cloud n'a pas répondu à temps.",
+      "action": "Réessayez dans un instant."
+    },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",
       "message": "Votre politique réseau est enregistrée mais n'a pas été appliquée : cmux Cloud a atteint sa capacité de règles réseau.",
@@ -188,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Langue",
     "assets": "Ressources",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Comparer"
@@ -1122,7 +1133,7 @@
       "transferUnavailableError": "Les transferts sont temporairement indisponibles, ou le compte est en cours d’actualisation. Réessayez dans un instant.",
       "shareWithTeam": "Partager avec l’équipe",
       "makePrivate": "Rendre privé",
-      "privateImportHint": "Les nouveaux comptes sont privés. Partagez un compte pour le rendre accessible aux VM Cloud de cette équipe.",
+      "privateImportHint": "Dans une organisation, les nouveaux comptes sont partagés avec l’équipe et ses VM Cloud. Dans votre équipe personnelle, ils restent privés. Utilisez Rendre privé ou Partager avec l’équipe pour modifier un compte.",
       "description": "Les comptes partagés sont accessibles aux VM Cloud de cette équipe. Les comptes privés restent réservés à la personne qui les a ajoutés.",
       "cancelAction": "Annuler",
       "apiKeysTitle": "Clés API",
@@ -2210,6 +2221,13 @@
           "indentGuides": "Marque chaque niveau d’indentation d’une fine ligne verticale dans l’éditeur de fichiers intégré.",
           "currentLineHighlight": "Colore la ligne qui contient le curseur de texte tant que rien n’est sélectionné.",
           "tabWidth": "Nombre de colonnes couvertes par une tabulation. Les guides d’indentation utilisent le même espacement."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Lorsqu’un espace de travail tmux distant est sélectionné, « Nouvel espace de travail » démarre une session tmux sur son hôte."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3197,8 +3215,8 @@
       "cloudLink": "Configuration des agents sur les machines Cloud",
       "teamsTitle": "Équipes et partage",
       "teamsScope": "Les comptes appartiennent à l'équipe à laquelle vous êtes connecté. cr org list affiche vos équipes, et cr org switch change l'équipe utilisée par cr. Les commandes cmux coderouter acceptent --team '<id>'.",
-      "teamsPrivate": "Un nouveau compte est privé pour la personne qui l'a ajouté. Dans le tableau de bord, « Partager avec l’équipe » le rend disponible pour chaque membre et pour les machines Cloud de l'équipe, et « Rendre privé » annule ce partage.",
-      "teamsPersonal": "Dans votre équipe personnelle, vos comptes privés servent aussi vos propres machines Cloud. Les machines Cloud d'une organisation n'utilisent que les comptes partagés : partagez donc un compte avant d'attendre qu'une machine l'utilise.",
+      "teamsPrivate": "Un compte ajouté à une organisation est partagé avec l’équipe : tous les membres et les machines Cloud de l’équipe peuvent l’utiliser. Dans le tableau de bord, Rendre privé le réserve à la personne qui l’a ajouté, et Partager avec l’équipe annule cela.",
+      "teamsPersonal": "Dans votre équipe personnelle, les nouveaux comptes sont privés, et vos comptes privés servent aussi vos propres machines Cloud. Les machines Cloud d’une organisation n’utilisent que des comptes partagés : un compte privé doit donc être partagé avant qu’une machine puisse l’utiliser.",
       "teamsManage": "Tout membre de l'équipe peut ajouter, renommer, désactiver, transférer et supprimer les comptes partagés de l'équipe. cr transfer déplace un compte vers une autre équipe après votre confirmation.",
       "usageTitle": "Utilisation et limites",
       "usageLimits": "Chaque fournisseur décompte l'utilisation du compte qui a servi une requête, selon le forfait et les limites de ce compte. CodeRouter répartit le travail entre les comptes mais n'augmente la limite d'aucun compte.",
@@ -3317,6 +3335,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Ce que les gens disent de cmux."
+  },
+  "art": {
+    "metaTitle": "Art pour les arrière-plans de cmux",
+    "metaDescription": "Parcourez les peintures du domaine public que cmux propose comme arrière-plans de fenêtre : Van Gogh, Friedrich, Goya, Doré et d'autres, avec leurs sources et licences.",
+    "title": "Art",
+    "description": "Des peintures et gravures célèbres du domaine public à placer derrière vos terminaux. Les artistes de toutes ces œuvres sont morts il y a plus de 70 ans et chaque œuvre a été publiée avant 1931.",
+    "howToUse": "Bientôt dans cmux : choisissez l’une de ces œuvres comme fond derrière vos terminaux.",
+    "loading": "Chargement de la collection…",
+    "unavailable": "La collection n'a pas pu être chargée. Réessayez dans quelques minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Domaine public · Source",
+    "collections": {
+      "darkArt": "Art sombre",
+      "museumIcons": "Icônes des musées",
+      "calm": "Calme",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Encore un projet base sur libghostty, cette fois un terminal macOS avec des onglets verticaux, une meilleure organisation/notifications, un navigateur integre/scriptable, specifiquement destine aux gens qui utilisent beaucoup de workflows d'agents en terminal.",
