@@ -11,19 +11,28 @@ use serde_json::Value;
 const SWIFT_REFERENCE_UNIX_S: f64 = 978_307_200.0;
 
 /// One closed-history item (`closed.list` shape) as an entry
-/// `closed:daemon:<closed id>`.
+/// `closed:daemon:<closed id>`. An item that reopens as nothing (only tabs
+/// `closed.list` marks `empty`: untouched New Tab pages, blank browsers) is
+/// left out, and a row is named by its first other tab, never by the
+/// `about:blank` placeholder a chat or New Tab page is kept on (Leo
+/// 2026-10-11).
 pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let id = item.get("id")?.as_str()?;
     let at_ms = decimal(item.get("closed_at_ms")?)?;
-    let tab = item
-        .get("screens")
-        .and_then(Value::as_array)
-        .and_then(|screens| screens.first())
-        .and_then(|screen| screen.get("tabs"))
-        .and_then(Value::as_array)
-        .and_then(|tabs| tabs.first());
+    let tabs = closed_tabs(item);
+    let empty = |tab: &&Value| tab.get("empty").and_then(Value::as_bool) == Some(true);
+    let kept = !item.get("group").is_none_or(Value::is_null)
+        || item.get("kind").and_then(Value::as_str) == Some("window");
+    if !kept && tabs.iter().all(empty) {
+        return None;
+    }
+    let tab = tabs.iter().find(|tab| !empty(tab)).or(tabs.first()).copied();
     let text = |value: Option<&Value>, key: &str| {
-        value.and_then(|value| value.get(key)).and_then(Value::as_str).map(str::to_owned)
+        value
+            .and_then(|value| value.get(key))
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty() && *text != "about:blank")
+            .map(str::to_owned)
     };
     let tab_name = text(tab, "name");
     let url = text(tab, "url");
@@ -50,6 +59,24 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     entry.url = url;
     entry.cwd = cwd;
     Some(entry)
+}
+
+/// Every tab the item would recreate: every member's, else the top level's
+/// (a v1 item), as the Swift `ClosedItem.tabs`.
+fn closed_tabs(item: &Value) -> Vec<&Value> {
+    let tabs_of = |screens: Option<&Value>| {
+        screens
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
+            .flatten()
+            .collect::<Vec<_>>()
+    };
+    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
+        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
+        None => tabs_of(item.get("screens")),
+    }
 }
 
 /// The trail document's entries as `location:<machine>:<tab>:<index>`. The
