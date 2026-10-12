@@ -24,15 +24,30 @@ final class CloudTuiManualMirrorHandshake {
         let nextRequestID: UInt64
     }
 
+    /// Shared with the unstructured work and the nonisolated cancel handler.
+    /// Abandoning (close, or a cancelled take) is distinct from a session
+    /// claiming the result while the registration is still in flight.
+    private struct Pending {
+        var connection: CloudTuiManualIOConnection?
+        var abandoned = false
+        var task: Task<Ready?, Never>?
+
+        mutating func abandon() {
+            abandoned = true
+            connection?.close()
+            connection = nil
+            task?.cancel()
+        }
+    }
+
     private static let identifyRequestID: UInt64 = 1
     private static let clientInfoRequestID: UInt64 = 2
 
     private let commandBuilder: CloudTuiManualIOCommand
     private let identity: @MainActor () -> TerminalSizingParticipant
-    private var task: Task<Ready?, Never>?
-    private var taken = false
-    // Owned here until a session adopts it; deinit closes an unadopted socket.
-    private let pending = OSAllocatedUnfairLock<CloudTuiManualIOConnection?>(initialState: nil)
+    private let pending = OSAllocatedUnfairLock(initialState: Pending())
+    private var started = false
+    private var claimed = false
 
     init(
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
@@ -43,56 +58,78 @@ final class CloudTuiManualMirrorHandshake {
     }
 
     deinit {
-        pending.withLock { $0 }?.close()
+        pending.withLock { $0.abandon() }
     }
 
-    /// Starts the handshake once the link's socket path is known.
+    /// Starts the handshake once the link's socket path is known. The work
+    /// holds no reference to this object, so an unadopted handshake is
+    /// released (and its socket closed) with its reservation.
     func start(socketPath: @escaping @MainActor () async throws -> String) {
-        guard task == nil, !taken else { return }
-        task = Task { @MainActor [weak self] in
-            guard let path = try? await socketPath(), let self, !Task.isCancelled, !self.taken else { return nil }
-            return await self.run(socketPath: path)
+        guard !started else { return }
+        started = true
+        let pending = pending
+        let commandBuilder = commandBuilder
+        let identity = identity
+        let task = Task { @MainActor () -> Ready? in
+            guard let path = try? await socketPath(), !Task.isCancelled else { return nil }
+            return await Self.run(socketPath: path, pending: pending, commandBuilder: commandBuilder, identity: identity)
+        }
+        pending.withLock { state in
+            if state.abandoned { task.cancel() } else { state.task = task }
         }
     }
 
-    /// Hands the registered connection to one session. Nil means the caller
-    /// takes its ordinary path; the handshake never retries on its own.
+    /// Hands the registered connection to one session, waiting for a
+    /// registration still in flight. Nil means the caller takes its ordinary
+    /// path; the handshake never retries on its own.
     func take(socketPath: String) async -> Ready? {
-        guard !taken, let task else { return nil }
-        taken = true
+        guard !claimed else { return nil }
+        claimed = true
+        guard let task = pending.withLock({ $0.abandoned ? nil : $0.task }) else { return nil }
+        let pending = pending
         let ready = await withTaskCancellationHandler {
             await task.value
-        } onCancel: { [pending] in
-            pending.withLock { $0 }?.close()
+        } onCancel: {
+            pending.withLock { $0.abandon() }
         }
-        guard let ready, !Task.isCancelled, ready.socketPath == socketPath else {
+        let adopted = pending.withLock { state -> Bool in
+            guard let ready, !state.abandoned, ready.socketPath == socketPath else { return false }
+            state.connection = nil
+            return true
+        }
+        guard adopted, let ready, !Task.isCancelled else {
             close()
             return nil
         }
-        pending.withLock { $0 = nil }
         return ready
     }
 
-    /// Releases an unadopted connection.
+    /// Releases an unadopted connection and stops a registration in flight.
     func close() {
-        taken = true
-        task?.cancel()
-        pending.withLock { connection in
-            connection?.close()
-            connection = nil
-        }
+        claimed = true
+        pending.withLock { $0.abandon() }
     }
 
-    private func run(socketPath: String) async -> Ready? {
+    private static func run(
+        socketPath: String,
+        pending: OSAllocatedUnfairLock<Pending>,
+        commandBuilder: CloudTuiManualIOCommand,
+        identity: @MainActor () -> TerminalSizingParticipant
+    ) async -> Ready? {
         let connection = CloudTuiManualIOConnection(socketPath: socketPath)
-        pending.withLock { $0 = connection }
+        let admitted = pending.withLock { state -> Bool in
+            guard !state.abandoned else { return false }
+            state.connection = connection
+            return true
+        }
+        guard admitted else { return nil }
         do { try await connection.start() } catch { return nil }
         // Iterate one frame at a time without a `for await` loop: leaving the
         // loop must not cancel the stream the adopting session reads next.
         var frames = connection.events.makeAsyncIterator()
-        connection.send(commandBuilder.identify(requestID: Self.identifyRequestID))
-        guard case let .answered(identified, capabilities) = await Self.answer(
-            to: Self.identifyRequestID, from: &frames
+        connection.send(commandBuilder.identify(requestID: identifyRequestID))
+        guard case let .answered(identified, capabilities) = await answer(
+            to: identifyRequestID, from: &frames
         ) else { return nil }
         let negotiated = identified ? capabilities : []
         let supportsSizing = Set(negotiated).contains(CloudTerminalSizingRelay.capability)
@@ -100,16 +137,16 @@ final class CloudTuiManualMirrorHandshake {
             name: "cmux cloud terminal",
             kind: "native-mirror",
             identity: supportsSizing ? identity() : nil,
-            requestID: Self.clientInfoRequestID
+            requestID: clientInfoRequestID
         ))
-        guard case .answered = await Self.answer(to: Self.clientInfoRequestID, from: &frames),
-              !Task.isCancelled, !taken else { return nil }
+        guard case .answered = await answer(to: clientInfoRequestID, from: &frames),
+              !Task.isCancelled else { return nil }
         return Ready(
             connection: connection,
             socketPath: socketPath,
             identified: identified,
             capabilities: negotiated,
-            nextRequestID: Self.clientInfoRequestID + 1
+            nextRequestID: clientInfoRequestID + 1
         )
     }
 

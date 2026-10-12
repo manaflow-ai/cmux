@@ -163,7 +163,14 @@ extension CmuxTuiSurfaceProvider {
         reservation.beginAttachHandshake(handshake)
         let links = links
         let machineID = machineID
-        handshake.start { try await links.connected(machineID: machineID).socketPath }
+        // Only a link that is already up: connecting or resuming the machine
+        // stays with the create, which owns its diagnostics and backoff.
+        handshake.start {
+            guard let link = await links.link(machineID: machineID),
+                  await link.isConnected,
+                  let connected = await link.connected else { throw CancellationError() }
+            return connected.socketPath
+        }
     }
 
     /// Resolves the daemon-local surface needed by a byte attachment.
