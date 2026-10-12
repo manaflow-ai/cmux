@@ -53,6 +53,22 @@ public nonisolated indirect enum ClassicSessionLayout: Codable, Equatable, Senda
         }
     }
 
+    /// The tree with each tab's folder, and its agent's, passed through `folder`.
+    public func mappingFolders(_ folder: (String) -> String) -> ClassicSessionLayout {
+        switch self {
+        case .pane(let pane):
+            return .pane(ClassicSessionPane(tabs: pane.tabs.map { tab in
+                let agent = tab.agent.map {
+                    ClassicSessionAgent(harness: $0.harness, sessionID: $0.sessionID, workingDirectory: $0.workingDirectory.map(folder))
+                }
+                return ClassicSessionTab(workingDirectory: tab.workingDirectory.map(folder), title: tab.title, url: tab.url, agent: agent)
+            }, selectedTab: pane.selectedTab))
+        case .split(let orientation, let ratio, let first, let second):
+            return .split(orientation: orientation, ratio: ratio,
+                          first: first.mappingFolders(folder), second: second.mappingFolders(folder))
+        }
+    }
+
     /// Tabs in pane order, first side first.
     public var tabs: [ClassicSessionTab] {
         switch self {

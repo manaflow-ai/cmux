@@ -67,6 +67,21 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return try decode(data)
     }
 
+    /// The saved workspaces for Import Workspaces from Classic cmux: a local
+    /// folder that is gone (a deleted project, a cleared /tmp) becomes the home
+    /// folder, since no terminal can start in it. Only the import checks the
+    /// folders; `read()` stays free of file checks that could ask for privacy
+    /// access at launch. SSH and Cloud VM folders are on their hosts.
+    public func readForImport() throws -> [ClassicSessionWorkspace] {
+        try read().map { saved in
+            guard saved.remote == nil, saved.cloudVM == nil else { return saved }
+            return saved.openingMissingFolders(in: NSHomeDirectory()) { path in
+                var isFolder: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+            }
+        }
+    }
+
     private func readData() throws -> Data? {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
@@ -123,7 +138,8 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             let directory = terminal?["workingDirectory"] as? String ?? terminal?["working_directory"] as? String
                 ?? panel["directory"] as? String ?? panel["working_directory"] as? String
             return ClassicSessionTab(workingDirectory: directory, title: panel["customTitle"] as? String ?? panel["title"] as? String,
-                                     agent: Self.agent(terminal?["agent"] as? [String: Any], directory: directory))
+                                     agent: Self.agent(terminal?["agent"] as? [String: Any], directory: directory)
+                                        ?? Self.endedAgent(terminal?["resumeBinding"] as? [String: Any], directory: directory))
         case "browser":
             let browser = panel["browser"] as? [String: Any]
             guard let url = browser?["urlString"] as? String ?? browser?["url_string"] as? String, !url.isEmpty else { return nil }
@@ -141,6 +157,19 @@ public nonisolated struct ClassicSessionImporter: Sendable {
               let session = value["sessionId"] as? String ?? value["session_id"] as? String, !session.isEmpty else { return nil }
         return ClassicSessionAgent(harness: kind, sessionID: session,
                                    workingDirectory: value["workingDirectory"] as? String ?? value["working_directory"] as? String ?? directory)
+    }
+
+    /// The session of an agent that exited: classic then keeps only its
+    /// `resumeBinding` (`checkpointId` is the session id). Only a binding the
+    /// agent's own hook recorded names a session, as in classic; one from the
+    /// CLI, process detection or a session import does not. A persistent SSH
+    /// launch's session is on its host, not this Mac.
+    private static func endedAgent(_ binding: [String: Any]?, directory: String?) -> ClassicSessionAgent? {
+        guard let binding, binding["source"] as? String == "agent-hook",
+              ((binding["launchFlavor"] as? [String: Any])?["kind"] as? String ?? "local") == "local",
+              let kind = binding["kind"] as? String, ["claude", "codex"].contains(kind),
+              let session = binding["checkpointId"] as? String, !session.isEmpty else { return nil }
+        return ClassicSessionAgent(harness: kind, sessionID: session, workingDirectory: binding["cwd"] as? String ?? directory)
     }
 
     /// An SSH workspace's host. A websocket `remote` is an older Cloud VM

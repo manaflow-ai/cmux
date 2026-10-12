@@ -135,7 +135,10 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     const images = state.backdropImages;
     const replaceImages = () => {
       for (const img of document.querySelectorAll<HTMLImageElement>("img.backdrop-thumb")) {
-        const id = decodeURIComponent(img.getAttribute("src")?.split("backdrop/")[1] ?? "");
+        const src = img.getAttribute("src") ?? "";
+        const id = src.startsWith("museum/")
+          ? decodeURIComponent(src)
+          : decodeURIComponent(src.split("backdrop/")[1] ?? "");
         if (images[id]) img.src = images[id]!;
       }
     };
