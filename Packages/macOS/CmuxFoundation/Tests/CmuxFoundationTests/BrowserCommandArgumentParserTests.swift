@@ -125,8 +125,17 @@ struct BrowserCommandArgumentParserTests {
         #expect(try parser.parse(["-"]).positionals == ["-"])
         #expect(try parser.parse(["-1"]).positionals == ["-1"])
         #expect(try parser.parse(["-2.5"]).positionals == ["-2.5"])
-        #expect(throws: BrowserCommandArgumentParser.ParseError.unknownOption(name: "-x")) {
+        #expect(throws: BrowserCommandArgumentParser.ParseError.unknownOption(name: "-…")) {
             try parser.parse(["-x"])
+        }
+    }
+
+    @Test("Never echoes a single-dash token, which may be a cookie or storage value")
+    func redactsSingleDashTokens() {
+        let parser = BrowserCommandArgumentParser()
+
+        #expect(throws: BrowserCommandArgumentParser.ParseError.unknownOption(name: "-…")) {
+            try parser.parse(["sid", "-Xy9SECRET"])
         }
     }
 
