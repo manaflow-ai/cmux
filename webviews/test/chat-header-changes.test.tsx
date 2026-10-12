@@ -63,7 +63,8 @@ test("Changes shows with the chat's changes or its open diff, and lights while t
   render(false);
   expect(changes()).toBeNull();
   render(true);
-  expect(changes()?.getAttribute("title")).toBe("Changes (⌃⇧⌘G)");
+  expect(changes()?.getAttribute("title")).toBe("Changes");
+  expect(changes()?.getAttribute("data-tooltip-shortcut")).toBe("⌃⇧⌘G");
   expect(changes()?.getAttribute("aria-pressed")).toBe("false");
   act(() => changes()!.click());
   expect(runs).toEqual(["toggle"]);
