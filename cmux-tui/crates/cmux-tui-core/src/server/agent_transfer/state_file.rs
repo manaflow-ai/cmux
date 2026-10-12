@@ -26,8 +26,7 @@ pub(super) fn now_ms() -> u64 {
 
 /// A record made at `at_ms` is fresh at `now`: not in the future, not stale.
 pub(super) fn fresh(at_ms: u64, now: u64) -> bool {
-    at_ms <= now.saturating_add(MAX_SKEW_MS)
-        && now.saturating_sub(at_ms) < STALE.as_millis() as u64
+    at_ms <= now.saturating_add(MAX_SKEW_MS) && now.saturating_sub(at_ms) < STALE.as_millis() as u64
 }
 
 /// Opens `path` without following a final symlink (Unix).
