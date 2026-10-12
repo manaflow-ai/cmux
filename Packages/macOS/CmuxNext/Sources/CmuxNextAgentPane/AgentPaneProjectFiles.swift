@@ -90,12 +90,14 @@ enum AgentPaneProjectFiles {
         return nil
     }
 
-    /// The instructions file as it resolves: a regular file under the chat folder (not another of
-    /// the pane's folders: the added paths are relative to it) named CLAUDE.md or AGENTS.md, so a
-    /// file that links to the other one gets the lines.
+    /// The instructions file as it resolves: a regular file directly in the chat folder (not a
+    /// subfolder or another of the pane's folders: the added paths are relative to the chat folder)
+    /// named CLAUDE.md or AGENTS.md, so a file that links to the other one gets the lines.
     private static func check(_ file: URL, _ folder: String) -> Result<URL, AgentPaneTransportError> {
         AgentPaneFileOpen.resolve(file.path, roots: [folder]).flatMap { url in
-            AgentPaneProjectInstructions.names.contains(url.lastPathComponent) ? .success(url) : .failure(.pathInvalid)
+            AgentPaneProjectInstructions.names.contains(url.lastPathComponent)
+                && url.deletingLastPathComponent().path == AcpmuxPathPolicy.canonical(folder)
+                ? .success(url) : .failure(.pathInvalid)
         }
     }
 }
