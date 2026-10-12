@@ -8,11 +8,10 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { defaultModel } from "../harnessSwitch";
+import { newTabStart } from "./chipDefaults";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
-  defaultHarness,
   initialSelection,
   recentChatCards,
   screenRows,
@@ -120,24 +119,12 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
-  // The agent Enter asks: the one picked on the chip (a pick draws it into the summary), else the
-  // remembered one, else the first installed.
-  const harness = snapshot.summary?.harness ?? defaultHarness(agents, lastAgent);
-  const chipSnapshot = useMemo<AcpmuxSnapshot>(
-    () =>
-      snapshot.summary?.harness || !harness
-        ? snapshot
-        : {
-            ...snapshot,
-            summary: {
-              ...snapshot.summary,
-              sessionId: snapshot.summary?.sessionId ?? "",
-              harness,
-              // The agent's default model, named on the chip (its own "default" when none is known yet).
-              model: defaultModel(harness, snapshot.catalog) ?? "default",
-            },
-          },
-    [snapshot, harness],
+  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
+  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
+  // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  const { harness, snapshot: chipSnapshot } = useMemo(
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder),
+    [snapshot, agents, lastAgent, chatFolder],
   );
   const rows = useMemo(
     () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),
@@ -306,9 +293,6 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
-
   return (
     <div
       ref={screen}

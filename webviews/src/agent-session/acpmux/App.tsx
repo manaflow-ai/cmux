@@ -1715,6 +1715,7 @@ function DefaultComposerChips({
         void callNative("chat.effort", { configId, value });
       }}
       onHarness={(harness, model) => void callNative("chat.new", { harness, ...(model ? { model } : {}), ...inFolder })}
+      {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
