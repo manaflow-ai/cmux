@@ -205,6 +205,7 @@ impl HostedReader {
             let generation = {
                 let mut term = pty.term.lock().unwrap();
                 **term = replacement_term;
+                self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
                 *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
                 pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                 *geometry = next_geometry;

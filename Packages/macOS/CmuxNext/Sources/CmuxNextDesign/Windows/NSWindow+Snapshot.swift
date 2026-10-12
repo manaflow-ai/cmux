@@ -78,6 +78,22 @@ extension NSWindow {
         return image
     }
 
+    /// This app's visible windows above this window's level that overlap it
+    /// and are not its children (an open context menu), as the window server
+    /// composited them on a transparent image the size of this window, with
+    /// their count; nil without one. A snapshot of the window then shows the
+    /// menu a right click opened, as on screen.
+    public func floatingWindowsSnapshot() -> (image: CGImage, count: Int)? {
+        let children = Set(visibleChildWindows.map(\.windowNumber))
+        let floating = NSApp.windows.filter {
+            $0 !== self && $0.isVisible && $0.windowNumber > 0 && $0.alphaValue > 0 && $0.level > level
+                && !children.contains($0.windowNumber) && $0.frame.intersects(frame)
+        }
+        guard !floating.isEmpty, let image = Self.windowServerImage(of: floating, croppedTo: self),
+              image.width > 0, image.height > 0, !Self.isBlank(image) else { return nil }
+        return (image, floating.count)
+    }
+
     /// The visible child windows of this window and of its children, the
     /// ones a snapshot composites.
     public var visibleChildWindows: [NSWindow] {

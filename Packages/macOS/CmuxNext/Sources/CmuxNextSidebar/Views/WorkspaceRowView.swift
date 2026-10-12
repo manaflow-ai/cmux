@@ -102,7 +102,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         placeholderBar.wantsLayer = true
-        placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
+        placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         moreButton.onPress = { [weak self] in self?.onMore?() }

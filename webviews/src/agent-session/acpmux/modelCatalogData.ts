@@ -90,6 +90,8 @@ export type PickerModel = {
   input?: string[];
   status?: ModelStatus;
   unavailable?: string;
+  /** The catalog release an alias row stands for; `id` is the alias the harness offers. */
+  release?: string;
   searchText: string;
 };
 
@@ -403,6 +405,7 @@ function foldAliases(models: PickerModel[], listed: HarnessModel[], current?: st
       return {
         ...model,
         id: alias.id,
+        release: model.id,
         ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
         searchText: `${alias.id} ${model.searchText}`,
       };
