@@ -324,7 +324,7 @@ extension AgentPaneTransport {
         if facts.harnessEnable {
             let answer = await confirmHarnessEnable(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
-            if !answer.confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket, detail: answer.reason) }
+            if !answer.confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket, detail: answer.detail, reason: answer.reason) }
         }
         // cx-0q7o: an allow for a prompt of another daemon run carries the person's decision
         // proof, made here (the key never reaches the page), when this app holds that run's key.

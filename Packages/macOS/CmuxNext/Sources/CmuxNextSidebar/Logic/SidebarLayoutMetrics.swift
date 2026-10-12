@@ -43,6 +43,18 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
+    /// group header draws as a thin line there, `SidebarRow.isThinHeader`).
+    public var minimal: SidebarLayoutMetrics {
+        var m = self
+        let step = (rowHeight * 0.17).rounded()
+        m.rowHeight -= step
+        m.rowHeightWithSubtitle -= step
+        m.tabRowHeight -= step
+        m.groupHeaderHeight = m.rowHeight
+        return m
+    }
+
     /// One line, two, or three (an expanded row's meta line adds one more line's height).
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)

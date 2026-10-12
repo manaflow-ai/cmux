@@ -23339,6 +23339,52 @@
     ]
    }
   },
+  "keybindings-changed": {
+   "since": 12,
+   "capability": "keybindings-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "keybindings-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "user",
+        "cli",
+        "mcp",
+        "script",
+        "remote",
+        "app",
+        "file"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "layout-changed": {
    "since": 6,
    "capability": null,

@@ -76,6 +76,10 @@
     "history.visit.remove",
     "history.visit.summaries",
     "history.visit.title",
+    "keybindings.get",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -650,6 +654,12 @@
     },
     {
       "name": "graphics-status",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "keybindings-changed",
       "streams": [
         "subscribe"
       ]
