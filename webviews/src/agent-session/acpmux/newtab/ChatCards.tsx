@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useRef } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
+import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
 
@@ -29,6 +30,12 @@ export function ChatCards({
 }) {
   const nt = useNt();
   const t = useT();
+  const list = useRef<HTMLDivElement>(null);
+  useListMotion(
+    list,
+    ".nt-card-host > .nt-card",
+    cards.map((card) => card.sessionId),
+  );
   return (
     <section className="nt-chats" aria-label={nt("sections")}>
       <header className="nt-chats-head">
@@ -51,7 +58,7 @@ export function ChatCards({
       {cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
-        <div className="nt-cards" data-variant={variant}>
+        <div ref={list} className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
             // Its right-click menu: Open, and Open in Terminal (cx-2lm4).
             <ContextMenu
