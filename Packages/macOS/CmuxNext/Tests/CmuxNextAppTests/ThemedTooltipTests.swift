@@ -95,6 +95,36 @@ import Testing
         window.orderOut(nil)
     }
 
+    /// Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each
+    /// row's tooltip as it passed. After a scroll, the row under the pointer shows its tooltip only
+    /// once the scrolling stops.
+    @Test func rowsPassingUnderAScrollDoNotFlashTheirTooltips() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        let first = NSButton(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
+        let second = NSButton(frame: NSRect(x: 0, y: 72, width: 300, height: 28))
+        window.contentView?.addSubview(first)
+        window.contentView?.addSubview(second)
+        first.themedToolTip = "First"
+        second.themedToolTip = "Second"
+        let presenter = TooltipPresenter.shared
+        presenter.dismiss()
+        defer {
+            presenter.dismiss()
+            window.orderOut(nil)
+        }
+
+        presenter.enter(try #require(TooltipTracker.whole(of: first)))
+        #expect(presenter.shown?.text == "First")
+        // A scroll moves the next row under the pointer.
+        presenter.scrolled()
+        presenter.exit(try #require(TooltipTracker.whole(of: first)))
+        presenter.enter(try #require(TooltipTracker.whole(of: second)))
+        #expect(presenter.shown == nil, "a row passing under the scroll flashed its tooltip")
+        try await Task.sleep(for: TooltipPresenter.scrollQuiet * 3)
+        #expect(presenter.shown?.text == "Second")
+    }
+
     @Test func aTooltipWithNoRoomBelowGoesAboveAndStaysOnScreen() {
         let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 120, height: 20)

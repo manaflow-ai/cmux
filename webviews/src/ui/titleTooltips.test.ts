@@ -110,3 +110,21 @@ test("the first tooltip shows on the first hover, with no delay", () => {
   expect(tip.hidden).toBe(false);
   expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("Close Tab");
 });
+
+test("rows passing under a scroll do not flash their tooltips; the row under the pointer shows once it stops", async () => {
+  // Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each row's tooltip.
+  const doc = page(`<div id="a" title="First">a</div><div id="b" title="Second">b</div>`);
+  const [a, b] = [doc.getElementById("a")!, doc.getElementById("b")!];
+  for (const row of [a, b])
+    row.getBoundingClientRect = () => ({ left: 10, top: 10, width: 200, height: 24 }) as DOMRect;
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(a);
+  expect(tip().hidden).toBe(false);
+  doc.dispatchEvent(new dom!.window.Event("scroll"));
+  a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
+  await hover(b);
+  expect(tip().hidden).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  expect(tip().hidden).toBe(false);
+  expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+});

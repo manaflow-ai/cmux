@@ -18,6 +18,8 @@ public final class TooltipPresenter {
     /// How often a shown tooltip checks that its view is still under the pointer and on screen (a view
     /// removed, hidden or scrolled away sends no exit). Only while one is on screen.
     static let recheck: Duration = .milliseconds(500)
+    /// How long the scrolling stays still before the row under the pointer shows its tooltip.
+    static let scrollQuiet: Duration = .milliseconds(150)
 
     private let checker: DemandTimer
     private(set) lazy var panel = TooltipPanel()
@@ -59,6 +61,11 @@ public final class TooltipPresenter {
     public func dismiss() {
         inside.removeAll()
         hide()
+    }
+
+    /// A scroll-wheel event: the tooltip goes.
+    func scrolled() {
+        dismiss()
     }
 
     /// Picks the deepest tooltip under the pointer and shows it at once.
@@ -124,7 +131,11 @@ public final class TooltipPresenter {
         monitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel, .appKitDefined]
         ) { [weak self] event in
-            if event.type != .appKitDefined || event.subtype == .applicationDeactivated { self?.dismiss() }
+            if event.type == .scrollWheel {
+                self?.scrolled()
+            } else if event.type != .appKitDefined || event.subtype == .applicationDeactivated {
+                self?.dismiss()
+            }
             return event
         }
     }
