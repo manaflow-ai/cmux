@@ -61,10 +61,15 @@ impl App {
     }
 
     fn cmux(&self, args: &[&str]) -> Output {
+        self.cmux_in(&self.root.join("run"), args)
+    }
+
+    /// `cmux` with `run` as its `TMPDIR` (the runtime base).
+    fn cmux_in(&self, run: &Path, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(args)
             .env("HOME", self.root.join("home"))
-            .env("TMPDIR", self.root.join("run"))
+            .env("TMPDIR", run)
             .env_remove("XDG_RUNTIME_DIR")
             .env("CMUX_TUI_STATE_DIR", &self.state_root)
             .output()
@@ -412,6 +417,32 @@ fn link_ensure_refuses_a_bad_install_id_before_it_changes_anything() {
         })
         .collect();
     assert!(moved.is_empty(), "archive files appeared: {moved:?}");
+}
+
+/// The app starts its link with its own fixed runtime base; a CLI caller
+/// with another `TMPDIR` still finds, reports and stops that link of its
+/// state directory (the registration names the socket; its name, not its
+/// folder, ties it to the state directory).
+#[test]
+fn link_status_and_stop_find_the_link_from_another_tmpdir() {
+    let base = Scratch::new("tmpdir");
+    let app = base.app("a");
+    let first = app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    let other = base.root.join("run2");
+    std::fs::create_dir_all(&other).unwrap();
+    let dir = app.state_dir();
+    let d = dir.to_str().unwrap();
+    let status = app.cmux_in(&other, &["link", "status", "--state-dir", d]);
+    let status: Value = serde_json::from_slice(status.stdout.trim_ascii()).unwrap();
+    assert_eq!(status["running"], true, "{status}");
+    assert_eq!(pid(&status), pid(&first));
+    let again = app.cmux_in(&other, &["link", "ensure", "--state-dir", d]);
+    let again: Value = serde_json::from_slice(again.stdout.trim_ascii()).unwrap();
+    assert_eq!(again["status"], "running", "a second link started: {again}");
+    let stopped = app.cmux_in(&other, &["link", "stop", "--state-dir", d]);
+    let stopped: Value = serde_json::from_slice(stopped.stdout.trim_ascii()).unwrap();
+    assert_eq!(stopped["stopped"], true, "{stopped}");
+    assert!(!alive(pid(&first)));
 }
 
 #[test]
