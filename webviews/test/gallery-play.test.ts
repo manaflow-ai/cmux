@@ -157,8 +157,8 @@ describe("gallery play settle budget", () => {
       const start = performance.now();
       while (performance.now() - start < 60);
     });
-    const restore = Object.fromEntries(
-      ["requestAnimationFrame", "PerformanceObserver", "innerWidth", "innerHeight"].map((key) => [key, scope[key]]),
+    const restore = ["requestAnimationFrame", "PerformanceObserver", "innerWidth", "innerHeight"].map(
+      (key) => [key, key in scope, scope[key]] as const,
     );
     Object.assign(scope, {
       requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
@@ -179,7 +179,10 @@ describe("gallery play settle budget", () => {
       });
       return report.steps[0]!;
     } finally {
-      Object.assign(scope, restore);
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
     }
   };
 
