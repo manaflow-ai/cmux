@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Langue",
     "assets": "Ressources",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Comparer"
@@ -3334,6 +3335,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Ce que les gens disent de cmux."
+  },
+  "art": {
+    "metaTitle": "Art pour les arrière-plans de cmux",
+    "metaDescription": "Parcourez les peintures du domaine public que cmux propose comme arrière-plans de fenêtre : Van Gogh, Friedrich, Goya, Doré et d'autres, avec leurs sources et licences.",
+    "title": "Art",
+    "description": "Des peintures et gravures célèbres du domaine public à placer derrière vos terminaux. Les artistes de toutes ces œuvres sont morts il y a plus de 70 ans et chaque œuvre a été publiée avant 1931.",
+    "howToUse": "Dans cmux, choisissez-en une dans Réglages → Apparence → Arrière-plan.",
+    "loading": "Chargement de la collection…",
+    "unavailable": "La collection n'a pas pu être chargée. Réessayez dans quelques minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Domaine public · Source",
+    "collections": {
+      "darkArt": "Art sombre",
+      "museumIcons": "Icônes des musées",
+      "calm": "Calme",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Encore un projet base sur libghostty, cette fois un terminal macOS avec des onglets verticaux, une meilleure organisation/notifications, un navigateur integre/scriptable, specifiquement destine aux gens qui utilisent beaucoup de workflows d'agents en terminal.",

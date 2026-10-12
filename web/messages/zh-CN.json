@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "语言",
     "assets": "素材",
+    "art": "艺术",
     "openSource": "开源",
     "guides": "指南",
     "compare": "对比"
@@ -3332,6 +3333,23 @@
   "wallOfLove": {
     "title": "用户好评",
     "description": "大家对 cmux 的评价。"
+  },
+  "art": {
+    "metaTitle": "cmux 背景艺术",
+    "metaDescription": "浏览 cmux 提供的可用作窗口背景的公有领域画作：梵高、弗里德里希、戈雅、多雷等，附来源和许可信息。",
+    "title": "艺术",
+    "description": "可以放在终端背后的公有领域名画与版画。每件作品的作者均已去世 70 年以上，且作品发表于 1931 年之前。",
+    "howToUse": "在 cmux 中，前往 设置 → 外观 → 背景 进行选择。",
+    "loading": "正在加载作品集…",
+    "unavailable": "无法加载作品集。请几分钟后再试。",
+    "collectionsLabel": "作品集",
+    "source": "公有领域 · 来源",
+    "collections": {
+      "darkArt": "暗黑艺术",
+      "museumIcons": "博物馆名作",
+      "calm": "宁静",
+      "dore": "多雷"
+    }
   },
   "testimonials": {
     "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",

@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Sprog",
     "assets": "Assets",
+    "art": "Kunst",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Sammenlign"
@@ -3329,6 +3330,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Hvad folk siger om cmux."
+  },
+  "art": {
+    "metaTitle": "Kunst til cmux-baggrunde",
+    "metaDescription": "Se de offentligt tilgængelige malerier, som cmux tilbyder som vinduesbaggrunde: Van Gogh, Friedrich, Goya, Doré og flere, med kilder og licenser.",
+    "title": "Kunst",
+    "description": "Berømte malerier og tryk i det offentlige domæne, som du kan lægge bag dine terminaler. Alle kunstnerne døde for over 70 år siden, og hvert værk blev udgivet før 1931.",
+    "howToUse": "I cmux vælger du et under Indstillinger → Udseende → Baggrund.",
+    "loading": "Indlæser samlingen…",
+    "unavailable": "Samlingen kunne ikke indlæses. Prøv igen om et par minutter.",
+    "collectionsLabel": "Samlinger",
+    "source": "Offentligt domæne · Kilde",
+    "collections": {
+      "darkArt": "Mørk kunst",
+      "museumIcons": "Museumsikoner",
+      "calm": "Rolig",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Endnu en dag, endnu et libghostty-baseret projekt, denne gang en macOS-terminal med vertikale faner, bedre organisering/notifikationer, indlejret/scriptbar browser specifikt rettet mod folk der bruger en masse terminalbaserede agentiske workflows.",

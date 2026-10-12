@@ -198,6 +198,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Język",
     "assets": "Zasoby",
+    "art": "Sztuka",
     "openSource": "Otwarte źródło",
     "guides": "Przewodniki",
     "compare": "Porównaj"
@@ -3332,6 +3333,23 @@
   "wallOfLove": {
     "title": "Ściana Miłości",
     "description": "Co ludzie mówią o cmux."
+  },
+  "art": {
+    "metaTitle": "Sztuka na tła cmux",
+    "metaDescription": "Przeglądaj obrazy z domeny publicznej, które cmux oferuje jako tła okien: Van Gogh, Friedrich, Goya, Doré i inni, wraz ze źródłami i licencjami.",
+    "title": "Sztuka",
+    "description": "Słynne obrazy i grafiki z domeny publicznej, które możesz umieścić za swoimi terminalami. Autorzy wszystkich dzieł zmarli ponad 70 lat temu, a każde dzieło zostało opublikowane przed 1931 rokiem.",
+    "howToUse": "W cmux wybierz jedno w Ustawienia → Wygląd → Tło.",
+    "loading": "Wczytywanie kolekcji…",
+    "unavailable": "Nie udało się wczytać kolekcji. Spróbuj ponownie za kilka minut.",
+    "collectionsLabel": "Kolekcje",
+    "source": "Domena publiczna · Źródło",
+    "collections": {
+      "darkArt": "Mroczna sztuka",
+      "museumIcons": "Arcydzieła muzealne",
+      "calm": "Spokój",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Kolejny dzień, kolejny projekt oparty na libghostty, tym razem terminal macOS z pionowymi kartami, lepszą organizacją/powiadomieniami, wbudowaną/skryptowalną przeglądarką, specjalnie skierowany do ludzi używających mnóstwa terminalowych workflow'ów agentowych.",
