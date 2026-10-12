@@ -131,7 +131,10 @@ dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",'
 xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
 serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
 xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
-dev_jobs="${CMUX_WEB_TEST_DEV_JOBS:-$((jobs > 1 ? jobs / 2 : 1))}"
+# A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
+# 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
+# and attach timing (agent-pane-seen) failed.
+dev_jobs="${CMUX_WEB_TEST_DEV_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
 echo "running $count webviews test files, $jobs at a time ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
 xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
