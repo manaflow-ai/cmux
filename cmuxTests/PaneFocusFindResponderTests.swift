@@ -422,27 +422,27 @@ struct FilePreviewTextFindRoutingTests {
     /// visibility state reflects it.
     @Test
     func startSearchReachesFocusedTextFilePreview() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let fileURL = try temporaryTextFile(contents: "find me in the preview\n")
         defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newFilePreviewSurface(
             inPane: firstPane,
             filePath: fileURL.path,
             focus: true
         ))
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
         let (scrollView, textView) = mountTextPreviewEditor(
             for: panel,
             in: window,
             content: "find me in the preview\n"
         )
-        defer { scrollView.removeFromSuperview() }
         window.makeKeyAndOrderFront(nil)
         #expect(window.makeFirstResponder(textView))
         #expect(workspace.focusedPanelId == panel.id)
@@ -476,27 +476,27 @@ struct FilePreviewTextFindRoutingTests {
     /// preview has a selection, matching the terminal affordance.
     @Test
     func selectionForFindIsAvailableForTextPreviewSelection() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let fileURL = try temporaryTextFile(contents: "alpha beta gamma\n")
         defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newFilePreviewSurface(
             inPane: firstPane,
             filePath: fileURL.path,
             focus: true
         ))
-        let (scrollView, textView) = mountTextPreviewEditor(
+        let window = makeWindow()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let (_, textView) = mountTextPreviewEditor(
             for: panel,
             in: window,
             content: "alpha beta gamma\n"
         )
-        defer { scrollView.removeFromSuperview() }
         window.makeKeyAndOrderFront(nil)
         #expect(window.makeFirstResponder(textView))
         #expect(manager.focusedTextFilePreviewPanel === panel)
@@ -514,25 +514,20 @@ struct FilePreviewTextFindRoutingTests {
     /// surface; routing must fall through unchanged for them.
     @Test
     func findRoutingFallsThroughForNonTextFilePreview() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("bin")
         try Data([0x00, 0x01, 0x00, 0x02]).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newFilePreviewSurface(
             inPane: firstPane,
             filePath: fileURL.path,
             focus: true
         ))
-        defer { panel.close() }
         try #require(panel.previewMode != .text)
         #expect(manager.focusedTextFilePreviewPanel == nil)
 
@@ -567,16 +562,15 @@ struct FilePreviewTextFindRoutingTests {
         textView.panel = panel
         scrollView.documentView = textView
         panel.attachTextView(textView)
-        window.contentView?.addSubview(scrollView)
+        window.contentView = scrollView
         return (scrollView, textView)
     }
 
-    private func mainWindow(for windowId: UUID) -> NSWindow? {
-        AppDelegate.shared?.windowForMainWindowId(windowId)
-    }
-
-    private func closeWindow(withId windowId: UUID) {
-        mainWindow(for: windowId)?.close()
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
     }
 }
 
