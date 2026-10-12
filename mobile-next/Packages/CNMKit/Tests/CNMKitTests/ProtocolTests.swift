@@ -55,3 +55,23 @@ import Testing
     }
 }
 #endif
+
+#if os(macOS)
+@Suite struct AgentLogTests {
+    @Test func streamedChunksFoldIntoOneEvent() {
+        var events: [AgentEvent] = []
+        func chunk(_ seq: Int, _ text: String, kind: String = "agent_message_chunk") -> AgentEvent {
+            AgentEvent(session: "s", seq: seq, kind: .update, at: Date(),
+                       payload: ["sessionUpdate": .string(kind), "content": ["type": "text", "text": .string(text)]])
+        }
+        AgentManager.fold(chunk(0, "Hel"), into: &events)
+        AgentManager.fold(chunk(1, "lo"), into: &events)
+        AgentManager.fold(chunk(2, "hmm", kind: "agent_thought_chunk"), into: &events)
+        AgentManager.fold(chunk(3, " world"), into: &events)
+        #expect(events.count == 3)
+        #expect(events[0].payload["content"]?["text"]?.stringValue == "Hello")
+        #expect(events[0].seq == 1)
+        #expect(events[2].seq == 3)
+    }
+}
+#endif

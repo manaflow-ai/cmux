@@ -27,7 +27,10 @@ final class AgentManager: @unchecked Sendable {
 
     private final class Session: @unchecked Sendable {
         var info: AgentSessionInfo
+        /// The log with consecutive text chunks merged; each event keeps the
+        /// seq of the last raw event folded into it.
         var events: [AgentEvent] = []
+        var nextSeq = 0
         var process: ACPProcess?
         var acpSessionID: String?
         var permissionWaiters: [String: CheckedContinuation<String?, Never>] = [:]
@@ -337,14 +340,35 @@ final class AgentManager: @unchecked Sendable {
 
     private func append(_ session: Session, _ kind: AgentEvent.Kind, _ payload: JSONValue) {
         let event: AgentEvent = lock.withLock {
-            let event = AgentEvent(session: session.info.id, seq: session.events.count, kind: kind, at: Date(), payload: payload)
-            session.events.append(event)
+            let event = AgentEvent(session: session.info.id, seq: session.nextSeq, kind: kind, at: Date(), payload: payload)
+            session.nextSeq += 1
+            Self.fold(event, into: &session.events)
             session.info.updatedAt = event.at
             if kind == .userPrompt { session.info.preview = nil }
             return event
         }
         if let value = try? JSONValue.encode(event) { emit?(.agentEvent, value) }
         persist(session, event: event)
+    }
+
+    /// Appends `event`, merging a streamed text chunk into the previous event
+    /// when both are chunks of the same kind (phones fold them the same way).
+    static func fold(_ event: AgentEvent, into events: inout [AgentEvent]) {
+        let chunkKinds: Set<String> = ["agent_message_chunk", "agent_thought_chunk"]
+        if event.kind == .update,
+           let kind = event.payload["sessionUpdate"]?.stringValue, chunkKinds.contains(kind),
+           let text = event.payload["content"]?["text"]?.stringValue,
+           var last = events.last, last.kind == .update,
+           last.payload["sessionUpdate"]?.stringValue == kind,
+           let previous = last.payload["content"]?["text"]?.stringValue
+        {
+            last.payload = ["sessionUpdate": .string(kind), "content": ["type": "text", "text": .string(previous + text)]]
+            last.seq = event.seq
+            last.at = event.at
+            events[events.count - 1] = last
+        } else {
+            events.append(event)
+        }
     }
 
     private func setState(_ session: Session, _ state: AgentSessionInfo.State) {
@@ -385,7 +409,9 @@ final class AgentManager: @unchecked Sendable {
             if info.state != .failed { info.state = .exited }
             let session = Session(info: info)
             if let log = try? Data(contentsOf: file.deletingPathExtension().appendingPathExtension("jsonl")) {
-                session.events = log.split(separator: 0x0A).compactMap { try? JSONDecoder.cnm.decode(AgentEvent.self, from: Data($0)) }
+                let raw = log.split(separator: 0x0A).compactMap { try? JSONDecoder.cnm.decode(AgentEvent.self, from: Data($0)) }
+                for event in raw { Self.fold(event, into: &session.events) }
+                session.nextSeq = (raw.last?.seq ?? -1) + 1
             }
             sessions[info.id] = session
         }

@@ -213,10 +213,11 @@ final class HostConnection: Identifiable {
                 return
             }
             guard var events = agentEvents[event.session] else { return }
-            if event.seq == events.count {
+            let lastSeq = events.last?.seq ?? -1
+            if event.seq == lastSeq + 1 {
                 events.append(event)
                 agentEvents[event.session] = events
-            } else if event.seq > events.count {
+            } else if event.seq > lastSeq + 1 {
                 // A gap (a dropped notification): reload the log.
                 Task { await attachAgent(event.session) }
             }
@@ -322,7 +323,7 @@ final class HostConnection: Identifiable {
             return
         }
         var events = result.events
-        for event in (attaching[session] ?? []).sorted(by: { $0.seq < $1.seq }) where event.seq == events.count {
+        for event in (attaching[session] ?? []).sorted(by: { $0.seq < $1.seq }) where event.seq == (events.last?.seq ?? -1) + 1 {
             events.append(event)
         }
         agentEvents[session] = events

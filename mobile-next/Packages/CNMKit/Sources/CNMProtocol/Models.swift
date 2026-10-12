@@ -292,6 +292,8 @@ public struct AgentEvent: Sendable, Hashable, Codable {
     }
 
     public var session: String
+    /// Increases by one per raw event. A merged event (streamed text chunks
+    /// folded together) carries the seq of its last chunk.
     public var seq: Int
     public var kind: Kind
     public var at: Date
