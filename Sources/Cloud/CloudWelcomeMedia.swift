@@ -83,9 +83,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// List variant: a bar for the current feature and a dot for each other one,
     /// each centered on its text, in place of a bar per feature.
     var listUsesDots = false
-    /// A headline under "Introducing cmux cloud" in the poster; nil shows
-    /// "Introducing" over "cmux cloud".
-    var posterHeadline: String? = nil
+    /// The headline shown in the poster's title band.
+    var posterHeadline: String? = CloudWelcomeView.headline
     /// The user's New Cloud Machine shortcut, shown on the Create row.
     var newMachineShortcut: String? = "⇧⌘Y"
     /// The title sits in a dark band under the clip; false runs the clip full
@@ -138,8 +137,11 @@ struct CloudWelcomeMediaCarousel: View {
         }
         .task { await observePlayback() }
         .task(id: currentSlide.id) { await loadDuration() }
-        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
+        .task(id: AdvanceKey(slide: currentSlide.id, revision: playback.revision, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
             await advanceWhenDone()
+        }
+        .onChange(of: reduceMotion, initial: true) { _, reduced in
+            playback.setReduceMotion(reduced)
         }
     }
 
@@ -381,10 +383,6 @@ struct CloudWelcomeMediaCarousel: View {
             TapGesture().onEnded { if autoplays { setPaused(!playback.isPaused) } },
             including: showsFeatureList ? .subviews : .all
         )
-        // Reduce Motion on the launch card: each clip holds its first frame.
-        .task(id: currentSlide.id) {
-            if showsFeatureList && reduceMotion { setPaused(true) }
-        }
         // Keep the controls outside the clip's gesture so one button click
         // cannot also toggle playback through the surrounding media surface.
         .overlay { mediaControls }
@@ -454,7 +452,7 @@ struct CloudWelcomeMediaCarousel: View {
     @ViewBuilder
     private func slideMedia(_ slide: CloudWelcomeSlide) -> some View {
         if let url = mediaURL(slide) {
-            Player(url: url, playback: playback)
+            Player(url: url, playback: playback, reduceMotion: reduceMotion)
         } else {
             placeholder(slide)
         }
@@ -547,6 +545,7 @@ struct CloudWelcomeMediaCarousel: View {
 
     private struct AdvanceKey: Equatable {
         let slide: String
+        let revision: Int
         let isPaused: Bool
         let duration: Double
         let movieFailed: Bool
@@ -591,14 +590,16 @@ struct CloudWelcomeMediaCarousel: View {
         guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, (!isMovie || movieFailed) else { return }
         let slideID = currentSlide.id
         let slideIndex = index
+        let revision = playback.revision
         let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
-            await playback.waitForAdvance(after: remaining)
+            guard await playback.waitForAdvance(after: remaining) else { return }
         }
         // A pause, a new slide or a stale failed-movie callback can land just as
         // the timer ends. Only the task that scheduled this slide may advance it.
         guard !Task.isCancelled,
               !playback.isPaused,
+              playback.revision == revision,
               index == slideIndex,
               currentSlide.id == slideID
         else { return }
@@ -739,19 +740,26 @@ struct CloudWelcomeMediaCarousel: View {
     private struct Player: NSViewRepresentable {
         let url: URL
         let playback: Playback
+        let reduceMotion: Bool
 
         func makeNSView(context: Context) -> NSView {
+            playback.setReduceMotion(reduceMotion)
             if url.pathExtension.lowercased() == "gif" {
                 let view = NSImageView()
                 view.image = NSImage(contentsOf: url)
-                view.animates = true
+                view.animates = !reduceMotion
                 view.imageScaling = .scaleProportionallyUpOrDown
                 return view
             }
             return MovieView(url: url, playback: playback)
         }
 
-        func updateNSView(_ nsView: NSView, context: Context) {}
+        func updateNSView(_ nsView: NSView, context: Context) {
+            playback.setReduceMotion(reduceMotion)
+            if let imageView = nsView as? NSImageView {
+                imageView.animates = !reduceMotion
+            }
+        }
 
         final class MovieView: NSView {
             private let player = AVQueuePlayer()
@@ -873,8 +881,12 @@ extension CloudWelcomeMediaCarousel {
         @ObservationIgnored private let loopContinuation: AsyncStream<Void>.Continuation
         private weak var player: AVPlayer?
         private(set) var index = 0
-        private(set) var isPaused = false
+        private var manuallyPaused = false
+        private var reduceMotion = false
+        var isPaused: Bool { manuallyPaused || reduceMotion }
         private(set) var movieFailed = false
+        /// A restarted slide invalidates its previous fallback deadline.
+        private(set) var revision = 0
         private var pausedElapsed: Double?
         private var startedAt: Date?
         private var advanceTimer: CloudWelcomeAdvanceTimer?
@@ -890,7 +902,7 @@ extension CloudWelcomeMediaCarousel {
         /// Waits for a cancellable one-shot presentation deadline. A dispatch
         /// timer is used instead of task sleep so changing slides tears down the
         /// deadline immediately and does not leave a sleeping UI task behind.
-        func waitForAdvance(after seconds: Double) async {
+        func waitForAdvance(after seconds: Double) async -> Bool {
             cancelAdvanceTimer()
             let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
             advanceContinuation = continuation
@@ -917,6 +929,7 @@ extension CloudWelcomeMediaCarousel {
             }, onCancel: { [weak self] in
                 Task { @MainActor in self?.cancelAdvanceTimer(ifGeneration: generation) }
             })
+            return !Task.isCancelled && generation == advanceGeneration
         }
 
         private func cancelAdvanceTimer(ifGeneration generation: Int? = nil) {
@@ -950,38 +963,60 @@ extension CloudWelcomeMediaCarousel {
         }
 
         func setPaused(_ paused: Bool) {
-            guard paused != isPaused else { return }
+            let wasPaused = isPaused
+            manuallyPaused = paused
+            updatePlaybackPause(wasPaused: wasPaused)
+        }
+
+        /// Every media attachment and slide transition obeys Reduce Motion.
+        func setReduceMotion(_ enabled: Bool) {
+            guard enabled != reduceMotion else { return }
+            let wasPaused = isPaused
+            reduceMotion = enabled
+            if enabled {
+                startedAt = Date()
+                pausedElapsed = 0
+            }
+            updatePlaybackPause(wasPaused: wasPaused)
+            if enabled {
+                player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+        }
+
+        private func updatePlaybackPause(wasPaused: Bool) {
+            guard wasPaused != isPaused else { return }
             let now = Date()
-            if paused {
+            if isPaused {
                 pausedElapsed = elapsed(at: now)
-                isPaused = true
                 player?.pause()
             } else {
                 if let held = pausedElapsed {
                     startedAt = now.addingTimeInterval(-held)
                 }
                 pausedElapsed = nil
-                isPaused = false
                 player?.play()
             }
         }
 
         /// Starts the new slide's playhead and clears any pause carried by the old slide.
-        func startNewSlide(at newIndex: Int? = nil) {
+        func startNewSlide(at newIndex: Int? = nil, resetsFailure: Bool = true) {
+            cancelAdvanceTimer()
+            revision += 1
             if let newIndex {
                 index = newIndex
             }
-            movieFailed = false
+            if resetsFailure { movieFailed = false }
             startedAt = Date()
-            pausedElapsed = nil
-            isPaused = false
-            player?.play()
+            manuallyPaused = false
+            pausedElapsed = reduceMotion ? 0 : nil
+            if isPaused { player?.pause() } else { player?.play() }
         }
 
         /// Plays the current movie again from its first frame.
         func restart() {
+            cancelAdvanceTimer()
             player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-            startNewSlide()
+            startNewSlide(resetsFailure: false)
         }
 
         /// Returns elapsed playhead time, including a held value while paused.

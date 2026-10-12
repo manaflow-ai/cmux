@@ -43,27 +43,56 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Presents at launch when it applies, and marks it seen on the way so a
     /// quit or crash while it is open does not show it again.
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
-        guard !didConsiderLaunchPresentation else { return }
-        didConsiderLaunchPresentation = true
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        guard Self.shouldPresentAutomatically(
+        let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        guard claimLaunchPresentation(
             defaults: defaults,
             appVersion: appVersion,
-            policy: ManagedDevicePolicy()
+            policy: ManagedDevicePolicy(),
+            isDebugBuild: isDebugBuild,
+            isRunningUnderXCTest: MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment),
+            isUITestMode: environment["CMUX_UI_TEST_MODE"] == "1"
         ) else { return }
-        Self.markCampaignSeen(in: defaults)
         present(over: parent)
     }
 
-    /// Help and launch share the same feature-list layout.
-    /// `posterHeadline` swaps "cmux cloud" in the poster for a headline (debug
-    /// builds compare both from Help).
-    /// The poster/footer flags pick a debug variation of the launch card.
+    /// Claims the release announcement synchronously before creating its window.
+    /// Overlapping main-window callbacks and a later launch share the persisted
+    /// marker; an ineligible first window still consumes this launch's decision.
+    func claimLaunchPresentation(
+        defaults: UserDefaults,
+        appVersion: String,
+        policy: ManagedDevicePolicy,
+        isDebugBuild: Bool = false,
+        isRunningUnderXCTest: Bool = false,
+        isUITestMode: Bool = false
+    ) -> Bool {
+        guard !didConsiderLaunchPresentation else { return false }
+        didConsiderLaunchPresentation = true
+        guard Self.shouldPresentAutomatically(
+            defaults: defaults,
+            appVersion: appVersion,
+            policy: policy,
+            isDebugBuild: isDebugBuild,
+            isRunningUnderXCTest: isRunningUnderXCTest,
+            isUITestMode: isUITestMode
+        ) else { return false }
+        Self.markCampaignSeen(in: defaults)
+        return true
+    }
+
+    /// Help deliberately reopens the same headline card without consuming or
+    /// resetting the automatic release announcement's persistence marker.
     func present(
         over parent: NSWindow?,
         sliderShowsFeatureList: Bool = true,
         sliderListUsesDots: Bool = false,
-        posterHeadline: String? = nil,
+        posterHeadline: String? = CloudWelcomeView.headline,
         posterShowsTitle: Bool = true,
         posterShowsIcon: Bool = true,
         showsNewBadge: Bool = false,

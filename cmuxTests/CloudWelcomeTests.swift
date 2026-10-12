@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CmuxSettings
 import Testing
 
@@ -20,6 +21,116 @@ struct CloudWelcomeTests {
         #expect(view.posterShowsIcon)
         #expect(!view.showsNewBadge)
         #expect(!view.footerHasNotNow)
+        let carousel = CloudWelcomeMediaCarousel(slides: CloudWelcomeSlide.all, mediaURL: { _ in nil })
+        #expect(carousel.posterHeadline == view.posterHeadline)
+    }
+
+    @Test("overlapping launch triggers, dismissal and relaunch present one campaign")
+    @MainActor
+    func launchClaimIsPersistedBeforePresentation() throws {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        let controller = CloudWelcomeWindowController()
+
+        #expect(controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        // The marker exists before the caller creates any window or awaits work.
+        #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == "0.65.1")
+        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+        controller.dismiss()
+        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+
+        // A fresh controller and defaults handle model another launch/process.
+        let relaunchedDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let relaunched = CloudWelcomeWindowController()
+        #expect(!relaunched.claimLaunchPresentation(defaults: relaunchedDefaults, appVersion: "0.65.1", policy: policy))
+    }
+
+    @Test("a blocked first window waits for the next launch, even when policy changes")
+    @MainActor
+    func blockedLaunchDoesNotReconsiderOrConsumeCampaign() throws {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let blocked = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key in
+            key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
+        }
+        let allowed = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        let controller = CloudWelcomeWindowController()
+        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: blocked))
+        #expect(!controller.claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: allowed))
+        #expect(defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == nil)
+        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: allowed))
+    }
+
+    @Test("ineligible release and debug/test launches leave the campaign available", arguments: ["0.65.0", "0.65.2", "0.65.1-nightly", "0.65.1"])
+    @MainActor
+    func launchClaimEnforcesReleaseAndRuntime(appVersion: String) throws {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        let modes = appVersion == "0.65.1" ? [(true, false, false), (false, true, false), (false, false, true)] : [(false, false, false)]
+        for (debug, xctest, uiTest) in modes {
+            let controller = CloudWelcomeWindowController()
+            #expect(!controller.claimLaunchPresentation(
+                defaults: defaults, appVersion: appVersion, policy: policy,
+                isDebugBuild: debug, isRunningUnderXCTest: xctest, isUITestMode: uiTest
+            ))
+        }
+        #expect(defaults.object(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == nil)
+        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+    }
+
+    @Test("Reduce Motion holds movies through selection, restart and attachment")
+    @MainActor
+    func reducedMotionOwnsPlayback() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let player = AVPlayer()
+        playback.attach(player)
+        playback.setReduceMotion(true)
+        #expect(playback.isPaused)
+        playback.startNewSlide(at: 1)
+        playback.restart()
+        playback.setPaused(false)
+        #expect(playback.isPaused)
+        let replacement = AVPlayer()
+        playback.attach(replacement)
+        playback.setReduceMotion(false)
+        #expect(!playback.isPaused)
+        playback.setPaused(true)
+        playback.setReduceMotion(true)
+        playback.setReduceMotion(false)
+        #expect(playback.isPaused)
+    }
+
+    @Test("a cancelled fallback deadline cannot advance the slide")
+    @MainActor
+    func cancelledDeadlineDoesNotAdvance() async {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let deadline = Task { await playback.waitForAdvance(after: 60) }
+        await Task.yield()
+        deadline.cancel()
+        #expect(await deadline.value == false)
+    }
+
+    @Test("restarting a failed movie preserves its fallback transition")
+    @MainActor
+    func restartingFailedMovieKeepsFailureState() async {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        let player = AVPlayer()
+        playback.attach(player)
+        playback.didFail(player)
+        #expect(playback.movieFailed)
+        let deadline = Task { await playback.waitForAdvance(after: 60) }
+        await Task.yield()
+        let revision = playback.revision
+        playback.restart()
+        #expect(playback.movieFailed)
+        #expect(playback.revision == revision + 1)
+        deadline.cancel()
+        #expect(await deadline.value == false)
     }
 
     @Test("welcome includes Cloud on and off; only MDM blocks it", arguments: [nil, false, true] as [Bool?], [false, true])

@@ -19,7 +19,7 @@ enum CloudWelcomeNextStep: Equatable {
     }
 }
 
-/// "Your work, wherever you go": shown once on the 0.65.1 launch for users who
+/// "Cloud machines for your agents": shown once on the 0.65.1 launch for users who
 /// can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
@@ -36,8 +36,8 @@ struct CloudWelcomeView: View {
     var sliderAutoplays = true
     var sliderShowsFeatureList = true
     var sliderListUsesDots = false
-    /// Launch card: a headline in place of "cmux cloud" (nil keeps the name).
-    var posterHeadline: String? = nil
+    /// Launch card: the selected Headline preview ships by default.
+    var posterHeadline: String? = CloudWelcomeView.headline
     /// Launch card: the user's New Cloud Machine shortcut for the Create row.
     var newMachineShortcut: String? = "⇧⌘Y"
     /// Launch card variations (debug comparisons): title in the poster band or
@@ -51,6 +51,9 @@ struct CloudWelcomeView: View {
     @State private var isHoveringNotNow = false
 
     static let windowWidth: CGFloat = 580
+    static var headline: String {
+        String(localized: "cloud.welcome.headline", defaultValue: "Cloud machines for your agents")
+    }
     /// The launch layout: the clip poster on top, the features under it.
     static let listWindowWidth: CGFloat = CloudWelcomeMediaCarousel.posterWidth
 
@@ -81,7 +84,7 @@ struct CloudWelcomeView: View {
     }
 
     /// The 0.65.1 launch card: the clip poster (with the title in its band),
-    /// the four features, then one full-width action with the plan line under
+    /// the five features, then one full-width action with the plan line under
     /// it. The × in the corner (and Escape) is Not Now.
     private var launchBody: some View {
         VStack(spacing: 0) {
@@ -130,7 +133,7 @@ struct CloudWelcomeView: View {
                 .accessibilityIdentifier("CloudWelcomePrimaryButton")
                 Text(noteLines.joined(separator: " "))
                     .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -174,7 +177,7 @@ struct CloudWelcomeView: View {
             HStack(spacing: 6) {
                 Text(noteLines.joined(separator: " "))
                     .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 6)
