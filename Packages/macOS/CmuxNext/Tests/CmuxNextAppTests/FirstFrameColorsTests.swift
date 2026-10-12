@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-@testable import CmuxNextAppPermissions
 @testable import CmuxNextApps
 @testable import CmuxNextDesign
 @testable import CmuxNextFeed
@@ -10,8 +9,8 @@ import AppKit
 import SwiftUI
 import Testing
 
-/// Theme sweep 3, batch E: the color structs of Tasks, the feed, the server UI, app permissions,
-/// remote panes and app scenes started as macOS's grays and system orange, red and green until
+/// Theme sweep 3, batch E: the color structs of Tasks, the feed, the server UI, remote panes and
+/// app scenes started as macOS's grays and system orange, red and green until
 /// their host resolved its theme scope, so a first frame could draw the system's colors. Their
 /// defaults are now the app theme's current tokens (the colors every scope derives from). The
 /// workspace color row in a themed menu rings the hovered swatch in the menu's theme accent.
@@ -52,13 +51,6 @@ import Testing
         Self.expect(colors.warning, Self.app.attention, "warning")
         Self.expect(colors.critical, Self.app.danger, "critical")
         Self.expect(colors.ok, Self.app.success, "ok")
-    }
-
-    @Test func appPermissionsStartInTheAppTheme() {
-        let colors = AppPermissionsColors()
-        Self.expect(colors.text, Self.app.textPrimary, "text")
-        Self.expect(colors.separator, Self.app.separator, "separator")
-        Self.expect(colors.warning, Self.app.attention, "warning")
     }
 
     @Test func aRemotePaneStartsInTheAppTheme() {
