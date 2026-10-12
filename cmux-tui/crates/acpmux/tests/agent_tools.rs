@@ -110,7 +110,8 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     }
     let hub = hub();
 
-    // An ACP harness: both servers in session/new.
+    // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
+    // for this session on this daemon's socket.
     let mut local = client(&hub, Origin::Local);
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
@@ -120,9 +121,12 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names, ["cmux-cua", "cmux"], "{servers}");
+    assert_eq!(names, ["cmux-cua", "cmux-secrets", "cmux"], "{servers}");
     assert_eq!(servers[0]["command"], json!(cua), "{servers}");
-    assert_eq!(servers[1]["args"], json!(["mcp", "serve"]), "{servers}");
+    assert_eq!(servers[1]["args"], json!(["secret-mcp"]), "{servers}");
+    let secret_env = servers[1]["env"].to_string();
+    assert!(secret_env.contains("ACPMUX_SECRET_SESSION") && secret_env.contains(&id), "{servers}");
+    assert_eq!(servers[2]["args"], json!(["mcp", "serve"]), "{servers}");
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin.
     let id = local.new_session("fakeclaude").await;
