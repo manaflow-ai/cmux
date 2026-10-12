@@ -5,7 +5,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { type TurnView, turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -116,19 +116,27 @@ function placement() {
 const fresh = (rows: AcpmuxRow[]) => rows.map((one) => structuredClone(one));
 
 test("a long chat draws each update as a fresh layout would: streaming, redraws, scrolling, a turn ending", async () => {
-  const history = Array.from({ length: 300 }, (_, index) => finishedTurn(index)).flat();
+  const history = Array.from({ length: 300 }, (_, index) => {
+    // Turn 150 comes two hours after the one before it, so a date line draws over it.
+    if (index === 150) at += 7_200_000;
+    return finishedTurn(index);
+  }).flat();
   const prompt = row("live-user", "user", { text: "Stream a long answer" });
   let reply = row("live-answer", "assistant", { text: "First words", streaming: true });
   const raw = () => [...history, prompt, reply];
   const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  // Each snapshot's turns build on the last one's, as the pane's do.
+  let view: TurnView | undefined;
   const draw = async (rows: AcpmuxRow[], working: boolean) => {
-    const shown = turnView(rows, new Set(), { working, now: at });
+    view = turnViewFrom(rows, expanded, { working, now: at }, view);
+    const shown = view.rows;
     // The turns read as a fresh look at the same rows does.
     expect(shown.map((one) => [one.id, one.version])).toEqual(
       turnView(fresh(rows), new Set(), { working, now: at }).map((one) => [one.id, one.version]),
     );
     await act(async () =>
-      root.render(<VirtualTranscript rows={shown} working={working} onToggleActivity={() => {}} expanded={new Set()} />),
+      root.render(<VirtualTranscript rows={shown} working={working} onToggleActivity={() => {}} expanded={expanded} />),
     );
   };
   const redraw = async (id: string, height: number) => {
@@ -157,6 +165,13 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
     await redraw(middle, 333);
     reply = { ...reply, version: reply.version + 1, text: `${reply.text} Still streaming.` };
     await draw(raw(), true);
+    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+
+    // A prompt sent while it streams waits in the turn; an answer far up the history is edited.
+    const held = row("held-user", "user", { text: "And then?", pending: true });
+    await draw([...raw(), held], true);
+    history[402] = { ...history[402]!, version: 2, text: "Answer 100, corrected." };
+    await draw([...raw(), held], true);
     expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
 
     // The turn ends: its work folds under "Worked for", below a summary.
