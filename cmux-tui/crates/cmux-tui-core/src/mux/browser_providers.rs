@@ -38,6 +38,22 @@ impl Mux {
         self.browser_providers.snapshot()
     }
 
+    /// A stand-in cmux-browser provider for `client` that publishes no
+    /// target: daemon-rendered tabs wait for theirs, as with a live provider.
+    #[cfg(test)]
+    pub(crate) fn attach_test_browser_provider(self: &Arc<Self>, client: u64) {
+        self.register_browser_provider(
+            client,
+            BrowserProviderRegistration {
+                provider_id: "test-provider".to_string(),
+                endpoint: "ws://127.0.0.1:9/devtools/browser/test".to_string(),
+                authentication: crate::browser_provider::BrowserProviderAuthentication::None,
+                targets: Default::default(),
+            },
+        )
+        .unwrap();
+    }
+
     pub(super) fn reconcile_provider_browser_surfaces(self: &Arc<Self>) {
         let surfaces = {
             let state = self.state.lock().unwrap();
