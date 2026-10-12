@@ -1,5 +1,6 @@
 import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
+import { changedByTools } from "../changes/turnCheckpoint";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -55,8 +56,12 @@ export function SummaryPopover({
 }) {
   const t = useT();
   // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
-  const changed = new Set(changes?.files?.map((file) => file.path));
-  const outputs = changed.size > 0 ? summary.outputs.filter((file) => !changed.has(file.path)) : summary.outputs;
+  // A loaded checkpoint lists them under the repository root, outputs as the agent wrote them.
+  const changed = changes?.files ?? [];
+  const outputs =
+    changed.length > 0
+      ? summary.outputs.filter((output) => !changed.some((file) => changedByTools(file, [output])))
+      : summary.outputs;
   return (
     <>
       <SummarySection
