@@ -21,6 +21,8 @@
 //!   read-write copy stays (it may hold work not brought back yet). What
 //!   the machine already read stays read: a revoke stops what comes next.
 //! - `grants [--machine ID] [--session ID]`: the grants kept here.
+//! - `upload --socket PATH --remote-root DIR FILE...`: files the person
+//!   dropped or pasted into the chat, copied once each ([`uploads`]).
 //!
 //! What may be shared and the record: [`grants`]. What goes of a shared
 //! folder: its files (a git working copy's tracked and untracked files that
@@ -38,6 +40,7 @@
 
 mod grants;
 mod requests;
+mod uploads;
 
 use std::path::{Path, PathBuf};
 
@@ -51,6 +54,7 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
        cmux link access grants [--machine ID] [--session ID]
        cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
+       cmux link access upload --socket PATH --remote-root DIR FILE...
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
        cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
          (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
@@ -295,6 +299,15 @@ pub(super) fn run(args: &[String]) -> i32 {
                 std::time::Duration::from_secs(args.timeout.unwrap_or(300)),
                 what,
             )
+        }
+        ("upload", Args { socket: Some(socket), remote_root: Some(root), positional, .. })
+            if !positional.is_empty() =>
+        {
+            let Some(root) = grants::remote_root(root) else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            uploads::upload(socket, &root, positional)
         }
         (
             "triage",
