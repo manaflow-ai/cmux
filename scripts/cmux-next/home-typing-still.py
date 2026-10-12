@@ -6,7 +6,8 @@ over a HomeStore over the mock owner: after a send its Chief waits 1.5 s, types 
 answers, MockHomeSource.scheduleReplies), sends a message through the field's send path
 (debug.home.drive type + send) and takes window snapshots at 2.0 s and 2.6 s, while the Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
 Passes when the send goes and the bubble is in the image: its box (debug.home.drive typing) is
-read from the app and the mean colour inside it must differ from the background beside it. Socket only, no system input. Runs on
+read from the app and the mean colour inside it must differ from the background beside it; its flat
+edges have no partial pixels, also after the transcript moves by half a point in its pane (b6760b6). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
@@ -97,6 +98,23 @@ def read_png(path):
     return w, h, (rows, bpp)
 
 
+def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
+    """Pixels on the bubble's flat top and bottom edges (the middle 40 % of its width) that are neither
+    the fill nor the background (a partial pixel: the edge is not on a whole device pixel)."""
+    rows, bpp = px
+    x0 = (box["x"] + box["width"] * 0.3) * scale; x1 = (box["x"] + box["width"] * 0.7) * scale
+    top = (box["windowHeight"] - box["y"] - box["height"]) * scale; bottom = (box["windowHeight"] - box["y"]) * scale
+    count = 0
+    for edge in (top, bottom):
+        for y in range(max(0, round(edge) - 2), min(h, round(edge) + 2)):
+            for x in range(int(x0), int(x1)):
+                c = rows[y][x * bpp:x * bpp + 3]
+                near = lambda ref: all(abs(c[k] - ref[k]) <= tol for k in range(3))
+                if not near(fill) and not near(bg):
+                    count += 1
+    return count
+
+
 def mean_rgb(px, w, h, x0, y0, x1, y1):
     rows, bpp = px
     xs = range(max(0, int(x0)), min(w, int(x1))); ys = range(max(0, int(y0)), min(h, int(y1)))
@@ -131,7 +149,7 @@ try:
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
     check("the send goes", bool(sent.get("ok")), sent)
     shots, box = [], {}
-    for delay in (2.0, 0.6):
+    for delay in (1.9, 0.3):
         time.sleep(delay)  # test harness: the mock Chief types from 1.5 s to 3.0 s after the send
         path = os.path.join(opts.out, "typing-%d.png" % len(shots))
         if not shots:
@@ -153,6 +171,32 @@ try:
         print(f"     typing box px ({x0:.0f},{y0:.0f})-({x1:.0f},{y1:.0f}) inside {inner} background {bg} mean diff {diff:.1f}", flush=True)
         check("the typing bubble is in the image (inside differs from the background by more than 6 levels)", diff > 6,
               {"inside": inner, "background": bg})
+        print(f"     partial pixels on the flat edges (information; the bubble breathes): {edge_partials(px, w, h, box, scale, inner, bg)}", flush=True)
+    # MessagesLab b6760b6: the transcript moved by half a point in its pane (no size change): the bubble
+    # must still land on whole device pixels (RowCell.windowPlace, refreshed by Home's host).
+    def whole(v):  # a device-pixel edge (window points x backing scale)
+        return abs(v - round(v)) < 0.01
+    def edges(b, k):
+        return [b["x"] * k, (b["x"] + b["width"]) * k, b["y"] * k, (b["y"] + b["height"]) * k]
+    rpc("debug.home.drive", {"action": "nudge", "dx": 0.5})
+    time.sleep(0.2)  # test harness: one display frame for the move to show
+    half = rpc("debug.home.drive", {"action": "typing"}) or {}
+    path = os.path.join(opts.out, "typing-half-point.png")
+    rpc("debug.window_snapshot", {"path": path})
+    check("the transcript sits on a half point", bool(half.get("ok")) and abs((half.get("hostX", 0) % 1) - 0.5) < 0.01, half)
+    if half.get("ok") and os.path.exists(path):
+        w, h, px = read_png(path)
+        scale = w / half["windowWidth"]
+        x0, x1 = half["x"] * scale, (half["x"] + half["width"]) * scale
+        y1 = (half["windowHeight"] - half["y"]) * scale; y0 = y1 - half["height"] * scale
+        inner = mean_rgb(px, w, h, x0 + (x1 - x0) * 0.35, y0 + (y1 - y0) * 0.15, x1 - (x1 - x0) * 0.05, y1 - (y1 - y0) * 0.15)
+        bg = mean_rgb(px, w, h, x1 + 20 * scale, y0, x1 + 60 * scale, y1)
+        partial = edge_partials(px, w, h, half, scale, inner, bg)
+        px_edges = edges(half, scale)
+        print(f"     half point: host x {half['hostX']}, bubble edges in device px {[round(e, 3) for e in px_edges]},"
+              f" partial pixels on the flat edges (information; the bubble breathes) {partial}", flush=True)
+        # The bubble's own (model) frame, without the breathing: every edge on a whole device pixel.
+        check("on a half point the bubble's edges are on whole device pixels", all(whole(e) for e in px_edges), px_edges)
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

@@ -288,10 +288,16 @@ enum Springs {
     static let typingBreathBody = Breath(amplitude: 0.0290, period: 1.906, start: 0.296)
     static let typingBreathDiscs = [Breath(amplitude: 0.1057, period: 0.901, start: 0.242),
                                     Breath(amplitude: 0.1510, period: 0.700, start: 0.178)]
-    /// The point the bubble breathes about (row coordinates): 15.35 pt left of and 4.7 pt above its centre
-    /// (the fixed point of its edges and dots over the media take's 2.2 s).
+    /// The point the bubble breathes about (row coordinates): 7.00 pt right of its left edge and 8.63 pt under its
+    /// top (15.00 pt left of and 4.87 pt above its centre). Read from the pixel edges of every frame of the media
+    /// take's 2.2 s at rest (tools/evidence/anim/typanchor.py, typanchorfit.py; ANIMATIONS.md section 6, cx-3cb
+    /// typing-anchor): right +1.073 pt, top -0.271, bottom +0.552 at the peak. With this wave's +2.9 % the right edge
+    /// gives x; y is the least-squares point of the top and bottom (their sum is 3.05 %: -0.250 and +0.533 here).
+    /// Messages' left edge does not show its -0.20 pt: it clips the bubble to its frame rounded to whole device
+    /// pixels (RowCell.clipTypingBody does the same). Before: 15.35 and 4.70 pt from the centre (a capsule fit with a
+    /// blur bias; within this measurement's spread of about 1 pt, 0.03 pt at the edges).
     static var typingBreathAnchor: CGPoint {
-        CGPoint(x: RowDraw.typingBubble.midX - 15.35, y: RowDraw.typingBubble.midY - 4.70)
+        CGPoint(x: RowDraw.typingBubble.minX + 7.00, y: RowDraw.typingBubble.minY + 8.63)
     }
     /// `--typing-phase S` (still scenes only): the typing dots hold S s into their cycle and the breathing
     /// at rest (animation speed 0), so a still capture of the indicator is the same in every run.

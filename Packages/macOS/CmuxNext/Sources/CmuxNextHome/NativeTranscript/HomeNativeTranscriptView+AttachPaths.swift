@@ -82,6 +82,10 @@ extension HomeNativeTranscriptView {
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
     /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
     public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
+    /// Moves the transcript by `dx`, `dy` points in this view (a pane on a fraction of a point).
+    public func debugNudge(dx: CGFloat, dy: CGFloat) { transcript.debugNudge(dx: dx, dy: dy) }
+    /// The transcript host's origin in window points (bottom-left origin).
+    public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
     /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
     public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
     /// The text of the newest `limit` messages this view shows, oldest first.

@@ -245,6 +245,21 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeView.height(lines: 1, chips: false)) }
     var fieldTop: CGFloat { compose.fieldBottom - compose.fieldHeight }
     func windowY(contentY: CGFloat) -> CGFloat { contentY - collection.contentOffset.y + MessagesWindowView.cvTop }
+    /// This view's origin in its window's layer tree and the directions of its axes there (RowCell.windowPlace): a host
+    /// can place the view on a fraction of a point (cmux Home's panes); the typing indicator snaps to the window's
+    /// device pixels, not to the view's.
+    var windowPlace: (origin: CGPoint, axis: CGPoint) {
+        let o = layer.convert(CGPoint.zero, to: nil), p = layer.convert(CGPoint(x: 1, y: 1), to: nil)
+        guard o.x.isFinite, o.y.isFinite, p.x.isFinite, p.y.isFinite else { return (.zero, CGPoint(x: 1, y: 1)) }
+        return (o, CGPoint(x: p.x - o.x, y: p.y - o.y))
+    }
+    /// The host moved this view in its window without a layout or scroll pass here (a cmux Home pane moved by a
+    /// fraction of a point, the view attached to a window): the visible rows read the new place (the typing
+    /// indicator snaps again to the window's device pixels).
+    func refreshWindowPlace() {
+        let place = windowPlace
+        for case let cell as RowCell in collection.visibleCells { cell.windowPlace = place }
+    }
     var pinnedOffset: CGFloat { layout.contentHeight - cvHeight }
     /// Lowest allowed offset: the oldest loaded row just under the header.
     var minOffset: CGFloat { min(layout.rowsTop - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop), pinnedOffset) }
@@ -1464,6 +1479,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.contentView.layer.opacity = opacity
             CATransaction.commit()
         }
+        if case .typing = r.spec.kind { cell.windowPlace = windowPlace }
         cell.windowY = windowY(contentY: layout.frame(for: i).minY)
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
@@ -1550,8 +1566,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if pinned != store.state.ui.scroll.pinnedToBottom || abs(back - store.state.ui.scroll.offset) > 0.5 {
             store.dispatch(.setScroll(offset: back, pinned: pinned))
         }
+        let place = windowPlace
         for case let cell as RowCell in collection.visibleCells {
             if let ip = collection.indexPath(for: cell), ip.item < model.count {
+                cell.windowPlace = place
                 cell.windowY = windowY(contentY: layout.frame(for: ip.item).minY)
             }
         }

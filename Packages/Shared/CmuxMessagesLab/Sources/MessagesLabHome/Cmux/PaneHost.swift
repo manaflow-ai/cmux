@@ -139,6 +139,9 @@ final class HostView: NSView {
         // emoji buttons were invisible until an engine change moved the
         // field, and "+" and emoji never came back.
         demo?.layoutIfNeeded()
+        // MessagesLab b6760b6: the typing indicator snaps to the window's device pixels; the pane's place
+        // in the window can change with no size change of the window view (RowCell.windowPlace).
+        demo?.refreshWindowPlace()
         CATransaction.commit()
         placeNativeViews()
     }
@@ -176,6 +179,7 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
+        demo?.refreshWindowPlace()  // MessagesLab b6760b6: another window, another place
     }
 
     override func viewDidChangeBackingProperties() {
