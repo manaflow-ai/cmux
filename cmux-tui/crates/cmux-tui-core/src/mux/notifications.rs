@@ -237,6 +237,21 @@ impl Mux {
     ) -> Value {
         let mut value = self.notification_snapshot_value(notification, session_id, &[]);
         value["unread"] = Value::Bool(notification.terminal_id.is_some());
+        // A non-terminal tab (an agent chat) is named by its content, so a
+        // restart finds the tab again to dedupe and acknowledge against.
+        if notification.terminal_id.is_none()
+            && let Some(surface) = notification.surface
+            && let Some(ContentPublicId::Browser(browser)) = self
+                .state
+                .lock()
+                .unwrap()
+                .surfaces
+                .get(&surface)
+                .and_then(|surface| surface.resource_identity())
+                .map(|identity| identity.content_id.clone())
+        {
+            value["extra"]["browser_id"] = serde_json::json!(browser);
+        }
         value
     }
 

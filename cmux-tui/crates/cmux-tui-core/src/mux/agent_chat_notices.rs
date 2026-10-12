@@ -88,7 +88,20 @@ impl Mux {
     }
 
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
+        // One wait, one notice: a daemon restart mid-wait sees the wait again
+        // under a newer sequence, and the tab still holds the first notice.
+        let waiting = notice.key.starts_with("input-");
+        let unread = if waiting {
+            self.notification_rows(usize::MAX).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         for (surface, content) in self.agent_chat_tabs(session) {
+            if unread.iter().any(|(row, acknowledged)| {
+                !acknowledged && row.surface == Some(surface) && row.title == notice.title
+            }) {
+                continue;
+            }
             // Hashed: an adopted session's id is the agent's own, of any length.
             let digest = Sha256::digest(format!("{session}\n{}\n{content}", notice.key));
             let key = format!("acpmux-{digest:x}");
