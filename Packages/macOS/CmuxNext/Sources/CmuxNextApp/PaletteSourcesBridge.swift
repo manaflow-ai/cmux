@@ -15,8 +15,14 @@ enum PaletteSourcesBridge {
         }
         // cmux.json `palette.aliases` and `palette.pins`, read on every open.
         sources.rankSettings = { [weak services] in
-            let setting = PaletteRankingSetting(services?.settings?.fileRoot ?? .object([:]))
-            return PaletteRankSettings(aliases: setting.aliases, pins: setting.pins)
+            guard let services else { return PaletteRankSettings() }
+            let setting = PaletteRankingSetting(services.settings?.fileRoot ?? .object([:]))
+            // A renamed action's former id still names it.
+            let canonical = { (id: String) in services.registry.canonicalID(for: ActionID(rawValue: id)).rawValue }
+            var aliases: [String: [String]] = [:]
+            for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
+            var seen = Set<String>()
+            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted })
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
