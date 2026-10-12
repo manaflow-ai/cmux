@@ -323,6 +323,8 @@ export function NewTabPage({
     const focus = () => {
       field.current?.focus();
       field.current?.select();
+      // A page shown in a window that is not key yet gets no focus event until it is.
+      setFocused(field.current === document.activeElement);
     };
     focus();
     if (inputToken) onInputReady?.(inputToken);
