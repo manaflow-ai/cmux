@@ -15,13 +15,17 @@ struct DiffViewerGitTests {
     final class RecordingGit: DiffGitRunning {
         var writes: [(AgentPaneGitWrite, String)] = []
         var stages: [(AgentPaneGitStage, String)] = []
+        /// The one file's patch the repository's diff shows now.
+        var patch = "@@ -1 +1 @@\n-// retry 3 times\n+// retry 9 times\n"
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
             ["head": "0123456789abcdef0123456789abcdef01234567", "root": .string(repository)]
         }
 
-        func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue {
-            ["files": [], "scope": .string(scope.rawValue)]
+        func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
+            var file: [String: JSONValue] = ["path": "install.sh", "additions": 1, "deletions": 1]
+            if includePatch { file["patch"] = .string(patch) }
+            return ["files": [.object(file)], "scope": .string(scope.rawValue)]
         }
 
         func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
@@ -71,6 +75,28 @@ struct DiffViewerGitTests {
                                         context: PageCallContext(page: "cmux.diff"))
         }
         #expect(git.writes.count == 1)
+        await provider.close()
+    }
+
+    /// The viewer refreshes after an agent edits the files it shows (cx-9ce.34): the page asks for a
+    /// fingerprint of its scope's diff, which changes with any edit, even one that keeps the counts
+    /// (a reworded comment), and stays the same otherwise.
+    @Test func aDiffTabsFingerprintFollowsEveryEdit() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "diff-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grant = try DiffSessionGrant.create(root: root, repository: Self.repository)
+        defer { grant.remove() }
+        let git = RecordingGit()
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: git)
+        let page = PageCallContext(page: "cmux.diff")
+        let fingerprint = { try await provider.call("cmux.diff.git.fingerprint", params: ["scope": "uncommitted"], context: page) }
+
+        let first = try await fingerprint()["fingerprint"]?.stringValue
+        #expect(first?.isEmpty == false)
+        #expect(try await fingerprint()["fingerprint"]?.stringValue == first)
+        git.patch = "@@ -1 +1 @@\n-// retry 3 times\n+// retry up to 9 times\n"
+        #expect(try await fingerprint()["fingerprint"]?.stringValue != first)
         await provider.close()
     }
 }

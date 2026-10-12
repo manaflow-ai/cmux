@@ -7,8 +7,8 @@ import Foundation
 protocol DiffGitRunning: AnyObject {
     /// The session host's `git.status` of `repository`.
     func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue
-    /// The session host's `git.diff` of `repository` in `scope`, without patches (the files).
-    func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue
+    /// The session host's `git.diff` of `repository` in `scope`, with each file's patch or only its counts.
+    func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue
     /// The session host's commit or push in `repository`, under the request's key.
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// `git add` / `git restore --staged` (or one hunk) in `repository`; nil on success, else
@@ -41,7 +41,7 @@ extension DiffPageProvider {
         if method == "git.status" || method == "git.diff" {
             let scope = params["scope"]?.stringValue.flatMap(AgentPaneGitScope.init(rawValue:)) ?? .uncommitted
             do {
-                return method == "git.status" ? try await git.status(repository) : try await git.diff(repository, scope: scope)
+                return method == "git.status" ? try await git.status(repository) : try await git.diff(repository, scope: scope, includePatch: false)
             } catch {
                 throw Self.pageError(error)
             }
@@ -115,8 +115,8 @@ final class DiffAgentGit: DiffGitRunning {
         try Self.parse(try await link.read(.status(cwd: repository)))
     }
 
-    func diff(_ repository: String, scope: AgentPaneGitScope) async throws(AgentPaneGitFailure) -> JSONValue {
-        try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: false)))
+    func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
+        try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: includePatch)))
     }
 
     func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
