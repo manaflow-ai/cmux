@@ -57,8 +57,7 @@ struct FeedGitHubActions: View {
                 FeedIconLabel(error, icon: .statusWarning, textSize: 11).font(.system(size: 11)).foregroundStyle(colors.danger)
             }
             HStack(spacing: 7) {
-                TextField(FeedStrings.comment, text: $comment)
-                    .textFieldStyle(.roundedBorder).font(.system(size: 11)).focusEffectDisabled()
+                ThemedField(text: $comment, placeholder: FeedStrings.comment, font: .systemFont(ofSize: 11))
                 if supported(.comment) {
                     Button(FeedStrings.comment) {
                     let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
