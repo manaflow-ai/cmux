@@ -106,7 +106,7 @@ def test_cmd_ctrl_h_goto_split_left_from_webview(client: cmux) -> tuple[bool, st
 
 def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[bool, str]:
     """
-    Baseline: default pane navigation (Cmd+Option+Left Arrow) moves pane focus
+    Baseline: default pane navigation (Ctrl+Cmd+H) moves pane focus
     left while WKWebView is first responder.
     """
     ws_id = client.new_workspace()
@@ -135,12 +135,12 @@ def test_cmd_opt_left_arrow_goto_split_left_from_webview(client: cmux) -> tuple[
     if pre != browser_pane_id:
         return False, f"Expected browser pane focused before keypress, got {pre}"
 
-    client.simulate_shortcut("cmd+opt+left")
+    client.simulate_shortcut("ctrl+cmd+h")
 
     post = wait_focused_pane(client, terminal_pane_id, timeout_s=5.0)
     if post != terminal_pane_id:
         return False, f"Expected focus to move left to {terminal_pane_id}, got {post}"
-    return True, "Cmd+Option+Left moved focus left while webview focused"
+    return True, "Ctrl+Cmd+H moved focus left while webview focused"
 
 
 def main() -> int:

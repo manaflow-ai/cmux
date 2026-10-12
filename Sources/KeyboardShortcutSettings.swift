@@ -577,9 +577,10 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
-                return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
+                // Cmd-Opt-← / → are Chrome's tab keys and select sidebar workspaces.
+                return StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
             case .focusRight:
-                return StoredShortcut(key: "→", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "l", command: true, shift: false, option: false, control: true)
             case .focusUp:
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:

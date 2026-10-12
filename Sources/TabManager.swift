@@ -4594,7 +4594,7 @@ class TabManager: ObservableObject {
     }
 
     /// Previous/Next, the Chrome tab keys (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab,
-    /// the View menu): moves to the previous or next sidebar workspace,
+    /// Ctrl-PageUp / Ctrl-PageDown, Cmd-Opt-← / Cmd-Opt-→, the View menu): moves to the previous or next sidebar workspace,
     /// what Chrome calls a tab, wrapping at the ends, whatever pane, Dock or panel has focus
     /// (Leo 2026-10-12). Next/Previous Tab in Pane stays explicit.
     func stepTabOrWorkspace(forward: Bool) {

@@ -7,7 +7,8 @@ extension GhosttyApp {
         let triggers = [
             "super+n", "super+t", "super+q", "super+,", "super+enter",
             "super+shift+p", "super+shift+[", "super+shift+]",
-            "ctrl+tab", "ctrl+shift+tab", "super+alt+w", "super+shift+w",
+            "ctrl+tab", "ctrl+shift+tab", "ctrl+page_down", "ctrl+page_up",
+            "super+alt+left", "super+alt+right", "super+alt+w", "super+shift+w",
             "super+alt+shift+w"
         ]
         loadInlineGhosttyConfig(

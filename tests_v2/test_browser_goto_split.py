@@ -115,7 +115,7 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
     """
     1. Create workspace with horizontal split: terminal (left) | browser with URL (right)
     2. Focus the browser pane and ensure WKWebView has first responder
-    3. Send Cmd+Option+Left via debug socket simulate_shortcut
+    3. Send Ctrl+Cmd+H via debug socket simulate_shortcut
     4. Verify focus moved to the terminal pane (left)
     """
     ws_id = client.new_workspace()
@@ -167,12 +167,12 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
             if pre_focus != browser_pane_id:
                 return False, f"Click changed focus away from browser pane (now {pre_focus})"
 
-            # Send Cmd+Option+Left arrow; poll for the focus change to propagate.
-            client.simulate_shortcut("cmd+opt+left")
+            # Send Ctrl+Cmd+H (Focus Pane Left); poll for the focus change to propagate.
+            client.simulate_shortcut("ctrl+cmd+h")
             new_focused = _wait_focused(client, terminal_pane_id)
 
             if new_focused == terminal_pane_id:
-                return True, "Cmd+Option+Left moved focus from loaded browser to terminal"
+                return True, "Ctrl+Cmd+H moved focus from loaded browser to terminal"
             else:
                 return False, (
                     f"Focus did NOT move. Expected terminal {terminal_pane_id}, "
@@ -187,7 +187,7 @@ def test_goto_split_from_loaded_browser(client: cmux) -> tuple[bool, str]:
 
 def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
     """
-    Round-trip: terminal → browser (Cmd+Opt+Right) → terminal (Cmd+Opt+Left)
+    Round-trip: terminal → browser (Ctrl+Cmd+L) → terminal (Ctrl+Cmd+H)
     with a loaded page and webview focused.
     """
     ws_id = client.new_workspace()
@@ -220,12 +220,12 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
             client.focus_pane(terminal_pane_id)
             _wait_focused(client, terminal_pane_id)
 
-            # Cmd+Option+Right to move to browser; poll for the focus change.
-            client.simulate_shortcut("cmd+opt+right")
+            # Ctrl+Cmd+L to move to browser; poll for the focus change.
+            client.simulate_shortcut("ctrl+cmd+l")
             mid_focused = _wait_focused(client, browser_pane_id)
             if mid_focused != browser_pane_id:
                 return False, (
-                    f"Cmd+Option+Right from terminal didn't reach browser. "
+                    f"Ctrl+Cmd+L from terminal didn't reach browser. "
                     f"Expected {browser_pane_id}, got {mid_focused}"
                 )
 
@@ -235,8 +235,8 @@ def test_goto_split_roundtrip_loaded_browser(client: cmux) -> tuple[bool, str]:
             if not client.is_webview_focused(browser_id):
                 return False, "WKWebView did not become first responder in browser pane"
 
-            # Cmd+Option+Left to go back to terminal; poll for the focus change.
-            client.simulate_shortcut("cmd+opt+left")
+            # Ctrl+Cmd+H to go back to terminal; poll for the focus change.
+            client.simulate_shortcut("ctrl+cmd+h")
             final_focused = _wait_focused(client, terminal_pane_id)
 
             if final_focused == terminal_pane_id:

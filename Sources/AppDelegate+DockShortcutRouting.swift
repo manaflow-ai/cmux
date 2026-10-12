@@ -366,18 +366,28 @@ extension AppDelegate {
             .toggleFocusedTerminalCopyMode() ?? false
     }
 
+    /// Ctrl+Tab, Ctrl+PageDown or Cmd+Opt+Right, Chrome's next-tab keys.
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
         matchTabShortcut(
             event: event,
             shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)
-        )
+        ) || matchesChromeTabKey(event: event, keyCode: 121, modifiers: [.control])
+            || matchesChromeTabKey(event: event, keyCode: 124, modifiers: [.command, .option])
     }
 
+    /// Ctrl+Shift+Tab, Ctrl+PageUp or Cmd+Opt+Left, Chrome's previous-tab keys.
     func matchesLegacyPreviousSurfaceShortcut(event: NSEvent) -> Bool {
         matchTabShortcut(
             event: event,
             shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)
-        )
+        ) || matchesChromeTabKey(event: event, keyCode: 116, modifiers: [.control])
+            || matchesChromeTabKey(event: event, keyCode: 123, modifiers: [.command, .option])
+    }
+
+    /// Key codes: PageDown 121, PageUp 116, Right 124, Left 123.
+    private func matchesChromeTabKey(event: NSEvent, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        event.keyCode == keyCode
+            && ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags) == modifiers
     }
 
     func ghosttyGotoSplitShortcut(for direction: NavigationDirection) -> StoredShortcut? {
