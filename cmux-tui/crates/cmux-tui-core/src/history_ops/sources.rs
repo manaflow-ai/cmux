@@ -32,7 +32,8 @@ pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
         "tab" if text(tab, "kind").as_deref() == Some("browser") => ClosedKind::BrowserTab,
         "tab" => ClosedKind::TerminalTab,
         "screen" => ClosedKind::Screen,
-        "workspace" => ClosedKind::Workspace,
+        // A closed window lists as a workspace (it reopens with the workspaces it kept).
+        "workspace" | "window" => ClosedKind::Workspace,
         _ => return None,
     };
     let title = text(Some(item), "name")

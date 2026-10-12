@@ -398,6 +398,32 @@ export default agentPaneEntry({
         );
       },
     },
+    "fork-any-turn": {
+      note: "Play: a Claude chat offers Fork under every completed turn (cx-yqiv, Codex parity); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("claude"),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as {
+          cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
+        };
+        const forks = () => [
+          ...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]'),
+        ];
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => forks().length === 2);
+        forks()[0]!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
+        );
+      },
+    },
+    "fork-latest-turn-only": {
+      note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+      },
+    },
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
@@ -1019,3 +1045,16 @@ export default agentPaneEntry({
     },
   },
 });
+
+/// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
+function forkTurns(family: string | undefined) {
+  const snapshot = chat([
+    user("Add retry with backoff to the uploader", 9, { seq: 1 }),
+    assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+    summary(8.5, { seq: 3, status: "completed" }),
+    user("Now cover it with a test that fakes two timeouts", 6, { seq: 4 }),
+    assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
+    summary(5, { seq: 6, status: "completed" }),
+  ]);
+  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+}

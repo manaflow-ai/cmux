@@ -207,3 +207,34 @@ fn agent_session_start_refuses_a_codex_alias_before_any_agent_starts() {
     assert_eq!(default["error_code"], "agent_session.not_asking", "{default}");
     assert_eq!(daemon.acpmux_sessions(), 0, "an agent started before the family check");
 }
+
+/// A session never leaves its machine (cx-k21v): a tab whose record names
+/// this store (`registry:<id>`) gets its session only from this machine's
+/// own agent-session-start. A client's bind of any session into it, and a
+/// new such tab that already names a session (a Mac's chat placed into a
+/// tab of this machine), are refused with a typed error.
+#[test]
+fn a_machine_tab_binds_no_session_from_another_machine() {
+    let daemon = Daemon::start("mismatch", None);
+    let surface = daemon.own_agent_tab();
+    let bind = daemon.rpc(json!({"id": 6, "cmd": "bind-conversation-tab-session",
+                                 "surface": surface, "session": "mac-session-1",
+                                 "expected_session": null}));
+    assert_eq!(bind["ok"], false, "{bind}");
+    assert_eq!(bind["error_code"], "conversation_tab.machine_mismatch", "{bind}");
+    let identity = daemon.rpc(json!({"id": 7, "cmd": "identify"}));
+    let session_id = identity["data"]["session_id"].as_str().unwrap().to_owned();
+    let placed = daemon.rpc(json!({"id": 8, "cmd": "new-conversation-tab",
+                                   "agent_session": {"host": format!("registry:{session_id}"),
+                                                     "session": "mac-session-1"}}));
+    assert_eq!(placed["ok"], false, "{placed}");
+    assert_eq!(placed["error_code"], "conversation_tab.machine_mismatch", "{placed}");
+    // A tab of another install (a Mac's chat shown here) still binds as before.
+    let mac_tab = daemon.rpc(json!({"id": 9, "cmd": "new-conversation-tab",
+                                    "agent_session": {"host": "install:mac-test"}}));
+    let mac_surface = mac_tab["data"]["surface"].as_u64().unwrap();
+    let mac_bind = daemon.rpc(json!({"id": 10, "cmd": "bind-conversation-tab-session",
+                                     "surface": mac_surface, "session": "mac-session-1",
+                                     "expected_session": null}));
+    assert_eq!(mac_bind["ok"], true, "{mac_bind}");
+}

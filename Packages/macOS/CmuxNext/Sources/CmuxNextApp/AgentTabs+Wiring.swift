@@ -22,6 +22,9 @@ extension AgentTabStore {
         // of a first page (``opensFirstPage(on:chat:)``).
         let remote = !daemon.isLocal
         guard !remote || chat != nil else { throw DaemonError.notConnected }
+        // A chat of this Mac (an outside chat it resumes, a past chat of its list) never opens in a
+        // workspace of another machine (cx-k21v).
+        if remote, chat?.adopt != nil || chat?.pastChat != nil { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
         let record: AgentSessionRef
         if remote {
             guard let registry = Self.registryHost(of: daemon) else { throw DaemonError.notConnected }
