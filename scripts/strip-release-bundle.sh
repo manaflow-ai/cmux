@@ -43,11 +43,16 @@ strip_if_macho() {
 }
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
-# bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux are symlinks to it.
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
-# The cmux-next nightly's Home Chief brain host (absent from other builds).
-strip_if_macho "$APP_PATH/Contents/Resources/bin/optchat-chief"
+# Every helper in bin/ and libexec/: bin/cmux (the cmux-tui binary; bin/cmux-tui
+# and bin/acpmux are symlinks to it), cmux-diff-sidecar, the nightly's
+# optchat-chief, cmux-app-host, cmux-browser-host, cmux-cloud, ghostty and
+# libexec/cmux-server-helper. Scripts and symlinks are skipped.
+for helper_dir in bin libexec; do
+  [ -d "$APP_PATH/Contents/Resources/$helper_dir" ] || continue
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Resources/$helper_dir" -maxdepth 1 -print0 | sort -z)
+done
 
 # cmux-tui SSH bootstrap payloads are installed 0644, so strip_if_macho's
 # executable check would skip them. Only the macOS builds are Mach-O; the Linux
@@ -72,6 +77,10 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 1 -name 'libcmux_*.dylib' -type f -print0)
+  # The Chromium engine's cmux Helper apps (GPU, Renderer, Plugin, Alerts).
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 4 -path '*/cmux Helper*.app/Contents/MacOS/*' -type f -print0 | sort -z)
 fi
 
 if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
