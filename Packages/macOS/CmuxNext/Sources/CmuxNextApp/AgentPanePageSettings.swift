@@ -18,7 +18,7 @@ final class AgentPanePageSettings {
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
-    /// Where the composer's Hide or Show Context Usage writes (``setShowContextUsage(_:)``).
+    /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
@@ -65,10 +65,11 @@ final class AgentPanePageSettings {
         }
     }
 
-    /// The composer's Hide or Show Context Usage: writes `agentPane.showContextUsage`, which the
-    /// observation above then pushes to every page.
-    func setShowContextUsage(_ show: Bool) async throws {
-        try await settings?.set(.bool(show), at: AgentPaneComposerSetting.showContextUsagePath)
+    /// The composer's Hide or Show Context Usage and Hide dictation button: writes the flag at
+    /// `path` (`agentPane.showContextUsage`, `agentPane.showDictation`), which the observation
+    /// above then pushes to every page.
+    func setComposer(_ path: [String], _ show: Bool) async throws {
+        try await settings?.set(.bool(show), at: path)
 
     }
 
