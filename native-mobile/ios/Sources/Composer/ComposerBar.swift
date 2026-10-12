@@ -2,10 +2,10 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The terminal composer: a Liquid Glass card docked to the keyboard
-/// (Claude/ChatGPT/Grok composer shape) with a `+` menu (Photos, Camera,
-/// Files), attachment thumbnails, a terminal keys row, and one primary
-/// circle that sends, presses Return, or interrupts (Ctrl-C) a working agent.
+/// The terminal composer, docked to the keyboard: a `+` menu (Photos,
+/// Camera, Files), attachment thumbnails, a growing text capsule with an
+/// always-visible keyboard toggle, a terminal keys row, and one primary
+/// circle that sends, presses Return, or interrupts a working agent.
 struct ComposerBar: View {
     @Bindable var model: ComposerModel
     let session: TerminalSession
@@ -22,12 +22,19 @@ struct ComposerBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if focused { keysRow.transition(.move(edge: .bottom).combined(with: .opacity)) }
+            // The keys row rides with the keyboard: it fades in place rather
+            // than sliding, so an interactive keyboard dismissal doesn't
+            // shove the bar around.
+            keysRow
+                .opacity(focused ? 1 : 0)
+                .frame(height: focused ? nil : 0, alignment: .bottom)
+                .clipped()
+                .allowsHitTesting(focused)
             card
         }
         .padding(.horizontal, 12)
-        .padding(.bottom, focused ? 8 : 4)
-        .animation(.smooth(duration: 0.28), value: focused)
+        .padding(.bottom, 6)
+        .animation(.smooth(duration: 0.2), value: focused)
         .animation(.smooth(duration: 0.24), value: model.attachments)
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 20, matching: .any(of: [.images, .videos]))
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -53,52 +60,67 @@ struct ComposerBar: View {
         }
     }
 
-    // MARK: Card
+    // MARK: Bar (iOS 26 Messages layout, Liquid Glass)
 
+    /// Sibling glass shapes in one container: `+` circle, a growing text
+    /// capsule with the keyboard toggle inside it, and the primary circle.
+    /// Nothing glass sits on top of other glass.
     private var card: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !model.attachments.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(model.attachments) { attachment in
-                            AttachmentChip(attachment: attachment) { model.remove(attachment) }
+        GlassEffectContainer(spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                if !model.attachments.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.attachments) { attachment in
+                                AttachmentChip(attachment: attachment) { model.remove(attachment) }
+                            }
                         }
+                        .padding(.horizontal, 2)
+                        .padding(.top, 6)
                     }
-                    .padding(.horizontal, 2)
+                    .scrollClipDisabled()
                 }
-                .scrollClipDisabled()
+                HStack(alignment: .bottom, spacing: 10) {
+                    plusMenu
+                    textCapsule
+                    primaryButton
+                }
             }
+        }
+    }
+
+    private var textCapsule: some View {
+        HStack(alignment: .bottom, spacing: 6) {
             TextField(placeholder, text: $model.text, axis: .vertical)
                 .lineLimit(1...6)
                 .font(.body)
                 .focused($focused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .submitLabel(.send)
-                .padding(.horizontal, 4)
+                .padding(.vertical, 10)
+                .padding(.leading, 16)
                 .accessibilityIdentifier("composer.text")
-            HStack(spacing: 10) {
-                plusMenu
-                if let progress = model.uploadProgress {
-                    ProgressView(value: progress).frame(width: 60).tint(.secondary)
-                }
-                Spacer(minLength: 0)
-                if !focused {
-                    Button { focused = true } label: {
-                        Image(systemName: "keyboard").font(.system(size: 17, weight: .medium))
-                            .frame(width: 36, height: 36)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(String(localized: "Show keyboard"))
-                }
-                primaryButton
+            if let progress = model.uploadProgress {
+                ProgressView(value: progress).frame(width: 36).tint(.secondary).padding(.bottom, 17)
             }
+            keyboardToggle
         }
-        .padding(.top, 14)
-        .padding(.bottom, 10)
-        .padding(.horizontal, 12)
-        .glassEffect(.regular, in: .rect(cornerRadius: Theme.cornerRadius))
+        .frame(minHeight: 44)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+    }
+
+    /// Always reachable: shows the keyboard, or hides it while it's up.
+    private var keyboardToggle: some View {
+        Button { focused.toggle() } label: {
+            Image(systemName: focused ? "keyboard.chevron.compact.down" : "keyboard")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 40, height: 44)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(focused ? String(localized: "Hide keyboard") : String(localized: "Show keyboard"))
+        .accessibilityIdentifier("composer.keyboard")
     }
 
     private var plusMenu: some View {
@@ -111,10 +133,11 @@ struct ComposerBar: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 18, weight: .medium))
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(Color.primary.opacity(0.08)))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(String(localized: "Add attachment"))
         .accessibilityIdentifier("composer.plus")
     }
@@ -122,19 +145,19 @@ struct ComposerBar: View {
     @ViewBuilder
     private var primaryButton: some View {
         if model.canSend {
-            circleButton(systemImage: "arrow.up", filled: true, label: String(localized: "Send")) {
+            circleButton(systemImage: "arrow.up", prominent: true, label: String(localized: "Send")) {
                 Task { await model.send(to: session, services: services) }
             }
             .disabled(model.isSending)
             .accessibilityIdentifier("composer.send")
         } else if agentWorking {
-            circleButton(systemImage: "stop.fill", filled: true, label: String(localized: "Interrupt")) {
+            circleButton(systemImage: "stop.fill", prominent: true, label: String(localized: "Interrupt")) {
                 session.sendKeys(["escape"])
                 Haptics.warning()
             }
             .accessibilityIdentifier("composer.stop")
         } else {
-            circleButton(systemImage: "return", filled: false, label: String(localized: "Return")) {
+            circleButton(systemImage: "return", prominent: false, label: String(localized: "Return")) {
                 session.sendKeys(["enter"])
                 Haptics.tap()
             }
@@ -142,40 +165,42 @@ struct ComposerBar: View {
         }
     }
 
-    private func circleButton(systemImage: String, filled: Bool, label: String, action: @escaping () -> Void) -> some View {
+    /// Prominent = tinted glass (the primary action), else clear glass.
+    private func circleButton(systemImage: String, prominent: Bool, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                // The terminal screen is always dark: the primary action is
-                // a solid white circle (ChatGPT/Grok send), others are tinted.
-                .foregroundStyle(filled ? Color.black : Color.white)
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(filled ? Color.white : Color.white.opacity(0.1)))
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(prominent ? Color.black : Color.primary)
+                .frame(width: 44, height: 44)
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .glassEffect(prominent ? .regular.tint(.white).interactive() : .regular.interactive(), in: .circle)
         .accessibilityLabel(label)
     }
 
     // MARK: Keys
 
+    /// Terminal keys while typing. The keyboard toggle lives in the text
+    /// capsule, so nothing essential scrolls out of reach here.
     private var keysRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                key("esc") { session.sendKeys(["escape"]) }
-                key("tab") { session.sendKeys(["tab"]) }
-                key("ctrl", active: ctrlArmed) { ctrlArmed.toggle() }
-                key("⌃C") { session.sendKeys(["ctrl+c"]) }
-                keyIcon("arrow.up") { press("up") }
-                keyIcon("arrow.down") { press("down") }
-                keyIcon("arrow.left") { press("left") }
-                keyIcon("arrow.right") { press("right") }
-                ForEach(["/", "-", "|", "~", "$", "*"], id: \.self) { symbol in
-                    key(symbol) { model.text.append(symbol) }
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    key("esc") { session.sendKeys(["escape"]) }
+                    key("tab") { session.sendKeys(["tab"]) }
+                    key("ctrl", active: ctrlArmed) { ctrlArmed.toggle() }
+                    key("⌃C") { session.sendKeys(["ctrl+c"]) }
+                    keyIcon("arrow.up") { press("up") }
+                    keyIcon("arrow.down") { press("down") }
+                    keyIcon("arrow.left") { press("left") }
+                    keyIcon("arrow.right") { press("right") }
+                    ForEach(["/", "-", "|", "~", "$", "*"], id: \.self) { symbol in
+                        key(symbol) { model.text.append(symbol) }
+                    }
                 }
-                keyIcon("keyboard.chevron.compact.down") { focused = false }
+                .padding(.horizontal, 2)
             }
-            .padding(.horizontal, 2)
         }
         .scrollClipDisabled()
     }
@@ -193,14 +218,12 @@ struct ComposerBar: View {
         } label: {
             Text(title)
                 .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundStyle(active ? Color.black : Color.primary)
                 .padding(.horizontal, 12)
                 .frame(height: 34)
-                .foregroundStyle(active ? Color(uiColor: .systemBackground) : .primary)
-                .background(active ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.clear))
-                .clipShape(.rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 10))
+        .glassEffect(active ? .regular.tint(.white).interactive() : .regular.interactive(), in: .rect(cornerRadius: 10))
     }
 
     private func keyIcon(_ systemImage: String, action: @escaping () -> Void) -> some View {

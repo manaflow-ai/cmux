@@ -28,9 +28,9 @@ cd "$ROOT/native-mobile/ios" && xcodegen generate --quiet
 rsync -az --delete --exclude .build "$ROOT/native-mobile/" "$HOST:cmux-native/work/native-mobile/"
 rsync -az --delete "$ROOT/Packages/Shared/CmuxGhosttyKit/" "$HOST:cmux-native/work/Packages/Shared/CmuxGhosttyKit/"
 ssh "$HOST" 'set -e; cd ~/cmux-native/work/native-mobile/ios
-  xcodebuild -project CmuxNative.xcodeproj -scheme CmuxNative -configuration Debug -destination generic/platform=iOS \
+  xcodebuild -project CmuxNative.xcodeproj -scheme CmuxNative -configuration Release -destination generic/platform=iOS \
     -derivedDataPath ~/cmux-native/dd-ios-dev CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | tail -5
-  cd ~/cmux-native/dd-ios-dev/Build/Products/Debug-iphoneos && rm -f /tmp/CmuxNative-unsigned.zip && ditto -c -k --keepParent CmuxNative.app /tmp/CmuxNative-unsigned.zip'
+  cd ~/cmux-native/dd-ios-dev/Build/Products/Release-iphoneos && rm -f /tmp/CmuxNative-unsigned.zip && ditto -c -k --keepParent CmuxNative.app /tmp/CmuxNative-unsigned.zip'
 scp -q "$HOST:/tmp/CmuxNative-unsigned.zip" "$WORK/app.zip"
 ditto -x -k "$WORK/app.zip" "$WORK"
 APP="$WORK/CmuxNative.app"
@@ -41,7 +41,10 @@ security cms -D -i "$WORK/app.mobileprovision" > "$WORK/profile.plist"
 /usr/libexec/PlistBuddy -c "Delete :keychain-access-groups" "$WORK/ent.plist"
 /usr/libexec/PlistBuddy -c "Add :keychain-access-groups array" -c "Add :keychain-access-groups:0 string 7WLXT3NR37.dev.cmux.next.native.dev" "$WORK/ent.plist"
 ID=$(security find-identity -v -p codesigning | awk '/Created via API/ {print $2; exit}')
-for f in "$APP"/Frameworks/*; do codesign -f -s "$ID" --timestamp=none "$f"; done
+# Every nested binary: frameworks, and any dylib Xcode puts beside the
+# executable (a Debug build keeps the app's code in CmuxNative.debug.dylib).
+while IFS= read -r f; do codesign -f -s "$ID" --timestamp=none "$f"; done < <(
+  find "$APP" -mindepth 1 \( -name "*.framework" -o -name "*.dylib" -o -name "*.appex" \) -prune -print | sort -r)
 codesign -f -s "$ID" --entitlements "$WORK/ent.plist" --timestamp=none "$APP"
 codesign --verify --deep --strict "$APP"
 mkdir -p "$OUT" && (cd "$WORK" && mkdir Payload && cp -R CmuxNative.app Payload/ && zip -qry "$OUT/cmux-next-native-dev.ipa" Payload)

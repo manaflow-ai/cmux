@@ -7,6 +7,9 @@ import SwiftUI
 final class TerminalChromeState {
     var atBottom = true
     var scrollToBottom: (() -> Void)?
+    /// The composer's real width; without it the hosting controller measures
+    /// the composer at unlimited width and the text box never wraps.
+    var width: CGFloat = 0
 }
 
 /// One terminal: Ghostty under floating glass controls, the composer docked
@@ -161,6 +164,7 @@ struct ComposerHostContent: View {
             ComposerBar(model: model, session: session, services: services, agentWorking: agentWorking, placeholder: placeholder)
         }
         .animation(.smooth(duration: 0.22), value: chrome.atBottom)
+        .frame(width: chrome.width > 0 ? chrome.width : nil)
         .preferredColorScheme(.dark)
     }
 }
@@ -182,6 +186,9 @@ struct TerminalHost: UIViewControllerRepresentable {
             if chrome.atBottom != atBottom { chrome.atBottom = atBottom }
         }
         chrome.scrollToBottom = { [weak controller] in controller?.scrollToBottom(animated: true) }
+        controller.onWidthChange = { [chrome] width in
+            if abs(chrome.width - width) > 0.5 { chrome.width = width }
+        }
         return controller
     }
 

@@ -14,6 +14,7 @@ final class GhosttySurfaceView: UIView {
     private let outputQueue = DispatchQueue(label: "cmux.native.terminal.output", qos: .userInteractive)
     private var gridGeneration: UInt64 = 0
     private var pendingFeeds: [Data] = []
+    private var feeds = 0
 
     /// Ghostty's scrollbar: total rows, top row of the viewport, viewport rows.
     var onScrollbar: ((Int, Int, Int) -> Void)? {
@@ -54,7 +55,11 @@ final class GhosttySurfaceView: UIView {
     }
 
     private func createSurface() {
-        guard let runtime = try? GhosttyRuntime.shared() else { return }
+        let runtime: GhosttyRuntime
+        do { runtime = try GhosttyRuntime.shared() } catch {
+            debugLog("cmux-native: ghostty runtime FAILED \(error)")
+            return
+        }
         self.runtime = runtime
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_IOS
@@ -68,6 +73,7 @@ final class GhosttySurfaceView: UIView {
         config.io_write_userdata = nil
         config.io_write_cb = { _, _, _ in }
         surface = ghostty_surface_new(runtime.app, &config)
+        debugLog("cmux-native: ghostty surface \(surface == nil ? "FAILED" : "created") scale=\(config.scale_factor) bounds=\(bounds)")
         guard let surface else { return }
         ghostty_surface_set_occlusion(surface, true)
         ghostty_surface_set_focus(surface, true)
@@ -109,6 +115,8 @@ final class GhosttySurfaceView: UIView {
 
     func feed(_ data: Data) {
         guard let surface else { pendingFeeds.append(data); return }
+        feeds += 1
+        if feeds <= 3 || feeds % 50 == 0 { debugLog("cmux-native: feed #\(feeds) \(data.count)B bounds=\(bounds) metrics=\(String(describing: cellSize))") }
         let ref = SurfaceRef(surface: surface)
         outputQueue.async {
             data.withUnsafeBytes { raw in
@@ -184,4 +192,9 @@ enum TerminalPreferences {
         get { UserDefaults.standard.object(forKey: "terminal.fontSize") as? Double ?? 12 }
         set { UserDefaults.standard.set(newValue, forKey: "terminal.fontSize") }
     }
+}
+
+/// Unbuffered diagnostics on stderr (visible in `devicectl ... --console`).
+func debugLog(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
 }

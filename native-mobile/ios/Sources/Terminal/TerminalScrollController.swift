@@ -101,6 +101,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         scrollView.frame = view.bounds
+        onWidthChange?(view.bounds.width)
         if let host = composer?.view {
             bottomInset = max(0, view.bounds.height - host.frame.minY)
         }
@@ -152,6 +153,8 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         // Edge effects only once content actually reaches under the bars.
         scrollView.topEdgeEffect.isHidden = !overflow
         scrollView.bottomEdgeEffect.isHidden = !overflow
+        // Nothing to scroll: no rubber band dragging the grid around.
+        scrollView.alwaysBounceVertical = overflow
         let rows = max(scrollback.total, session.rows)
         // The grid's bottom sits on the composer; leftover space goes on top.
         let topPad = max(0, bounds.height - bottomInset - gridHeight)
@@ -208,6 +211,9 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         if target >= maxOffset - 1 || target <= 0 { return }
         targetContentOffset.pointee.y = (target / cell.height).rounded() * cell.height
     }
+
+    /// Fires with the view's width (the docked composer sizes to it).
+    var onWidthChange: ((CGFloat) -> Void)?
 
     /// Fires when the view leaves or returns to the bottom (jump button).
     var onScrollStateChange: ((Bool) -> Void)?
