@@ -175,7 +175,8 @@ extension AgentPaneRequest {
             }
         case "harness.health":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
-                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true)
+                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true,
+                                      rescan: params?["rescan"] as? Bool == true)
             } else {
                 self = .unsupported(method)
             }

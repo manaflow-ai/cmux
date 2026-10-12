@@ -239,8 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
-        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh in
-            let rows = (try? await services?.agentHarnesses.health(refresh: refresh)) ?? []
+        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh, rescan in
+            let rows = (try? await services?.agentHarnesses.health(refresh: refresh, rescan: rescan)) ?? []
             return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
         }
         // The GitHub connection is deliberately off by default. Changes in
