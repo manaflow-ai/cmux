@@ -69,10 +69,7 @@ pub(crate) fn encode_snapshot_for_version(
             tail.clear();
             super::program_status_codec::put_program_status(
                 &mut tail,
-                &crate::program_status::ProgramStatusSnapshot {
-                    records: Vec::new(),
-                    next_seq: program_status.next_seq,
-                },
+                &ProgramStatusSnapshot { records: Vec::new(), next_seq: program_status.next_seq },
             )?;
         }
         output.extend_from_slice(&tail);
