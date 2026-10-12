@@ -406,6 +406,39 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func workspaceReattachRestartsAPendingAppSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        while pendingExchanges.isEmpty { await Task.yield() }
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: false,
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+        let secondExchange = panel.appSessionBootstrapTask
+        while pendingExchanges.count < 2 { await Task.yield() }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        #expect(firstExchange?.isCancelled == true)
+        #expect(secondExchange != nil)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
     func ordinaryNavigationSkipsTheNativeSessionExchange() async {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }

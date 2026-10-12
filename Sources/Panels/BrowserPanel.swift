@@ -4488,6 +4488,10 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint?,
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
+        // A late exchange must not replace the reattached context; the page
+        // is requested again below under the new workspace's rules.
+        let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
+        cancelAppSessionBootstrap()
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
@@ -4509,6 +4513,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        if let appSessionDestinationURL {
+            navigate(to: appSessionDestinationURL)
+        }
     }
 
     @discardableResult
