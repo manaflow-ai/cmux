@@ -955,7 +955,9 @@ reports changed. `program_status` is the strongest non-idle record
 (`blocked`, then `error`, `working`, `done`; the newest wins a tie), with
 `progress` 0-100 or null, or null when nothing is shown. The same value is the
 tab's `program_status` field in `list-workspaces`. Coalesced per surface; the
-full records stay on the terminal resource's `extra.program_status`.
+full records stay on the terminal resource's `extra.program_status`. A
+terminal's exit hides its `working` and `blocked` records without this event;
+clients re-read the tab on `surface-exited`.
 
 Example:
 

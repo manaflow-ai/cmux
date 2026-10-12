@@ -68,12 +68,15 @@ impl Surface {
             let shown = records.take_shown_change(!self.is_dead());
             (records.take_change(), shown, records.take_alerts())
         };
-        if !progress_changed && !status_changed {
+        // Exit hides a running program's records with no new report.
+        if !progress_changed && !status_changed && shown_changed.is_none() {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };
         let mutation = if status_changed { "terminal.program_status" } else { "terminal.progress" };
-        if let Err(error) = mux.publish_terminal_progress(self, mutation) {
+        if (progress_changed || status_changed)
+            && let Err(error) = mux.publish_terminal_progress(self, mutation)
+        {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
         }
         // The tab indicator (TUI) changes only with the shown status.

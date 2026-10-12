@@ -1,7 +1,8 @@
 //! cx-6so.36.7: a program's OSC 7501 status shows on its tab in the TUI.
 //! A TUI attached to a daemon over its socket draws a working program's
 //! progress after the tab title, then a `!` once the program waits on the
-//! user, without any action from the user.
+//! user, and no mark once it clears its status, without any action from the
+//! user.
 
 use super::*;
 
@@ -18,21 +19,22 @@ fn first_tab(app: &mut App, terminal: &mut Terminal<TestBackend>) -> String {
 }
 
 /// Feeds the daemon's events to the app as its event loop would, until the
-/// first tab reads `needle`.
+/// first tab reads as `wanted` describes.
 fn wait_for_tab(
     app: &mut App,
     terminal: &mut Terminal<TestBackend>,
     mux_events: &cmux_tui_core::MuxEventReceiver,
     app_events: &Receiver<AppEvent>,
-    needle: &str,
+    wanted: &str,
+    shown: impl Fn(&str) -> bool,
 ) -> String {
     let deadline = Instant::now() + crate::test_wait::EVENT;
     loop {
         let tab = first_tab(app, terminal);
-        if tab.contains(needle) {
+        if shown(&tab) {
             return tab;
         }
-        assert!(Instant::now() < deadline, "the tab never showed {needle:?}; it reads {tab:?}");
+        assert!(Instant::now() < deadline, "the tab never showed {wanted}; it reads {tab:?}");
         while let Ok(event) = mux_events.try_recv() {
             app.handle(AppEvent::Mux(event)).unwrap();
         }
@@ -48,14 +50,15 @@ fn a_remote_tab_shows_its_programs_progress_then_its_wait() {
     let mux = Mux::new(
         "program-status-tab-test",
         SurfaceOptions {
-            // The program reports progress, then waits on the user once the
-            // test presses Enter.
+            // The program reports progress, waits on the user once the test
+            // presses Enter, and clears its status after the next one.
             command: Some(vec![
                 "/bin/sh".to_string(),
                 "-c".to_string(),
                 concat!(
                     "printf '\\033]7501;state=working:progress=40\\033\\\\'; read _; ",
-                    "printf '\\033]7501;state=blocked:kind=permission\\033\\\\'; sleep 600",
+                    "printf '\\033]7501;state=blocked:kind=permission\\033\\\\'; read _; ",
+                    "printf '\\033]7501;state=clear\\033\\\\'; sleep 600",
                 )
                 .to_string(),
             ]),
@@ -84,12 +87,24 @@ fn a_remote_tab_shows_its_programs_progress_then_its_wait() {
     app.sync_layout((40, 10));
     let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
 
-    let working = wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, "40%");
+    let working = wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, "40%", |tab| {
+        tab.contains("40%")
+    });
     assert!(!working.contains('!'), "{working:?}");
 
     surface.write_bytes(b"\r").unwrap();
-    let blocked = wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, " ! ");
+    let blocked = wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, "!", |tab| {
+        tab.contains(" ! ")
+    });
     assert!(!blocked.contains('%'), "a waiting program shows no progress it did not report");
+
+    // The daemon sends each shown status once, so a missed one would stay.
+    surface.write_bytes(b"\r").unwrap();
+    let cleared =
+        wait_for_tab(&mut app, &mut terminal, &mux_events, &app_events, "no mark", |tab| {
+            !tab.contains('!')
+        });
+    assert!(!cleared.contains('%'), "{cleared:?}");
 
     mux.close_surface(surface.id).unwrap();
     let _ = std::fs::remove_dir_all(dir);

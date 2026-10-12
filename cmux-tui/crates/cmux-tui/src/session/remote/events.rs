@@ -89,6 +89,7 @@ impl RemoteSession {
             | "agent-presence-changed"
             | "title-changed"
             | "bell"
+            | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
             _ => true,
@@ -459,13 +460,12 @@ impl RemoteSession {
             Some("program-status-changed") => {
                 if let Some(id) = surface_id() {
                     let status = crate::session::tree::parse_program_status(&value);
-                    let updated = {
-                        let mut cache =
-                            self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                        let location = cache.surface_tabs.get(&id).copied();
-                        location.and_then(|at| cache.view.update_program_status_at(id, at, status))
-                    };
-                    if updated.is_none() && self.invalidate_tree_once() {
+                    let updated = self
+                        .tree
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .update_program_status(id, status);
+                    if !updated && self.invalidate_tree_once() {
                         self.emit(MuxEvent::TreeChanged);
                     }
                     self.emit(MuxEvent::ProgramStatusChanged { surface: id, status });

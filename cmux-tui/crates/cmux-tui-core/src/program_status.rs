@@ -333,6 +333,9 @@ impl ProgramStatusRecords {
             self.records = records;
             self.revision += 1;
         }
+        // Clients read the restored status from the tree; a later change
+        // (a prompt ending a wait) must still reach them as an event.
+        self.shown_published = self.shown(true);
     }
 }
 
