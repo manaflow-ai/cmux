@@ -139,6 +139,13 @@ class MainTests(unittest.TestCase):
             watch.GitHub.call, watch.read_feed = original
 
 
+class FeedTests(unittest.TestCase):
+    def test_watches_the_cmux_next_feed(self):
+        # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
+        # cmux NIGHTLY-identity feed is no longer written.
+        self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+
+
 class FakeGitHub:
     def __init__(self, issues):
         self.issues = issues
