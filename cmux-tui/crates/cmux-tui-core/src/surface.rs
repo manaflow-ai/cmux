@@ -859,6 +859,7 @@ impl Surface {
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
+            shell_marks: crate::prompt_mode_reset::ShellMarks::joined_midway(),
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
