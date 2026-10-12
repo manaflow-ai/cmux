@@ -143,7 +143,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { archiveRow } from "./header/archiveRow";
+import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
@@ -3271,6 +3271,16 @@ function AcpmuxPane() {
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
+  const markUnread = markUnreadRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived,
+      local: localCwd !== undefined,
+      unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
+    },
+    () => ignoreFailure(callNative("chat.markUnread")),
+    t,
+  );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
@@ -3447,6 +3457,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
           key: "close",
