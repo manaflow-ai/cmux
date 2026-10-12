@@ -515,6 +515,10 @@ final class TypingIndicatorView: UIView {
     /// every configure, and batch updates strip layer animations).
     func startAnimating() {
         if dot.animation(forKey: "dot") == nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            dot.opacity = 0.2
+            CATransaction.commit()
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.2
             fade.toValue = 0.45
@@ -598,6 +602,22 @@ final class TypingIndicatorView: UIView {
     func stopAnimating() {
         dot.removeAllAnimations()
         for part in parts { part.view.layer.removeAllAnimations() }
+    }
+
+    /// ChatKit's `performRemoval:` (`stopPulseAnimation`): the row fades
+    /// with the circles back at rest and the dots held still, not breathing.
+    func settleForRemoval() {
+        let removal = TypingIndicatorRemoval.messages
+        if !removal.keepsPulse {
+            for part in parts { part.view.layer.removeAnimation(forKey: "pulse") }
+        }
+        if let opacity = removal.heldDotOpacity {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            dot.removeAllAnimations()
+            dot.opacity = Float(opacity)
+            CATransaction.commit()
+        }
     }
 }
 #endif

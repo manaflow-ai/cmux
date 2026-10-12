@@ -228,6 +228,16 @@ enum ConversationTheme {
         return traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
     }
 
+    /// The long-press menu's glass: `systemMenuGlassTint` in dark mode; in
+    /// light mode Messages' context-menu platter reads darker than the plain
+    /// glass (and on iOS 26 less blue), see `ConversationMenuGlassTint`.
+    static let longPressMenuGlassTint = UIColor { traits in
+        guard traits.userInterfaceStyle != .dark else { return systemMenuGlassTint.resolvedColor(with: traits) }
+        let tint: ConversationMenuGlassTint
+        if #available(iOS 27, *) { tint = .longPressLightIOS27 } else { tint = .longPressLightIOS26 }
+        return UIColor(red: tint.red, green: tint.green, blue: tint.blue, alpha: tint.alpha)
+    }
+
     /// How the composer's placeholder and microphone blend into the field:
     /// Messages composites both with plus-darker in light mode and
     /// plus-lighter in dark mode, so the gray ink reads against whatever the
