@@ -133,6 +133,8 @@ public final class AgentPaneModel {
     /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
+    /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
+    @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding

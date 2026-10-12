@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 
@@ -52,6 +53,8 @@ protocol DiffPrefsStoring: AnyObject {
     func prefs() -> [String: JSONValue]
     /// Writes one pref; `.null` removes it (its default applies).
     func setPref(_ key: String, to value: JSONValue) async throws
+    /// Runs `onPrefs` with the prefs after each change of the stored ones; returns the stop.
+    func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void
 }
 
 /// The display prefs in the settings store (cmux.json `diff.*`, schema rows), written through the
@@ -71,6 +74,20 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
             if value == .null { stored[key] = nil } else { stored[key] = value }
         }
         return stored
+    }
+
+    /// Follows `diff.*` in the settings, so an open diff tab takes a change made in Settings
+    /// (Diff Colors) in place.
+    func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void {
+        let settings = settings
+        // task-owner: lives until the page's subscription stops; event-driven (Observation)
+        let task = Task { [weak self] in
+            for await _ in ObservationStream({ settings()?.fileRoot[DiffPrefKey.section] }) {
+                guard let self, !Task.isCancelled else { return }
+                onPrefs(prefs())
+            }
+        }
+        return { task.cancel() }
     }
 
     func setPref(_ key: String, to value: JSONValue) async throws {
