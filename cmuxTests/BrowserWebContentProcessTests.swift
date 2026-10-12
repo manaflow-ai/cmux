@@ -17,6 +17,20 @@ import WebKit
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
+    /// Polls a main-actor predicate until it holds or the deadline passes, so a
+    /// missing exchange fails the test instead of hanging the run.
+    private func eventually(
+        timeout: Duration = .seconds(5),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !predicate() {
+            guard ContinuousClock.now < deadline else { return false }
+            await Task.yield()
+        }
+        return true
+    }
+
     @Test
     func authCallbackNavigationPolicyIsPureAndFailClosed() {
         let policy = BrowserAuthCallbackNavigationPolicy(
@@ -389,7 +403,10 @@ struct BrowserWebContentProcessTests {
             to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("app-pricing")
         ) { startedNavigations.append($0) }
         let exchange = panel.appSessionBootstrapTask
-        while releaseExchange == nil { await Task.yield() }
+        guard await eventually({ releaseExchange != nil }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
 
         // Heal, restore and automation see the exchange as a pending navigation.
         #expect(panel.hasPendingRemoteNavigation)
@@ -418,7 +435,10 @@ struct BrowserWebContentProcessTests {
             .appendingPathComponent("app-pricing")
         panel.navigate(to: pricingURL)
         let firstExchange = panel.appSessionBootstrapTask
-        while pendingExchanges.isEmpty { await Task.yield() }
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
 
         panel.reattachToWorkspace(
             UUID(),
@@ -427,13 +447,64 @@ struct BrowserWebContentProcessTests {
             remoteStatus: nil
         )
         let secondExchange = panel.appSessionBootstrapTask
-        while pendingExchanges.count < 2 { await Task.yield() }
+        guard await eventually({ pendingExchanges.count == 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("Reattach did not restart the app-session exchange")
+            return
+        }
         pendingExchanges.forEach { $0.resume() }
         await firstExchange?.value
         await secondExchange?.value
 
         #expect(firstExchange?.isCancelled == true)
         #expect(secondExchange != nil)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func profileSwitchRestartsAPendingAppSessionExchange() async throws {
+        let profile = try #require(
+            BrowserProfileStore.shared.createProfile(
+                named: "App Session Switch \(UUID().uuidString)"
+            )
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        // Re-selecting the current profile is rejected and keeps the exchange.
+        #expect(!panel.switchToProfile(panel.profileID))
+        #expect(panel.appSessionBootstrapTask != nil)
+        #expect(firstExchange?.isCancelled == false)
+
+        #expect(panel.switchToProfile(profile.id))
+        let secondExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("The profile switch dropped the pending app page")
+            return
+        }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        #expect(firstExchange?.isCancelled == true)
         #expect(secondExchange?.isCancelled == false)
         #expect(panel.currentURL == pricingURL)
     }

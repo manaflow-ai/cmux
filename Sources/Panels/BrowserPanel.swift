@@ -4520,7 +4520,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
-        cancelAppSessionBootstrap()
         guard !preservesExplicitEphemeralWebsiteDataStore else {
             return false
         }
@@ -4531,6 +4530,10 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfileStore.shared.noteUsed(resolvedProfileID)
             return false
         }
+        // A pending app page has no live URL to restore, so request it again
+        // in the new profile once the switch completes.
+        let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
+        cancelAppSessionBootstrap()
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
@@ -4610,6 +4613,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
         if restoreDeveloperTools {
             requestDeveloperToolsRefreshAfterNextAttach(reason: "profile_switch")
+        }
+        if let appSessionDestinationURL {
+            navigate(to: appSessionDestinationURL)
         }
 
         return true
