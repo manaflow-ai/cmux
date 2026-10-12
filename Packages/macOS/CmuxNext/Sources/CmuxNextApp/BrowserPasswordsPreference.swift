@@ -10,7 +10,7 @@ enum BrowserPasswordsPreference {
         // task-owner: lives as long as the app's settings; both weak.
         Task { [weak settings, weak cef] in
             guard let settings else { return }
-            for await setting in ObservationStream({ BrowserPasswordsSetting.read(settings.fileRoot) }) {
+            for await setting in ObservationStream({ BrowserPasswordsSetting.current(settings) }) {
                 guard let cef else { return }
                 cef.setPasswordPolicy(offerToSave: setting.offerToSave, generate: setting.generate)
             }

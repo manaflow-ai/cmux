@@ -86,3 +86,10 @@ nonisolated enum BrowserPasswordsSettingsSchema {
         Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, .privacy) })
     }
 }
+
+extension BrowserPasswordsSetting {
+    /// The values the app applies: the Passwords page's export gate and Chromium's policy.
+    @MainActor public static func current(_ settings: SettingsController) -> BrowserPasswordsSetting {
+        read(settings.fileRoot)
+    }
+}

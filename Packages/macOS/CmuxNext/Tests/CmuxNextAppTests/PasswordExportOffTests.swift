@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextActions
 import CmuxNextBrowserImport
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -56,5 +58,42 @@ struct PasswordExportOffTests {
         #expect(refusal?.code == PasswordOps.unavailableCode)
         #expect(person.asked.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    final class Events {
+        var received: [JSONValue] = []
+    }
+
+    /// With the page open, turning export on in Settings tells the page (its `changed` stream), so
+    /// the disabled Export button comes back without a reopen; the export then asks the person
+    /// and writes the file (#20058 review).
+    @Test func turningExportOnReachesAnOpenPageAndExports() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-export-on-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let file = home.appending(path: "cmux-next.json")
+        try Data("{}".utf8).write(to: file)
+        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: file,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let destination = home.appending(path: "passwords.csv")
+        let person = Approver(destination: destination)
+        let provider = PasswordsPageProvider(store: SamplePasswordStore(), profiles: { [.init(id: "default", name: "Default")] },
+                                             confirmations: person, authenticator: person, secrets: person)
+        provider.allowExport = { BrowserPasswordsSetting.current(settings).allowExport }
+        let context = PageCallContext(page: "cmux.passwords", userGesture: true)
+        let events = Events()
+        let subscription = try await provider.subscribe(PasswordOps.changed, filter: .null, context: context) { events.received.append($0) }
+        defer { subscription.cancel() }
+
+        try await settings.setSetting(at: BrowserPasswordsSetting.allowExportPath, to: .bool(true), by: .user)
+        for _ in 0..<60 where events.received.isEmpty {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(!events.received.isEmpty)
+
+        _ = try await provider.call(PasswordOps.export, params: ["profile": "default"], context: context)
+        #expect(person.asked == ["confirm", "authenticate", "destination"])
+        #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 }

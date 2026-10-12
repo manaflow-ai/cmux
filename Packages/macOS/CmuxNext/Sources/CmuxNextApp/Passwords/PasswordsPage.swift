@@ -64,7 +64,7 @@ final class PasswordsPageService: InternalPageProvider {
         guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
         provider.anchor = { [weak page] in page }
         provider.allowExport = { [weak services] in
-            services?.settings.map { BrowserPasswordsSetting.read($0.fileRoot).allowExport } ?? false
+            services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false
         }
         native?.anchor = { [weak page] in page }
         return page
