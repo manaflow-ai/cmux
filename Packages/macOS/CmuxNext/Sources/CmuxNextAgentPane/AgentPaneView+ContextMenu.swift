@@ -17,9 +17,23 @@ final class AgentPaneWKWebView: WKWebView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        #if DEBUG
+        debugMouseDowns += 1
+        #endif
         menuAutoFill.noteContextClick(event)
         super.mouseDown(with: event)
     }
+
+    #if DEBUG
+    /// Left mouse downs and ups this view received (`debug.agent_pane click` reports them).
+    var debugMouseDowns = 0
+    var debugMouseUps = 0
+
+    override func mouseUp(with event: NSEvent) {
+        debugMouseUps += 1
+        super.mouseUp(with: event)
+    }
+    #endif
 
     override func rightMouseDown(with event: NSEvent) {
         menuAutoFill.noteContextClick(event)
