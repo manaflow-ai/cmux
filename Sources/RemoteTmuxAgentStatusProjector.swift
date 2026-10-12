@@ -49,9 +49,10 @@ final class RemoteTmuxAgentStatusProjector {
         for key in statusKeys where slots[key] == nil { workspace.removeStatusEntry(forKey: key) }
         for (key, activity) in slots {
             let entry = SSHTuiAgentStatusProjector.statusEntry(key: key, activity: activity)
-            if workspace.statusEntries[key] == nil {
-                workspace.setStatusEntry(entry, key: key, panelId: nil)
-            }
+            // Panel writes above are intentionally retained for panel-local rows,
+            // but the workspace row must use the aggregate winner. Dictionary
+            // iteration order is not an urgency policy.
+            workspace.setStatusEntry(entry, key: key, panelId: nil)
         }
         statusKeys = Set(slots.keys)
     }

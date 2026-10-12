@@ -182,7 +182,11 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         return result
     }
     var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] {
-        underlying.paneAgentStatuses.filter { ownedPaneIds.contains($0.key) }
+        var result: [Int: RemoteTmuxAgentStatus] = [:]
+        for pane in ownedPaneIds {
+            if let status = underlying.paneAgentStatuses[pane] { result[pane] = status }
+        }
+        return result
     }
     // Retention is deliberately UNSCOPED: a retained pane's window just closed, so
     // its ownership is exactly what's undecidable — over-retaining merely delays a
@@ -346,7 +350,8 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         for command in RemoteTmuxControlConnection.mirrorEnvironmentCommands(target: target, pairs: pairs) {
             guard underlying.send(command) else { return }
         }
-        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: target) {
+        let installTarget = scopedSessionId.map { "$\($0)" } ?? scopedSessionName
+        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
             underlying.send(command)
         }
     }

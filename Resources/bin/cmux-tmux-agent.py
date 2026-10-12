@@ -159,11 +159,12 @@ def install(session, encoded):
     stable = directory.parent / 'init.sh'
     stable.write_text('. ' + shlex.quote(str(integration)) + '\n')
     context = dict(tmux=shutil.which('tmux'), socket=os.environ['TMUX'].rsplit(',', 2)[0])
-    previous = tmux_call(context, 'show-options', '-v', '-t', session, 'default-command')
-    owned = tmux_call(context, 'show-options', '-qv', '-t', session, '@cmux_agent_default_command')
+    previous = tmux_call(context, 'show-options', '-Aqv', '-t', session, 'default-command')
+    owned = tmux_call(context, 'show-options', '-Aqv', '-t', session, '@cmux_agent_default_command')
+    shell = tmux_call(context, 'show-options', '-Aqv', '-t', session, 'default-shell') or os.environ.get('SHELL', '/bin/sh')
     if previous and previous != owned:
+        source_existing_shells(context, session, shell, stable, bin_dir)
         return  # Preserve a deliberate user command.
-    shell = tmux_call(context, 'show-options', '-v', '-t', session, 'default-shell')
     command = shlex.join([sys.executable, str(script), '--shell', shell])
     tmux_call(context, 'set-option', '-t', session, 'default-command', command)
     tmux_call(context, 'set-option', '-t', session, '@cmux_agent_default_command', command)
@@ -193,13 +194,22 @@ def source_existing_shells(context, session, shell, stable, bin_dir):
         if not re.fullmatch(r'%[0-9]+', pane) or dead == '1' or Path(current).name not in shell_names:
             continue
         try:
-            capture = tmux_call(context, 'capture-pane', '-p', '-J', '-t', pane, '-S', '-1')
+            capture = tmux_call(context, 'capture-pane', '-p', '-t', pane, '-S', '0', '-E', '-1')
         except (OSError, subprocess.SubprocessError):
             continue
-        line = re.sub(r'\x1b\[[0-9;]*m', '', capture.rstrip('\r\n').splitlines()[-1] if capture.strip() else '')
-        if not re.search(r'(?:[$%#]|❯|➜)\s*$', line):
+        lines = [re.sub(r'\x1b\[[0-9;]*m', '', value) for value in capture.rstrip('\r\n').splitlines()]
+        if not lines:
             continue
-        if shell_name == 'fish' or Path(current).name == 'fish':
+        try:
+            cursor_y = int(tmux_call(context, 'display-message', '-p', '-t', pane, '#{cursor_y}'))
+        except (ValueError, OSError, subprocess.SubprocessError):
+            cursor_y = len(lines) - 1
+        line = lines[cursor_y] if 0 <= cursor_y < len(lines) else lines[-1]
+        # The trailing space is part of the shell prompt. Requiring it avoids
+        # treating an unfinished command ending in '#' or '%' as an empty prompt.
+        if not re.search(r'(?:[$%#]|❯|➜)\s+$', line):
+            continue
+        if Path(current).name == 'fish':
             source = 'set -gx PATH ' + shlex.quote(str(bin_dir)) + ' $PATH'
         else:
             source = '. ' + shlex.quote(str(stable))
@@ -210,19 +220,14 @@ def source_existing_shells(context, session, shell, stable, bin_dir):
 def shell_launch(shell):
     directory = Path(__file__).resolve().parent
     shim_dir = directory / 'bin' if (directory / 'bin').is_dir() else directory
-    integration = '. ' + shlex.quote(str(directory / 'init.sh')) + '\n'
+    integration = '. ' + shlex.quote(str(directory / 'init.sh'))
     name = Path(shell).name
     if name == 'bash':
-        rc = directory / 'bashrc'
-        rc.write_text('[ ! -r "$HOME/.bashrc" ] || . "$HOME/.bashrc"\n' + integration)
-        os.execv(shell, [shell, '--rcfile', str(rc), '-i'])
+        command = integration + '; exec ' + shlex.join([shell, '--norc', '-i'])
+        os.execv(shell, [shell, '-lic', command])
     if name == 'zsh':
-        # Keep user startup files and restore ZDOTDIR before their interactive rc.
-        original = os.environ.get('ZDOTDIR', str(Path.home()))
-        rc = directory / '.zshrc'
-        rc.write_text('export ZDOTDIR=' + shlex.quote(original) + '\n[ ! -r "$ZDOTDIR/.zshrc" ] || . "$ZDOTDIR/.zshrc"\n' + integration)
-        os.environ['ZDOTDIR'] = str(directory)
-        os.execv(shell, [shell, '-i'])
+        command = integration + '; exec ' + shlex.join([shell, '-fi'])
+        os.execv(shell, [shell, '-lic', command])
     if name == 'fish':
         command = 'set -gx PATH ' + shlex.quote(str(shim_dir)) + ' $PATH'
         os.execv(shell, [shell, '-i', '-C', command])

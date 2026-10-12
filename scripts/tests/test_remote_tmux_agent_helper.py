@@ -32,12 +32,18 @@ args = sys.argv[1:]
 with open(log, 'a') as f: f.write(json.dumps(args) + '\\n')
 if 'show-options' in args and '@cmux_agent_owner' in args:
     print(os.environ.get('TMUX_OWNER', 'owner'))
+elif 'show-options' in args and 'default-command' in args:
+    print(os.environ.get('TMUX_DEFAULT_COMMAND', ''))
+elif 'show-options' in args and '@cmux_agent_default_command' in args:
+    print(os.environ.get('TMUX_OWNED_COMMAND', ''))
 elif 'show-options' in args and 'default-shell' in args:
-    print('/bin/sh')
+    print(os.environ.get('TMUX_DEFAULT_SHELL', '/bin/sh'))
 elif 'list-panes' in args:
     print('%7\\tbash\\t0')
 elif 'capture-pane' in args:
     print(os.environ.get('TMUX_PROMPT', 'user@host:~$ '))
+elif 'display-message' in args:
+    print(os.environ.get('TMUX_CURSOR_Y', '0'))
 """,
         )
         self._write_executable(
@@ -155,6 +161,9 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertTrue(any(
             call[2:6] == ["list-panes", "-s", "-t", "$1"] for call in calls
         ))
+        self.assertTrue(any(
+            "show-options" in call and "-Aqv" in call for call in calls
+        ))
         self.assertTrue(any("send-keys" in call and "init.sh" in " ".join(call) for call in calls))
 
     def test_install_does_not_inject_into_busy_shell_input(self):
@@ -168,6 +177,18 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))
 
+    def test_custom_default_command_still_sources_idle_shells(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run(
+            "--install", "$1", payload,
+            extra_env={"TMUX_DEFAULT_COMMAND": "user-command"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any("send-keys" in call and "init.sh" in " ".join(call)
+                            for call in self._tmux_calls()))
+
     def test_install_does_not_inject_into_shell_continuation(self):
         import base64
 
@@ -175,6 +196,17 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         result = self._run(
             "--install", "$1", payload,
             extra_env={"TMUX_PROMPT": "> "},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))
+
+    def test_install_does_not_inject_into_an_unfinished_comment(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run(
+            "--install", "$1", payload,
+            extra_env={"TMUX_PROMPT": "user@host:~$ rm -rf ~/data #"},
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))

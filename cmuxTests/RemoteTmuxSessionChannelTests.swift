@@ -60,11 +60,13 @@ import Testing
         #expect(expected.count == 2)
 
         channel.setMirrorEnvironment(["CMUX_WORKSPACE_ID": "workspace-1"])
-        #expect(source.sentCommands == expected, "setting the identity on a connected stream publishes it")
+        let identityCommands = source.sentCommands.filter { $0.hasPrefix("set-environment ") }
+        #expect(identityCommands == expected, "setting the identity on a connected stream publishes it")
 
         source.sentCommands.removeAll()
         source.fireReconnectReady()
-        #expect(source.sentCommands == expected, "a reconnect republishes the identity")
+        #expect(source.sentCommands.filter { $0.hasPrefix("set-environment ") } == expected,
+                "a reconnect republishes the identity")
 
         channel.detach()
         source.sentCommands.removeAll()

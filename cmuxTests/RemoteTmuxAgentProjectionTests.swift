@@ -54,4 +54,25 @@ import Testing
             #expect(workspace.statusEntries[key] == nil)
         }
     }
+
+    @Test func workspaceStatusUsesMostUrgentPaneAcrossPanels() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        defer { workspace.teardownAllPanels() }
+        let firstPanelID = try #require(workspace.panels.keys.first)
+        let secondPanel = try #require(workspace.createReplacementTerminalPanel())
+        let projector = RemoteTmuxAgentStatusProjector()
+        let key = RemoteAgentSidebarStatus.statusKeyPrefix + "codex"
+        let working = try #require(RemoteTmuxAgentStatus.parse(#"{"agent":"codex","state":"working"}"#))
+        let blocked = try #require(RemoteTmuxAgentStatus.parse(#"{"agent":"codex","state":"blocked"}"#))
+
+        projector.reconcile(
+            statuses: [7: working, 8: blocked],
+            panelByPane: [7: firstPanelID, 8: secondPanel.id],
+            workspace: workspace
+        )
+
+        #expect(workspace.statusEntries[key]?.value == "Needs input")
+    }
 }

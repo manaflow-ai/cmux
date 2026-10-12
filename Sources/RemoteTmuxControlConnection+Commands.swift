@@ -92,7 +92,8 @@ extension RemoteTmuxControlConnection {
         if !commands.isEmpty {
             _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
         }
-        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: target) {
+        let installTarget = sessionId.map { "$\($0)" } ?? sessionName
+        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
             send(command)
         }
     }
