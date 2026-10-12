@@ -433,6 +433,10 @@ path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_backdrop_art_generator.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_localize_changes.py"
 lane = "linux-guard"
 
