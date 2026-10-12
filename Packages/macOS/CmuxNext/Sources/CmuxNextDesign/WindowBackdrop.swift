@@ -98,12 +98,12 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     ///   replacing the work's and the window's; the legibility floor still applies.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
-                texture: BackdropTexture = .default, tintOpacity: Double? = nil) {
+                texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         // A work's own tint replaces the theme's (dark works show more of themselves); the
         // legibility floor below still keeps text readable over it.
-        let opacity = if resolvedSelection != nil, let tintOpacity {
-            min(tintOpacity, Self.maximumWorkspaceTint)
+        let opacity = if resolvedSelection != nil, let workspaceTint {
+            min(workspaceTint, Self.maximumWorkspaceTint)
         } else if resolvedSelection == nil || tokens.backgroundOpacity < 1 {
             tokens.backgroundOpacity
         } else {
