@@ -106,19 +106,26 @@ public nonisolated struct AgentPaneHarnessEnablePrompt: Equatable, Sendable {
 extension AgentPaneTransport {
     /// The native Enable harness step of a `_acpmux/harness_enable` frame that passed the folder
     /// check and the gesture rule: acpmux's prompt for the frame's (canonical) folder and id, the
-    /// sheet, and on Enable the prompt's sha256 in the frame. False on Cancel, without a sheet,
-    /// while another confirmation is open (app-wide, one at a time), or without a prompt.
-    func confirmHarnessEnable(_ box: FrameBox) async -> Bool {
-        guard let folder = box.param("folder"), let id = box.param("id"), let requestHarnessEnable else { return false }
+    /// sheet, and on Enable the prompt's sha256 in the frame. Declined on Cancel, without a sheet,
+    /// while another confirmation is open (app-wide, one at a time), or without a prompt; when
+    /// acpmux refused the prompt, with its reason (cx-cuk4: the page shows it).
+    func confirmHarnessEnable(_ box: FrameBox) async -> (confirmed: Bool, reason: String?) {
+        guard let folder = box.param("folder"), let id = box.param("id"), let requestHarnessEnable else { return (false, nil) }
         let gate = confirmationGate
-        guard gate.open() else { return false }
+        guard gate.open() else { return (false, nil) }
         defer { gate.close() }
-        guard let prompt = try? await harnessEnablePrompt(folder, id), prompt.id == id else { return false }
+        let prompt: AgentPaneHarnessEnablePrompt
+        do {
+            prompt = try await harnessEnablePrompt(folder, id)
+        } catch {
+            return (false, (error as? AcpmuxRPCError)?.message)
+        }
+        guard prompt.id == id else { return (false, nil) }
         let confirmed = await withCheckedContinuation { continuation in
             requestHarnessEnable(prompt) { continuation.resume(returning: $0) }
         }
-        guard confirmed else { return false }
+        guard confirmed else { return (false, nil) }
         box.setParam("sha256", prompt.sha256)
-        return true
+        return (true, nil)
     }
 }

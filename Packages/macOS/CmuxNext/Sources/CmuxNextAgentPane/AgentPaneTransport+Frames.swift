@@ -322,9 +322,9 @@ extension AgentPaneTransport {
         }
         // A folder harness: the user's Enable on the native sheet, then the prompt's sha256.
         if facts.harnessEnable {
-            let confirmed = await confirmHarnessEnable(box)
+            let answer = await confirmHarnessEnable(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
-            if !confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
+            if !answer.confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket, detail: answer.reason) }
         }
         // cx-0q7o: an allow for a prompt of another daemon run carries the person's decision
         // proof, made here (the key never reaches the page), when this app holds that run's key.
