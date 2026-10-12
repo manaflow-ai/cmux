@@ -68,11 +68,12 @@ extension AppDelegate {
             let token = manager.map { reveals.begin(in: $0) }
             var selectedWorkspace: Workspace?
             defer {
-                guard let token else { return }
-                if let selectedWorkspace {
-                    reveals.receive(token, revealing: selectedWorkspace)
-                } else {
-                    reveals.withdraw(token)
+                if let token {
+                    if let selectedWorkspace {
+                        reveals.receive(token, revealing: selectedWorkspace)
+                    } else {
+                        reveals.withdraw(token)
+                    }
                 }
             }
             var accessBecameUnavailable = false
@@ -140,11 +141,12 @@ extension AppDelegate {
             let token = tabManager.map { reveals.begin(in: $0) }
             var selectedWorkspace: Workspace?
             defer {
-                guard let token else { return }
-                if let selectedWorkspace {
-                    reveals.receive(token, revealing: selectedWorkspace)
-                } else {
-                    reveals.withdraw(token)
+                if let token {
+                    if let selectedWorkspace {
+                        reveals.receive(token, revealing: selectedWorkspace)
+                    } else {
+                        reveals.withdraw(token)
+                    }
                 }
             }
             guard let workspaceID = try await coordinator.createOnMachine(request),
