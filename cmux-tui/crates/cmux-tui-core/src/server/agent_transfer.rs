@@ -299,6 +299,12 @@ impl Mux {
         *self.agent_transfers.host.write().unwrap_or_else(|e| e.into_inner()) = host;
     }
 
+    /// True on a cmux Cloud host, as the binary set it at start
+    /// (`access-request-v1` is served there only).
+    pub(crate) fn on_cloud_host(&self) -> bool {
+        self.agent_transfers.host().is_some_and(|host| host.cloud)
+    }
+
     /// True with an acpmux socket path and a host.
     pub(crate) fn serves_agent_transfer(&self) -> bool {
         self.serves_agent_session_attach() && self.agent_transfers.host().is_some()

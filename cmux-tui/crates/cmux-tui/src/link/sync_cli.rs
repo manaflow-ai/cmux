@@ -144,6 +144,40 @@ pub(super) fn push_failure_code(error: &anyhow::Error) -> String {
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
 }
 
+/// One request on the machine daemon's socket: its `data`, or its refusal
+/// (whose code [`push_failure_code`] tells).
+pub(super) fn machine_call(
+    socket: &Path,
+    cmd: &str,
+    params: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    Remote::connect(socket)?.call(cmd, params)
+}
+
+/// What is at `path` on the machine (`file`, `dir`, ...); None when nothing.
+pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<String>> {
+    Remote::connect(socket)?.kind(path)
+}
+
+/// Copies the one regular file at `local` (never through a symlink) to
+/// `target` on the machine, making its folder.
+pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let meta = std::fs::symlink_metadata(local)
+        .with_context(|| format!("cannot read {}", local.display()))?;
+    if !meta.file_type().is_file() {
+        anyhow::bail!("{} is not a regular file", local.display());
+    }
+    let file = LocalFile {
+        source: Source::File(local.to_path_buf()),
+        permissions: local::permissions_of(meta.permissions().mode()),
+    };
+    let mut remote = Remote::connect(socket)?;
+    let (parent, _) = remote::split(target)?;
+    remote.mkdir_all(parent)?;
+    write(&mut remote, target, &file).map(|_| ())
+}
+
 /// Deletes the folder at `path` on the machine whose daemon `socket`
 /// reaches; one already gone is fine.
 pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {

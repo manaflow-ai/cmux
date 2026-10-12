@@ -126,6 +126,8 @@ pub use agent_session_attach::{
     AgentStartHostSource,
 };
 #[cfg(unix)]
+pub mod access_requests;
+#[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
@@ -2548,6 +2550,7 @@ fn handle_connection_frame(
     #[cfg(unix)]
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+        .or_else(|| access_requests::try_handle(mux, client, message, writer))
     {
         return keep_open;
     }

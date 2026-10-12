@@ -109,6 +109,48 @@ pub(super) fn shareable(folder: &Path) -> Result<PathBuf, Refused> {
     Ok(canonical)
 }
 
+/// The canonical file or folder at `path`, and whether it is a folder, when
+/// it may be shared on its own (a file request): the rules of
+/// [`shareable`], and a file must not be a secret file.
+pub(super) fn shareable_item(path: &Path) -> Result<(PathBuf, bool), Refused> {
+    let refused = |why: &str| Refused(format!("{} cannot be shared: {why}", path.display()));
+    let canonical = std::fs::canonicalize(path).map_err(|_| refused("it does not exist"))?;
+    let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
+    if meta.is_dir() {
+        return Ok((shareable(&canonical)?, true));
+    }
+    if !meta.is_file() {
+        return Err(refused("it is not a file or a folder"));
+    }
+    let folder = canonical.parent().ok_or_else(|| refused("it has no folder"))?;
+    let name = canonical.file_name().map(|name| name.to_string_lossy().into_owned());
+    let name = name.unwrap_or_default();
+    // A file right in the home folder may go on its own; its folder never.
+    let home = homes().into_iter().any(|home| home == folder);
+    if !home {
+        shareable(folder).map_err(|_| refused("its folder may not be shared"))?;
+    }
+    if name.starts_with('.') || super::is_secret(&name) {
+        return Err(refused("secret files are never shared"));
+    }
+    Ok((canonical, false))
+}
+
+/// This Mac's home folder, as `HOME` says and canonical (one or both).
+pub(super) fn homes() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
+        return Vec::new();
+    };
+    let home = PathBuf::from(home);
+    let mut homes = vec![home.clone()];
+    if let Ok(canonical) = std::fs::canonicalize(&home)
+        && canonical != home
+    {
+        homes.push(canonical);
+    }
+    homes
+}
+
 /// Whether `id` can name a machine or a session.
 pub(super) fn plain_id(id: &str) -> bool {
     !id.is_empty()

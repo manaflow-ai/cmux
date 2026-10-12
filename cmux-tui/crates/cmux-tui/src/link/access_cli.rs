@@ -34,6 +34,7 @@
 //! `error_code` (`sync_conflict` with `conflicts`). Unix only, like the link.
 
 mod grants;
+mod requests;
 
 use std::path::{Path, PathBuf};
 
@@ -45,7 +46,10 @@ use super::sync_cli::{self, Back};
 const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --session ID --remote-root DIR [--mode read|write] FOLDER
        cmux link access sync --socket PATH --machine ID [--session ID]
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
-       cmux link access grants [--machine ID] [--session ID]";
+       cmux link access grants [--machine ID] [--session ID]
+       cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] PATH
+       cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
+       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH | --always PATH | --deny [--reason TEXT])";
 
 /// File names that never go from a shared folder: env files, credential
 /// files, private keys and keychains.
@@ -96,6 +100,14 @@ struct Args {
     mode: Option<String>,
     all: bool,
     positional: Vec<String>,
+    /// Every `--session`, in order (`triage` takes several).
+    sessions: Vec<String>,
+    reason: Option<String>,
+    timeout: Option<u64>,
+    request: Option<String>,
+    allow: bool,
+    always: bool,
+    deny: bool,
 }
 
 fn parse(args: &[String]) -> Option<Args> {
@@ -105,7 +117,17 @@ fn parse(args: &[String]) -> Option<Args> {
         match arg.as_str() {
             "--socket" => parsed.socket = Some(PathBuf::from(rest.next()?)),
             "--machine" => parsed.machine = Some(rest.next()?.clone()),
-            "--session" => parsed.session = Some(rest.next()?.clone()),
+            "--session" => {
+                let session = rest.next()?.clone();
+                parsed.sessions.push(session.clone());
+                parsed.session = Some(session);
+            }
+            "--reason" => parsed.reason = Some(rest.next()?.clone()),
+            "--timeout" => parsed.timeout = Some(rest.next()?.parse().ok()?),
+            "--request" => parsed.request = Some(rest.next()?.clone()),
+            "--allow" => parsed.allow = true,
+            "--always" => parsed.always = true,
+            "--deny" => parsed.deny = true,
             "--remote-root" => parsed.remote_root = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
@@ -114,7 +136,9 @@ fn parse(args: &[String]) -> Option<Args> {
         }
     }
     let ids = [&parsed.machine, &parsed.session];
-    if ids.iter().any(|id| id.as_deref().is_some_and(|id| !grants::plain_id(id))) {
+    if ids.iter().any(|id| id.as_deref().is_some_and(|id| !grants::plain_id(id)))
+        || parsed.sessions.iter().any(|session| !grants::plain_id(session))
+    {
         return None;
     }
     Some(parsed)
@@ -187,6 +211,60 @@ pub(super) fn run(args: &[String]) -> i32 {
         }
         ("grants", Args { positional, .. }) if positional.is_empty() => {
             list(args.machine.as_deref(), args.session.as_deref())
+        }
+        ("request", Args { positional, .. }) if positional.len() == 1 => requests::request(
+            args.socket.as_deref(),
+            args.session.as_deref(),
+            args.reason.as_deref(),
+            std::time::Duration::from_secs(args.timeout.unwrap_or(300)),
+            &positional[0],
+        ),
+        (
+            "triage",
+            Args { socket: Some(socket), machine: Some(machine), positional, sessions, .. },
+        ) if positional.is_empty() && !sessions.is_empty() => {
+            requests::triage(socket, machine, sessions)
+        }
+        (
+            "answer",
+            Args {
+                socket: Some(socket),
+                machine: Some(machine),
+                session: Some(session),
+                request: Some(request),
+                positional,
+                allow,
+                always,
+                deny,
+                ..
+            },
+        ) if [*allow, *always, *deny].iter().filter(|set| **set).count() == 1
+            && positional.len() == usize::from(!*deny) =>
+        {
+            let how = if *allow {
+                requests::How::Allow
+            } else if *always {
+                requests::How::Always
+            } else {
+                requests::How::Deny
+            };
+            let root = match args.remote_root.as_deref().map(grants::remote_root) {
+                Some(None) => {
+                    eprintln!("{USAGE}");
+                    return 64;
+                }
+                root => root.flatten(),
+            };
+            requests::answer(
+                socket,
+                machine,
+                session,
+                request,
+                root.as_deref(),
+                how,
+                positional.first().map(String::as_str),
+                args.reason.as_deref(),
+            )
         }
         _ => {
             eprintln!("{USAGE}");
