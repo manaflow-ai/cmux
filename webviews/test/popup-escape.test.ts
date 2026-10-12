@@ -200,4 +200,49 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
     await page.close();
   });
+
+  /** Types `query` into `field` with the recorder on; the list escapes, keyboard and pick intact. */
+  const checkSuggestions = async (page: Page, field: string, list: string, query: string) => {
+    await page.click(field);
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await page.waitForSelector(`${list} [role=option]`, { state: "detached" });
+    await recordPopups(page);
+    await page.keyboard.type(query);
+    await page.waitForSelector(`${list}[data-escaped], [data-escaped] > ${list}`, {
+      state: "attached",
+      timeout: 10_000,
+    });
+    const rows = await page.locator(`${list} [role=option]`).count();
+    const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
+    expect(show?.params).toMatchObject({ kind: "list", side: "bottom" });
+    expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
+    expect(rows).toBeGreaterThan(1);
+    // The field keeps the keyboard; the host's highlight follows the arrows to the page's row.
+    const before = await popupCalls(page).then((calls) => calls.length);
+    await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(
+      ([list, before]) => {
+        const calls = (window as unknown as { popupCalls: { method: string; params: { highlighted?: string } }[] })
+          .popupCalls;
+        const rows = [...document.querySelectorAll(`${list} [role=option]`)];
+        const selected = String(rows.findIndex((row) => row.getAttribute("aria-selected") === "true"));
+        return calls.length > before && calls.at(-1)?.params.highlighted === selected;
+      },
+      [list, before] as const,
+    );
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+  };
+
+  test("a short window sends the New Tab suggestions past its edge", async () => {
+    const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
+    await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    await page.close();
+  });
+
+  test("a short window sends the classic New Tab suggestions past its edge", async () => {
+    const page = await stage("agent-pane.new-tab", "template-classic", { width: 600, height: 300 });
+    await checkSuggestions(page, ".acpmux-newtab-field", ".acpmux-omni", "a");
+    await page.close();
+  });
 });
