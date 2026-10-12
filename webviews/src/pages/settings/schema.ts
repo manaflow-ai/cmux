@@ -20,7 +20,7 @@ export type SettingKind =
   // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
   | "number_list"
   | "string_map"
-  // Only page-hidden keys use it today (`notifications.mutedWorkspaces`); the page never renders it.
+  // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
 export type NumberUnit = "points" | "seconds" | "minutes" | "count" | "fraction";

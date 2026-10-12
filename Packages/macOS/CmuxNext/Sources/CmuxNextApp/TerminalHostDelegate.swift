@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextSettings
 import CmuxNextTerminal
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
@@ -89,13 +90,15 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         (NSApp.currentEvent?.modifierFlags.contains(.option) == true, services.flatMap { target(of: session, in: $0) })
     }
 
+    /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out.
     private func openWeb(_ url: URL, _ request: (option: Bool, tab: ActionTargetRef?)) {
-        if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1 {
+        if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
+           services.settings?.snapshot.terminalLinkRouting.opensInCmux(url, explicit: true) != false {
             services.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        openLink(url)
+        openLink(url, explicit: request.option)
     }
 
     /// A folder opens in Finder; a package (an app, a bundle) shows selected in its folder, never launched.
@@ -111,14 +114,16 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     }
 
     /// Cmd-click on a web URL: a browser tab in the focused pane on the
-    /// default engine (`browser.defaultEngine`, Chromium). Other schemes, or
-    /// no window, go to the system without waiting for the app it launches.
+    /// default engine (`browser.defaultEngine`, Chromium). Other schemes, a web
+    /// link classic's routing keys send out (`TerminalLinkRouting`), or no
+    /// window, go to the system without waiting for the app it launches.
     @discardableResult
-    func openLink(_ url: URL) -> Bool {
+    func openLink(_ url: URL, explicit: Bool = false) -> Bool {
         // A Chief subagent's link (`cmux chief` prints it as an OSC 8 hyperlink): this app's
         // link.open shows its workspace and tab, never another cmux build through the system.
         if let services, ChiefSubagentLinks.open(url, services: services) { return true }
-        guard url.scheme == "http" || url.scheme == "https" else {
+        guard url.scheme == "http" || url.scheme == "https",
+              services?.settings?.snapshot.terminalLinkRouting.opensInCmux(url, explicit: explicit) != false else {
             #if DEBUG
             if TerminalLinkRecorder.records { TerminalLinkRecorder.record("system:\(url.absoluteString)"); return true }
             #endif

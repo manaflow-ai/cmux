@@ -128,21 +128,23 @@ enum TabGroupHandlers {
             run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, name: name, transaction: t) }
         }
         bind("tabGroup.setColor") { invocation in
-            let raw = invocation["color"]?.stringValue ?? ""
-            guard let color = GroupColor(rawValue: raw) else { return ctx.refuse(RefusalStrings.colorArgumentRequired) }
-            setColor(color, invocation, ctx)
+            // The catalog offers palette tokens; read as a tint so a custom `#RRGGBB` (cx-wqn5) also lands.
+            guard let tint = GroupTint(wire: invocation["color"]?.stringValue ?? "") else {
+                return ctx.refuse(RefusalStrings.colorArgumentRequired)
+            }
+            setColor(tint, invocation, ctx)
         }
         for color in GroupColor.allCases {
-            bind(ActionID(rawValue: "tabGroup.color.\(color.rawValue)")) { setColor(color, $0, ctx) }
+            bind(ActionID(rawValue: "tabGroup.color.\(color.rawValue)")) { setColor(.palette(color), $0, ctx) }
         }
         bind("tabGroup.toggleCollapsed") { setCollapsed(nil, $0, ctx) }
         bind("tabGroup.collapse") { setCollapsed(true, $0, ctx) }
         bind("tabGroup.expand") { setCollapsed(false, $0, ctx) }
     }
 
-    private static func setColor(_ color: GroupColor, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
+    private static func setColor(_ tint: GroupTint, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
-        run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t) }
+        run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, color: .set(tint.wire), transaction: t) }
     }
 
     /// Collapses (moving selection out of the group) or expands.
