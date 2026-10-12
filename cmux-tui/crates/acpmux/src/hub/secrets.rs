@@ -13,12 +13,15 @@
 //! - A ref is spent once, by `_acpmux/secret_run {secretRef, env, argv}` from
 //!   a session in the same project (the session folder, canonical): the
 //!   command runs in that folder with the value in `env`, and what it prints
-//!   comes back with the value masked. A refused run spends nothing.
+//!   comes back with the value masked, at most [`MAX_OUTPUT_BYTES`] of each
+//!   stream (the rest is read and dropped). A refused run, or one whose
+//!   command cannot start, spends nothing.
 //! - An unspent ref expires after [`HELD_TTL`]; at most [`HELD_LIMIT`] are
 //!   held. A card nobody fills is cancelled after [`ASK_TTL`], and with the
 //!   turn (a cancel, a kill, an ended agent): `cancel_pending_secrets`.
-//! - A chat has at most one open card, and a chat a remote device started
-//!   asks for none (its agent never gets the tools: `agent_tools::left_out`).
+//! - A chat has at most one open card: a new ask replaces it (a harness whose
+//!   tool call timed out asks again), and the old asker gets `cancelled`. A
+//!   chat a remote device started asks for none.
 //! - The command gets a clean environment: the login environment (PATH and
 //!   friends, `login_env.rs`), HOME, USER, the locale, TMPDIR and the
 //!   secret. Never the daemon's own, which holds helper tokens an agent must
@@ -36,6 +39,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::oneshot;
 use zeroize::Zeroizing;
 
@@ -78,10 +82,61 @@ fn project_of(session: &Session) -> Result<String, RpcError> {
         .map_err(|e| RpcError::invalid_params(format!("the chat's folder: {e}")))
 }
 
-/// What a command printed, the value masked before the cap cuts it (a value
-/// across the cut would otherwise leave its first bytes).
-fn mask(bytes: &[u8], value: &str) -> String {
-    let masked = String::from_utf8_lossy(bytes).replace(value, MASK);
+/// Reads `pipe` to its end, keeping at most `cap` bytes: a command that
+/// prints without end cannot fill the daemon's memory.
+async fn read_capped(pipe: Option<impl AsyncRead + Unpin>, cap: usize) -> (Vec<u8>, bool) {
+    let (mut kept, mut cut) = (Vec::new(), false);
+    let Some(mut pipe) = pipe else { return (kept, cut) };
+    let mut chunk = [0u8; 8192];
+    while let Ok(n) = pipe.read(&mut chunk).await {
+        if n == 0 {
+            break;
+        }
+        let room = cap - kept.len();
+        cut |= n > room;
+        kept.extend_from_slice(&chunk[..n.min(room)]);
+    }
+    (kept, cut)
+}
+
+/// How many bytes at the end of `bytes` begin `value`: a value the cap cut
+/// off, which masking would miss (KMP over the last `value.len()` bytes).
+fn cut_value_len(bytes: &[u8], value: &[u8]) -> usize {
+    if value.is_empty() {
+        return 0;
+    }
+    let mut fail = vec![0usize; value.len()];
+    let mut k = 0;
+    for i in 1..value.len() {
+        while k > 0 && value[i] != value[k] {
+            k = fail[k - 1];
+        }
+        if value[i] == value[k] {
+            k += 1;
+        }
+        fail[i] = k;
+    }
+    k = 0;
+    for &b in &bytes[bytes.len().saturating_sub(value.len())..] {
+        if k == value.len() {
+            k = fail[k - 1];
+        }
+        while k > 0 && b != value[k] {
+            k = fail[k - 1];
+        }
+        if b == value[k] {
+            k += 1;
+        }
+    }
+    k
+}
+
+/// What a command printed (read with room for one value past the cap), the
+/// value masked before the cap cuts it: a value across the cut would
+/// otherwise leave its first bytes.
+fn mask((bytes, cut): (Vec<u8>, bool), value: &str) -> String {
+    let end = if cut { bytes.len() - cut_value_len(&bytes, value.as_bytes()) } else { bytes.len() };
+    let masked = String::from_utf8_lossy(&bytes[..end]).replace(value, MASK);
     let mut end = masked.len().min(MAX_OUTPUT_BYTES);
     while !masked.is_char_boundary(end) {
         end -= 1;
@@ -118,11 +173,8 @@ impl Hub {
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner());
-            if pending.values().any(|p| p.session == session.id) {
-                return Err(RpcError::invalid_params(
-                    "this chat already has a secret card open: wait for its answer",
-                ));
-            }
+            // Dropping the old card's reply answers its asker `cancelled`.
+            pending.retain(|_, p| p.session != session.id);
             pending.insert(secret_id.clone(), Pending { session: session.id.clone(), reply: tx });
         }
         self.append(
@@ -229,10 +281,10 @@ impl Hub {
                         "this secretRef belongs to another project",
                     ));
                 }
-                Some(true) => held.remove(secret_ref).map(|h| h.value),
+                Some(true) => held.remove(secret_ref),
             }
         };
-        let Some(value) = value else {
+        let Some(Held { project, value, at }) = value else {
             return Err(RpcError::invalid_params("unknown, spent or expired secretRef"));
         };
         let mut command = tokio::process::Command::new(program);
@@ -260,12 +312,26 @@ impl Hub {
         // Its own process group, so a timeout ends what it started too.
         #[cfg(unix)]
         command.process_group(0);
-        let child = command
-            .spawn()
-            .map_err(|e| RpcError::invalid_params(format!("could not run {program}: {e}")))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                // Nothing ran: the ref stays for the next try.
+                let held = Held { project, value, at };
+                let mut map = self.secrets.held.lock().unwrap_or_else(|e| e.into_inner());
+                map.insert(secret_ref.to_owned(), held);
+                return Err(RpcError::invalid_params(format!("could not run {program}: {e}")));
+            }
+        };
         #[cfg(unix)]
         let group = child.id();
-        let result = match tokio::time::timeout(RUN_TIMEOUT, child.wait_with_output()).await {
+        let cap = MAX_OUTPUT_BYTES + value.len();
+        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+        let run = async {
+            let (out, err, status) =
+                tokio::join!(read_capped(stdout, cap), read_capped(stderr, cap), child.wait());
+            status.map(|status| (out, err, status))
+        };
+        let result = match tokio::time::timeout(RUN_TIMEOUT, run).await {
             Err(_) => {
                 #[cfg(unix)]
                 if let Some(pid) = group.and_then(|p| i32::try_from(p).ok()) {
@@ -275,10 +341,10 @@ impl Hub {
                 json!({"exitCode": Value::Null, "timedOut": true, "stdout": "", "stderr": ""})
             }
             Ok(Err(e)) => return Err(RpcError::internal(format!("running {program}: {e}"))),
-            Ok(Ok(out)) => json!({
-                "exitCode": out.status.code(),
-                "stdout": mask(&out.stdout, &value),
-                "stderr": mask(&out.stderr, &value),
+            Ok(Ok((out, err, status))) => json!({
+                "exitCode": status.code(),
+                "stdout": mask(out, &value),
+                "stderr": mask(err, &value),
             }),
         };
         self.append(

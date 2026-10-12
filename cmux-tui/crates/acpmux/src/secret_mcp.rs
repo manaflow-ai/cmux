@@ -130,7 +130,9 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     request["sessionId"] = Value::String(session.to_owned());
     match daemon.request(m, request).await {
         Ok(result) => {
-            let text = if result["declined"] == true {
+            let text = if result["outcome"] == "cancelled" {
+                "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
+            } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
             } else {
                 result.to_string()
