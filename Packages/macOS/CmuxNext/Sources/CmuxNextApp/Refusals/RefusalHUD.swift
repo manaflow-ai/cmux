@@ -25,12 +25,20 @@ final class RefusalHUD {
     /// Messages asked for so far: a caller that may refuse after another
     /// layer already did compares it, so one failure shows one reason.
     private(set) var shownCount = 0
+    #if DEBUG
+    /// Every message asked for, newest last (`debug.toast` `refusals`): a
+    /// burst check sees a message the hide deadline already took down.
+    private(set) var history: [String] = []
+    #endif
     /// The window that draws the message (tests: it must sit above
     /// Chromium page child windows, R84).
     var hostWindow: NSWindow? { view.window }
 
     func show(_ text: String, in window: NSWindow?) {
         shownCount += 1
+        #if DEBUG
+        history = Array((history + [text]).suffix(100))
+        #endif
         guard let content = window?.contentView else { return }
         if view.superview !== content { content.addSubview(view, positioned: .above, relativeTo: nil) }
         view.show(text, in: content.bounds)
