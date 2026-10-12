@@ -6306,7 +6306,8 @@
             "values": [
               "tab",
               "screen",
-              "workspace"
+              "workspace",
+              "window"
             ]
           }
         },
@@ -6561,7 +6562,8 @@
             "values": [
               "tab",
               "screen",
-              "workspace"
+              "workspace",
+              "window"
             ]
           }
         },
@@ -6590,6 +6592,17 @@
             "name": "uint32"
           },
           "description": "Members still in the group after a partial reopen."
+        },
+        "window": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For a reopened `window` group (a window the app closed): the window record (`install/window`) the app shows again; the window keeps its workspaces, and `workspace_id` is the session's active workspace."
         },
         "screen_ids": {
           "required": true,

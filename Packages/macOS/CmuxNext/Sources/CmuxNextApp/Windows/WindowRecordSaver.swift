@@ -30,6 +30,9 @@ final class WindowRecordSaver {
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
+    /// The daemon window records this install last put, by window id
+    /// (`window-records-v1`): written again only when they change.
+    private var mirrored: [String: JSONValue] = [:]
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -114,10 +117,48 @@ final class WindowRecordSaver {
                 document.windows = records
                 document.prune(liveWorkspaces: live)
             }
+            await mirror(records)
             return nil
         } catch {
             services.daemon.logger.error("window state save failed: \(String(describing: error), privacy: .public)")
             return error
+        }
+    }
+
+    /// Mirrors each window into the daemon's window records
+    /// (`window-records-v1`, reopen-closed.md 4): which workspaces it lists
+    /// and whether it is open. Closed history names the window each group
+    /// left from them, and a window that closes becomes a `window` group.
+    /// Only those fields go there (a selection change writes nothing); the
+    /// window projection above stays the restore record. A failed write is
+    /// logged and tried again on the next save.
+    private func mirror(_ records: [WindowRecord]) async {
+        let daemon = services.daemon
+        guard daemon.supports(DaemonCapabilities.shared.windowRecords), let connection = daemon.connection,
+              let install = try? services.cloud.localDeviceID() else { return }
+        let registry = manager.registry.value
+        var wanted: [String: JSONValue] = [:]
+        for record in records {
+            var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(registry.window(record.id)?.isOpen ?? true),
+                                               "workspace_keys": .array(record.workspaceKeys.map { .string($0.rawValue) })]
+            if let key = record.workspaceKey { fields["workspace_key"] = .string(key.rawValue) }
+            wanted[record.id] = .object(fields)
+        }
+        for (id, record) in wanted where mirrored[id] != record {
+            do {
+                try await connection.state.putWindowRecord(installID: install, windowID: id, record: record)
+                mirrored[id] = record
+            } catch {
+                daemon.logger.error("window_record.put failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        for id in Set(mirrored.keys).subtracting(wanted.keys) {
+            do {
+                try await connection.state.deleteWindowRecord(installID: install, windowID: id)
+            } catch {
+                daemon.logger.error("window_record.delete failed: \(String(describing: error), privacy: .public)")
+            }
+            mirrored[id] = nil
         }
     }
 

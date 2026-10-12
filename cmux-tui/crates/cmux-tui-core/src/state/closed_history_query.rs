@@ -18,12 +18,15 @@ pub(crate) const DEFAULT_LIST_LIMIT: usize = 100;
 pub(crate) const MAX_LIST_LIMIT: usize = 1000;
 
 /// The SQL condition "this group is visible from the window `?1`", or
-/// every group when the caller names no window.
+/// every group when the caller names no window. A live window is one with
+/// a window record that is not closed (`open: false`): a closed window's
+/// groups, and its own window group, are visible from every window.
 fn in_scope(window: Option<&str>) -> &'static str {
     match window {
         Some(_) => {
             "(window_id = ?1 OR window_id IS NULL
-              OR window_id NOT IN (SELECT install_id || '/' || window_id FROM window_records))"
+              OR window_id NOT IN (SELECT install_id || '/' || window_id FROM window_records
+                                   WHERE IFNULL(json_extract(record_json, '$.open'), 1) != 0))"
         }
         None => "(?1 IS NULL)",
     }
@@ -76,7 +79,8 @@ pub(crate) fn public_item(record: &Value) -> Value {
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
-        "name": first["name"],
+        // A window group has no member: its name is the window's workspace.
+        "name": if first["name"].is_null() { record["name"].clone() } else { first["name"].clone() },
         "workspace_id": first["workspace_id"],
         "pane_id": first["pane_id"],
         "index": first["index"].as_u64().unwrap_or(0),

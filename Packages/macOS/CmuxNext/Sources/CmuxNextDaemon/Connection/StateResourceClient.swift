@@ -61,11 +61,14 @@ extension StateResourceClient {
         public var workspaceID: ResourceID?
         public var screenIDs: [ResourceID]
         public var tabIDs: [ResourceID]
+        /// For a reopened `window` group: the window record (`install/window`) to show again.
+        public var window: String?
 
         enum CodingKeys: String, CodingKey {
             case workspaceID = "workspace_id"
             case screenIDs = "screen_ids"
             case tabIDs = "tab_ids"
+            case window
         }
     }
 
@@ -74,6 +77,26 @@ extension StateResourceClient {
     @discardableResult
     public func reopenClosed(_ id: String) async throws -> ReopenedItem {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
+    }
+
+    /// Reopens the newest closed group of window record `window`
+    /// (`install/window`), else the newest group no live window owns
+    /// (Cmd-Shift-T, decision 1). `resource.not_found` when there is none.
+    @discardableResult
+    public func reopenNewestClosed(window: String) async throws -> ReopenedItem {
+        try await stateMutation("closed.reopen", ["window": .string(window)], as: ReopenedItem.self)
+    }
+
+    /// Puts this install's record of window `windowID` (`window_record.put`,
+    /// single writer per record, so no revision precondition).
+    public func putWindowRecord(installID: String, windowID: String, record: JSONValue) async throws {
+        try await stateMutation("window_record.put", ["install_id": .string(installID), "window_id": .string(windowID),
+                                                      "record": record])
+    }
+
+    /// Deletes this install's record of window `windowID` (`window_record.delete`).
+    public func deleteWindowRecord(installID: String, windowID: String) async throws {
+        try await stateMutation("window_record.delete", ["install_id": .string(installID), "window_id": .string(windowID)])
     }
 
     /// Deletes closed group `id` for good (Delete Permanently, `closed.delete`):

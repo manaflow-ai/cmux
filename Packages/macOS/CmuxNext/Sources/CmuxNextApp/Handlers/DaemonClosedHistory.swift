@@ -50,25 +50,48 @@ enum DaemonClosedHistory {
         case otherWindow
     }
 
-    /// Who owns `entry` as seen from window `window` (a window id).
+    /// Every kind of closed item: tabs, screens, workspaces and windows.
+    static let allKinds: Set<ClosedItem.Kind> = [.tab, .screen, .workspace, .window]
+
+    /// This install's window record id (`install/window`) of window
+    /// `windowID` (`window-records-v1`), nil without an install id.
+    static func recordID(window windowID: String, in services: AppServices) -> String? {
+        guard let install = try? services.cloud.localDeviceID() else { return nil }
+        return install + "/" + windowID
+    }
+
+    /// Who owns `entry` as seen from window `window` (a window id). The
+    /// daemon names the window record a group left (the app mirrors its
+    /// windows there, `WindowRecordSaver`): this window's record owns it;
+    /// another open window of this app, or another Mac's window, owns it
+    /// too; a window this app closed (also a `window` item itself) or no
+    /// longer has owns nothing. Without a recorded window (an older or a
+    /// remote daemon) the workspace's window decides.
     static func owner(of entry: Entry, window: String?, in services: AppServices) -> Owner {
+        if let recorded = entry.item.window {
+            if let window, recorded == recordID(window: window, in: services) { return .window }
+            guard let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return .otherWindow }
+            let windowID = String(recorded.dropFirst(install.count + 1))
+            return services.windows.registry.value.window(windowID)?.isOpen == true ? .otherWindow : .none
+        }
         guard let resource = entry.item.workspaceID, let workspace = entry.daemon.store.workspace(resourceID: resource),
               let owner = services.windows.registry.value.owner(of: workspace.id) else { return .none }
         return owner == window ? .window : .otherWindow
     }
 
     /// Cmd-Shift-T's item for window `window`: the newest group of any
-    /// level (tab, screen, workspace) that left this window, else the newest
-    /// one no window owns. Never a group of another window (decision 1).
+    /// level (tab, screen, workspace, window) that left this window, else
+    /// the newest one no live window owns (a closed window among them).
+    /// Never a group of another live window (decision 1).
     static func newest(for window: String?, in services: AppServices) -> Entry? {
-        let all = entries([.tab, .screen, .workspace], in: services)
+        let all = entries(allKinds, in: services)
         return all.first { owner(of: $0, window: window, in: services) == .window }
             ?? all.first { owner(of: $0, window: window, in: services) == .none }
     }
 
     /// The entry with id `id` on any daemon.
     static func entry(_ id: String, in services: AppServices) -> Entry? {
-        entries([.tab, .screen, .workspace], in: services).first { $0.item.id == id }
+        entries(allKinds, in: services).first { $0.item.id == id }
     }
 
     /// The newest recorded delete of personal workspace group `id`, if a
@@ -122,6 +145,13 @@ enum DaemonClosedHistory {
             }
             // A reopened workspace group forms again in the sidebar; no window changes what it shows.
             if item.group != nil { return nil }
+            // A closed window: the app shows it again with the workspaces it kept.
+            if item.kind == .window {
+                let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
+                if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
+                services.registry.refuse(RefusalStrings.noRecentlyClosedTab)
+                return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedTab)
+            }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
@@ -199,7 +229,7 @@ enum DaemonClosedHistory {
                   let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.resourceID == tab } }),
                   let controller = services.paneController(for: pane) else { return }
             controller.selectWhenReported(tab: tab.rawValue)
-        case .workspace:
+        case .workspace, .window:
             break
         }
     }
