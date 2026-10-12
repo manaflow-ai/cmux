@@ -7,7 +7,7 @@ Drives a running tagged build (a capture slot's, or one launched with CMUX_NEXT_
 and CMUX_NEXT_SOCKET_MODE=automation). For each page, a click reaches Chromium's page view
 through `debug.mouse {"target": "page"}` (an in-app event, no system event), and then:
 
-  1. `chrome://hang` (opened as the user opens a URL), then a page whose click handler never
+  1. `chrome://hang` (typed into the omnibar, as a person opens it), then a page whose click handler never
      returns: the pane shows the "Page unresponsive" card within Chromium's hang delay;
   2. the card is in the pane: no window, sheet or Chromium dialog opens with it;
   3. Wait hides it and restarts Chromium's timer, so the card comes back while the page
@@ -94,10 +94,14 @@ def click_page():
     check(reply.get("delivered") == 2, f"a click reaches the page view ({reply})")
 
 
-def run_page(name, url, hangs_on_click):
+def run_page(name, url, hangs_on_click, typed=None):
     print(f"== {name}", flush=True)
     open_tab(url)
     check(bool(TAB), f"{name}: a Chromium tab opens")
+    if typed:
+        # Agents cannot open Chromium's own pages; a person types them into the omnibar.
+        reply = rpc("debug.omnibar_type", {"text": typed})
+        check(reply.get("typed") is True, f"{name}: typed into the omnibar ({reply})")
     time.sleep(3)
     before = set(app_windows())
     click_page()
@@ -129,7 +133,7 @@ loop = os.path.join(scratch, "loop.html")
 with open(loop, "w") as f:
     f.write(LOOP_PAGE)
 check("error" not in rpc("debug.cef"), "app socket answers")
-run_page("chrome://hang", "chrome://hang", hangs_on_click=False)
+run_page("chrome://hang", "file://" + loop, hangs_on_click=False, typed="chrome://hang")
 run_page("a page that loops on click", "file://" + loop, hangs_on_click=True)
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)
