@@ -29,7 +29,42 @@ struct CanvasThemeBackdropTests {
         #expect((pane.layer?.backgroundColor?.alpha ?? 0) == 0)
     }
 
+    @Test func themeChangeSignalReappliesTheme() throws {
+        let center = NotificationCenter()
+        let signal = Notification.Name("CanvasThemeBackdropTests.themeChanged")
+        var theme = CanvasTheme(canvasBackground: .black, paneBackground: .black)
+        let root = makeRoot(
+            themeProvider: { theme },
+            themeChangeSignals: [CanvasThemeChangeSignal(name: signal, center: center)]
+        )
+        let pane = try #require(root.paneViews.values.first)
+        #expect(root.scrollView.drawsBackground)
+
+        // The host's terminal opacity drops below 1 with no SwiftUI update,
+        // as a Ghostty config reload does.
+        theme.showsWindowBackdrop = true
+        center.post(name: signal, object: nil)
+
+        #expect(!root.scrollView.drawsBackground)
+        #expect(!root.documentView.isOpaque)
+        #expect((pane.layer?.backgroundColor?.alpha ?? 0) == 0)
+
+        theme.showsWindowBackdrop = false
+        center.post(name: signal, object: nil)
+
+        #expect(root.scrollView.drawsBackground)
+        #expect(root.documentView.isOpaque)
+        #expect(pane.layer?.backgroundColor?.alpha == 1)
+    }
+
     private func makeRoot(theme: CanvasTheme) -> CanvasRootView {
+        makeRoot(themeProvider: { theme })
+    }
+
+    private func makeRoot(
+        themeProvider: @escaping () -> CanvasTheme,
+        themeChangeSignals: [CanvasThemeChangeSignal] = []
+    ) -> CanvasRootView {
         let panel = UUID()
         let model = CanvasModel(metricsProvider: {
             CanvasMetrics(gap: 16, snapThreshold: 8, minPaneSize: CanvasSize(width: 120, height: 80))
@@ -43,7 +78,8 @@ struct CanvasThemeBackdropTests {
                 onClosePanel: { _ in },
                 onLayoutChanged: {}
             ),
-            themeProvider: { theme }
+            themeProvider: themeProvider,
+            themeChangeSignals: themeChangeSignals
         )
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
         root.frame = host.bounds

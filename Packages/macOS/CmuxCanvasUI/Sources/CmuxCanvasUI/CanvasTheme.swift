@@ -24,3 +24,18 @@ public struct CanvasTheme {
         self.showsWindowBackdrop = showsWindowBackdrop
     }
 }
+
+/// A notification after which the host's ``CanvasTheme`` may resolve
+/// differently, such as a terminal background or opacity change. The canvas
+/// re-queries its theme provider whenever one is posted.
+public struct CanvasThemeChangeSignal {
+    /// The notification to observe.
+    public var name: Notification.Name
+    /// The center the notification is posted on.
+    public var center: NotificationCenter
+
+    public init(name: Notification.Name, center: NotificationCenter = .default) {
+        self.name = name
+        self.center = center
+    }
+}
