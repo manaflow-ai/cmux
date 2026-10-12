@@ -25,6 +25,29 @@ struct ConversationDetailsHeaderGeometryTests {
         #expect(abs(l.height - (263 + 2.0 / 3)) < 0.01)
     }
 
+    /// iOS 26.5 / 27.0 iPhone 17 Pro (402 wide) at AX3: the title wraps to
+    /// two 48 pt lines (114.33 tall) and the circles grow to 73 pt, 16 pt
+    /// under it.
+    @Test func dynamicTypeGrowsTitleAndQuickActions() {
+        let size = ConversationDetailsHeaderGeometry.quickActionSize(contentSizeIndex: 9)
+        #expect(size == 73)
+        let l = ConversationDetailsHeaderGeometry.layout(width: 402, safeTop: 62, offset: 0, showsTabs: false, isGroup: false, titleHeight: 343.0 / 3, quickActionSize: size)
+        #expect(abs(l.titleTop - 146) < 0.01)
+        #expect(abs(l.quickActions.minX - 71.5) < 0.01)
+        #expect(abs(l.quickActions.minY - (276 + 1.0 / 3)) < 0.01)
+        #expect(l.quickActions.height == 73)
+        #expect(abs(l.quickActions.width - 259) < 0.01)
+        #expect(abs(l.height - (369 + 1.0 / 3)) < 0.01)
+    }
+
+    @Test func quickActionSizesFollowEveryCategory() {
+        let messages: [CGFloat] = [44.33, 45.33, 46.67, 48, 50.33, 52.67, 55, 59.67, 66, 73, 80, 88.33]
+        for (index, expected) in messages.enumerated() {
+            #expect(abs(ConversationDetailsHeaderGeometry.quickActionSize(contentSizeIndex: index) - expected) < 0.01)
+        }
+        #expect(ConversationDetailsHeaderGeometry.quickActionSize(contentSizeIndex: 99) == ConversationDetailsHeaderGeometry.quickActionSize(contentSizeIndex: 11))
+    }
+
     @Test func tabsAddTheirBarAndPadding() {
         let l = layout(0, tabs: true)
         #expect(abs(l.tabBar.minY - (263 + 2.0 / 3)) < 0.01)

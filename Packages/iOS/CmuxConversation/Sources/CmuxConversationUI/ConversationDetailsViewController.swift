@@ -136,6 +136,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        header.updateFonts()
         applyBlur()
     }
 
@@ -146,6 +147,10 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            header.updateFonts()
+            view.setNeedsLayout()
+        }
         if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle {
             blurAnimator?.stopAnimation(true)
             blurAnimator = nil
@@ -190,7 +195,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         let margin = ConversationHeaderGeometry.sideMargin(layoutMargin: view.layoutMargins.left)
         backGlass.frame = CGRect(x: margin, y: top, width: ConversationHeaderGeometry.buttonSize, height: ConversationHeaderGeometry.buttonSize)
         backButton.frame = CGRect(x: 2, y: ConversationHeaderGeometry.backChevronDrop, width: 40, height: 44)
-        let rest = ConversationDetailsHeaderGeometry.layout(width: bounds.width, safeTop: top, offset: 0, showsTabs: tabBar != nil, isGroup: isGroup)
+        let rest = headerLayout(offset: 0)
         infoPage.setSideMargin(margin)
         infoPage.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
         backgroundsPage?.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
@@ -211,10 +216,21 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         return max(0, min(1, pages.contentOffset.x / pages.bounds.width))
     }
 
+    /// The header for a content offset, at the current text size: the title
+    /// wraps and the quick actions grow with Dynamic Type.
+    private func headerLayout(offset: CGFloat) -> ConversationDetailsHeaderLayout {
+        let width = view.bounds.width
+        return ConversationDetailsHeaderGeometry.layout(
+            width: width, safeTop: view.safeAreaInsets.top, offset: offset, showsTabs: tabBar != nil, isGroup: isGroup,
+            titleHeight: header.titleHeight(width: width),
+            quickActionSize: ConversationDetailsHeaderView.quickActionSize(for: traitCollection)
+        )
+    }
+
     private func layoutHeader() {
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
-        let layout = ConversationDetailsHeaderGeometry.layout(width: bounds.width, safeTop: view.safeAreaInsets.top, offset: currentOffset, showsTabs: tabBar != nil, isGroup: isGroup)
+        let layout = headerLayout(offset: currentOffset)
         header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: tabBar == nil ? layout.height : layout.tabBar.maxY)
         header.apply(layout)
         if let tabBar {
@@ -306,11 +322,12 @@ final class ConversationDetailsHeaderView: UIView {
         clusterDisc.isHidden = true
         clusterDisc.isUserInteractionEnabled = false
         addSubview(clusterDisc)
-        titleLabel.font = ConversationDetailsHeaderView.titleFont
+        titleLabel.font = ConversationDetailsHeaderView.titleFont(for: traitCollection)
         titleLabel.textAlignment = .center
         titleLabel.textColor = .label
-        titleLabel.adjustsFontSizeToFitWidth = true
-        titleLabel.minimumScaleFactor = 0.6
+        // Messages wraps the title (two lines from AX2) rather than shrinking it.
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.accessibilityTraits = .header
         titleLabel.accessibilityIdentifier = "conversation.details.title"
         titleLabel.layer.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -347,8 +364,36 @@ final class ConversationDetailsHeaderView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// SF 28 bold (Messages' `.title.bold()`; ink "+1 (888) 555-1212" 245.67 pt).
-    static var titleFont: UIFont { .systemFont(ofSize: 28, weight: .bold) }
+    /// Messages' `.title.bold()`: SF 28 bold at Large (ink "+1 (888)
+    /// 555-1212" 245.67 pt), 48 at AX3.
+    static func titleFont(for traits: UITraitCollection) -> UIFont {
+        let base = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .title1, compatibleWith: traits)
+        let bold = base.withSymbolicTraits(.traitBold) ?? base
+        return UIFont(descriptor: bold, size: 0)
+    }
+
+    /// The circle's side for the text size (48 at Large, 73 at AX3).
+    static func quickActionSize(for traits: UITraitCollection) -> CGFloat {
+        let order: [UIContentSizeCategory] = [
+            .extraSmall, .small, .medium, .large, .extraLarge, .extraExtraLarge, .extraExtraExtraLarge,
+            .accessibilityMedium, .accessibilityLarge, .accessibilityExtraLarge, .accessibilityExtraExtraLarge, .accessibilityExtraExtraExtraLarge,
+        ]
+        let index = order.firstIndex(of: traits.preferredContentSizeCategory) ?? 3
+        return ConversationDetailsHeaderGeometry.quickActionSize(contentSizeIndex: index)
+    }
+
+    func updateFonts() {
+        titleLabel.font = Self.titleFont(for: traitCollection)
+    }
+
+    /// The title's width: the header's, less 16 pt a side.
+    private static func titleWidth(in width: CGFloat) -> CGFloat { width - 32 }
+
+    /// The title's line box at its resting scale (one or two lines).
+    func titleHeight(width: CGFloat) -> CGFloat {
+        let fitted = titleLabel.sizeThatFits(CGSize(width: Self.titleWidth(in: width), height: .greatestFiniteMagnitude)).height
+        return fitted > 0 ? fitted : ConversationDetailsHeaderGeometry.titleHeight
+    }
 
     func configure(info: ConversationInfo, meID: String?) {
         titleLabel.text = info.title
@@ -384,12 +429,12 @@ final class ConversationDetailsHeaderView: UIView {
             if avatars.count > 1 { avatars[1].frame = CGRect(x: origin.x + 32 * k, y: origin.y + 18 * k, width: 24 * k, height: 24 * k) }
             if avatars.count > 2 { avatars[2].frame = CGRect(x: origin.x + 16 * k, y: origin.y + 36 * k, width: 18 * k, height: 18 * k) }
         }
-        let titleWidth = bounds.width - 2 * 40
         titleLabel.transform = .identity
-        titleLabel.bounds = CGRect(x: 0, y: 0, width: titleWidth, height: ConversationDetailsHeaderGeometry.titleHeight)
+        titleLabel.bounds = CGRect(x: 0, y: 0, width: Self.titleWidth(in: bounds.width), height: titleHeight(width: bounds.width))
         titleLabel.center = CGPoint(x: bounds.midX, y: layout.titleTop)
         titleLabel.transform = CGAffineTransform(scaleX: layout.titleScale, y: layout.titleScale)
         actions.frame = layout.quickActions
+        for button in actionButtons { button.layer.cornerRadius = layout.quickActions.height / 2 }
         actions.alpha = layout.quickActionsAlpha
         actions.isUserInteractionEnabled = layout.quickActionsAlpha > 0.5
         actions.accessibilityElementsHidden = layout.quickActionsAlpha == 0
