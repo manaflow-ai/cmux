@@ -177,8 +177,11 @@ extension DockSplitStore {
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
             detectedResumeBindingIsAmbiguous:
                 surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
-            developerToolsVisibleOverride: (panels[panelId] as? BrowserPanel).map {
-                $0.preferredDeveloperToolsVisible || $0.isDeveloperToolsVisible()
+            developerToolsVisibleOverride: (panels[panelId] as? BrowserPanel).map { browser in
+                // As in Workspace: consume an already-stable manual inspector close before
+                // reading the visibility intent the delayed detector has not cleared yet.
+                _ = browser.consumeAttachedDeveloperToolsManualCloseIfNeeded()
+                return browser.preferredDeveloperToolsVisible || browser.isDeveloperToolsVisible()
             },
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
