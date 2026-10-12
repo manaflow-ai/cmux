@@ -4,6 +4,13 @@
 # back to the front once config.fish has run. The app added this directory to
 # XDG_DATA_DIRS and named it in CMUX_CLI_FISH_XDG_DIR; remove both so programs
 # started in the terminal do not see them.
+#
+# A terminal started with saved output (the classic session import) names its
+# replay file in CMUX_RESTORE_SCROLLBACK_FILE: a one-shot fish_prompt handler
+# prints it once above the first prompt and removes it. Only a file in the
+# app's private cmux-next-scrollback folder is printed or removed.
+set -g __cmux_replay_file "$CMUX_RESTORE_SCROLLBACK_FILE"
+set -e CMUX_RESTORE_SCROLLBACK_FILE
 if set -q CMUX_CLI_FISH_XDG_DIR
     set -l __cmux_cli_dirs (string split : -- "$XDG_DATA_DIRS")
     set -l __cmux_cli_kept
@@ -29,6 +36,15 @@ if status is-interactive
                 test "$entry" = "$dir"; or set -a rest $entry
             end
             set -gx PATH $dir $rest
+        end
+    end
+    function __cmux_replay_first --on-event fish_prompt
+        functions -e __cmux_replay_first
+        set -l file $__cmux_replay_file
+        set -e __cmux_replay_file
+        if test -n "$file" -a -f "$file"; and string match -q -- '*/cmux-next-scrollback' (string replace -r '/[^/]*$' '' -- $file)
+            /bin/cat -- $file 2>/dev/null
+            /bin/rm -f -- $file 2>/dev/null
         end
     end
 end

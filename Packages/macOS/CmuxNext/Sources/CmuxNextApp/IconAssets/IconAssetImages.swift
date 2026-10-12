@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTabs
 import Foundation
 import ImageIO
 import Observation
@@ -23,6 +24,8 @@ final class IconAssetImages {
     /// decode; never retried). A read whose transport failed (no connection yet, a timeout) is
     /// forgotten, so the next rebuild, such as the one a reconnect causes, reads it again.
     @ObservationIgnored private var requested: Set<String> = []
+    /// The tab strip's wrapper of each image, kept: a strip compares tab images by identity.
+    @ObservationIgnored private var tabImages: [String: TabImage] = [:]
 
     /// The image of asset icon `icon` (nil for an emoji or symbol, or until it is read).
     func image(_ icon: String, owner: DaemonService?) -> SidebarFavicon? {
@@ -50,6 +53,23 @@ final class IconAssetImages {
     /// ``image(_:owner:)`` of `owner`'s assets as the sidebar mapping draws them.
     func sidebarIcon(owner: DaemonService) -> (String) -> SidebarFavicon? {
         { [weak owner] icon in self.image(icon, owner: owner) }
+    }
+
+    /// ``image(_:owner:)`` of `owner`'s assets as the tab and screen strips draw them.
+    func tabIcon(owner: DaemonService) -> (String) -> TabImage? {
+        { [weak owner] icon in
+            guard let image = self.image(icon, owner: owner) else { return nil }
+            if let cached = self.tabImages[icon], cached.cgImage === image.image { return cached }
+            let tabImage = TabImage(image.image)
+            self.tabImages[icon] = tabImage
+            return tabImage
+        }
+    }
+
+    /// ``image(_:owner:)`` of `owner`'s assets as an `NSImage` of `side` points (menus).
+    func menuImage(_ icon: String?, owner: DaemonService?, side: CGFloat) -> NSImage? {
+        guard let icon, let image = image(icon, owner: owner) else { return nil }
+        return NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
     }
 
     private static func isAsset(_ value: IconValue) -> Bool {

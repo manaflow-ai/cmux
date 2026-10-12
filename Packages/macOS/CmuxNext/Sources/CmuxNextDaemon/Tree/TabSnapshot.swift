@@ -21,6 +21,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var browserFramesStalled: Bool?
     /// Pinned tabs sort first in their pane (`tab-metadata-v1`).
     public var pinned: Bool
+    /// The page a pinned browser tab was pinned on (Back to Pinned Page); nil when unpinned.
+    public var pinnedURL: String?
     /// Presented directory: last OSC 7 report or launch dir (`tab-metadata-v1`).
     public var cwd: String?
     /// Branch name, or the 7-char commit when `gitDetached` (`tab-metadata-v1`).
@@ -128,6 +130,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         case browserRenderer = "browser_renderer"
         case browserEngine = "browser_engine"
         case faviconURL = "favicon_url"
+        case pinnedURL = "pinned_url"
         case browserProfileID = "browser_profile_id"
         case tabGroup = "group"
     }
@@ -153,6 +156,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         browserError = try c.decodeIfPresent(String.self, forKey: .browserError)
         browserFramesStalled = try c.decodeIfPresent(Bool.self, forKey: .browserFramesStalled)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        pinnedURL = try c.decodeIfPresent(String.self, forKey: .pinnedURL)
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         gitBranch = try c.decodeIfPresent(String.self, forKey: .gitBranch)
         gitDetached = try c.decodeIfPresent(Bool.self, forKey: .gitDetached) ?? false

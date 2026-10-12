@@ -1005,7 +1005,9 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_next_computer_use_helper.py
           python3 tests/test_nightly_publication_marker.py
+          python3 tests/test_nightly_republish_delta_guard.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}

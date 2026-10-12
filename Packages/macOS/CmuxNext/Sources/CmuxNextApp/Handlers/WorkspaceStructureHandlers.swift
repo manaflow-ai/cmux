@@ -98,7 +98,7 @@ enum WorkspaceStructureHandlers {
     /// The directory the new workspace's first terminal starts in: the first
     /// pane's first tab when it is a terminal.
     private static func firstLeafDirectory(_ blueprint: WorkspaceBlueprint) -> String? {
-        if case .terminal(let cwd)? = blueprint.screens.first?.columns.first?.root.tabs.first { return cwd }
+        if case .terminal(let cwd, _)? = blueprint.screens.first?.columns.first?.root.tabs.first { return cwd }
         return blueprint.firstDirectory
     }
 

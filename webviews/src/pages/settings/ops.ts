@@ -22,7 +22,7 @@ export type MuseumArtResult = {
 };
 
 /** A workspace's own background: its name and value (null follows appearance.background). */
-export type WorkspaceBackground = { workspace: string; title: string; value: string | null };
+export type WorkspaceBackground = { workspace: string; title: string; value: string | null; opacity?: number | null };
 
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
@@ -65,7 +65,8 @@ export type GhosttyDiagnostic = {
 };
 
 /** One space or machine row (`cmux.settings.host.lists`). */
-export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+/** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
+export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
 
 /** One browser profile row. */
 export type BrowserProfile = {
@@ -315,9 +316,15 @@ export type SettingsOps = {
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
   "cmux.settings.backdrop.workspace": [{ workspace: string }, WorkspaceBackground];
   /** Native: save a workspace's own background; null follows appearance.background again. */
-  "cmux.settings.backdrop.workspace.set": [{ workspace: string; value: string | null }, unknown];
+  "cmux.settings.backdrop.workspace.set": [
+    { workspace: string; value?: string | null; opacity?: number | null },
+    unknown,
+  ];
   /** Native: show `value` in that workspace's windows without saving it; `end` drops the preview. */
-  "cmux.settings.backdrop.workspace.preview": [{ workspace: string; value?: string | null; end?: boolean }, unknown];
+  "cmux.settings.backdrop.workspace.preview": [
+    { workspace: string; value?: string | null; opacity?: number | null; end?: boolean },
+    unknown,
+  ];
   /** Browse More Art: public-domain works in open museum collections matching `query`. */
   "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
   /** Downloads the work `key` into the backgrounds folder and sets it as the background. */

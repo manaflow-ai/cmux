@@ -257,6 +257,7 @@ enum TabHandlers {
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
+        PinnedPage.bind(registry, ctx: ctx)
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

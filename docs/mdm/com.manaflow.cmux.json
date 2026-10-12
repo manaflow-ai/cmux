@@ -170,6 +170,7 @@
       "enum" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",

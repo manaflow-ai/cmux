@@ -48,7 +48,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry | link | texts | typing | rows | nudge, text, dx, dy, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | typing | rows | resize | nudge, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -96,6 +96,28 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
                             "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "resize":
+            // Width changes of the transcript, one after another in this one main-thread turn (so in one
+            // display frame, as a divider drag or a live resize can make): after each, the width pass
+            // counters and the rows as drawn (home-resize-pace.py; MessagesLab f11642b resize-pace).
+            let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
+            func rowsJSON() -> JSONValue {
+                .array(view.debugRowFrames().map { r in
+                    .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
+                             "x": .number(Double(r.balloon.minX)), "maxX": .number(Double(r.balloon.maxX)),
+                             "y": .number(Double(r.balloon.minY))])
+                })
+            }
+            var steps: [JSONValue] = []
+            for trim in trims {
+                view.debugTrimWidth(CGFloat(trim))
+                let c = view.debugWidthPasses
+                steps.append(.object(["trim": .number(trim), "passes": .number(Double(c.passes)), "deferred": .number(Double(c.deferred)),
+                                      "rows": rowsJSON()]))
+            }
+            let c0 = view.debugWidthPasses
+            return .object(["ok": .bool(!trims.isEmpty), "steps": .array(steps),
+                            "passes": .number(Double(c0.passes)), "deferred": .number(Double(c0.deferred))])
         case "nudge":
             // The transcript moves by dx, dy points in its pane (a pane on a fraction of a point).
             view.debugNudge(dx: CGFloat(params["dx"]?.doubleValue ?? 0.5), dy: CGFloat(params["dy"]?.doubleValue ?? 0))

@@ -159,12 +159,19 @@ struct PageFactory {
             title: { [weak services] id in services?.workspace(id: id)?.displayName },
             value: { [weak services] id in services?.themes.workspaceBackground(id) },
             set: { [weak services] value, id in services?.themes.setWorkspaceBackground(value, for: id) },
-            preview: { [weak services] value, id in services?.themes.previewWorkspaceBackground(value, for: id) })
+            preview: { [weak services] value, id in services?.themes.previewWorkspaceBackground(value, for: id) },
+            opacity: SettingsWorkspaceOpacity(
+                value: { [weak services] id in services?.themes.workspaceOpacity(id) },
+                set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
+                preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          userImages: SettingsWindowService.userImages, museum: museumArt)
+                                                          userImages: SettingsWindowService.userImages, museum: museumArt,
+                                                          iconPNG: { [weak services] icon in
+                                                              await SettingsIconAssets.png(icon, owner: services?.machines.local)
+                                                          })
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)

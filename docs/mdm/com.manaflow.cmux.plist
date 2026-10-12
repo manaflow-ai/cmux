@@ -1183,6 +1183,7 @@
 			<array>
 				<string>neutral</string>
 				<string>theme</string>
+				<string>art</string>
 				<string>red</string>
 				<string>green</string>
 				<string>yellow</string>
