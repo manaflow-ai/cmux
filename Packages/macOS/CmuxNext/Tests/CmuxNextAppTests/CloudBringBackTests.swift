@@ -62,6 +62,28 @@ struct CloudBringBackTests {
         }
     }
 
+    /// The move back committed but the chat's tab here didn't open: the machine tab keeps its
+    /// Bring Back Local row, also after a relaunch (which forgets in-memory retries), and running
+    /// it again only opens the tab, without pulling or moving again.
+    @Test func aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch() async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let host = trip.services.agentTabs.localHost
+            trip.services.agentTabs.localHost = nil
+            #expect(await trip.bringBack() != nil, "the bring back did not report the tab that failed")
+            #expect(trip.calls().count == 4, "\(trip.calls())")
+            trip.services.cloud.bringBackRetries[trip.machineKey] = nil
+            trip.services.agentTabs.localHost = host
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(!CloudBringBack.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudBringBack.action),
+                    "the machine tab lost its Bring Back Local row")
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back again: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            #expect(trip.calls().count == 4, "it pulled or moved again: \(trip.calls())")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.machineChat() == nil, "the machine's tab is still open")
+        }
+    }
+
     /// A sync pull that throws (the CLI timed out) keeps the machine's tab and the bring back
     /// retryable on the same machine (cx-rppd.8).
     @Test func aSyncPullThatThrowsKeepsTheBringBackRetryable() async throws {
@@ -104,8 +126,9 @@ struct CloudBringBackTests {
         /// This Mac's chat tab, if it has one.
         func localChat() -> TabModel? { Self.chat(in: services.daemon.store) }
 
+        /// A tab bound to a chat's session; a new chat's empty tab (no session yet) is not one.
         private static func chat(in store: DaemonStore) -> TabModel? {
-            store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession != nil }
+            store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession?.session != nil }
         }
 
         func calls() -> [[String]] {
