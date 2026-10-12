@@ -484,6 +484,15 @@ impl ChildAgent {
                         }
                     }
                 }
+                // Claude's background shells ended with it (cx-ncc.84).
+                if let Some(tr) = &agent_for_exit.translator {
+                    for m in tr.end_background_shells().await {
+                        tap(Direction::In, &m, None);
+                        if let Message::Notification { method, params } = m {
+                            let _ = inbound.send(Inbound::Notification { method, params }).await;
+                        }
+                    }
+                }
                 // Fail every pending request, then report exit.
                 let mut p = pending.lock().await;
                 for (_, tx) in p.map.drain() {

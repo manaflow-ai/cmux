@@ -248,9 +248,18 @@ pub struct Translator {
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
     /// Shells running in the background (Bash `run_in_background`, or a
-    /// `local_bash` task): tool_use id -> their command, until their
-    /// `task_notification` ends them (cx-ncc.84).
-    background_shells: Mutex<HashMap<String, String>>,
+    /// backgrounded `local_bash` task) by tool_use id, until their
+    /// `task_notification` or Claude's exit ends them (cx-ncc.84).
+    background_shells: Mutex<HashMap<String, BackgroundShell>>,
+}
+
+/// A background shell: the session its Bash call ran in, its command, and
+/// Claude's task id once a task event named it.
+#[derive(Debug, Clone)]
+struct BackgroundShell {
+    sid: String,
+    command: String,
+    task: Option<String>,
 }
 
 #[derive(Debug, Clone)]

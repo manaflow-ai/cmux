@@ -129,10 +129,12 @@ impl Translator {
                         {
                             let command =
                                 input.get("command").and_then(Value::as_str).unwrap_or("");
-                            self.background_shells
-                                .lock()
-                                .await
-                                .insert(id.to_owned(), command.to_owned());
+                            let shell = BackgroundShell {
+                                sid: sid.clone(),
+                                command: command.to_owned(),
+                                task: None,
+                            };
+                            self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
                         let mut call = json!({
                             "sessionUpdate": "tool_call",
@@ -455,8 +457,8 @@ impl Translator {
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
             }
             "system" if sub.starts_with("task_") => {
-                if let Some(ended) = self.background_shell_task(sub, line).await {
-                    out.push(upd(ended));
+                if let Some(ended) = self.background_shell_task(sub, line, &sid).await {
+                    out.push(ended);
                 }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -480,43 +482,71 @@ impl Translator {
         usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
     }
 
-    /// Claude's task events for a background shell (cx-ncc.84): a `local_bash`
-    /// task_started records one Claude moved to the background itself, and its
-    /// `task_notification` returns a `background_task_update` saying how it
-    /// ended (`completed`, `failed` or `stopped`), with Claude's reason or
-    /// summary when it gave one.
-    async fn background_shell_task(&self, sub: &str, line: &Value) -> Option<Value> {
-        let tool = line.get("tool_use_id").and_then(Value::as_str)?;
+    /// Claude's task events for a background shell (cx-ncc.84): a backgrounded
+    /// `local_bash` task_started records one Claude moved to the background
+    /// itself, and its `task_notification` returns a `background_task_update`
+    /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
+    /// reason or summary when it gave one. The update goes to the session the
+    /// shell's Bash call ran in, a subagent's too.
+    async fn background_shell_task(&self, sub: &str, line: &Value, sid: &str) -> Option<Message> {
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = text("task_id");
+        let mut shells = self.background_shells.lock().await;
+        // A notification may name only the task.
+        let tool = match text("tool_use_id") {
+            Some(tool) => tool.to_owned(),
+            None => {
+                let task = task?;
+                shells.iter().find(|(_, s)| s.task.as_deref() == Some(task))?.0.clone()
+            }
+        };
         if sub == "task_started" {
-            if text("task_type") == Some("local_bash") {
-                let command = text("description").unwrap_or("").to_owned();
-                self.background_shells.lock().await.entry(tool.to_owned()).or_insert(command);
+            if text("task_type") == Some("local_bash")
+                && line.get("is_backgrounded") == Some(&Value::Bool(true))
+            {
+                let shell = shells.entry(tool).or_insert_with(|| BackgroundShell {
+                    sid: sid.to_owned(),
+                    command: text("description").unwrap_or("").to_owned(),
+                    task: None,
+                });
+                shell.task = task.map(str::to_owned).or(shell.task.take());
+            } else if let (Some(shell), Some(task)) = (shells.get_mut(&tool), task) {
+                shell.task = Some(task.to_owned());
             }
             return None;
         }
         if sub != "task_notification" {
             return None;
         }
-        let command = self.background_shells.lock().await.remove(tool)?;
+        let shell = shells.remove(&tool)?;
         let state = match text("status") {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
             _ => "completed",
         };
-        let mut update = json!({
-            "sessionUpdate": "background_task_update",
-            "taskId": text("task_id").unwrap_or(""),
-            "toolCallId": tool,
-            "command": command,
-            "state": state,
-        });
+        let mut update = background_task_update(&tool, &shell, state);
+        if let Some(task) = task {
+            update["taskId"] = json!(task);
+        }
         for key in ["reason", "summary"] {
             if let Some(value) = text(key) {
                 update[key] = json!(value);
             }
         }
-        Some(update)
+        Some(shell_update(&shell, update))
+    }
+
+    /// The background shells still running when Claude's stdout closed: they
+    /// ended with its process, so each is reported `stopped`.
+    pub async fn end_background_shells(&self) -> Vec<Message> {
+        let mut shells: Vec<_> = self.background_shells.lock().await.drain().collect();
+        shells.sort_by(|a, b| a.0.cmp(&b.0));
+        shells
+            .into_iter()
+            .map(|(tool, shell)| {
+                shell_update(&shell, background_task_update(&tool, &shell, "stopped"))
+            })
+            .collect()
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
@@ -612,4 +642,20 @@ fn todo_plan(input: &Value) -> Option<Value> {
         })
         .collect();
     Some(json!({"sessionUpdate": "plan", "entries": entries}))
+}
+
+/// A `background_task_update` for one shell.
+fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
+    json!({
+        "sessionUpdate": "background_task_update",
+        "taskId": shell.task.as_deref().unwrap_or(""),
+        "toolCallId": tool,
+        "command": shell.command,
+        "state": state,
+    })
+}
+
+/// `update` as a session update in the shell's session.
+fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
+    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
 }

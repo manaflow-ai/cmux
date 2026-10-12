@@ -379,6 +379,12 @@ impl Started {
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // Claude's background shells ended with it (cx-ncc.84).
+                    if let Some(tr) = state.translator.clone() {
+                        for m in tr.end_background_shells().await {
+                            state.push(Entry::In { msg: m.to_value() });
+                        }
+                    }
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }

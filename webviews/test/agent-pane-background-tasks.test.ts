@@ -195,7 +195,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     expect(rows).toEqual([
       ["npm run dev", "Stopped"],
       ["cargo watch -x test", "Running"],
-      ["pytest -x", "Completed"],
+      ["pytest -x", "Finished"],
     ]);
     await page.close();
   });

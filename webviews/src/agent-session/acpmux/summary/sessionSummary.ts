@@ -140,18 +140,22 @@ export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(
 /// Shells the agent ran in the background (Claude's Bash `run_in_background`, cx-ncc.84): running
 /// until a background task row says how it ended.
 function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
-  const ended = new Map(
-    rows.flatMap((row) =>
-      row.backgroundTask ? [[row.backgroundTask.toolCallId, row.backgroundTask.state] as const] : [],
-    ),
-  );
-  return all
+  const ends = rows.flatMap((row) => (row.backgroundTask ? [row.backgroundTask] : []));
+  const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
+  const launched = all
     .filter((tool) => input(tool).run_in_background === true)
-    .map((tool) => ({
+    .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
     }));
+  // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
+  // itself) is known from its end.
+  const seen = new Set(launched.map((task) => task.id));
+  const endedOnly = ends
+    .filter((end) => !seen.has(end.toolCallId))
+    .map((end): SummaryBackgroundTask => ({ id: end.toolCallId, command: end.command, state: end.state }));
+  return [...launched, ...endedOnly];
 }
 
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
