@@ -146,7 +146,7 @@ struct CloudMachinesEnablementView: View {
     private var banner: some View {
         ZStack(alignment: .bottomTrailing) {
             // The dark icon in both appearances (the lab has no asset catalog, so it falls back).
-            Image(nsImage: NSImage(named: "AppIconDark") ?? NSApp.applicationIconImage)
+            Image(nsImage: NSImage(named: "CloudWelcomeIcon") ?? NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 60, height: 60)
             Image(systemName: isProGated ? "lock.fill" : "cloud.fill")

@@ -228,7 +228,9 @@ struct CloudWelcomeMediaCarousel: View {
         HStack(spacing: 11) {
             if posterShowsIcon {
                 // The asset carries the icon grid's margin; 44 pt draws a ~38 pt tile.
-                Image(nsImage: NSImage(named: "AppIconDark") ?? NSApp.applicationIconImage)
+                // CloudWelcomeIcon is the dark icon without its edge bevel, which reads
+                // as a bright ring this small on the dark band.
+                Image(nsImage: NSImage(named: "CloudWelcomeIcon") ?? NSApp.applicationIconImage)
                     .resizable()
                     .interpolation(.high)
                     .frame(width: 44, height: 44)
@@ -555,7 +557,11 @@ struct CloudWelcomeMediaCarousel: View {
     }
 
     private func show(_ newIndex: Int) {
-        guard newIndex != index else { return }
+        // Picking the slide that's already up plays it again from the start.
+        guard newIndex != index else {
+            playback.restart()
+            return
+        }
         playback.detach()
         durationLoadFailed = false
         // Picking a slide plays it, even if the last one was paused.
@@ -970,6 +976,12 @@ extension CloudWelcomeMediaCarousel {
             pausedElapsed = nil
             isPaused = false
             player?.play()
+        }
+
+        /// Plays the current movie again from its first frame.
+        func restart() {
+            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            startNewSlide()
         }
 
         /// Returns elapsed playhead time, including a held value while paused.
