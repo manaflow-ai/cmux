@@ -11,7 +11,8 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import { topModelsFor } from "./topModels";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -158,7 +159,7 @@ export function ComposerPickers({
     onShowContextUsage?.(show);
   };
   const summary = snapshot.summary;
-  const pickerEntries: AcpmuxSnapshot["catalog"] = pickerCatalog
+  const pickerEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses.map((entry) => ({
           id: entry.acpmuxHarness ?? entry.id,
@@ -166,6 +167,7 @@ export function ComposerPickers({
           models: entry.models,
           ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
           pickable: entry.pickable && entry.acpmuxHarness !== null,
+          ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
         })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
