@@ -7,6 +7,7 @@ USAGE
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
+  cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
@@ -35,6 +36,10 @@ USAGE
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
 
+close with --others, --to-right, --to-left or --all closes the selected
+workspace's siblings (the session's workspaces, the home one never) as one
+closed group: one `cmux closed reopen` restores them all. The same flags on
+screen, pane and tab close work in the screen, pane or tab bar.
 Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
@@ -61,6 +66,7 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|focus|close
+  cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
     [--viewport-width <fraction>] [--correlation-key <value>]
@@ -83,6 +89,7 @@ pub(super) const TAB_HELP: &str = "\
 USAGE
   cmux tab list
   cmux tab <selector> show|focus|close
+  cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux tab <selector> rename <name>|--name <name>
   cmux tab <selector> move --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
