@@ -13,7 +13,8 @@
 //!    `<data dir>/cmux/agent-home/<workspace id>` (the app makes it). A seed
 //!    that is itself an agent-home folder (Open Chat of a chat that ran in
 //!    another workspace's, cx-djoj7) is the agent-home folder instead: the
-//!    chat resumes where it ran, and acpmux adopts it only there.
+//!    chat resumes where it ran, and acpmux adopts it only there. The
+//!    workspace's own agent-home folder as a seed is still skipped.
 //!
 //! A candidate counts only when it names an existing folder (made canonical
 //! here) that is not the user's home folder, not a folder above it, and not
@@ -152,7 +153,12 @@ pub(crate) fn resolve(inputs: &Inputs<'_>) -> Value {
         match check(seed) {
             Ok(folder) => found = Some((folder, "seed")),
             Err(skip) => match named_agent_home(seed, inputs.agent_home_base) {
-                Some(folder) if skip == Skip::AgentHome => {
+                // The workspace's own stays skipped: its chosen or tab folder still wins.
+                Some(folder)
+                    if skip == Skip::AgentHome
+                        && agent_home.as_deref().map(Path::new).map(canonical).as_deref()
+                            != Some(folder.as_path()) =>
+                {
                     agent_home = Some(folder.to_string_lossy().into_owned());
                     named = true;
                 }
