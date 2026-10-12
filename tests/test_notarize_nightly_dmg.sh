@@ -515,8 +515,9 @@ if CMUX_TEST_DMG_TICKET='[]' run_queued >/dev/null 2>"$TMP_DIR/queued-uncovered.
   echo "FAIL: an unstapled helper the DMG ticket does not cover must stop the run" >&2
   exit 1
 fi
-if grep -Fq "xcrun stapler staple $QUEUED_APP" "$LOG" || [ -e "$TMP_DIR/queued-immutable.dmg" ]; then
-  echo "FAIL: an uncovered helper must stop before the app is stapled" >&2
+if grep -Fq "xcrun stapler staple $QUEUED_APP" "$LOG" || [ -e "$TMP_DIR/queued-immutable.dmg" ] \
+  || ! grep -Fq "does not cover the unstapled Computer Use helper" "$TMP_DIR/queued-uncovered.err"; then
+  echo "FAIL: an uncovered helper must stop before the app is stapled, saying why" >&2
   exit 1
 fi
 : > "$LOG"

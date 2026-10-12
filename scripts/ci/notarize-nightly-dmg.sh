@@ -121,10 +121,12 @@ elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
     "$APP_ENTITLEMENTS" \
     "$APPLE_SIGNING_IDENTITY" || helper_exit=$?
 else
+  # The synchronous run re-signs the helper after the host was sealed and
+  # reseals only once stapled, so a pending exit there is a failure.
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     "$APP_PATH" \
     "$APP_ENTITLEMENTS" \
-    "$APPLE_SIGNING_IDENTITY" || helper_exit=$?
+    "$APPLE_SIGNING_IDENTITY"
 fi
 if [ "$helper_exit" -eq 75 ]; then
   echo "::warning title=Computer Use helper not stapled::Apple still holds the helper's own submission; the DMG ticket must cover it."
