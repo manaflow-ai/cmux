@@ -626,6 +626,29 @@ final class FlowTests: XCTestCase {
         snap(again, "i2-back-in")
     }
 
+    func testAgentStop() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(1.5)
+        field.tap()
+        field.typeText("Write a 4000-word essay on the history of terminals, in plain text, no tools.")
+        app.buttons["agent.send"].tap()
+        pause(6)
+        snap(app, "j0-working")
+        let stop = app.buttons["agent.send"]
+        XCTAssertEqual(stop.label, "Stop")
+        stop.tap()
+        pause(6)
+        snap(app, "j1-stopped")
+        XCTAssertTrue(app.staticTexts["Stopped"].waitForExistence(timeout: 15), "turn should end as stopped")
+        XCTAssertEqual(app.buttons["agent.send"].label, "Send")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
