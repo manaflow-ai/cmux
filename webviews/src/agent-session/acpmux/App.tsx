@@ -1360,10 +1360,14 @@ export function VirtualTranscript({
   const latestLayout = useRef({ layout, rows });
   latestLayout.current = { layout, rows };
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
+  // A report that came due while the pane was hidden, sent once it has a viewport again.
+  const anchorDeferred = useRef(false);
   const reportAnchor = () => {
     const node = ref.current;
+    if (!node || !onAnchor) return;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
-    if (!node || !onAnchor || node.clientHeight === 0) return;
+    anchorDeferred.current = node.clientHeight === 0;
+    if (anchorDeferred.current) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
@@ -1374,6 +1378,9 @@ export function VirtualTranscript({
     reportedAnchor.current = key;
     onAnchor(anchor);
   };
+  useEffect(() => {
+    if (height > 0 && anchorDeferred.current) reportAnchor();
+  });
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
