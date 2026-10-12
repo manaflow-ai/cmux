@@ -319,13 +319,17 @@ mod tests {
     /// A [`Remote`] whose machine is `serve`: it gets each request and the
     /// connection to answer on, then the connection stays open (a machine
     /// that hangs) until the test ends.
-    fn hostile(serve: impl FnOnce(&mut dyn Iterator<Item = Value>, &mut UnixStream) + Send + 'static) -> Remote {
+    fn hostile(
+        serve: impl FnOnce(&mut dyn Iterator<Item = Value>, &mut UnixStream) + Send + 'static,
+    ) -> Remote {
         let (client, mut server) = UnixStream::pair().unwrap();
         client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         std::thread::spawn(move || {
             let reader = BufReader::new(server.try_clone().unwrap());
-            let mut requests =
-                reader.lines().map_while(Result::ok).map(|line| serde_json::from_str(&line).unwrap());
+            let mut requests = reader
+                .lines()
+                .map_while(Result::ok)
+                .map(|line| serde_json::from_str(&line).unwrap());
             serve(&mut requests, &mut server);
             std::thread::sleep(Duration::from_secs(30));
         });

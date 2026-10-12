@@ -647,8 +647,7 @@ fn plant_repository_shape(folder: &Path) {
     std::fs::write(folder.join("HEAD"), "ref: refs/heads/main\n").unwrap();
     std::fs::write(folder.join("objects/info/packs"), "\n").unwrap();
     std::fs::write(folder.join("refs/heads/main"), format!("{}\n", "1".repeat(40))).unwrap();
-    std::fs::write(folder.join("config"), "[core]\n\tfsmonitor = touch /tmp/cmux-pwned\n")
-        .unwrap();
+    std::fs::write(folder.join("config"), "[core]\n\tfsmonitor = touch /tmp/cmux-pwned\n").unwrap();
 }
 
 /// A malicious machine plants a repository's shape (HEAD, objects, refs
