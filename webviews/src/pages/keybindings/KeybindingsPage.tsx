@@ -85,8 +85,11 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
     if (event.key === "Escape" && (snap.text || snap.keyFilter || snap.conflictsOnly)) {
       store.resetQuery();
       event.preventDefault();
-    } else if (event.key === "ArrowDown") {
-      store.select(moveSelection(snap.rows, snap.selection, 1));
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      store.select(moveSelection(snap.rows, snap.selection, event.key === "ArrowDown" ? 1 : -1));
+      event.preventDefault();
+    } else if (event.key === "Enter" && selected && !isReadOnly(selected)) {
+      void store.changeKeybinding(selected);
       event.preventDefault();
     }
   };

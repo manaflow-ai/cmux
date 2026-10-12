@@ -12,7 +12,6 @@ const PARTS: ReadonlyArray<{ name: string; selector: string; parent?: string }> 
   { name: "prompt", selector: ".nt-prompt-glyph", parent: "box" },
   { name: "field", selector: ".nt-field", parent: "box" },
   { name: "open", selector: ".nt-open-tabs:not(.nt-closed)" },
-  { name: "tools", selector: ".nt-tools" },
   { name: "closed", selector: ".nt-closed" },
   { name: "chats", selector: ".nt-chats" },
   { name: "chats-head", selector: ".nt-chats-head", parent: "chats" },
