@@ -8,11 +8,14 @@ import AppKit
 // (NSWindow.didUpdateNotification) and refreshes the rows only when it moved.
 extension HostView {
     /// Every host layout (as MessagesLab's host): the rows read their place.
-    func refreshWindowPlace() {
+    /// `placeVideo`: the host's video layers follow the rows' snapped content (not on attach to a window,
+    /// before the collection's layout: a playing row missing from the visible cells there would stop).
+    func refreshWindowPlace(placeVideo: Bool = true) {
         guard let demo else { return }
         let p = demo.windowPlace
         lastWindowPlace = (p.origin, p.axis)
         demo.refreshWindowPlace()
+        if placeVideo { controller?.intents?.rowsPlaced() }
     }
 
     /// The rows read their place only when it moved since they last did (two layer conversions otherwise).
@@ -34,6 +37,6 @@ extension HostView {
                                                                      queue: .main) { [weak self] _ in
             self?.refreshWindowPlaceIfMoved()
         }
-        refreshWindowPlace()
+        refreshWindowPlace(placeVideo: false)
     }
 }

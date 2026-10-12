@@ -705,6 +705,10 @@ pub struct Mux {
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
+    /// A Cloud machine's agents' requests for files of the person's Mac
+    /// (`access-request-v1`, server/agent_transfer/access_requests.rs).
+    #[cfg(unix)]
+    pub(crate) access_requests: crate::server::agent_transfer::access_requests::AccessRequests,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,

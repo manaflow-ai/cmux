@@ -149,6 +149,8 @@ const indexPage = `<!doctype html>
 </ul>
 </body></html>`;
 
+// The gallery pages too: its registry globs every *.gallery file, so a stage (and the browser tests
+// that load one first, text-field-focus) never waits on a late re-optimize (cx-c332z).
 const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
@@ -160,6 +162,8 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
+  "src/gallery/index.html",
+  "src/gallery/frame.html",
 ];
 
 /// The index page, dev React and the dependency cache.

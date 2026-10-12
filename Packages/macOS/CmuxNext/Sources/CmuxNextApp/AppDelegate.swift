@@ -144,15 +144,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // at the next idle moment, so the first open costs what later opens
         // cost (a launcher panel opens in one frame), without
         // delaying that frame.
-        launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
+        // Then the icon picker (its panel, page and symbol catalog), so the first Set Icon opens warm.
+        launchSettle.whenSettled { [palette = services.palette, weak services] in
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare() } }
+        }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
         launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
+        services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
         services.home.start()
+        services.keybindingsFile.start()
         services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                  importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
@@ -185,11 +190,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
     }
 
-    /// One palette warm-up step per idle moment (`PaletteController.prepare`).
-    private static func preparePalette(_ palette: PaletteController?, step: Int) {
+    /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done`.
+    private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
         IdleOnce.schedule {
-            guard let palette, palette.prepare(step: step) else { return }
-            preparePalette(palette, step: step + 1)
+            guard let palette, palette.prepare(step: step) else { return done() }
+            preparePalette(palette, step: step + 1, done: done)
         }
     }
 

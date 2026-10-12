@@ -287,7 +287,8 @@ function describeElement(element: Element): string {
  */
 function measurePopups(): PopupMeasure[] {
   const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
-    // A popup fading out after a pick is leaving, not open; it lets clicks through.
+    // A closing popup fades out under data-ending-style (Base UI keeps it mounted for the fade); it
+    // is no longer the top layer, so what it fades over is not covering it (cx-xxga3).
     if (element.closest("[data-ending-style]")) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";

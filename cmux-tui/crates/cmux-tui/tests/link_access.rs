@@ -413,3 +413,89 @@ fn files_below(dir: &Path) -> Vec<Vec<u8>> {
     }
     found
 }
+
+/// `cmux link access upload FILES` on this Mac, with `tmp` as its temporary
+/// folder (where the app writes what the person pasted).
+fn upload(world: &World, tmp: &Path, files: &[&Path]) -> (bool, Value) {
+    let work = world.work();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command
+        .env("HOME", &world.home)
+        .env("CMUX_TUI_STATE_DIR", &world.state)
+        .env("TMPDIR", tmp)
+        .args(["link", "access", "upload", "--socket"])
+        .arg(&world.socket)
+        .arg("--remote-root")
+        .arg(&work)
+        .args(files);
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().last().unwrap_or_default();
+    let answer: Value = serde_json::from_str(line).unwrap_or_else(|_| {
+        panic!("no JSON line from upload: {stdout}{}", String::from_utf8_lossy(&output.stderr))
+    });
+    (output.status.success(), answer)
+}
+
+#[test]
+fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    for dir in ["Desktop", ".ssh", "projects"] {
+        std::fs::create_dir_all(home.join(dir)).unwrap();
+    }
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+    let dropped = home.join("Desktop/shot.png");
+    std::fs::write(&dropped, b"\x89PNG fake image").unwrap();
+    // The app writes a pasted image to its temporary folder first.
+    std::fs::create_dir_all(tmp.join("cmux-pastes/.hidden")).unwrap();
+    let pasted = tmp.join("cmux-pastes/pasted.png");
+    std::fs::write(&pasted, b"\x89PNG pasted").unwrap();
+    std::fs::write(home.join(".ssh/id_ed25519"), "fake-upload-key\n").unwrap();
+    std::fs::write(home.join("projects/.env"), "TOKEN=fake-upload-env\n").unwrap();
+    std::fs::write(base.join("elsewhere/other.txt"), "fake-upload-outside\n").unwrap();
+    std::fs::write(tmp.join("loose.txt"), "fake-upload-loose\n").unwrap();
+    std::fs::write(tmp.join("cmux-pastes/.hidden/x.txt"), "fake-upload-hidden\n").unwrap();
+    std::os::unix::fs::symlink(home.join(".ssh/id_ed25519"), home.join("Desktop/key.png")).unwrap();
+
+    let (ok, sent) = upload(&world, &tmp, &[&dropped, &pasted]);
+    assert!(ok, "{sent}");
+    let uploads = sent["uploads"].as_array().unwrap();
+    assert_eq!(uploads.len(), 2, "{sent}");
+    let at: Vec<PathBuf> =
+        uploads.iter().map(|u| PathBuf::from(u["path"].as_str().unwrap())).collect();
+    for (path, name) in at.iter().zip(["shot.png", "pasted.png"]) {
+        assert!(path.starts_with(world.work().join("local/uploads")), "{sent}");
+        assert_eq!(path.file_name().unwrap(), name, "{sent}");
+    }
+    assert_ne!(at[0].parent(), at[1].parent(), "each upload gets its own folder: {sent}");
+    assert_eq!(std::fs::read(&at[0]).unwrap(), b"\x89PNG fake image");
+    assert_eq!(std::fs::read(&at[1]).unwrap(), b"\x89PNG pasted");
+
+    // Secret files, dot folders, a symlink into one, a file outside the home
+    // and temporary folders: refused, and nothing of the call goes, not even
+    // the file beside them that may.
+    for refused in [
+        home.join(".ssh/id_ed25519"),
+        home.join("projects/.env"),
+        home.join("Desktop/key.png"),
+        base.join("elsewhere/other.txt"),
+        tmp.join("loose.txt"),
+        tmp.join("cmux-pastes/.hidden/x.txt"),
+        home.join("Desktop/missing.png"),
+        home.join("Desktop"),
+    ] {
+        let before = files_below(&world.machine_home).len();
+        let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);
+        assert!(!ok, "{} was uploaded: {answer}", refused.display());
+        assert_eq!(answer["error_code"], "upload_refused", "{answer}");
+        assert_eq!(files_below(&world.machine_home).len(), before, "{answer}");
+    }
+    for bytes in files_below(&world.machine_home) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("fake-upload"), "a refused file reached the machine: {text}");
+    }
+}

@@ -1,5 +1,5 @@
-/// Palette scope prefixes (`palette.scopes.<scope>.prefix`), in the
-/// General section's Command Palette group.
+/// Palette scope prefixes (`palette.scopes.<scope>.prefix`), aliases and pins
+/// (`PaletteRankingSetting`), in the General section's Command Palette group.
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum PaletteSettingsSchema {
     static var descriptors: [SettingDescriptor] {
@@ -8,12 +8,13 @@ nonisolated enum PaletteSettingsSchema {
                                       "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.")
         let none = SettingsText.keyed("settings.choice.prefixNone", "None")
         let choices = PaletteScopePrefixes.characters.map { SettingChoice($0, $0) } + [SettingChoice(PaletteScopePrefixes.noneValue, none)]
-        return PaletteScopePrefixes.defaults.map { scope, prefix in
+        let prefixes = PaletteScopePrefixes.defaults.map { scope, prefix in
             SettingDescriptor(
                 PaletteScopePrefixes.path(scope), section: .general, group: group, title: title(scope), help: help,
                 kind: .choice(choices), default: .string(prefix), keywords: ["palette", "prefix", "scope", scope]
             )
         }
+        return prefixes + PaletteRankingSetting.descriptors(group: group)
     }
 
     private static func title(_ scope: String) -> SettingText {

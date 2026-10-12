@@ -79,7 +79,9 @@ nonisolated enum AppearanceSettingsSchema {
                 help: SettingsText.keyed("settings.appearance.background.help",
                                         "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
-                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + backgroundChoices),
+                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
+                               SettingChoice(BackdropSelectionSetting.dailyID,
+                                             SettingsText.keyed("settings.choice.shuffleDaily", "Shuffle Daily"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
             ),
