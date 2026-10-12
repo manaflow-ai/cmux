@@ -8,7 +8,15 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "KeyboardEvent", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "KeyboardEvent",
+  "MouseEvent",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -21,6 +29,7 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     KeyboardEvent: window.KeyboardEvent,
+    MouseEvent: window.MouseEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.getElementById("root")!;
@@ -137,4 +146,50 @@ test("Include focused tab attaches what the App read as one chip, or nothing", a
   expect(contextAttachment({ name: "", text: "x" }, "Focused tab")?.name).toBe("Focused tab");
   expect(contextAttachment(null, "Focused tab")).toBeUndefined();
   expect(contextAttachment({ name: "Blank", text: "  " }, "Focused tab")).toBeUndefined();
+});
+
+test("a right-click on the floating header or the compact bar offers its actions", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { FloatingHeader, FloatingCompactBar } = await import("../src/agent-session/acpmux/FloatingChat");
+  const asked: string[] = [];
+  const floating = {
+    state: { holding: true, onTop: true, collapsed: false },
+    status: "idle",
+    title: "Fix the flaky upload test",
+    line: "Retrying the third upload.",
+    setOnTop: (onTop: boolean) => asked.push(`onTop ${onTop}`),
+    setCollapsed: (collapsed: boolean) => asked.push(`collapsed ${collapsed}`),
+    moveToTab: () => asked.push("moveToTab"),
+    includeContext: () => asked.push("include"),
+  };
+  const menu = (target: Element) => {
+    act(() => {
+      target.dispatchEvent(
+        new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      );
+    });
+    return [...document.querySelectorAll<HTMLElement>(".ui-context-menu [role=menuitem]")];
+  };
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<FloatingHeader floating={floating as never} />));
+  const items = menu(host.querySelector(".acpmux-floating-title")!);
+  expect(items.map((item) => item.textContent)).toEqual([
+    "Include focused tab",
+    "✓ Keep on top",
+    "Collapse",
+    "Move to tab",
+  ]);
+  act(() => items.at(-1)!.click());
+  expect(asked).toEqual(["moveToTab"]);
+
+  act(() =>
+    root!.render(
+      <FloatingCompactBar floating={{ ...floating, state: { ...floating.state, collapsed: true } } as never} />,
+    ),
+  );
+  const bar = menu(host.querySelector(".acpmux-floating-bar")!);
+  expect(bar.map((item) => item.textContent)).toEqual(["Expand", "✓ Keep on top", "Move to tab"]);
+  act(() => bar[1]!.click());
+  expect(asked).toEqual(["moveToTab", "onTop false"]);
 });
