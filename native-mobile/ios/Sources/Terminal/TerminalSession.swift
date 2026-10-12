@@ -46,9 +46,11 @@ final class TerminalSession {
         guard cols > 0, rows > 0 else { return }
         if let requestedSize, requestedSize == (cols, rows) { return }
         requestedSize = (cols, rows)
-        if client == nil {
+        if reader == nil {
+            // First fit attaches; later fits (layout passes, keyboard) only
+            // resize once the attach is underway.
             attach(cols: cols, rows: rows)
-        } else {
+        } else if client != nil {
             resize(to: (cols, rows))
         }
     }
@@ -90,9 +92,17 @@ final class TerminalSession {
         }
     }
 
+    /// After the link reconnects: start a fresh attach at the last size.
+    func reattach() {
+        guard let size = requestedSize else { return }
+        detach()
+        fit(cols: size.cols, rows: size.rows)
+    }
+
     func detach() {
         reader?.cancel()
         reader = nil
+        requestedSize = nil
         let client = client
         self.client = nil
         Task { await client?.close() }

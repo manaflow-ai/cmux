@@ -146,9 +146,11 @@ struct ComposerBar: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(filled ? Color(uiColor: .systemBackground) : .primary)
+                // The terminal screen is always dark: the primary action is
+                // a solid white circle (ChatGPT/Grok send), others are tinted.
+                .foregroundStyle(filled ? Color.black : Color.white)
                 .frame(width: 36, height: 36)
-                .background(Circle().fill(filled ? Color.primary : Color.primary.opacity(0.08)))
+                .background(Circle().fill(filled ? Color.white : Color.white.opacity(0.1)))
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)

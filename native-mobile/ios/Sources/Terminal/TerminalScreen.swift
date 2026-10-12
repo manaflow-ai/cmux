@@ -24,7 +24,7 @@ struct TerminalScreen: View {
     init(connection: HostConnection, tab: DaemonTab) {
         self.connection = connection
         self.tab = tab
-        _session = State(initialValue: TerminalSession(surfaceID: tab.surface, connection: connection))
+        _session = State(initialValue: connection.terminalSession(for: tab.surface))
     }
 
     private var liveTab: DaemonTab { connection.tab(surface: tab.surface) ?? tab }

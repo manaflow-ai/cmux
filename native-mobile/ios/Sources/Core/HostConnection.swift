@@ -29,6 +29,15 @@ final class HostConnection {
     private(set) var services: ServiceClient?
     private var tasks: [Task<Void, Never>] = []
     private var refreshTask: Task<Void, Never>?
+    /// One terminal session per surface, shared by every screen that shows it.
+    private var terminalSessions: [Int: TerminalSession] = [:]
+
+    func terminalSession(for surface: Int) -> TerminalSession {
+        if let existing = terminalSessions[surface] { return existing }
+        let session = TerminalSession(surfaceID: surface, connection: self)
+        terminalSessions[surface] = session
+        return session
+    }
 
     /// Fires on daemon notifications (the feed listens).
     var onNotification: ((DaemonNotification) -> Void)?
@@ -70,6 +79,7 @@ final class HostConnection {
     }
 
     func stop() {
+        heartbeat?.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         Task { await control?.close() }
@@ -101,6 +111,9 @@ final class HostConnection {
             try? await client.setClientInfo(deviceID: Self.deviceID, name: UIDevice.current.name)
             try await client.subscribe()
             control = client
+            startHeartbeat(client)
+            // Terminals attached over the previous link reattach on this one.
+            for session in terminalSessions.values { session.reattach() }
             let events = client.events
             tasks.append(Task { [weak self] in
                 for await event in events { self?.handle(event) }
@@ -116,6 +129,22 @@ final class HostConnection {
         } catch {
             lastError = error.localizedDescription
             phase = .offline(error.localizedDescription)
+        }
+    }
+
+    private var heartbeat: Task<Void, Never>?
+
+    /// A `ping` every 15 s: the host drops peers silent for 45 s (a killed
+    /// app's connection doesn't always report its own end), and it keeps NAT
+    /// bindings warm on relayed paths.
+    private func startHeartbeat(_ client: DaemonClient) {
+        heartbeat?.cancel()
+        heartbeat = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled else { return }
+                _ = try? await client.request("ping")
+            }
         }
     }
 
