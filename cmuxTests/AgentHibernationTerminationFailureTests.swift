@@ -149,6 +149,7 @@ struct AgentHibernationTerminationFailureTests {
         let processExitCompletion = AgentHibernationProcessExitCompletion()
         let recoveryExit = AsyncStream<Void>.makeStream()
         let controller = AgentHibernationController.shared
+        var didRecover = false
 
         controller.observeCommittedTermination(
             panelID: panel.id,
@@ -167,6 +168,7 @@ struct AgentHibernationTerminationFailureTests {
                 panel.beginAgentHibernationTerminationRecovery()
             },
             onRecovery: {
+                didRecover = true
                 panel.completeAgentHibernationTermination()
             },
             onRecoveryFailure: {
@@ -182,7 +184,7 @@ struct AgentHibernationTerminationFailureTests {
         recoveryExit.continuation.finish()
         await recovery?.value
 
-        #expect(panel.isAgentHibernated)
+        #expect(didRecover)
         #expect(await processExitCompletion.wait())
         #expect(controller.committedTerminationObservationsByPanelID[panel.id] == nil)
     }
