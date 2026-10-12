@@ -109,10 +109,20 @@ enum DiffRenderer {
         func nextSplit() -> DiffRowID { defer { splitCounter += 1 }; return DiffRowID(file: file.index, row: splitCounter) }
 
         func make(_ line: DiffLine, highlights: [Range<Int>]) -> DiffRenderLine {
-            let columns = line.text.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+            // A minified line can be megabytes: cut it and skip highlighting
+            // (same limits as the code preview).
+            let raw = line.text
+            let long = raw.utf8.count > CodeDocument.highlightLineLimit
+            let shown = long ? CodeDocument.clipped(raw) : raw
+            let columns = shown.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
             maxColumns = max(maxColumns, columns + 1)
             maxNumber = max(maxNumber, line.oldNumber ?? 0, line.newNumber ?? 0)
             let text: AttributedString
+            if long, line.kind != .noNewline {
+                var plain = AttributedString(shown)
+                plain.foregroundColor = Theme.ink
+                return DiffRenderLine(kind: line.kind, oldNumber: line.oldNumber, newNumber: line.newNumber, text: plain, columns: columns)
+            }
             switch line.kind {
             case .noNewline:
                 var note = AttributedString(line.text)

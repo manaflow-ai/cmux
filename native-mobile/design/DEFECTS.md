@@ -26,6 +26,7 @@ owner-handoff (written up for the owning agent).
 | 17 | Connectivity | A Files, Changes or preview screen open across a reconnect kept the dead `ServiceClient`; Retry failed until the screen was closed and reopened. | S3 | fixed: one `ServiceClient` per connection, `rebind` to the new `svc` channel (old in-flight calls fail, old reader can't close the new binding) |
 | 18 | Terminal attach | A detach or reattach while an attach was still opening its channel let the stale attach set `client` over the newer one, deliver its queued events into the surface, and mark the session failed ("Closed.") after the new attach went live. Triggers: reconnect during attach, quick back-and-forth navigation, the TUI-exit resync. | S2 | fixed: a cancelled attach closes its client and returns; the consumer ignores events and stream end from a replaced client; a cancelled attach doesn't set `.failed` |
 | 19 | Files | Previewing a minified bundle (one multi-megabyte line) built one row millions of points wide and ran the syntax highlighter over the whole line, stalling the preview. | S2 | fixed: rows cut at 4000 characters with "N more characters", no highlighting above 1000; tests |
+| 20 | Diff | The same one-huge-line problem in the diff viewer: a changed minified file rendered one multi-megabyte highlighted row and a no-wrap width in the millions of points. | S2 | fixed: diff rows use the code preview limits (cut at 4000 characters, plain above 1000 bytes) |
 
 ## Open (owner handoff or needs a device run)
 
