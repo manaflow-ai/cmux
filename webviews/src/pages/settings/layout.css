@@ -168,6 +168,12 @@
   border-radius: var(--card-radius);
 }
 
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
+}
+
 .row {
   min-height: var(--row-min);
   padding: var(--row-pad-y) var(--row-pad-x);
@@ -553,8 +559,8 @@
 
 .theme-ball {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .theme-ball-empty {
