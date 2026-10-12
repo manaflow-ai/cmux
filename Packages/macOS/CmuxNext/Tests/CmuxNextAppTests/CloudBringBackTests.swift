@@ -501,7 +501,7 @@ struct CloudBringBackTests {
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
             "link access upload")
                 for file in "$@"; do :; done
-                shasum -a 256 "$file" | cut -d ' ' -f 1 > '\(uploadDigest)'
+                /usr/bin/openssl dgst -sha256 -r "$file" 2> '\(uploadDigest).err' | cut -d ' ' -f 1 > '\(uploadDigest)'
                 printf '{"ok":true,"uploads":[{"file":"%s","path":"%s/local/uploads/0123456789abcdef0123456789abcdef/%s"}]}\n' "$file" "$7" "$(basename "$file")" ;;
             "link access revoke")
                 if [ '\(mode)' = revokeOnce ] && [ ! -f '\(revokedOnce)' ]; then
