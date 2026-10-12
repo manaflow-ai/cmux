@@ -1,3 +1,4 @@
+import CmuxPanes
 import CmuxSettings
 import CmuxTerminalCore
 import Foundation
@@ -59,7 +60,11 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         let source = try #require(workspace.focusedTerminalPanel).id
 
         let tab = workspace.newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
-        let splitPanel = workspace.newTerminalSplit(from: source, orientation: .horizontal)
+        let splitPanel = fixture.manager.createSplitOutcome(
+            tabId: workspace.id,
+            surfaceId: source,
+            direction: .right
+        ).panel
 
         #expect(tab?.requestedWorkingDirectory == fixture.defaultDirectory)
         #expect(splitPanel?.requestedWorkingDirectory == fixture.sourceDirectory)
@@ -73,23 +78,38 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
         let pane = try #require(workspace.bonsplitController.focusedPaneId)
         let source = try #require(workspace.focusedTerminalPanel).id
 
-        let splitPanel = workspace.newTerminalSplit(from: source, orientation: .horizontal)
+        let splitPanel = fixture.manager.createSplitOutcome(
+            tabId: workspace.id,
+            surfaceId: source,
+            direction: .right
+        ).panel
         let tab = workspace.newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
+        // Layout and restore scaffolds split through the same workspace API
+        // and must keep their anchor's directory.
+        let scaffoldSplit = workspace.newTerminalSplit(from: source, orientation: .vertical, focus: false)
 
         #expect(splitPanel?.requestedWorkingDirectory == fixture.defaultDirectory)
         #expect(tab?.requestedWorkingDirectory == fixture.sourceDirectory)
+        #expect(scaffoldSplit?.requestedWorkingDirectory == fixture.sourceDirectory)
     }
 
     @MainActor
     private struct InheritanceFixture {
         let suiteName = "WorkspaceCreationWorkingDirectorySpawnPolicyTests.\(UUID().uuidString)"
-        let sourceDirectory = "/tmp/cmux-issue-177-source-\(UUID().uuidString)"
-        let defaultDirectory = "/tmp/cmux-issue-177-default-\(UUID().uuidString)"
+        // Real directories: inheritance falls back to the nearest existing
+        // ancestor for a source directory that is gone.
+        let root = "/tmp/cmux-issue-177-\(UUID().uuidString)"
+        var sourceDirectory: String { root + "/source" }
+        var defaultDirectory: String { root + "/default" }
         let manager: TabManager
 
         init(_ inheritance: GhosttyWorkingDirectoryInheritance) throws {
             let defaults = try #require(UserDefaults(suiteName: suiteName))
-            let defaultDirectory = defaultDirectory
+            for directory in [root + "/source", root + "/default"] {
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            }
+            let defaultDirectory = root + "/default"
+            let sourceDirectory = root + "/source"
             manager = TabManager(
                 initialWorkingDirectory: sourceDirectory,
                 autoWelcomeIfNeeded: false,
@@ -111,6 +131,7 @@ struct WorkspaceCreationWorkingDirectorySpawnPolicyTests {
 
         func tearDown() {
             UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(atPath: root)
         }
     }
 }
