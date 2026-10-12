@@ -116,6 +116,18 @@ function curatedSections(
   return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }
 
+/// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one
+/// (Leo 2026-10-12: a New Tab chip on Claude's default, Sonnet 5, opened the whole fold).
+function shownSections(
+  entry: HarnessChoice | undefined,
+  model: string | undefined,
+): { latest: ModelChoice[]; older: ModelChoice[] } {
+  const sections = sectionsFor(entry);
+  const runs = sections.older.find((choice) => choice.id === model);
+  if (!runs) return sections;
+  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+}
+
 /// Every model of a harness, newest first, older versions included.
 function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   const { latest, older } = sectionsFor(entry);
@@ -279,6 +291,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
   const searching = query.trim() !== "";
+  // The chat's model, on its own harness's tab only.
+  const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
@@ -290,13 +304,13 @@ export function ModelPicker(props: ModelPickerProps) {
         for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
-      const { latest, older } = sectionsFor(selected);
+      const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
-  const olderCount = searching || starredView ? 0 : sectionsFor(selected).older.length;
+  const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -350,14 +364,12 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
-    // A session on a folded model opens with the fold open, its row highlighted.
-    const { latest, older } = sectionsFor(current);
-    const runsOlder = older.some((model) => model.id === props.model);
-    setOlderOpen(runsOlder);
+    // The fold opens closed; a session on a folded model has its row with the top ones, highlighted.
+    setOlderOpen(false);
     setActive(
       Math.max(
         0,
-        (runsOlder ? [...latest, ...older] : latest).findIndex((model) => model.id === props.model),
+        shownSections(current, props.model).latest.findIndex((model) => model.id === props.model),
       ),
     );
     setOpen(true);
