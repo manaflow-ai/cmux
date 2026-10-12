@@ -14,7 +14,6 @@ A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&
 
 ## Settings the viewer reads
 
-`RemoteDesktopSettingsTests` checks this table against `RemoteDesktopSettings()`.
 
 | Key | Default | Values |
 | --- | --- | --- |

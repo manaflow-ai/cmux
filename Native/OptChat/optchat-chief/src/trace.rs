@@ -197,6 +197,8 @@ pub fn requests(trace: &Trace, scope: &Value, requests: &[crate::fold::Request])
         f.insert("n".into(), json!(n + 1));
         f.insert("model".into(), json!(r.model));
         f.insert("usage".into(), usage(&r.usage));
+        f.insert("headers_ms".into(), json!(r.headers_ms));
+        f.insert("ttft_ms".into(), json!(r.ttft_ms));
         trace.emit("request", Value::Object(f));
     }
 }
@@ -216,50 +218,4 @@ pub fn common_prefix(a: &str, b: &str) -> usize {
         n -= 1;
     }
     n
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn texts_are_hashed_and_cut() {
-        let t = Trace::off();
-        let v = t.text(&"secret ".repeat(20));
-        assert_eq!(v["bytes"], 140);
-        assert_eq!(v["prefix"].as_str().unwrap().chars().count(), PREFIX + 1);
-        assert!(v.get("text").is_none());
-        assert_eq!(hash("a"), hash("a"));
-        assert_ne!(hash("a"), hash("b"));
-    }
-
-    #[test]
-    fn the_file_is_private_and_append_only() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let t = Trace::open(&dir.path().join("traces"), false).unwrap();
-        t.emit("x", json!({"a": 1}));
-        t.emit("y", json!({}));
-        let files: Vec<_> = std::fs::read_dir(dir.path().join("traces"))
-            .unwrap()
-            .flatten()
-            .collect();
-        assert_eq!(files.len(), 1);
-        let meta = files[0].metadata().unwrap();
-        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
-        let text = std::fs::read_to_string(files[0].path()).unwrap();
-        let lines: Vec<Value> = text
-            .lines()
-            .map(|l| serde_json::from_str(l).unwrap())
-            .collect();
-        assert_eq!(lines[0]["ev"], "x");
-        assert_eq!(lines[0]["a"], 1);
-        assert_eq!(lines[1]["ev"], "y");
-    }
-
-    #[test]
-    fn common_prefix_respects_utf8() {
-        assert_eq!(common_prefix("abcé", "abcè"), 3);
-        assert_eq!(common_prefix("same", "same"), 4);
-    }
 }

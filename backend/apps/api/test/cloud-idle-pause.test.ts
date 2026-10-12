@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /**
  * Idle pause (state-placement.md 7 item 4; coordinator 2026-10-05): OFF by default (team policy

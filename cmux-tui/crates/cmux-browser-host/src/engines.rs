@@ -57,6 +57,9 @@ pub struct HostEngines {
     /// The shared headless browsers, by profile.
     #[cfg(unix)]
     headless: crate::headless_source::HeadlessBrowsers,
+    /// Isolated (a Cloud machine): every headless browser sends all its
+    /// traffic through the host's egress listener (crate::egress_scope).
+    egress: crate::egress_scope::EgressScope,
 }
 
 impl HostEngines {
@@ -71,7 +74,14 @@ impl HostEngines {
             provider_wait: PROVIDER_WAIT,
             #[cfg(unix)]
             headless: Arc::default(),
+            egress: crate::egress_scope::EgressScope::Machine,
         }
+    }
+
+    /// The egress scope of the host (the same one `Host::with_egress` got).
+    pub fn with_egress(mut self, egress: crate::egress_scope::EgressScope) -> HostEngines {
+        self.egress = egress;
+        self
     }
 
     /// The wait for a provider (default [`PROVIDER_WAIT`]).
@@ -131,6 +141,7 @@ impl HostEngines {
             on_behalf_of: session.caller.on_behalf_of.clone(),
             origin: session.caller.origin.clone(),
             label: session.label.clone(),
+            terminal: session.terminal.clone(),
             // Host::open refused an unnamed cef/webkit session already.
             implicit_session: false,
             engine: engine.to_owned(),
@@ -194,11 +205,15 @@ impl HostEngines {
                     "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
                 ));
             };
-            HeadlessSource::launch(
-                &headless_options(binary),
-                self.agent_source.clone(),
-                &session.profile,
-            )
+            let mut options = headless_options(binary);
+            if let Some(isolated) = self.egress.isolated() {
+                // No listener, no browser: an isolated host never launches
+                // a Chromium that could reach a refused range.
+                options
+                    .extra_args
+                    .extend(isolated.chromium_args().map_err(|e| unavailable("headless", &e))?);
+            }
+            HeadlessSource::launch(&options, self.agent_source.clone(), &session.profile)
         })?;
         let lease = crate::lease::LeaseCaller {
             session: session.name.clone(),
@@ -206,6 +221,7 @@ impl HostEngines {
             on_behalf_of: session.caller.on_behalf_of.clone(),
             origin: session.caller.origin.clone(),
             label: session.label.clone(),
+            terminal: session.terminal.clone(),
             implicit_session: false,
             engine: "headless".to_owned(),
         };

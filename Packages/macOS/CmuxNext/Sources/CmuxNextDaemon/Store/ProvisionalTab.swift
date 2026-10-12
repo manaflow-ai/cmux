@@ -23,6 +23,9 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     public static func isProvisional(_ id: String) -> Bool { id.hasPrefix(idPrefix) }
 
+    /// Whether `surface` is a provisional tab's (never a daemon surface).
+    public static func isProvisional(surface: SurfaceID) -> Bool { surface.rawValue > surfaceBase }
+
     /// A create intent's reply named the daemon's tab `surface`: from now on the provisional tab
     /// shows only while the records lack that surface, so the two never show side by side.
     @MainActor public static func created(_ transaction: ClientTransactionID, surface: SurfaceID, in store: DaemonStore) {

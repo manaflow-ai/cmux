@@ -72,7 +72,7 @@ final class DeferredSpellChecker {
         let count = changeCount, end = typingEnd
         DeferredSpellChecker.checks += 1
         NSSpellChecker.shared.requestChecking(of: text, range: range, types: NSTextCheckingResult.CheckingType.spelling.rawValue,
-                                              options: nil, inSpellDocumentWithTag: v.spellCheckerDocumentTag) { _, results, _, _ in
+                                              options: nil, inSpellDocumentWithTag: v.spellCheckerDocumentTag) { [weak self] _, results, _, _ in
             let found = results.filter { $0.resultType == .spelling }.map(\.range)
             DispatchQueue.main.async { [weak self] in
                 // A newer change has its own check pending.
@@ -100,97 +100,3 @@ final class DeferredSpellChecker {
         shown = []
     }
 }
-
-#if false  // cmux: MessagesLab's spell probe driver (its BenchLink is in Bench.swift, not vendored)
-/// `--spell-probe OUT.json`: types "Thsi is wrnog " into the field, one character per display
-/// frame, and counts the red underline pixels of the text view every frame until 60 frames
-/// after the last key. Gives the frames from the end of each misspelled word (the space)
-/// to its underline, for `--appkit-spell` (AppKit's checking) and the default (deferred),
-/// and the main thread's time in each keystroke frame. Then exits.
-final class SpellProbe {
-    static func fromArguments() -> SpellProbe? {
-        let a = ProcessInfo.processInfo.arguments
-        guard let i = a.firstIndex(of: "--spell-probe"), i + 1 < a.count else { return nil }
-        return SpellProbe(out: a[i + 1])
-    }
-    private let out: String
-    private init(out: String) { self.out = out }
-    private var link: BenchLink?
-    private let text = Array("Thsi is wrnog ")
-    private var pos = 0, frame = 0, after = 0
-    private var red: [Int] = [], keyFrames: [Int] = [], keyMs: [Double] = []
-    private var lastCPU = 0.0
-
-    func start(_ c: ChatController) {
-        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            let tv = c.demo.compose.textView.view
-            tv.window?.makeFirstResponder(tv)
-            let l = BenchLink { [weak self] _ in self?.tick(c) }
-            self.link = l
-            l.start(on: c.host)
-        }
-    }
-
-    private func tick(_ c: ChatController) {
-        let tv = c.demo.compose.textView.view
-        let cpu = Self.threadCPU()
-        if frame > 0, keyFrames.last == frame - 1 { keyMs.append(((cpu - lastCPU) * 100_000).rounded() / 100) }
-        lastCPU = cpu
-        red.append(Self.redPixels(tv))
-        if pos < text.count {
-            keyFrames.append(frame)
-            c.demo.compose.textView.insertText(String(text[pos]))
-            pos += 1
-        } else {
-            after += 1
-            if after > 60 { finish() }
-        }
-        frame += 1
-    }
-
-    private func finish() {
-        link?.stop()
-        // The frames where each word-ending space was typed, and the first frame after it with more red.
-        var words: [[String: Int]] = []
-        for (k, ch) in text.enumerated() where ch == " " {
-            let f = keyFrames[k]
-            let base = red[f]
-            let first = (f + 1..<red.count).first { red[$0] > base }
-            words.append(["spaceFrame": f, "underlineFrame": first ?? -1, "framesToUnderline": first.map { $0 - f } ?? -1, "red": first.map { red[$0] } ?? 0])
-        }
-        let r: [String: Any] = ["mode": DeferredSpellChecker.useAppKit ? "appkit" : "deferred", "words": words,
-                                "keyMs": keyMs, "redPerFrame": red, "checks": DeferredSpellChecker.checks, "applied": DeferredSpellChecker.applied]
-        if let d = try? JSONSerialization.data(withJSONObject: r, options: [.sortedKeys]) { try? d.write(to: URL(fileURLWithPath: out)) }
-        NSApp.terminate(nil)
-    }
-
-    private static func threadCPU() -> Double {
-        var info = thread_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
-        let port = mach_thread_self()
-        defer { mach_port_deallocate(mach_task_self_, port) }
-        let kr = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(port, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
-        }
-        guard kr == KERN_SUCCESS else { return 0 }
-        return Double(info.user_time.seconds + info.system_time.seconds) + Double(info.user_time.microseconds + info.system_time.microseconds) / 1e6
-    }
-
-    /// Strongly red pixels in the text view's own rendering (the spelling dots).
-    static func redPixels(_ v: NSView) -> Int {
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return 0 }
-        v.cacheDisplay(in: v.bounds, to: rep)
-        guard let data = rep.bitmapData else { return 0 }
-        let bpp = rep.bitsPerPixel / 8, row = rep.bytesPerRow
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                let p = data + y * row + x * bpp
-                if p[0] > 150, p[1] < 110, p[2] < 110, bpp < 4 || p[3] > 100 { n += 1 }
-            }
-        }
-        return n
-    }
-}
-#endif

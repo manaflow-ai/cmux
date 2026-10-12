@@ -13,6 +13,9 @@ export interface DialogProps {
   className?: string;
   backdropClassName?: string;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
+  /** Keys of the dialog's own content. The popup takes focus when a press inside lands on no
+   * focusable element, so a handler on an inner element would miss them. */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
   children: ReactNode;
 }
 
@@ -23,6 +26,7 @@ export function Dialog({
   className,
   backdropClassName,
   initialFocus,
+  onKeyDown,
   children,
 }: DialogProps) {
   const container = usePortalContainer();
@@ -44,6 +48,7 @@ export function Dialog({
           className={cx("ui-dialog", className)}
           aria-label={label}
           initialFocus={initialFocus}
+          onKeyDown={onKeyDown}
           onKeyDownCapture={(event) => {
             // Cmd/Ctrl/Option chords belong to the host dispatcher, even while a dialog is open.
             if (event.key === "Escape" && (event.metaKey || event.ctrlKey || event.altKey)) {

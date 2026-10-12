@@ -4,7 +4,7 @@ import CmuxNextCloud
 
 extension CloudHandlers {
     static func bindDomainActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        guard let cloud = context.services.cloud else { return }
+        let cloud = context.services.cloud
         bind("cloudDomainList", registry, reason: reason) { _ in
             runTracked("list Cloud domains", context) {
                 let domains = try await cloud.api.listDomains()

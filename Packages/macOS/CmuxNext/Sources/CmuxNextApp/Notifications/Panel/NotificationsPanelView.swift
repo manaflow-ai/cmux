@@ -64,6 +64,7 @@ final class NotificationsPanelView: NSView {
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(NSTextField, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
+    private var scrollerStyleObserver: (any NSObjectProtocol)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -87,6 +88,14 @@ final class NotificationsPanelView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let scrollerStyleObserver { NotificationCenter.default.removeObserver(scrollerStyleObserver) }
+        }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -116,10 +125,14 @@ final class NotificationsPanelView: NSView {
         scroll.documentView = document
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111).
+        // Thin, shown only while scrolling (SCROLLBARS-THIN).
         SystemScrollers.follow(scroll)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged),
-                                               name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        // queue: .main: a post off main into this main-actor view trapped.
+        scrollerStyleObserver = NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scroll.scrollerStyle = SystemScrollers.nativeStyle } // main-proof: observer on queue: .main
+        }
         document.translatesAutoresizingMaskIntoConstraints = false
 
         emptyIcon.image = NSImage.icon(.notification, size: 28)
@@ -210,8 +223,6 @@ final class NotificationsPanelView: NSView {
             for button in [markAllRead, clearAll] { button.contentTintColor = Palette.textSecondary }
         }
     }
-
-    @objc private func scrollerStyleChanged(_ note: Notification) { scroll.scrollerStyle = SystemScrollers.preferredStyle }
 
     @objc private func markAllPressed() { onMarkAllRead?() }
     @objc private func clearAllPressed() { onClearAll?() }

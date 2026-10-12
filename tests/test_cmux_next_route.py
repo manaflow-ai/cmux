@@ -46,7 +46,8 @@ class GraphCoversThePackage(unittest.TestCase):
         paths = {target["path"] for target in GRAPH["targets"].values() if target["path"]}
         for kind in ("Sources", "Tests"):
             for directory in sorted((ROOT / PACKAGE / kind).iterdir()):
-                if directory.is_dir():
+                # A folder with no Swift sources (a fixture another language reads) is not a target.
+                if directory.is_dir() and any(directory.rglob("*.swift")):
                     with self.subTest(directory=directory.name):
                         self.assertIn(f"{PACKAGE}/{kind}/{directory.name}", paths)
 
@@ -93,8 +94,7 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_shared_module_selects_its_dependents(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(),
-                         ["CmuxNextAppTests", "CmuxNextBridgeTests", "CmuxNextSidebarTests"])
+        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests"])
         self.assertEqual(result["daemon"], "false")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
@@ -109,12 +109,16 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_targets"], "")
 
     def test_a_file_a_test_reads_selects_that_test(self):
+        # CmuxNextSettingsTests reads the schema. Since the bundles are build output
+        # (ce0b9e76a9b) the schema is also a web-bundle input, so the targets that ship
+        # a bundle, and the app that embeds them, are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
-        self.assertEqual(result["swift_targets"], "CmuxNextSettingsTests")
+        self.assertEqual(result["swift_targets"].split(), sorted([
+            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
+        ]))
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
-        self.assertIn("CmuxNextHomeTests", result["swift_targets"].split())
         self.assertIn("CmuxNextAppTests", result["swift_targets"].split())
         self.assertNotIn("CmuxNextDaemonTests", result["swift_targets"].split())
 
@@ -158,11 +162,53 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift"], "false")
 
-    def test_webviews_keep_one_scheme_compile(self):
-        result = tiers(["webviews/src/agent-session/pane.tsx"])
+    def test_a_web_nit_runs_no_mac_tier(self):
+        """A webviews change and its regenerated agent-pane bundle (#18296, one CSS line) need no Mac.
+
+        ci-web type-checks, lints and tests the sources and proves with build-agent-pane-web.sh --check
+        that the committed bundle matches them; the bundle is a `.copy` resource, so the app takes any
+        file set without a compile.
+        """
+        for changed in (
+            ["webviews/src/agent-session/pane.tsx"],
+            ["webviews/src/agent-session/acpmux/composerAttachments.css",
+             f"{PACKAGE}/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"],
+            ["Resources/markdown-viewer/webviews-app/index.js", "docs/cmux-next.md"],
+        ):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_a_web_change_beside_native_code_keeps_the_mac_tiers(self):
+        result = tiers(["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextAgentPane/AgentPaneView.swift"])
+        self.assertEqual(result["native"], "true")
         self.assertEqual(result["scheme"], "true")
-        self.assertEqual(result["native"], "false")
-        self.assertEqual(result["swift"], "false")
+
+    def test_a_ci_only_change_runs_no_mac_tier(self):
+        """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
+        routing replay check them on Linux, and one command reverts them."""
+        for changed in (
+            [".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"],
+            ["scripts/gh-merge-green", "scripts/ci/revert_pr.py", "tests/test_gh_merge_green_revert.py"],
+            ["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"],
+        ):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
+        self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
+        self.assertEqual(tiers([".github/actions/setup-cmux-tui-rust/action.yml"])["swift"], "true")
+
+    def test_a_doc_a_generator_reads_keeps_the_generated_tier(self):
+        """`*.md` looks like docs, but plans/cmux-next/ feeds the action contracts."""
+        self.assertEqual(tiers(["plans/cmux-next/actions.md"])["generated"], "true")
+
+    def test_dev_build_label_keeps_the_scheme_compile_for_a_web_change(self):
+        result = tiers(["webviews/src/agent-session/pane.tsx"], labels=frozenset({"dev-build"}))
+        self.assertEqual(result["scheme"], "true")
 
     def test_the_app_host_compiles_the_scheme_without_package_tests(self):
         result = tiers(["App/main.swift"])

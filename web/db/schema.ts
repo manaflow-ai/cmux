@@ -15,6 +15,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -2720,3 +2721,61 @@ export const appleNotifications = pgTable("apple_notifications", {
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
 ]);
+
+// Curated model catalog (GET /api/models/v1; services/model-catalog/).
+// models.dev copies, one row per distinct content; curator overrides; and the
+// published catalog versions the endpoint serves (newest first).
+export const modelsDevSnapshots = pgTable(
+  "models_dev_snapshots",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    /** SHA-256 (base64url) of the canonical `raw` JSON. */
+    contentHash: text("content_hash").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The models.dev document, reduced to the providers the overrides read. */
+    raw: jsonb("raw").notNull(),
+  },
+  (table) => [
+    uniqueIndex("models_dev_snapshots_content_hash_unique").on(table.contentHash),
+    index("models_dev_snapshots_fetched_at_idx").on(table.fetchedAt.desc()),
+  ],
+);
+
+export const catalogOverrides = pgTable(
+  "catalog_overrides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** `harness`: one harness's whole override (with `position`); `model`: one model's fields. */
+    kind: text("kind").notNull(),
+    harnessId: text("harness_id").notNull(),
+    /** The model id for `model` rows; null for `harness` rows. */
+    modelId: text("model_id"),
+    value: jsonb("value").notNull(),
+    author: text("author").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    active: boolean("active").notNull().default(true),
+  },
+  (table) => [
+    unique("catalog_overrides_target_unique").on(table.kind, table.harnessId, table.modelId).nullsNotDistinct(),
+    check("catalog_overrides_kind_check", sql`${table.kind} in ('harness', 'model')`),
+    check(
+      "catalog_overrides_model_id_check",
+      sql`(${table.kind} = 'model') = (${table.modelId} is not null)`,
+    ),
+  ],
+);
+
+export const catalogVersions = pgTable(
+  "catalog_versions",
+  {
+    version: integer("version").primaryKey().generatedAlwaysAsIdentity(),
+    /** SHA-256 (base64url) of the served body; the endpoint's ETag. */
+    contentHash: text("content_hash").notNull(),
+    catalog: jsonb("catalog").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+    publishedBy: text("published_by").notNull(),
+    sourceSnapshotId: bigint("source_snapshot_id", { mode: "number" }).references(() => modelsDevSnapshots.id),
+  },
+  (table) => [index("catalog_versions_published_at_idx").on(table.publishedAt.desc())],
+);

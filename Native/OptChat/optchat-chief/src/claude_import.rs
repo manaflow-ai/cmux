@@ -5,10 +5,11 @@
 //! noise").
 //!
 //! Per session, in file order: a `note` naming the session and its working
-//! directory, then for each turn the user's message (`user`), one `tool`
+//! directory, then for each turn the user's message (`user`), one `ai`
 //! line summarizing the turn's tool calls (names with counts and the files
 //! they named; never inputs or outputs, which can hold secrets) and the
-//! turn's final reply (`talk`). Every item keeps its transcript timestamp.
+//! turn's final reply (`ai`: another AI's, not the Chief's own, as the
+//! reference client logs them). Every item keeps its transcript timestamp.
 //! Dropped: thinking, intermediate replies, tool results, meta lines, slash
 //! command lines, interruptions, subagent (sidechain) lines, lines a resumed
 //! session copied from an earlier one (same uuid), and a long user message
@@ -163,7 +164,7 @@ impl Turn {
                 text.push_str(&format!(" (files: {})", turn.files.join(", ")));
             }
             out.push(Imported {
-                kind: Kind::Tool,
+                kind: Kind::Ai,
                 text,
                 date: turn.tool_date,
             });
@@ -171,7 +172,7 @@ impl Turn {
         }
         if let Some((text, date)) = turn.reply {
             out.push(Imported {
-                kind: Kind::Talk,
+                kind: Kind::Ai,
                 text,
                 date,
             });

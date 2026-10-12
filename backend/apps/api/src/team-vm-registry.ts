@@ -67,3 +67,41 @@ export class TeamVmRegistry {
     return this.sql.exec(`SELECT 1 AS x FROM tvm_registry_vm WHERE provider_id = ?`, id).length > 0
   }
 }
+
+/** Prefix report bounds: pages of this size, at most this many pages, at most this many names in the answer. */
+const REPORT_PAGE = 100
+const REPORT_MAX_PAGES = 50
+const REPORT_MAX_NAMES = 200
+
+/**
+ * The operator prefix report (TeamVmDO.prefixReport): pages through the provider account's VMs and
+ * names those with `prefix` whose id no team's ledger holds. Report-only; reads nothing else.
+ */
+export const prefixReport = async (
+  driver: { listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }> },
+  prefix: string,
+  registry: Pick<TeamVmRegistry, "knows">
+): Promise<{ prefix: string; listed: number; matched: number; in_registry: number; not_in_registry: string[]; truncated: boolean }> => {
+  let listed = 0
+  let matched = 0
+  let known = 0
+  const unknown: string[] = []
+  let truncated = false
+  for (let page = 0; ; page++) {
+    if (page >= REPORT_MAX_PAGES) {
+      truncated = true
+      break
+    }
+    const r = await driver.listPage(REPORT_PAGE, page * REPORT_PAGE)
+    listed += r.size
+    for (const vm of r.vms) {
+      if (!vm.slug?.startsWith(prefix)) continue
+      matched++
+      if (registry.knows(vm.id)) known++
+      else if (unknown.length < REPORT_MAX_NAMES) unknown.push(vm.slug)
+      else truncated = true
+    }
+    if (r.size < REPORT_PAGE || (r.total !== null && (page + 1) * REPORT_PAGE >= r.total)) break
+  }
+  return { prefix, listed, matched, in_registry: known, not_in_registry: unknown, truncated }
+}

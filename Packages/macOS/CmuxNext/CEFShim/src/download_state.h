@@ -43,12 +43,16 @@ class DownloadTable {
 
   explicit DownloadTable(Same same) : same_(same) {}
 
-  // OnBeforeDownload: a new download; returns its token (never 0).
+  // OnBeforeDownload: a new download; returns its token (never 0). A
+  // download still running asks again when Chromium resumes it after an
+  // interruption: it keeps its token (the host's row and file), with the
+  // new callback waiting for the host's answer.
   int Begin(const Context& context, uint32_t id, Before before) {
-    for (size_t i = 0; i < entries_.size(); ++i) {
-      if (entries_[i].id == id && same_(entries_[i].context, context)) {
-        entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
-        break;
+    for (Entry& entry : entries_) {
+      if (entry.id == id && same_(entry.context, context)) {
+        entry.before = before;
+        entry.has_before = true;
+        return entry.token;
       }
     }
     const int token = next_;

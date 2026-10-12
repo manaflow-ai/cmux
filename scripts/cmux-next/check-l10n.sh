@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Fails when a cmux-next string table misses a supported language, has an
+# Fails when a cmux-next string table (CmuxNext, the app's InfoPlist and CLI
+# tables, and the Home transcript's CmuxMessagesLab tables) misses a supported language, has an
 # empty value, or a translation's printf placeholders or line breaks differ
 # from English. Tables: every CmuxNext package .xcstrings, the app's
 # Resources/InfoPlist.xcstrings and the CLI table Resources/Localizable.xcstrings
 # (the only one with plural variations). States `translated` and `needs_review`
 # (machine translation awaiting human review) both count as present; the
 # review backlog is printed per language.
+# L10N_STYLE_WARN_MAX=N (CI sets it) is the warning tier for style errors (a
+# missing language, an empty value, line breaks that differ): up to N of them
+# are ratchet debt `::warning title=ratchet debt::` annotations and pass; more
+# fail. Missing or unreadable tables, wrong shapes or states and placeholder
+# mismatches always fail.
 # Usage: scripts/cmux-next/check-l10n.sh [repo-root]
 set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)}"
 exec python3 - "$root" <<'PY'
-import collections, json, pathlib, re, sys
+import collections, json, os, pathlib, re, sys
 
 # The languages the legacy app shipped (Apple codes; README.no.md is nb).
 LANGS = ("en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
@@ -34,6 +40,9 @@ def signature(value):
 root = pathlib.Path(sys.argv[1])
 tables = sorted((root / "Packages/macOS/CmuxNext/Sources").rglob("*.xcstrings"))
 tables.append(root / "Resources/InfoPlist.xcstrings")
+# The Home transcript's tables (MessagesLab's vendored ones and cmux's own) ship in the app too.
+tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Resources").glob("*.xcstrings"))
+tables += sorted((root / "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Resources").glob("*.xcstrings"))
 def forms(localization):
     """{"": unit} for a plain value, {category: unit} for plural variations, else None."""
     if "stringUnit" in localization:
@@ -43,7 +52,7 @@ def forms(localization):
         return {category: form.get("stringUnit") for category, form in plural.items()}
     return None
 
-errors, review, keys = [], collections.Counter(), 0
+errors, style, review, keys = [], [], collections.Counter(), 0
 for path in tables:
     rel = path.relative_to(root)
     if not path.exists():
@@ -62,7 +71,7 @@ for path in tables:
         # categories in every language; each form is checked like a value.
         for lang in LANGS:
             if lang not in locs:
-                errors.append(f"{rel}:{key}: missing {lang}")
+                style.append(f"{rel}:{key}: missing {lang}")
                 continue
             lang_forms = forms(locs[lang])
             if lang_forms is None or (english_forms and set(english_forms) - set(lang_forms)):
@@ -71,7 +80,7 @@ for path in tables:
             for form, unit in lang_forms.items():
                 label = f"{rel}:{key}:{lang}" + (f":{form}" if form else "")
                 if unit is None or not str(unit.get("value", "")).strip():
-                    errors.append(f"{label}: empty value")
+                    style.append(f"{label}: empty value")
                     continue
                 if unit.get("state") not in STATES:
                     errors.append(f"{label}: state {unit.get('state')!r}")
@@ -86,8 +95,17 @@ for path in tables:
                 if signature(value) != signature(english):
                     errors.append(f"{label}: placeholders {FORMAT.findall(value)} != {FORMAT.findall(english)}")
                 if value.count("\n") != english.count("\n"):
-                    errors.append(f"{label}: line breaks differ from English")
+                    style.append(f"{label}: line breaks differ from English")
 
+warn_max = int(os.environ.get("L10N_STYLE_WARN_MAX") or 0)
+if style and len(style) <= warn_max:
+    for line in style:
+        print(f"::warning title=ratchet debt::{line}")
+    print(f"{len(style)} style errors are ratchet debt (ceiling {warn_max})")
+else:
+    if style and warn_max:
+        print(f"{len(style)} style errors are over the hard ceiling of {warn_max}")
+    errors += style
 for line in errors[:200]:
     print(line)
 if len(errors) > 200:

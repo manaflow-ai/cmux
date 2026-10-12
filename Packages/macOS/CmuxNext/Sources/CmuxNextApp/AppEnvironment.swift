@@ -81,7 +81,16 @@ struct AppEnvironment: Sendable {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
-        })
+        }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
+    }
+
+    /// The bundled `cmux` for this app's terminals: `<Resources>/bin`, and
+    /// the `cmux-cli-path` layers when this app (not the daemon) integrates
+    /// the shell, since they wrap the integration the app writes.
+    nonisolated static func bundledCLI(appResources: String?, resolvesShellIntegration: Bool) -> BundledCLIEnvironment? {
+        guard let appResources, !appResources.isEmpty else { return nil }
+        return BundledCLIEnvironment(binDirectory: appResources + "/bin",
+                                     pathIntegration: resolvesShellIntegration ? appResources + "/cmux-cli-path" : nil)
     }
 
     /// Maps the config's raw settings; Ghostty's defaults when no config loaded.
@@ -102,6 +111,11 @@ struct AppEnvironment: Sendable {
             resourcesDirectory: GhosttyRuntime.resourcesDirectory(environment: environment),
             version: GhosttyRuntime.version
         )
-        return ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
+        var terminal = ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
+        // `cmux chief` in this app's terminals opens this app's Chief: its
+        // isolation markers are the app's own environment, which terminals
+        // do not inherit (schemas/chief-home/vectors.json).
+        terminal["CMUX_CHIEF_HOME"] = ChiefHome.resolve(tag: launch.tag, environment: environment).root.path
+        return terminal
     }
 }

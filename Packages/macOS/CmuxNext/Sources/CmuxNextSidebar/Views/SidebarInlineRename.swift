@@ -27,9 +27,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
 
     /// Renames the group `member` belongs to (drag to group).
     func beginGroup(of member: WorkspaceID) {
-        guard let group = group(containing: member) else { return }
-        begin(.group(group))
-        if session != nil { groupMember = member }
+        list.map { SidebarGroupEditing(list: $0).open(containing: member) }
     }
 
     /// After a reload: moves a rename whose group the store replaced to
@@ -52,12 +50,14 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
 
     func begin(_ key: SidebarRowKey) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
+        // A group's name is edited in the group editor (cx-rcby).
+        if case let .group(id) = key { return list.groupEditing.open(id) }
         if session != nil { end(commit: true) }
         let original: String
         switch key {
         case let .workspace(id): original = list.workspaces[id]?.title ?? ""
         case let .group(id): original = list.groups[id]?.name ?? ""
-        case .tab, .section, .emptySection: return
+        case .tab, .section, .emptySection, .folder: return
         }
         if let row = list.displayed.row(for: key) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
@@ -106,7 +106,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
             switch session.key {
             case let .workspace(id): list.model.send(.rename(id, text))
             case let .group(id): list.model.send(.renameGroup(id, text))
-            case .tab, .section, .emptySection: break
+            case .tab, .section, .emptySection, .folder: break
             }
             list.reload(animated: false)
         }

@@ -4,7 +4,8 @@ use cmux_rd_core::fec;
 use cmux_rd_core::packetize::{Packetizer, parity_for};
 use cmux_rd_core::reassembly::{FrameLoss, Reassembler};
 use cmux_rd_proto::{
-    DatagramHeader, FrameBody, MAX_DATAGRAM_DEFAULT, MAX_DATAGRAM_VPC, REF_NONE, flags,
+    DatagramHeader, FRAME_PREFIX_LEN, FrameBody, HEADER_LEN, MAX_DATAGRAM_DEFAULT,
+    MAX_DATAGRAM_VPC, REF_NONE, flags,
 };
 use proptest::prelude::*;
 
@@ -48,7 +49,12 @@ proptest! {
         let max = if vpc { MAX_DATAGRAM_VPC } else { MAX_DATAGRAM_DEFAULT };
         let mut p = Packetizer::new(0, max);
         let out = p.packetize(1, flags::KEYFRAME, &body(1, len, true), parity).expect("packetize");
-        prop_assert!(out.datagrams.iter().all(|d| d.len() == max));
+        if out.datagrams.len() == 1 {
+            // A lone shard without parity is not padded.
+            prop_assert_eq!(out.datagrams[0].len(), HEADER_LEN + FRAME_PREFIX_LEN + len);
+        } else {
+            prop_assert!(out.datagrams.iter().all(|d| d.len() == max));
+        }
         prop_assert_eq!(out.datagrams.len(), usize::from(out.data_shards) + parity);
     }
 

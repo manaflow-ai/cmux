@@ -5,14 +5,14 @@
 nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
-            // The focused pane's repository; without one, the cmux picker (R89).
+            // The focused pane's repository, or `path`'s; without one, the cmux picker (R89).
             ActionDescriptor(
                 id: "openDiffViewer",
                 title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
                 keywords: ["git", "diff", "changes"],
                 // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
                 defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
+                symbol: "plusminus", surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.optionalPathString], targets: [.pane],
                 cliName: "browser open-diff-viewer", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),

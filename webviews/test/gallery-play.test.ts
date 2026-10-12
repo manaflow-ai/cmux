@@ -1,98 +1,203 @@
-// The play checks' rules (src/gallery/play.ts): strict defaults, loosening only with a reason, and
-// targets resolved by role and name, test id, text or selector. The measurement itself needs a real
-// engine (layout, frames) and runs in the matrix runner, never in a local browser.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  checkReasons,
-  judgeStep,
-  overall,
-  rectDelta,
-  resolveTarget,
-  roleOf,
-  accessibleName,
-} from "../src/gallery/play";
+import { runPlay, selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
 
-const dom = new JSDOM(`<!doctype html><main>
-  <button aria-label="Send prompt">↑</button>
-  <button>Stop</button>
-  <a href="#x">Open file</a>
-  <input type="search" placeholder="Filter">
-  <div role="menu"><div role="menuitem">Compact</div><div role="menuitem" data-testid="init">Init</div></div>
-  <span id="l">Model</span><div role="combobox" aria-labelledby="l"></div>
-</main>`);
-const saved = (globalThis as Record<string, unknown>).CSS;
-(globalThis as Record<string, unknown>).CSS = { escape: (value: string) => value };
+const scope = globalThis as Record<string, unknown>;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "HTMLInputElement",
+  "ShadowRoot",
+  "KeyboardEvent",
+  "getComputedStyle",
+] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let dom: JSDOM;
+
+beforeAll(() => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { pretendToBeVisual: true });
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    ShadowRoot: dom.window.ShadowRoot,
+    KeyboardEvent: dom.window.KeyboardEvent,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  });
+});
+
 afterAll(() => {
-  (globalThis as Record<string, unknown>).CSS = saved;
   dom.window.close();
-});
-const doc = dom.window.document;
-
-const step = (fields: Partial<Parameters<typeof judgeStep>[0]> = {}) => ({
-  step: "click",
-  anchorMoves: [],
-  layoutShift: 0,
-  shifts: [],
-  longFrames: [],
-  frameSource: "raf" as const,
-  ...fields,
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
 });
 
-describe("gallery play checks", () => {
-  test("strict defaults: any anchor movement, any layout shift and a frame over 33 ms fail", () => {
-    expect(judgeStep(step()).status).toBe("pass");
-    expect(judgeStep(step({ anchorMoves: [{ anchor: "header", before: null, after: null, delta: 0.5 }] })).status).toBe(
-      "fail",
+describe("gallery shell keyboard emulation", () => {
+  test("moves focus through tabbable controls in both directions", () => {
+    document.getElementById("root")!.innerHTML = `
+      <button id="before">Before</button>
+      <button id="disabled" disabled>Disabled</button>
+      <button id="first">First</button>
+      <button id="hidden" hidden>Hidden</button>
+      <button id="second">Second</button>
+    `;
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(second);
+    syntheticKey("Shift+Tab");
+    expect(document.activeElement).toBe(first);
+  });
+
+  test("keeps positive tabindex controls ahead of normal controls", () => {
+    document.getElementById("root")!.innerHTML = `
+      <button id="normal">Normal</button>
+      <button id="second-positive" tabindex="2">Second positive</button>
+      <button id="first-positive" tabindex="1">First positive</button>
+    `;
+    const first = document.getElementById("first-positive") as HTMLButtonElement;
+    const second = document.getElementById("second-positive") as HTMLButtonElement;
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(second);
+  });
+
+  test("skips controls hidden by ancestors, closed details, or a shadow host", () => {
+    document.getElementById("root")!.innerHTML = `
+      <button id="first">First</button>
+      <div hidden><button id="hidden">Hidden</button></div>
+      <div style="display: none"><button id="display-none">Display none</button></div>
+      <details><button id="closed-details">Closed details</button></details>
+      <button id="second">Second</button>
+    `;
+    const host = document.createElement("div");
+    host.hidden = true;
+    host.attachShadow({ mode: "open" }).innerHTML = '<button id="shadow-hidden">Shadow hidden</button>';
+    document.getElementById("root")!.append(host);
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(second);
+  });
+
+  test("dispatches keyup to the element that receives focus", () => {
+    document.getElementById("root")!.innerHTML = '<button id="first">First</button><button id="second">Second</button>';
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    const keyup: string[] = [];
+    first.addEventListener("keyup", () => keyup.push("first"));
+    second.addEventListener("keyup", () => keyup.push("second"));
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(keyup).toEqual(["second"]);
+  });
+
+  test("leaves focus to a key handler that prevents the default", () => {
+    document.getElementById("root")!.innerHTML = '<button id="first">First</button><button id="second">Second</button>';
+    const first = document.getElementById("first") as HTMLButtonElement;
+    const second = document.getElementById("second") as HTMLButtonElement;
+    first.addEventListener("keydown", (event) => event.preventDefault());
+    first.focus();
+
+    syntheticKey("Tab");
+    expect(document.activeElement).toBe(first);
+    expect(document.activeElement).not.toBe(second);
+  });
+
+  test("uses the trusted driver to drag across all rendered text lines", async () => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<p id="copy">first line<br />second line</p>';
+    const element = document.getElementById("copy")!;
+    const rangePrototype = dom.window.Range.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(rangePrototype, "getClientRects");
+    Object.defineProperty(rangePrototype, "getClientRects", {
+      configurable: true,
+      value: () => [
+        { left: 10, right: 70, top: 20, width: 60, height: 10 },
+        { left: 10, right: 90, top: 40, width: 80, height: 10 },
+      ],
+    });
+    try {
+      const actions: { kind: string; x?: number; y?: number }[] = [];
+      await selectTextWithDriver(element, async (action) => {
+        actions.push(action);
+      });
+      expect(actions.map(({ kind }) => kind)).toEqual(["down", "move", "up"]);
+      expect(actions[0]).toMatchObject({ kind: "down", x: 12, y: 25 });
+      expect(actions[1]).toMatchObject({ kind: "move", x: 88, y: 45 });
+      expect(actions[2]).toMatchObject({ kind: "up", x: 88, y: 45 });
+    } finally {
+      if (descriptor) Object.defineProperty(rangePrototype, "getClientRects", descriptor);
+      else delete (rangePrototype as { getClientRects?: unknown }).getClientRects;
+    }
+  });
+});
+
+describe("gallery play settle budget", () => {
+  // Headless WebKit on the CPU-only CI VM has no Long Animation Frames: the stage times frames by
+  // rAF, and one software-painted frame there takes 200-450 ms where Chromium's data shows no frame
+  // over 16.7 ms for the same step (new-tab switcher-keys, typed-address). Settling waits on those
+  // frames, so its latency measures the VM there as the frame timing does.
+  const slowFocus = async (frameSource: "long-animation-frame" | "raf") => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<button id="slow">Slow</button>';
+    document.getElementById("slow")!.addEventListener("focus", () => {
+      const start = performance.now();
+      while (performance.now() - start < 60);
+    });
+    const restore = ["requestAnimationFrame", "PerformanceObserver", "innerWidth", "innerHeight"].map(
+      (key) => [key, key in scope, scope[key]] as const,
     );
-    expect(judgeStep(step({ layoutShift: 0.001 })).status).toBe("fail");
-    expect(judgeStep(step({ frameSource: "long-animation-frame", longFrames: [33.5] })).problems[0]).toContain(
-      "over 33 ms",
-    );
+    Object.assign(scope, {
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      innerWidth: 800,
+      innerHeight: 600,
+      PerformanceObserver: class {
+        static supportedEntryTypes = frameSource === "raf" ? [] : ["long-animation-frame"];
+        observe() {}
+        takeRecords() {
+          return [];
+        }
+        disconnect() {}
+      },
+    });
+    try {
+      const report = await runPlay((ctx) => ctx.focus({ selector: "#slow" }), {
+        checks: { settleMaxMs: { value: 20, reason: "A focus should settle within a frame here." } },
+      });
+      return report.steps[0]!;
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+    }
+  };
+
+  test("a step over its budget fails where Long Animation Frames time the page", async () => {
+    const step = await slowFocus("long-animation-frame");
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms\)/);
   });
 
-  test("rAF-timed frames (software-rendered WebKit) never fail on time, they warn", () => {
-    expect(judgeStep(step({ frameSource: "raf", longFrames: [806] }))).toEqual({ status: "warn", problems: [] });
-    expect(judgeStep(step({ frameSource: "raf", layoutShift: 0.01 })).status).toBe("fail");
-  });
-
-  test("frames over 16.7 ms only warn", () => {
-    const verdict = judgeStep(step({ longFrames: [20, 30] }));
-    expect(verdict).toEqual({ status: "warn", problems: [] });
-  });
-
-  test("an entry loosens a check with a value and a written reason", () => {
-    const checks = { longFrameFailMs: { value: 50, reason: "The first Shiki highlight compiles its grammar." } };
-    expect(judgeStep(step({ frameSource: "long-animation-frame", longFrames: [40] }), checks).status).toBe("warn");
-    expect(checkReasons(checks)).toEqual([]);
-    expect(checkReasons({ anchorMovePx: { value: 2, reason: "" } })).toHaveLength(1);
-  });
-
-  test("a report is as bad as its worst step", () => {
-    const pass = { ...step(), status: "pass" as const, problems: [] };
-    expect(overall([])).toBe("none");
-    expect(overall([pass, { ...pass, status: "warn" }])).toBe("warn");
-    expect(overall([pass, { ...pass, status: "fail" }])).toBe("fail");
-  });
-
-  test("a box that appears, vanishes or moves is a delta", () => {
-    const box = { x: 0, y: 0, width: 10, height: 10 };
-    expect(rectDelta(box, { ...box })).toBe(0);
-    expect(rectDelta(box, { ...box, y: 3 })).toBe(3);
-    expect(rectDelta(box, null)).toBe(Number.POSITIVE_INFINITY);
-    expect(rectDelta(null, null)).toBe(0);
-  });
-
-  test("targets resolve by role and name, test id, text and selector", () => {
-    expect(resolveTarget(doc, { role: "button", name: "Send prompt" })?.textContent).toBe("↑");
-    expect(resolveTarget(doc, { role: "button", name: /^St/ })?.textContent).toBe("Stop");
-    expect(resolveTarget(doc, { role: "link", name: "Open file" })).not.toBeNull();
-    expect(roleOf(doc.querySelector("input")!)).toBe("searchbox");
-    expect(accessibleName(doc.querySelector("input")!)).toBe("Filter");
-    expect(resolveTarget(doc, { role: "combobox", name: "Model" })).not.toBeNull();
-    expect(resolveTarget(doc, { testId: "init" })?.textContent).toBe("Init");
-    expect(resolveTarget(doc, { text: "Compact" })?.getAttribute("role")).toBe("menuitem");
-    expect(resolveTarget(doc, { selector: "main > a" })).not.toBeNull();
-    expect(resolveTarget(doc, { role: "dialog" })).toBeNull();
+  test("a step over its budget only warns, with the number, where rAF times a software renderer", async () => {
+    const step = await slowFocus("raf");
+    expect(step.frameSource).toBe("raf");
+    expect(step.settleMs).toBeGreaterThan(20);
+    expect(step.status).toBe("warn");
+    expect(step.problems.join("\n")).toMatch(/settle latency .* \(limit 20 ms; rAF timing, not a gate\)/);
   });
 });

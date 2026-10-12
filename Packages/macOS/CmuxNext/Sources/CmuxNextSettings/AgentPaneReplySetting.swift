@@ -3,8 +3,9 @@
 /// plans/cmux-next/agent-pane-gaps.md). The host reads them on every request, so a change
 /// applies to the next click.
 ///
-/// `outsideRoots` (default `confirm`): a path chip outside the session's folders asks before it
-/// opens (`confirm`), draws as plain text (`text`), or opens like a path inside them (`open`).
+/// `outsideRoots` (default `open`): a path chip outside the session's folders opens on its click
+/// like a path inside them (`open`), asks before it opens (`confirm`), or draws as plain text
+/// (`text`).
 /// A path on the deny list (`~/.ssh`, keys, `.env` files) is always plain text.
 ///
 /// `remote` (default `click`): a web image in a reply shows a placeholder and loads after a
@@ -23,7 +24,7 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
     public var outsideRoots: OutsideRoots
     public var remoteImages: RemoteImages
 
-    public static let fallback = AgentPaneReplySetting(outsideRoots: .confirm, remoteImages: .click)
+    public static let fallback = AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click)
 
     public init(outsideRoots: OutsideRoots, remoteImages: RemoteImages) {
         self.outsideRoots = outsideRoots

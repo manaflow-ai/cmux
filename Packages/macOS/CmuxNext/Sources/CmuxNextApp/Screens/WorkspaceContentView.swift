@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import Observation
@@ -29,15 +30,19 @@ final class WorkspaceContentView: NSView {
         bar.isHidden = true
         addSubview(bar)
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ Metrics.tabStripHeight }) { self?.needsLayout = true }
+            for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
-        tokenObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            tokenObservation?.cancel()
+        }
     }
 
     override var isFlipped: Bool { true }
@@ -63,6 +68,11 @@ final class WorkspaceContentView: NSView {
             layoutView.isHidden = false
             bar.isHidden = !showsBar
         }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let emptyView, emptyView.performKeyEquivalent(with: event) { return true }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func layout() {

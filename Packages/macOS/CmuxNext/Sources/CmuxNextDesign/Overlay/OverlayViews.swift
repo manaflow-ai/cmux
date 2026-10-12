@@ -37,13 +37,25 @@ final class OverlayClipView: NSView {
     }
 }
 
-/// A scrim over the whole window under a dimming overlay.
+/// A scrim over the whole window under a dimming overlay, in the theme's ``Scrim`` strength.
 final class OverlayScrimView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.28).cgColor
         autoresizingMask = [.width, .height]
+        updateLayer()
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        let alpha = performWithTheme { (ThemeContext.active ?? ThemeScope.app.tokens).scrimAlpha }
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(alpha).cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     @available(*, unavailable)

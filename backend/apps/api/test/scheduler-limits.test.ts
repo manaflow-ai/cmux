@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { RUN_BURST } from "../src/domains/scheduler-limits.ts"
+import { keptRuns } from "../src/domains/scheduler-rows.ts"
 
 /** Slice 2: provider events refused by the run limits are kept and retried, never lost. */
 
@@ -57,7 +58,7 @@ describe("run limits keep provider events (workerd)", () => {
       await new Promise((r) => setTimeout(r, 1200))
       await s.onWake(Date.now())
       expect(waiting()).toBe(0)
-      const open = Object.values(s.boundEngine.currentState.runs as Record<string, { trigger: { delivery_id?: string } }>)
+      const open = keptRuns(s.boundEngine.rows)
       expect(new Set(open.map((r) => r.trigger.delivery_id)).size).toBe(RUN_BURST + 5)
     })
   })

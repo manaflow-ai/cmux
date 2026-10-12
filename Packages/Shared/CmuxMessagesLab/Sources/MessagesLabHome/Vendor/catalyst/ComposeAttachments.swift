@@ -88,7 +88,7 @@ final class ComposeAttachmentStrip {
     static func kindText(_ a: Attachment) -> String {
         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
         guard a.byteSize > 0 else { return kind }
-        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(a.byteSize), countStyle: .file))"
+        return "\(kind) \u{00B7} \(ByteCountFormatter.string(fromByteCount: Int64(clamping: a.byteSize), countStyle: .file))"
     }
 
     /// Mirror the draft's attachments for a field of this width.
@@ -183,8 +183,9 @@ final class ComposeAttachmentStrip {
                 UIColor(white: 0.75, alpha: 1).setFill()
                 for k in 0..<3 { c.fill(CGRect(x: ic.minX + 6, y: ic.minY + 12 + CGFloat(k) * 4, width: 16, height: 1.2)) }
                 let ext = (a.fileName as NSString).pathExtension.uppercased()
-                TextDraw.line(ext, font: .systemFont(ofSize: 6, weight: .semibold), color: UIColor(white: 0.55, alpha: 1),
-                              x: ic.midX - TextDraw.width(ext, font: .systemFont(ofSize: 6, weight: .semibold)) / 2, baseline: ic.maxY - 5, in: c)
+                let extFont = HomeFonts.system(ofSize: 6, weight: .semibold)
+                TextDraw.line(ext, font: extFont, color: UIColor(white: 0.55, alpha: 1),
+                              x: ic.midX - TextDraw.width(ext, font: extFont) / 2, baseline: ic.maxY - 5, in: c)
                 let tx = ic.maxX + 10, tw = r.maxX - 10 - tx
                 var y = r.midY - 10
                 TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
@@ -206,7 +207,7 @@ final class ComposeAttachmentStrip {
 
     private func loadThumbnail(_ a: Attachment, into l: CALayer, pixels: CGSize) {
         guard let asset = a.asset else { return }
-        let maxPx = Int(ceil(max(pixels.width, pixels.height)))
+        let maxPx = CrashGuard.int(ceil(max(pixels.width, pixels.height))) // no trap on NaN
         let key = "\(asset)#\(maxPx)"
         if let img = thumbs[key] { l.contents = img; return }
         let id = a.id
@@ -260,7 +261,11 @@ final class ComposeAttachmentStrip {
     }
 
     /// The thumbnail shown for an image (tests).
-    func shownImage(_ id: ID) -> CGImage? { imageLayers[id].flatMap { $0.image.contents.map { $0 as! CGImage } } }
+    func shownImage(_ id: ID) -> CGImage? {
+        guard let raw = imageLayers[id]?.image.contents else { return nil }
+        let contents = raw as AnyObject
+        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
+    }
 }
 
 private extension CGRect {

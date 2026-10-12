@@ -19,6 +19,8 @@ nonisolated enum SectionFlow {
         var lines: Int
         var lineHeight: CGFloat
         var gap: CGFloat = 0
+        /// The line gap a placement chose itself (an icon line has none).
+        var fixedGap: CGFloat?
     }
 
     /// The mode `section` uses in `look`, or nil for rows. Precedence: the
@@ -40,18 +42,21 @@ nonisolated enum SectionFlow {
     }
 
     /// `labelWidths`: each item's icon + label width (inline); a missing
-    /// entry means icon only.
+    /// entry means icon only. `iconWidths`: an icon-only item wider than a
+    /// square on an icon line (the profile avatar with its chevron).
     static func place(_ section: LayoutSection, mode: Mode, x: CGFloat, y: CGFloat, width: CGFloat,
-                      labelWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
+                      labelWidths: [LayoutItemID: CGFloat], iconWidths: [LayoutItemID: CGFloat] = [:],
+                      metrics m: SidebarRegionMetrics) -> Result {
         let items = section.items
         guard !items.isEmpty else { return Result(rows: [], height: 0, lines: 0, lineHeight: 0) }
-        var result = placeLines(section, mode: mode, x: x, y: y, width: width, labelWidths: labelWidths, metrics: m)
-        result.gap = section.arrangement.gap.map { CGFloat($0) } ?? m.tileGap
+        var result = placeLines(section, mode: mode, x: x, y: y, width: width, labelWidths: labelWidths, iconWidths: iconWidths, metrics: m)
+        result.gap = result.fixedGap ?? section.arrangement.gap.map { CGFloat($0) } ?? m.tileGap
         return result
     }
 
     private static func placeLines(_ section: LayoutSection, mode: Mode, x: CGFloat, y: CGFloat, width: CGFloat,
-                                   labelWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
+                                   labelWidths: [LayoutItemID: CGFloat], iconWidths: [LayoutItemID: CGFloat],
+                                   metrics m: SidebarRegionMetrics) -> Result {
         let items = section.items
         let gap = section.arrangement.gap.map { CGFloat($0) } ?? m.tileGap
         let align = section.arrangement.align
@@ -69,6 +74,9 @@ nonisolated enum SectionFlow {
             return placeColumns(section, columns: columns, x: x, y: y, width: width, gap: gap, align: .fill,
                                 lineHeight: m.favoriteHeight, metrics: m)
         case let .inline(iconsOnly):
+            if let column = m.glyphColumn, iconsOnly || items.allSatisfy({ labelWidths[$0.id] == nil }) {
+                return placeIconLine(section, column: column, x: x, y: y, width: width, iconWidths: iconWidths, metrics: m)
+            }
             let icon = m.iconButtonWidth
             let chips = items.map { labelWidths[$0.id] ?? icon }
             let chipTotal = chips.reduce(0, +) + gap * CGFloat(items.count - 1)
@@ -81,6 +89,23 @@ nonisolated enum SectionFlow {
             return lay(chunk(items, perLine), kind: { .tile($0, section: section.id) }, widths: { _ in icon }, x: x, y: y,
                        width: width, gap: gap, align: align, lineHeight: m.rowHeight)
         }
+    }
+
+    /// A line of icon-only items (F1): row-height squares, no gap unless
+    /// the section sets one, wrapped when they do not fit. Leading lines
+    /// put the first glyph on the rows' glyph column.
+    private static func placeIconLine(_ section: LayoutSection, column: CGFloat, x: CGFloat, y: CGFloat, width: CGFloat,
+                                      iconWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
+        let side = m.rowHeight
+        let gap = section.arrangement.gap.map { CGFloat($0) } ?? 0
+        let align = section.arrangement.align
+        let shift = align == .leading ? max(0, column - side / 2) : 0
+        let widest = section.items.map { iconWidths[$0.id] ?? side }.max() ?? side
+        let perLine = max(1, Int((width - shift + gap) / (widest + gap)))
+        var result = lay(chunk(section.items, perLine), kind: { .tile($0, section: section.id) }, widths: { iconWidths[$0] ?? side },
+                         x: x + shift, y: y, width: max(0, width - shift), gap: gap, align: align, lineHeight: side)
+        result.fixedGap = gap
+        return result
     }
 
     /// Equal tiles in `columns` (nil = as many as fit at the minimum tile

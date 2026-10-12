@@ -18,6 +18,10 @@ enum DebugFocus {
             "key_window": NSApp.keyWindow.map { .string(String(describing: type(of: $0))) } ?? .null,
             "app_active": .bool(NSApp.isActive),
             "keyboard_given_back": keyboardGuard(services),
+            // Windows whose keys wait for a New Tab field (NewTabInputCoordinator); never stays.
+            "new_tab_key_holds": .array(services.windows.controllers.filter {
+                services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
+            }.map { .string($0.state.id) }),
             "context": .object([
                 "terminal_focused": .bool(context.contains(.terminalFocused)),
                 "browser_focused": .bool(context.contains(.browserFocused)),
@@ -30,7 +34,7 @@ enum DebugFocus {
 
     /// No-activate mode: how often the keyboard was given back, and the last time.
     private static func keyboardGuard(_ services: AppServices) -> JSONValue {
-        guard let guardian = services.keyboardGuard else { return .null }
+        guard let guardian = services.input.keyboardGuard else { return .null }
         let last = guardian.giveBacks.last.map { giveBack -> JSONValue in
             ["trigger": .string(giveBack.trigger.rawValue), "cause": .string(giveBack.cause),
              "restored_to": giveBack.restoredTo.map { JSONValue(Int($0)) } ?? .null]

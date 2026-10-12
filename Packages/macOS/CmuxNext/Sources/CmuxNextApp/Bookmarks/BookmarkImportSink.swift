@@ -15,7 +15,9 @@ struct BookmarkImportSink: ImportedBookmarkSink {
     func replaceImportedBookmarks(_ bookmarks: [ImportedBookmark], source: ImportSourceRecord) async throws {
         let items = bookmarks.map { BookmarkImportItem(title: $0.title, url: $0.url, folderPath: $0.folderPath, created: $0.dateAdded) }
         try await MainActor.run {
-            try service?.replaceImport(items, title: source.displayName, sourceKey: source.sourceKey, profile: source.targetProfileID)
+            // The same "Imported from <Browser> (<profile>)" folder the bookmarks import makes.
+            let title = BookmarkBrowserImport.folderTitle(browser: source.browser, profileName: source.profileName)
+            try service?.replaceImport(items, title: title, sourceKey: source.sourceKey, profile: source.targetProfileID)
         }
     }
 }

@@ -108,8 +108,10 @@ impl Tx<'_> {
             started_at: None,
             ended_at: None,
         };
+        // Look the task up before the first write, so a miss rejects with
+        // the state unchanged.
+        let task = self.state.tasks.get_mut(&task_id).ok_or_else(|| not_found("task", &task_id))?;
         self.state.sessions.insert(session.id.clone(), session.clone());
-        let task = self.state.tasks.get_mut(&task_id).expect("validated task");
         task.delegate = Some(agent);
         if task.assignee.is_none() {
             task.assignee = Some(Principal::user(person));
@@ -146,7 +148,11 @@ impl Tx<'_> {
                     .map_or("started".to_owned(), |h| format!("claimed by {h}"))
             )));
         }
-        let s = self.state.sessions.get_mut(&p.session).expect("validated session");
+        let s = self
+            .state
+            .sessions
+            .get_mut(&p.session)
+            .ok_or_else(|| not_found("session", &p.session))?;
         s.status = SessionStatus::Claimed;
         s.claimed_by = Some(p.host.clone());
         let snapshot = s.clone();
@@ -176,7 +182,11 @@ impl Tx<'_> {
                 "session is claimed by {claimed}; attach from that host"
             )));
         }
-        let s = self.state.sessions.get_mut(&p.session).expect("validated session");
+        let s = self
+            .state
+            .sessions
+            .get_mut(&p.session)
+            .ok_or_else(|| not_found("session", &p.session))?;
         s.links.acp_session = Some(p.acp_session.clone());
         if p.workspace.is_some() {
             s.links.workspace = p.workspace.clone();
@@ -220,7 +230,11 @@ impl Tx<'_> {
         {
             return Err(invalid("pr must be 1..=500 bytes"));
         }
-        let s = self.state.sessions.get_mut(&p.session).expect("validated session");
+        let s = self
+            .state
+            .sessions
+            .get_mut(&p.session)
+            .ok_or_else(|| not_found("session", &p.session))?;
         if let Some(plan) = &p.plan {
             s.plan = plan.clone();
         }
@@ -267,7 +281,8 @@ impl Tx<'_> {
 
     /// End a non-terminal session (cancel paths) and apply the flow.
     pub(crate) fn end_session(&mut self, id: &str, status: SessionStatus) {
-        let s = self.state.sessions.get_mut(id).expect("existing session");
+        // Callers checked that the session exists.
+        let Some(s) = self.state.sessions.get_mut(id) else { return };
         let from = s.status;
         s.status = status;
         s.ended_at = Some(self.now);
@@ -324,21 +339,21 @@ impl Tx<'_> {
             None if drop_delegate => Some(task.attention),
             other => other,
         };
-        if let Some(attention) = attention {
-            let t = self.state.tasks.get_mut(&task.id).expect("task exists");
-            if t.attention != attention || drop_delegate {
-                t.attention = attention;
-                t.updated_at = self.now;
-                if drop_delegate {
-                    t.delegate = None;
-                }
-                let snapshot = t.clone();
-                self.events.push(EventKind::upsert(
-                    "task.updated",
-                    Entity::Task(Box::new(snapshot)),
-                    json!({"fields": ["attention"], "by_agent_flow": true}),
-                ));
+        if let Some(attention) = attention
+            && let Some(t) = self.state.tasks.get_mut(&task.id)
+            && (t.attention != attention || drop_delegate)
+        {
+            t.attention = attention;
+            t.updated_at = self.now;
+            if drop_delegate {
+                t.delegate = None;
             }
+            let snapshot = t.clone();
+            self.events.push(EventKind::upsert(
+                "task.updated",
+                Entity::Task(Box::new(snapshot)),
+                json!({"fields": ["attention"], "by_agent_flow": true}),
+            ));
         }
         if self.state.settings.agent_flow == AgentFlow::Off {
             return;

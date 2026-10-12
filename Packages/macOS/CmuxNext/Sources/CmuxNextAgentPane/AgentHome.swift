@@ -4,7 +4,8 @@ public import Foundation
 /// The agent-home folders (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a workspace without a folder (the
 /// default Home workspace) gives its new agent chats `<base>/<workspace-id>`, where `base` is
 /// `~/Library/Application Support/cmux/agent-home`. It is the chat cwd and the workspace's only
-/// root, made with mode 0700 on first use. There is never a fallback to the home folder: a base
+/// root, made with mode 0700 on first use and marked as made by cmux (``marker``), so acpmux trusts
+/// it by construction. There is never a fallback to the home folder: a base
 /// that is not canonical, a workspace id that is not safe, or a symlink anywhere in the path gives
 /// no folder, and the relay refuses the chat (`transport.path_invalid`).
 ///
@@ -52,6 +53,13 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return AcpmuxPathPolicy.contains(root: standard, path: home)
     }
 
+    /// Whether `path` is the base, a workspace's folder or a folder inside one (by path components,
+    /// after `.` and `..` are resolved as text). Does not touch the disk.
+    public func contains(_ path: String) -> Bool {
+        let standard = (path as NSString).standardizingPath
+        return standard.hasPrefix("/") && AcpmuxPathPolicy.contains(root: base, path: standard)
+    }
+
     /// The folder of workspace `id`, nil for an id that is not safe. Does not touch the disk.
     public func path(for id: String) -> String? {
         guard Self.isSafeID(id) else { return nil }
@@ -65,7 +73,22 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         guard let path = path(for: id), Self.makePrivateFolders(path, from: base) else { return nil }
         // Every component is checked: the filesystem's own spelling must be the path itself.
         guard AcpmuxPathPolicy.canonical(path) == path else { return nil }
+        Self.mark(path)
         return path
+    }
+
+    /// The file acpmux reads to trust this folder by construction (`trust.rs`, `made_by_cmux`):
+    /// the app made it, so nobody is asked about it.
+    public static let marker = ".cmux-agent-home"
+
+    /// Writes ``marker`` in `folder` when it is missing (never through a symlink). A folder that
+    /// cannot take it still works; acpmux then asks about it as about any folder.
+    static func mark(_ folder: String) {
+        let path = folder + "/" + marker
+        var info = stat()
+        if lstat(path, &info) == 0 { return }
+        let file = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if file >= 0 { close(file) }
     }
 
     /// Moves workspace `old`'s folder to workspace `new` (a History reopen): one rename that never

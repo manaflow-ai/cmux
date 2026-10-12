@@ -69,15 +69,33 @@ extension HomeNativeTranscriptView {
 /// points a user reaches, for screenshots and recordings.
 extension HomeNativeTranscriptView {
     /// Return in the field: sends the text and the draft attachments.
-    public func sendDraft() { transcript.sendDraft() }
+    /// Nil when the draft went (or waits for the owner as "sending"), else why nothing was sent.
+    @discardableResult
+    public func sendDraft() -> String? { transcript.sendDraft() }
     /// A love tapback on the newest incoming message (the picker's path).
-    public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool { transcript.debugTapbackNewestIncoming(mine: mine) }
     /// Plays or pauses the newest video bubble (the click's path).
     public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
     /// The context menu's titles at the newest text bubble (the right-click's path).
     public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
     /// The field's height and the gap under the newest receipt, in points.
     public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
+    /// Clicks the first shown link whose URL starts with `prefix` (the click's path); its URL.
+    public func debugClickLink(prefix: String) -> String? { transcript.debugClickLink(prefix: prefix) }
+    /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
+    public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
+    /// The text of the newest `limit` messages this view shows, oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] { transcript.debugMessageTexts(limit: limit) }
+    /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
+    public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
+    /// The open thread's root (the transcript's id), nil when none is open.
+    public var debugOpenThread: String? { transcript.debugOpenThread }
+    /// Esc through the field's path.
+    public func debugEscape() { transcript.debugEscape() }
+    /// Reply… in the newest text bubble's context menu; the open thread's root.
+    public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
+    /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
+    public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }

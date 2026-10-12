@@ -52,3 +52,38 @@ fn a_service_body_passes_through_untouched() {
     assert_eq!(body, &v["json"]["body"]);
     assert_eq!(serde_json::to_value(&control).expect("encode"), v["json"]);
 }
+
+#[test]
+fn stream_open_matches_its_vectors_byte_for_byte() {
+    use cmux_rd_proto::control::StreamKind;
+    for name in
+        ["stream_open", "stream_open_tiles", "stream_opened", "stream_refused", "stream_close"]
+    {
+        let v = vectors().into_iter().find(|v| v["name"] == name).expect("vector");
+        let control: Control = serde_json::from_value(v["json"].clone()).expect(name);
+        assert_eq!(serde_json::to_value(&control).expect("encode"), v["json"], "{name}");
+    }
+    let v = vectors().into_iter().find(|v| v["name"] == "stream_open").expect("vector");
+    let Control::StreamOpen { stream, kind, codec, of } =
+        serde_json::from_value(v["json"].clone()).expect("stream_open")
+    else {
+        panic!("not a stream_open");
+    };
+    assert_eq!((stream, kind, codec.as_str(), of), (100, StreamKind::UpAudio, "opus", None));
+    assert!(kind.is_upstream());
+    assert_eq!(kind.codec(), Some("opus"));
+}
+
+#[test]
+fn a_newer_stream_kind_parses_as_unknown() {
+    use cmux_rd_proto::control::StreamKind;
+    let v = vectors().into_iter().find(|v| v["name"] == "stream_open_newer_kind").expect("vector");
+    let Control::StreamOpen { kind, .. } =
+        serde_json::from_value(v["json"].clone()).expect("a newer kind still parses")
+    else {
+        panic!("not a stream_open");
+    };
+    assert_eq!(serde_json::to_value(kind).expect("kind"), v["kind"]);
+    assert_eq!(kind, StreamKind::Unknown);
+    assert!(!kind.is_upstream());
+}

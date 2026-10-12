@@ -39,6 +39,8 @@ public final class SettingsApplier {
         if design.density != density { design.density = density }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
+        let agentPaneZoom = CGFloat(min(max(snapshot.agentPaneZoom, AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound))
+        if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
@@ -100,6 +102,16 @@ public final class SettingsApplier {
                 if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
             }
             applied.insert(id)
+        }
+        // `tabs.swapCmdTAndCmdN`: Cmd-T is New Workspace and Cmd-N New Tab, unless the user
+        // bound either one above (then neither moves: half a swap would put two actions on one
+        // key). Turning it off removes the pair like any other binding.
+        let swap: [(ActionID, String)] = [("newTab.default", "n"), ("newTab", "t")]
+        if snapshot.swapCmdTAndCmdN, !swap.contains(where: { applied.contains($0.0) }) {
+            for (id, key) in swap {
+                setOverride(Shortcut(key, modifiers: [.command]), for: id)
+                applied.insert(id)
+            }
         }
         for id in appliedShortcutIDs.subtracting(applied) {
             registry.removeShortcutOverride(for: id)

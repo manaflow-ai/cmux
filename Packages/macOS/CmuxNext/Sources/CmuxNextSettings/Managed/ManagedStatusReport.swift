@@ -23,9 +23,9 @@ public nonisolated enum ManagedStatusReport {
 
     /// The report without its timestamp, so a load that changes nothing writes nothing.
     public static func body(context: Context, managed: ManagedPreferences, team: TeamPolicyLayer, effective: EffectiveSettings) -> JSONValue {
-        let applied = effective.managedKeys.keys.sorted().map { key -> JSONValue in
+        let applied = effective.managedKeys.sorted { $0.key < $1.key }.map { key, layer -> JSONValue in
             let source: String
-            switch effective.managedKeys[key]! {
+            switch layer {
             case .device: source = "mdm"
             case .team: source = "team"
             }
@@ -50,7 +50,7 @@ public nonisolated enum ManagedStatusReport {
 
     /// Decision E2: the MDM value wins and the conflict is reported.
     public static func conflicts(managed: ManagedPreferences, team: TeamPolicyLayer) -> [JSONValue] {
-        team.enforced.keys.sorted().compactMap { key in
+        team.enforced.keys.sorted().filter { !ChatSettings.keys.contains($0) }.compactMap { key in
             guard let device = managed.forced[key], let teamValue = team.enforced[key], device != teamValue else { return nil }
             return .object(["key": .string(key), "mdm_value": device, "team_value": teamValue, "winner": "mdm"])
         }

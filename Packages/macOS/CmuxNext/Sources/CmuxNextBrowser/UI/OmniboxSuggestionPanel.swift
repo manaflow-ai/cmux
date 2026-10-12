@@ -20,6 +20,9 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
+    /// The bar's window rect the card was last placed under, so a later
+    /// layout can tell whether the card must move (`follow`).
+    private var placedAnchor: NSRect?
 
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
@@ -37,8 +40,15 @@ final class OmniboxSuggestionPanel {
             return row
         }
         rows.forEach { content.card.addSubview($0) }
+        content.setAccessibilityRows(rows)
+        place(below: anchor, pane: pane, in: window)
+    }
 
+    /// Sizes the card and its rows to `anchor` (the bar) and puts it under
+    /// it: presented when it is not on screen, else moved in place.
+    private func place(below anchor: NSView, pane: NSView, in window: NSWindow) {
         let anchorRect = anchor.convert(anchor.bounds, to: nil)
+        placedAnchor = anchorRect
         let outset = OmnibarStyle.cardSideOutset
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
@@ -75,9 +85,22 @@ final class OmniboxSuggestionPanel {
         overlay = handle
     }
 
+    /// Moves and resizes the open card when `anchor` moved since it was
+    /// placed (a window resize, or a toolbar render that lands after the
+    /// rows). The row views stay, so a hovered row keeps its tracking.
+    func follow(below anchor: NSView, pane: NSView, in window: NSWindow) {
+        guard isVisible, let placedAnchor, anchor.convert(anchor.bounds, to: nil) != placedAnchor else { return }
+        place(below: anchor, pane: pane, in: window)
+    }
+
     func highlight(_ index: Int?) {
+        var changed = false
         for (offset, row) in rows.enumerated() {
+            changed = changed || row.isHighlighted != (offset == index)
             row.isHighlighted = offset == index
+        }
+        if changed {
+            NSAccessibility.post(element: content.card, notification: .selectedChildrenChanged)
         }
     }
 
@@ -85,19 +108,37 @@ final class OmniboxSuggestionPanel {
     var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
-        let shown = overlay
+        let presented = overlay
         overlay = nil
-        shown?.dismiss()
+        placedAnchor = nil
+        presented?.dismiss()
     }
 }
 
 /// Transparent panel content holding the card layer and its shadow.
+final class SuggestionCardListView: NSView {
+    private var accessibilityRows: [SuggestionRowView] = []
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        accessibilityRows = rows
+    }
+
+    override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilityRows.filter { $0.isAccessibilitySelected() }
+    }
+}
+
 final class SuggestionCardView: NSView {
-    let card = NSView()
+    let card = SuggestionCardListView()
     var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // The transparent host is layout-only. The card is the AX list so
+        // VoiceOver can enter the suggestion popup and move through rows.
+        setAccessibilityElement(false)
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.list)
         wantsLayer = true
         layer?.masksToBounds = false
         card.wantsLayer = true
@@ -131,6 +172,12 @@ final class SuggestionCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()
+    }
+
+    func setAccessibilityRows(_ rows: [SuggestionRowView]) {
+        card.setAccessibilityRows(rows)
+        card.setAccessibilityChildren(rows)
+        rows.forEach { $0.setAccessibilityParent(card) }
     }
 
     private func refresh() {

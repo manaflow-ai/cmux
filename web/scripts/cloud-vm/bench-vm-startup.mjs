@@ -66,7 +66,7 @@ const env = loadTargetEnv(project);
 for (const key of ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"]) {
   if (!env[key]?.trim() && process.env[key]?.trim()) env[key] = process.env[key].trim();
 }
-requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench (export the missing keys, or set CMUX_CLOUD_VM_ENV_SOURCE=process)`);
+requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench (export the missing keys, or set CMUX_CLOUD_VM_ENV_SOURCE=process)`);
 // Cleanup is verified against the provider's own inventory (a create can
 // allocate a machine the control plane never records), so the deployment's
 // provider credentials are required, in either form the runtime's client
@@ -99,7 +99,8 @@ const providerPolling = pollBoundedFetch({ fetchTimeoutMs: 60_000, pollDeadlineM
 const providerSdk = new Freestyle({ ...providerCredentials, fetch: providerPolling.fetch });
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
-  publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
+  // Optional: the production project requires no publishable key.
+  ...(env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim() ? { publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY.trim() } : {}),
   secretServerKey: env.STACK_SECRET_SERVER_KEY,
 });
 

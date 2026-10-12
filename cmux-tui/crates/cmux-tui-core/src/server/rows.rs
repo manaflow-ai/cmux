@@ -51,8 +51,14 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         frontend_shell(mux, client),
     )?;
     let size = optional_surface_size(cols, rows);
-    let surface =
-        mux.new_row_with_options(pane, height_permille, spawn, size, transaction.clone())?;
+    let surface = mux.new_row_with_options_as(
+        &origin_gate::connection_actor(mux, client),
+        pane,
+        height_permille,
+        spawn,
+        size,
+        transaction.clone(),
+    )?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
     result["pane"] = json!(mux.with_state(|state| state.pane_of(surface.id)));
     if let Some(transaction) = transaction {
@@ -86,13 +92,28 @@ pub(super) fn set_row_heights(
     let SetRowHeightsParams { column, heights, fit, transaction } = params;
     let heights = heights.iter().map(|entry| (entry.row, entry.height)).collect::<Vec<_>>();
     let scoped = transaction.map(|transaction| (client, transaction));
-    let outcome = mux.set_row_heights(column, &heights, fit, scoped)?;
+    let actor = origin_gate::connection_actor(mux, client);
+    let outcome = mux.set_row_heights_as(&actor, column, &heights, fit, scoped)?;
     let mut data =
         json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
     if let Some(transaction) = transaction {
         data["transaction"] = json!(transaction);
     }
     Ok(data)
+}
+
+/// `set-viewport-pane-width` result: the width of the column of `pane` after
+/// the commit. A lone column of rows always reports 1.0
+/// (`project_layout_columns`), whatever width was asked for.
+pub(super) fn viewport_width_result(mux: &Arc<Mux>, pane: PaneId) -> anyhow::Result<Value> {
+    let width = mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(pane)?;
+        let screen = &state.workspaces[workspace].screens[screen];
+        let column = screen.layout_columns.iter().find(|column| column.root.contains(pane))?;
+        Some(column.width)
+    });
+    let width = width.with_context(|| format!("pane {pane} left its viewport column"))?;
+    Ok(json!({ "width": width }))
 }
 
 /// `error_code` of a rejected row command.

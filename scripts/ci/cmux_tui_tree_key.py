@@ -20,7 +20,9 @@ V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
 
 
 def git(*args: str) -> str:
-    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
+    # stderr stays quiet: an absent optional input is an expected miss, and any
+    # other failure is raised as CalledProcessError and reported by main().
+    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True, stderr=subprocess.DEVNULL).strip()
 
 
 def tree_key(revision: str, version: str = "v2") -> str:
@@ -38,7 +40,9 @@ def tree_key(revision: str, version: str = "v2") -> str:
         try:
             object_id = git("rev-parse", f"{revision}:{path}")
         except subprocess.CalledProcessError:
-            if kind == "gitlink" and path == "ghostty-next":
+            # Embedded-file blobs (cx-t3e5) and ghostty-next may be absent at a
+            # revision; an absent input is left out of that revision's key.
+            if (kind == "gitlink" and path == "ghostty-next") or (kind == "blob" and path != "scripts/cmux-next/build-layout-reducer-ffi.sh"):
                 continue
             raise RuntimeError(f"{revision} has no {kind} input {path}") from None
         expected_mode = {"tree": "040000", "gitlink": "160000", "blob": "100755"}.get(kind)

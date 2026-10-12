@@ -1,11 +1,12 @@
 public import CmuxNextDesign
 
-/// `layout.stripScrollbar` in cmux.json: "auto" (default), "always" or
-/// "off"; `true` means "auto" and `false` "off"
+/// `layout.stripScrollbar` in cmux.json: "system" (default: follow the macOS
+/// "Show scroll bars" setting), "auto", "always" or "off"; `true` means "auto"
+/// and `false` "off"
 /// (plans/cmux-next/dock-column.md, B4).
 public nonisolated enum StripScrollbarSetting {
     public static let configPath = ["layout", "stripScrollbar"]
-    public static let fallback: StripScrollbarMode = .auto
+    public static let fallback: StripScrollbarMode = .system
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

@@ -1,0 +1,76 @@
+/* One surface for every menu and popover (dogfood 2026-10-08): compact rows, small-radius rects,
+   one subtle shadow, and a short open that grows from the trigger's side. Sizes and motion only;
+   each surface keeps its own theme colors. ui.css imports this; the agent pane, which does not
+   load ui.css, ships it ahead of its own stylesheets (build-agent-pane-web.sh). */
+:root {
+  --ui-popup-radius: 8px;
+  --ui-popup-padding: 4px;
+  --ui-popup-shadow:
+    0 8px 24px color-mix(in srgb, black 18%, transparent),
+    0 1px 3px color-mix(in srgb, black 14%, transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, currentColor 12%, transparent);
+  --ui-row-height: 28px;
+  --ui-row-radius: 5px;
+  --ui-row-padding-inline: 8px;
+  /* Each surface runs the open only under prefers-reduced-motion: no-preference. */
+  --ui-popup-open: 120ms;
+}
+
+@keyframes ui-popup-open {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the
+   dropdown layer by default (webviews/src/ui/README.md, "Layers and transparency"): opaque and
+   unblurred, so the page under it never shows through. Zero-specificity defaults: a feature's
+   own surface class still wins, and draws on the same token. A host maps --ui-popup-fg to its
+   ink (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu,
+   a new menu) still gets the same look. */
+:where(.ui-positioner) {
+  z-index: var(--layer-dropdown);
+}
+:where(.ui-popup) {
+  background-color: var(--surface-popup);
+  color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
+}
+
+/* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
+   too, so a dialog portals above the pane instead of becoming a flow child that pushes its
+   transcript and composer when it opens. */
+:where(.ui-backdrop) {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
+}
+:where(.ui-dialog) {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 0;
+  margin-inline: auto;
+  width: min(560px, calc(100vw - 32px));
+  z-index: var(--layer-modal);
+  outline: none;
+}
+
+/* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
+   "Reasoning" and "Service Tier" as large unstyled titles at another indent, with no line between the sections, because
+   the pane does not load ui.css). Zero-specificity defaults: a quiet caption aligned with the rows' text, and a
+   hairline between sections; a feature's own rules still win. */
+:where(.ui-menu-group-label) {
+  display: block;
+  padding: 6px var(--ui-row-padding-inline) 2px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 500;
+}
+:where(.ui-separator) {
+  height: 1px;
+  margin: 4px var(--ui-row-padding-inline);
+  border: 0;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}

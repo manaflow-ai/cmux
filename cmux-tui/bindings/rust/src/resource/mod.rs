@@ -13,9 +13,12 @@ mod wire;
 pub(crate) use client::decode_protocol_error;
 pub use client::{Client, Config};
 pub use handles::state_ops::{
-    CONVERSATION_TABS_CAPABILITY, ClosedItemSnapshot, ClosedListOptions, ClosedMemberRecord,
-    ClosedReopenOptions, ClosedReopenResult, ClosedScreenRecord, ClosedTabRecord, ColumnEdge,
-    ColumnMode, SavedTabGroupReopenResult, SavedTabGroupSnapshot, SavedTabMemberSnapshot,
+    CONVERSATION_TABS_CAPABILITY, ClosedDeleteResult, ClosedDeleteTarget, ClosedItemSnapshot,
+    ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions, ClosedReopenResult,
+    ClosedScreenRecord, ClosedTabRecord, ColumnEdge, ColumnMode, PALETTE_USAGE_CAPABILITY,
+    PALETTE_USAGE_IMPORT_MAX_ROWS, PALETTE_USAGE_KEY_MAX_CHARS, PaletteUsageImportResult,
+    PaletteUsageImportRow, PaletteUsagePick, PaletteUsageRevision, PaletteUsageRow,
+    PaletteUsageSnapshot, SavedTabGroupReopenResult, SavedTabGroupSnapshot, SavedTabMemberSnapshot,
     StateDeleteResult, TAB_GROUP_MAX_TABS, TAB_HISTORY_MAX_URLS, TabGroupCreateOptions,
     TabGroupMoveOptions, TabGroupReleaseResult, TabGroupSnapshot, TabGroupUpdateOptions,
     TabUpdateOptions, WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,

@@ -38,5 +38,15 @@ extension OnboardingStrings {
         String(localized: "onboarding.computerUse.helper.unavailable",
                defaultValue: "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it.", bundle: .module)
     }
+    /// Computer Use is off, so its grants are unknown until Allow turns it on.
+    static var computerUseOff: String {
+        String(localized: "onboarding.computerUse.off",
+               defaultValue: "Computer Use is off. Allow turns it on, then shows its permissions here.", bundle: .module)
+    }
+    /// The helper does not speak this build's protocol.
+    static var computerUseHelperVersionMismatch: String {
+        String(localized: "onboarding.computerUse.helper.versionMismatch",
+               defaultValue: "Computer Use helper version mismatch. Update cmux NIGHTLY and this build.", bundle: .module)
+    }
     static var computerUseHelperClose: String { String(localized: "onboarding.computerUse.helper.close", defaultValue: "Close", bundle: .module) }
 }

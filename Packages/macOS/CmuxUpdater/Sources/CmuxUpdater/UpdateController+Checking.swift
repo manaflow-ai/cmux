@@ -221,9 +221,14 @@ extension UpdateController: UpdateDriverEventDelegate {
             "controller observed cycle finish (check=\(updateCheck.rawValue), active=\(finishedIntent?.rawValue ?? "external"), pending=\(pendingCheckIntent?.rawValue ?? "none"), state=\(describeLifecycleState(model.state)), error=\(error?.code.description ?? "none"))"
         )
 
-        if pendingCheckIntent != nil {
+        if let pendingCheckIntent {
             cancelReadinessRetry()
-            beginCheckWhenReady(pendingCheckIntent!)
+            beginCheckWhenReady(pendingCheckIntent)
+            return
+        }
+        if pendingBackgroundCheck {
+            pendingBackgroundCheck = false
+            checkInBackground()
             return
         }
 

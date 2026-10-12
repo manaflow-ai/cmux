@@ -4,6 +4,14 @@
 import { createPageClient, isPageError, type PageClient } from "../../pages/shared/pageClient";
 import { NativeError } from "./nativeError";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
+import { receiveModelCatalog } from "./modelCatalogHost";
+import { setEditedFilesSettings } from "./turnChanges/settings";
+import { setComposerSettings } from "./composerSettings";
+import { setAgentDiffColors } from "./diffColors";
+import { setDeviceChats } from "./newtab/deviceChats";
+import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setHeaderState } from "./header/headerState";
+import { setFloatingState } from "./floatingState";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -71,8 +79,25 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "editedFiles":
+      // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
+      // module loads still sets the value the card then reads.
+      return setEditedFilesSettings(event.value);
+    case "composer":
+      return setComposerSettings(event.value);
+    case "diffColors":
+      return setAgentDiffColors(event.value);
+    case "deviceChats":
+      // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
+      return setDeviceChats(event.value);
+    case "recentlyClosed":
+      return setRecentlyClosed(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
+    case "headerState":
+      return setHeaderState(event.value);
+    case "floatingState":
+      return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
     case "revealTurn":
@@ -84,6 +109,8 @@ export function applyHostEvent(event: HostEvent): void {
       return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);
+    case "models.catalog":
+      return receiveModelCatalog(event.value);
   }
 }
 

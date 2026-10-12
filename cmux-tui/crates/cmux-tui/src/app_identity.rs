@@ -118,7 +118,7 @@ pub(crate) fn app_daemon_socket(identity: &AppIdentity) -> Option<PathBuf> {
 
 /// `confstr(_CS_DARWIN_USER_TEMP_DIR)`, as the app's `userTemporaryDirectory`.
 #[cfg(target_os = "macos")]
-fn darwin_user_temp_dir() -> Option<PathBuf> {
+pub(crate) fn darwin_user_temp_dir() -> Option<PathBuf> {
     use std::os::unix::ffi::OsStringExt;
     // SAFETY: a null buffer of length 0 asks for the required length.
     let length = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, std::ptr::null_mut(), 0) };

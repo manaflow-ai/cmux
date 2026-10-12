@@ -20,6 +20,18 @@ pub(crate) fn loopback_forward_policy(
     }
 }
 
+/// Applies `policy` to the served daemon, with one daemon log line per finished or refused
+/// forwarded connection (the audit trail beside `loopback-status`).
+pub(crate) fn install(
+    mux: &cmux_tui_core::Mux,
+    policy: cmux_tui_core::server::LoopbackForwardPolicy,
+) {
+    mux.set_loopback_forward_policy(policy);
+    mux.set_loopback_forward_audit_reporter(std::sync::Arc::new(|line| {
+        crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
+    }));
+}
+
 /// Denies loopback forwarding to ports this daemon listens on, so a forwarded
 /// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
 #[cfg(unix)]

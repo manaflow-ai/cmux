@@ -6,32 +6,43 @@
 # highlight files on demand) and starts at a bounded depth, deepened until the
 # tag and the head share history; past the bound it unshallows the head only.
 #
-# Usage: fetch-release-notes-span.sh <remote> <head_sha> <tag>
+# With <since_sha> (the previous published commit), the span starts there
+# instead of at <tag>: by the time the notes jobs run, publish-nightly may
+# already have moved <tag> to <head_sha>, which made every span empty.
+#
+# Usage: fetch-release-notes-span.sh <remote> <head_sha> <tag> [<since_sha>]
 # Environment: RELEASE_NOTES_FETCH_DEPTH (default 300),
 #              RELEASE_NOTES_DEEPEN_STEP (default 1000), RELEASE_NOTES_DEEPEN_ROUNDS (default 4)
 set -euo pipefail
-[[ $# -eq 3 ]] || { echo "usage: $0 <remote> <head_sha> <tag>" >&2; exit 64; }
-remote="$1" head="$2" tag="$3"
+[[ $# -eq 3 || $# -eq 4 ]] || { echo "usage: $0 <remote> <head_sha> <tag> [<since_sha>]" >&2; exit 64; }
+remote="$1" head="$2" tag="$3" since_sha="${4:-}"
 [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "error: head must be a full commit sha: $head" >&2; exit 64; }
 depth="${RELEASE_NOTES_FETCH_DEPTH:-300}"
 step="${RELEASE_NOTES_DEEPEN_STEP:-1000}"
 rounds="${RELEASE_NOTES_DEEPEN_ROUNDS:-4}"
 
 refspecs=("$head")
-if git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" >/dev/null 2>&1; then
+if [[ -n "$since_sha" ]]; then
+  [[ "$since_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: since must be a full commit sha: $since_sha" >&2; exit 64; }
+  refspecs+=("$since_sha")
+  tag=""
+elif git ls-remote --exit-code --tags "$remote" "refs/tags/$tag" >/dev/null 2>&1; then
   refspecs+=("+refs/tags/$tag:refs/tags/$tag")
 else
   echo "no $tag tag on $remote; the notes cover the head's fetched history" >&2
   tag=""
 fi
 git fetch --no-tags --filter=blob:none --depth="$depth" "$remote" "${refspecs[@]}"
-[[ -n "$tag" ]] || exit 0
-
-since="refs/tags/$tag^{commit}"
+if [[ -n "$since_sha" ]]; then
+  since="$since_sha"
+else
+  [[ -n "$tag" ]] || exit 0
+  since="refs/tags/$tag^{commit}"
+fi
 for ((i = 0; i < rounds; i++)); do
   git merge-base "$since" "$head" >/dev/null 2>&1 && exit 0
   git fetch --no-tags --filter=blob:none --deepen="$step" "$remote" "${refspecs[@]}"
 done
 git merge-base "$since" "$head" >/dev/null 2>&1 && exit 0
-echo "$tag and $head share no history within the bounded depth; unshallowing the head" >&2
+echo "${tag:-$since_sha} and $head share no history within the bounded depth; unshallowing the head" >&2
 git fetch --no-tags --filter=blob:none --unshallow "$remote" "${refspecs[@]}"

@@ -5,17 +5,19 @@ import { t } from "../strings";
 import { isHost } from "../validate";
 import type { EditorProps } from "./types";
 
-/** Host tokens: Return or comma adds, Backspace in an empty field removes the last one. */
+/** Host tokens: Return or comma adds, Backspace in an empty field removes the last one. A free-text
+ * `string_list` (URL rules such as `re:^https://a,b`) takes any text and only Return adds. */
 export function HostListEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
+  const freeText = row.kind === "string_list";
   const hosts = Array.isArray(value) ? value.map(String) : [];
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
   const write = (next: string[]) => void store.set(row.key, next);
   const add = () => {
-    const host = draft.trim().replace(/,$/, "");
+    const host = freeText ? draft.trim() : draft.trim().replace(/,$/, "");
     if (host === "") return;
-    if (!isHost(host)) return setInvalid(true);
+    if (!freeText && !isHost(host)) return setInvalid(true);
     setInvalid(false);
     setDraft("");
     if (!hosts.includes(host)) write([...hosts, host]);
@@ -53,7 +55,7 @@ export function HostListEditor({ row, value, disabled, labelId }: EditorProps) {
           }}
           onBlur={add}
           onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === ",") {
+            if (event.key === "Enter" || (event.key === "," && !freeText)) {
               event.preventDefault();
               add();
             } else if (event.key === "Backspace" && draft === "" && hosts.length > 0 && !event.metaKey) {

@@ -67,7 +67,7 @@ final class TabDragSession: NSObject {
         let window = sourceWindow ?? services.windows.controllers.first { $0.content === pane?.workspace }
         var context = pane.map { Self.context(of: $0, item: item, draggedCount: draggedCount) } ?? .workspaces(count: draggedCount)
         if let window { context.sourceWindowWorkspaceCount = max(1, services.windows.registry.members(of: window.state.id).count) }
-        let content = pane?.view.bounds ?? window?.content?.layoutView?.bounds ?? .zero
+        let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
         let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale)
@@ -100,7 +100,7 @@ final class TabDragSession: NSObject {
         }
         resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil,
                                                                 queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish(commit: false) }
+            MainActor.assumeIsolated { self?.finish(commit: false) } // main-proof: observer on queue: .main
         }
         self.drag = drag
         focusDragBegan(item, from: pane)
@@ -118,7 +118,7 @@ final class TabDragSession: NSObject {
         guard let tab else { return }
         let cache = services.cache
         Task { [weak drag] in
-            let image = await cache?.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true)
+            let image = await cache.previewImage(for: tab, maxPixelSize: TabPreviewFitting.cachedPixelSize, captureIfMissing: true)
             guard let drag, let image else { return }
             drag.ghost.setThumbnail(image)
             drag.motion.hasPreview = true
@@ -127,27 +127,7 @@ final class TabDragSession: NSObject {
     }
 
     static func context(of pane: PaneController, item: Item, draggedCount: Int) -> TabDragContext {
-        let workspaceTabs = pane.workspace?.workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } ?? pane.pane.tabs.count
-        let ordered = pane.stripModel.orderedTabs
-        let first: String? = switch item {
-        case .tab(let id): id
-        case .group(_, let members): members.first
-        case .workspaces: nil
-        }
-        let index = first.flatMap { id in ordered.firstIndex { $0.id.rawValue == id } }
-        let group: String? = if case .tab = item, let index { ordered[index].groupID?.rawValue } else { nil }
-        var context = TabDragContext(sourcePaneID: pane.layoutPaneID.rawValue, sourcePaneTabCount: pane.pane.tabs.count,
-                                     sourceWorkspaceID: pane.workspace?.workspace.id ?? "", sourceWorkspaceTabCount: workspaceTabs,
-                                     draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
-                                     sourceGroupID: group)
-        if case .group = item { context.isGroupDrag = true }
-        // A single daemon tab of a kind that can respawn, on a daemon that
-        // splits a pane with its only tab by spawning a fresh one there.
-        if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }),
-           TabMoves.respawn(for: tab, in: pane.pane, services: pane.services) != nil {
-            context.respawnsOnSplit = pane.services.machines.daemon(forPane: pane.pane).supports(DaemonCapabilities.shared.tabSplitRespawn)
-        }
-        return context
+        TabDragContext(pane: pane, item: item, draggedCount: draggedCount)
     }
 
     /// The resolver's view of `drag` now: the source pane's tabs can change
@@ -285,7 +265,7 @@ final class TabDragSession: NSObject {
     /// The window's sidebar and layout drop adapters, cached for the drag.
     func adapters(for controller: WindowController, drag: Drag) -> (sidebar: SidebarTabDropTarget, layout: LayoutTabDropTarget) {
         let key = ObjectIdentifier(controller)
-        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar), LayoutTabDropTarget(window: controller))
+        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar, window: controller), LayoutTabDropTarget(window: controller))
         drag.adapters[key] = adapters
         return adapters
     }

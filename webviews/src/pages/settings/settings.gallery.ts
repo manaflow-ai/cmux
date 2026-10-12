@@ -1,7 +1,21 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsRow, AccountsState, HostLists } from "./ops";
-import { groupRows, rowsInSection, schema, sections } from "./schema";
+import { categories, homes } from "./categories";
+import { mockThemeColors } from "./mockThemes";
+import { schema } from "./schema";
+import GOYA_SATURN from "../../gallery/fixtures/art/goya-saturn.jpg?inline";
+import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
+import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
+import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
+import HOKUSAI_GREAT_WAVE from "../../gallery/fixtures/art/hokusai-great-wave.jpg?inline";
+import FRIEDRICH_WANDERER from "../../gallery/fixtures/art/friedrich-wanderer.jpg?inline";
+import DAHL_DRESDEN_MOONLIGHT from "../../gallery/fixtures/art/dahl-dresden-moonlight.jpg?inline";
+import FRIEDRICH_MONK_BY_THE_SEA from "../../gallery/fixtures/art/friedrich-monk-by-the-sea.jpg?inline";
+import MONET_IMPRESSION_SUNRISE from "../../gallery/fixtures/art/monet-impression-sunrise.jpg?inline";
+import DORE_PARADISE_LOST_BOOK_VI from "../../gallery/fixtures/art/dore-paradise-lost-book-vi.jpg?inline";
+import DORE_RAVEN from "../../gallery/fixtures/art/dore-raven.jpg?inline";
+import DORE_EMPYREAN from "../../gallery/fixtures/art/dore-empyrean.jpg?inline";
 
 const button = (id: string, title: string, disabled = false) => ({
   id,
@@ -42,6 +56,10 @@ const click = (selector: string): PageFixtureStep => ({ selector, action: "click
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
+const focusComputerUse: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-action="palette.computerUse.accessibility"]',
+  action: "focus",
+};
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
     let value: unknown = setting.default;
@@ -56,7 +74,11 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "choice_or_number") value = 45;
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
-      value = ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
+      // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
+      value =
+        setting.key === "agents.chats.roots"
+          ? ["/Users/sample/Projects/Atlas", "/Users/sample/Projects/Research with a long folder name"]
+          : ["~/Projects/Atlas", "~/Projects/Research with a long folder name"];
     else if (setting.kind === "time_range") value = { start: "22:00", end: "07:30" };
     else if (setting.kind === "url")
       value =
@@ -73,12 +95,13 @@ const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = 
   ...extra,
 });
 const variants: Record<string, SettingsPageVariant> = {};
-for (const section of sections) {
-  variants[section.id] = variant(section.id);
-  variants[`${section.id}-customized`] = variant(section.id, { options: { values: customValues } });
+for (const category of categories) {
+  const allThemes = category.id === "theme";
+  variants[category.id] = variant(category.id, { allThemes });
+  variants[`${category.id}-customized`] = variant(category.id, { allThemes, options: { values: customValues } });
   // Every group gets a scroll/focus target, including controls below the initial viewport.
-  for (const [index, group] of groupRows(rowsInSection(section.id)).entries())
-    variants[`${section.id}-group-${index + 1}`] = variant(section.id, {
+  for (const [index, group] of category.groups.entries())
+    variants[`${category.id}-group-${index + 1}`] = variant(category.id, {
       focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
@@ -99,7 +122,31 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 Object.assign(variants, {
-  backdrops: variant("appearance", {
+  "agents-harnesses-registry": variant("agents", {
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
+        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
+        { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+        { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
+        { id: "grok", name: null, kind: "acp", source: "path", problem: "Authentication required" },
+        { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+      ],
+    },
+  }),
+  "agents-harnesses-unreachable": variant("agents", {
+    note: "Harnesses when the acpmux daemon did not answer.",
+    harnesses: { loading: false, problem: "unreachable", harnesses: [] },
+  }),
+  "agents-harnesses-checking": variant("agents", {
+    note: "Harnesses while the first look has found nothing yet: it says it is checking.",
+    harnesses: { loading: true, problem: null, harnesses: [] },
+  }),
+  backdrops: variant("experimental", {
     options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
     host: {
       ...host,
@@ -117,6 +164,180 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "The real wallpaper picker with a public-safe sample thumbnail.",
+  }),
+  // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
+  // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
+  "curated-art": variant("appearance", {
+    options: {
+      values: { "appearance.experimentalControls": true, "appearance.background": "van-gogh-starry-night" },
+    },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "goya-saturn",
+          title: "Saturn Devouring His Son — Francisco Goya",
+          attribution:
+            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "bocklin-isle-of-the-dead",
+          title: "Isle of the Dead — Arnold Böcklin",
+          attribution: "Isle of the Dead · Arnold Böcklin · 1880 · Kunstmuseum Basel · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "fuseli-nightmare",
+          title: "The Nightmare — Henry Fuseli",
+          attribution: "The Nightmare · Henry Fuseli · 1781 · Detroit Institute of Arts · Public domain",
+          collection: "darkArt",
+          collection_title: "Dark Art",
+        },
+        {
+          id: "van-gogh-starry-night",
+          title: "The Starry Night — Vincent van Gogh",
+          attribution: "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
+        },
+        {
+          id: "hokusai-great-wave",
+          title: "The Great Wave off Kanagawa — Katsushika Hokusai",
+          attribution:
+            "The Great Wave off Kanagawa · Katsushika Hokusai · c. 1830–32 · Metropolitan Museum of Art, New York (JP1847) · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
+        },
+        {
+          id: "friedrich-wanderer",
+          title: "Wanderer above the Sea of Fog — Caspar David Friedrich",
+          attribution:
+            "Wanderer above the Sea of Fog · Caspar David Friedrich · c. 1818 · Hamburger Kunsthalle · Public domain",
+          collection: "museumIcons",
+          collection_title: "Museum Icons",
+        },
+        {
+          id: "dahl-dresden-moonlight",
+          title: "View of Dresden by Moonlight — Johan Christian Dahl",
+          attribution:
+            "View of Dresden by Moonlight · Johan Christian Dahl · 1839 · Galerie Neue Meister, Dresden · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
+        },
+        {
+          id: "friedrich-monk-by-the-sea",
+          title: "The Monk by the Sea — Caspar David Friedrich",
+          attribution:
+            "The Monk by the Sea · Caspar David Friedrich · 1808–1810 · Alte Nationalgalerie, Berlin · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
+        },
+        {
+          id: "monet-impression-sunrise",
+          title: "Impression, Sunrise — Claude Monet",
+          attribution: "Impression, Sunrise · Claude Monet · 1872 · Musée Marmottan Monet, Paris · Public domain",
+          collection: "calm",
+          collection_title: "Calm",
+        },
+        {
+          id: "dore-paradise-lost-book-vi",
+          title: "Paradise Lost, Book VI — Gustave Doré",
+          attribution:
+            "Paradise Lost, Book VI · Gustave Doré · 1866 · Book illustration (wood engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
+        },
+        {
+          id: "dore-raven",
+          title: "The Raven — Gustave Doré",
+          attribution: "The Raven · Gustave Doré · 1884 · Book illustration (engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
+        },
+        {
+          id: "dore-empyrean",
+          title: "The Empyrean — Gustave Doré",
+          attribution: "The Empyrean · Gustave Doré · 1868 · Book illustration (wood engraving) · Public domain",
+          collection: "dore",
+          collection_title: "Doré",
+        },
+      ],
+    },
+    backdropImages: {
+      "goya-saturn": GOYA_SATURN,
+      "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
+      "fuseli-nightmare": FUSELI_NIGHTMARE,
+      "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,
+      "hokusai-great-wave": HOKUSAI_GREAT_WAVE,
+      "friedrich-wanderer": FRIEDRICH_WANDERER,
+      "dahl-dresden-moonlight": DAHL_DRESDEN_MOONLIGHT,
+      "friedrich-monk-by-the-sea": FRIEDRICH_MONK_BY_THE_SEA,
+      "monet-impression-sunrise": MONET_IMPRESSION_SUNRISE,
+      "dore-paradise-lost-book-vi": DORE_PARADISE_LOST_BOOK_VI,
+      "dore-raven": DORE_RAVEN,
+      "dore-empyrean": DORE_EMPYREAN,
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
+    ],
+    note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
+  }),
+  // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
+  "art-browser": variant("experimental", {
+    options: {
+      values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" },
+      museumArt: [
+        {
+          key: "aic:1",
+          title: "Sample harbor at night",
+          artist: "Sample Painter",
+          date: "1880",
+          source: "Art Institute of Chicago",
+          page: "",
+        },
+        {
+          key: "cleveland:2",
+          title: "Sample moonlit coast",
+          artist: "Sample Etcher",
+          date: "c. 1645",
+          source: "Cleveland Museum of Art",
+          page: "",
+        },
+        {
+          key: "commons:3",
+          title: "Sample starry field",
+          artist: "",
+          date: "1889",
+          source: "Wikimedia Commons",
+          page: "",
+        },
+      ],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    backdropImages: Object.fromEntries(
+      ["starryNight", "museum/aic:1", "museum/cleveland:2", "museum/commons:3"].map((id, index) => [
+        id,
+        "data:image/svg+xml," +
+          encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${["#253445", "#1d2a36", "#2b2336", "#20302a"][index]}"/><circle cx="235" cy="45" r="20" fill="#dfcf91"/></svg>`,
+          ),
+      ]),
+    ),
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded]'),
+      input('[data-card="art-browser"] input[type="search"]', "night"),
+      click('[data-card="art-browser"] button[type="submit"]'),
+      wait('[data-card="art-browser"] .backdrop-grid'),
+    ],
+    note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
   "theme-custom-spec": variant("appearance", {
@@ -142,9 +363,9 @@ Object.assign(variants, {
   "unsupported-rooms": variant("rooms", { host: { ...host, rooms: null } }),
   "empty-machines": variant("machines", { host: { ...host, machines: [] } }),
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
-  "long-profiles": variant("rooms", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
+  "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
-  "profile-editor": variant("rooms", {
+  "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
@@ -152,19 +373,105 @@ Object.assign(variants, {
     ],
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
+  "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-empty": variant("general", { steps: [input("[data-settings-search]", "no-such-setting")] }),
   "reset-confirmation": variant("advanced", { steps: [click("[data-reset-all]"), wait("[data-confirm-reset-all]")] }),
-  "theme-picker": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), wait(".domain-panel")],
+  "theme-picker": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), wait(".theme-popover [data-theme-option]")],
+    note: "The theme popover over every bundled theme.",
   }),
-  "theme-picker-empty": variant("appearance", {
-    steps: [click(`${row("appearance.theme")} .domain-button`), input(".domain-panel input", "no-such-theme")],
+  "theme-picker-search": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "solarized"), wait("[data-theme-option]")],
   }),
-  "font-picker": variant("terminal", {
+  "theme-picker-empty": variant("theme", {
+    allThemes: true,
+    steps: [click("[data-theme-picker]"), input(".theme-popover input", "no-such-theme")],
+  }),
+  "theme-light-dark": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "light:Catppuccin Latte,dark:Catppuccin Mocha" } },
+    note: "Match System Appearance: a light and a dark theme.",
+  }),
+  "theme-overrides": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Nord" } },
+    host: {
+      ...host,
+      theme: {
+        levels: ["room", "workspace", "terminal"],
+        current: { room: null, workspace: "Tokyo Night", terminal: "Gruvbox Dark" },
+      },
+    },
+    note: "Scope overrides inline on the setting (P4): no space, workspace or terminal tabs.",
+  }),
+  "theme-app-separate": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Gruvbox Dark", "appearance.appTheme": "Rose Pine" } },
+    note: "An app theme apart from the terminal theme (appearance.appTheme).",
+  }),
+  "theme-managed": variant("theme", {
+    allThemes: true,
+    options: {
+      managed: {
+        "appearance.theme": {
+          value: "GitHub Light Default",
+          source: "profile",
+          reason: "Set by your organization",
+          team: "Acme",
+        },
+      },
+    },
+    note: "An MDM lock inline on the setting.",
+  }),
+  "theme-file-save": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      wait('[data-theme-files-prompt="name"]'),
+    ],
+    note: "Save as Ghostty Theme asks for a name inline, starting from the previewed theme's.",
+  }),
+  "theme-file-replace": variant("theme", {
+    allThemes: true,
+    options: {
+      values: { "appearance.theme": "Dracula" },
+      importable: { ...mockThemeColors[0]!, name: "Dracula Night" },
+    },
+    steps: [
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-action="import"]:not([disabled])'),
+      click('[data-theme-files-action="import"]'),
+      wait('[data-theme-files-prompt="replace"]'),
+    ],
+    note: "Importing a file whose theme name is already in the themes folder asks inline before replacing it.",
+  }),
+  "theme-file-refused": variant("theme", {
+    allThemes: true,
+    options: { values: { "appearance.theme": "Dracula" } },
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      input('[data-theme-files-prompt="name"] input', "Dracula"),
+      click('[data-theme-files-prompt="name"] button[type="submit"]'),
+      wait("[data-theme-files-error]"),
+    ],
+    note: "A name a shipped theme uses is refused inline; the name prompt stays open.",
+  }),
+  "changed-only": variant("general", {
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: "Show Only Changed lists every changed setting across categories.",
+  }),
+  "font-picker": variant("appearance", {
     steps: [click(`${row("terminal.fontFamily")} .domain-button`), wait(".domain-panel")],
   }),
-  "domains-unavailable": variant("terminal", { options: { domains: null } }),
-  "theme-text-fallback": variant("appearance", { options: { domains: null } }),
+  "domains-unavailable": variant("appearance", { options: { domains: null } }),
+  "theme-text-fallback": variant("theme", { options: { domains: null } }),
   "invalid-search-template": variant("browser", {
     focus: "browser.customSearchEngine.search",
     options: { values: { "browser.customSearchEngine.search": "https://search.example.test/" } },
@@ -185,7 +492,7 @@ Object.assign(variants, {
       wait(".host-list [role=alert]"),
     ],
   }),
-  "write-error": variant("general", {
+  "write-error": variant("privacy", {
     options: { failing: { "cmux.settings.set": "cmux.settings.permission_denied" } },
     steps: [
       click(`${row("history.terminalCommands")} button:not(:disabled)`),
@@ -228,6 +535,58 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
+  // Focusing the card's first button scrolls it into view.
+  "computer-use-off": variant("agents", {
+    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Computer Use off: both grants Unknown, the card says to turn it on.",
+  }),
+  "computer-use-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
+    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-not-granted": variant("agents", {
+    host: {
+      ...host,
+      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
+    },
+    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
+    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  }),
+  // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
+  "agents-harnesses": variant("agents", {
+    steps: [wait("[data-agent-harness]")],
+    note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
+  }),
+  "agents-add-custom": variant("agents", {
+    focus: "agents.add",
+    steps: [wait("[data-agents-custom]")],
+    note: "Add ACP Agent… (palette, the model picker's +): the custom command form.",
+  }),
+  "agents-add-registry": variant("agents", {
+    focus: "agents.registry",
+    steps: [wait("[data-registry-agent]")],
+    note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
+  }),
+  "agents-doctor": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button'), wait("[data-agent-doctor]")],
+    note: "Check: the doctor's steps inline, a failed step with its fix, later steps skipped.",
+  }),
+  "agents-removed": variant("agents", {
+    steps: [click('[data-agent-harness="acme-agent"] button:last-of-type'), wait("output")],
+    note: "Remove moves the profile aside: Removed with Undo.",
+  }),
+  "agents-cli": variant("agents", {
+    agents: { manages: false },
+    steps: [wait("[data-agents-cli]")],
+    note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
+  }),
+  "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
@@ -283,8 +642,82 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
+// The two overall looks for the chief's pick (layout.css): each on the Theme section with every
+// bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
+for (const look of ["quiet", "dense"] as const) {
+  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
+  variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
+  variants[`look-${look}-browser`] = variant("browser", {
+    look,
+    options: { values: customValues },
+    note: `${look} look: Browser, customized, with an MDM lock.`,
+  });
+  variants[`look-${look}-changed`] = variant("general", {
+    look,
+    options: { values: customValues },
+    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
+    note: `${look} look: Show Only Changed.`,
+  });
+}
+
+// The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
+// kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
+// anchors (the row's title, the next row's title) on each.
+const RESET_SAMPLES: Record<string, string> = {
+  toggle: "history.terminalCommands",
+  segmented: "navigation.historyScope",
+  number: "layout.defaultColumnWidth",
+  url: "browser.newTabPage",
+  color: "layout.paneBorderColor",
+  sound: "notifications.sound",
+  "time-range": "notifications.quietHours",
+};
+for (const [kind, key] of Object.entries(RESET_SAMPLES))
+  variants[`play-reset-${kind}`] = variant(homes.get(key)!.category, {
+    focus: key,
+    options: { values: customValues },
+    note: `Reset on a ${kind} row: the control fades out in its reserved slot.`,
+    play: async (ctx) => {
+      // Input lands at the control's page position: bring the row into view first.
+      ctx.find({ selector: row(key) }).scrollIntoView({ block: "center" });
+      await ctx.click({ selector: `${row(key)} [data-reset]` });
+      await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
+    },
+  });
+// One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
+// it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
+// never scrolls, so the column never slides up under the window.
+variants["play-select-scroll"] = variant("appearance", {
+  note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
+  play: async (ctx) => {
+    const content = ctx.find({ selector: ".content" });
+    const control = `${row("sidebar.sectionLook")} .ui-select-button`;
+    const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
+    await ctx.scroll(
+      { selector: ".content" },
+      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
+    );
+    await ctx.click({ selector: control });
+    await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
+    await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);
+  },
+});
+variants["play-section-change"] = variant("accounts", {
+  note: "Changing category: the column fades in; the sidebar never moves.",
+  play: async (ctx) => {
+    await ctx.click({ selector: '[data-section-link="advanced"]' });
+    await ctx.waitFor(() => ctx.document.querySelector('[data-section="advanced"]'));
+  },
+});
+
+const resetAnchors = Object.values(RESET_SAMPLES).flatMap((key) => [
+  { selector: `${row(key)} .row-title` },
+  { selector: `${row(key)} + [data-row-key] .row-title` },
+]);
+
 export default settingsPageEntry({
   id: "pages.settings",
+  anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }, ...resetAnchors],
   title: "Settings",
   area: "Settings",
   height: 760,
@@ -293,7 +726,12 @@ export default settingsPageEntry({
   covers: [
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AgentHarnesses.tsx",
+    "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/HarnessesCard.tsx",
+    "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
+    "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -311,6 +749,11 @@ export default settingsPageEntry({
     "pages/settings/components/SettingRow.tsx",
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
+    "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/ThemeFiles.tsx",
+    "pages/settings/components/ThemePicker.tsx",
+    "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",
     "pages/settings/editors/DomainListEditor.tsx",

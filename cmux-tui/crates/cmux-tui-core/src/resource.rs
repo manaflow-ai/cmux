@@ -1,16 +1,20 @@
 //! Opaque public resource identities and protocol-v2 shared types.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
-use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
 use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+mod selector_tokens;
+pub use selector_tokens::is_reserved_selector_token;
 mod error;
+mod idempotency;
+mod request_id;
 pub use error::*;
+pub use idempotency::{MAX_IDEMPOTENCY_KEY_BYTES, validate_idempotency_key};
+pub use request_id::RequestId;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -18,62 +22,6 @@ pub const STREAM_EVENT_CAPACITY: usize = 256;
 pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
-pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
-
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct RequestId(String);
-
-impl RequestId {
-    pub const MAX_BYTES: usize = 128;
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, ResourceError> {
-        let value = value.into();
-        if value.is_empty() || value.len() > Self::MAX_BYTES {
-            return Err(ResourceError::validation_invalid(
-                Some("id"),
-                "request id must contain 1 to 128 UTF-8 bytes",
-            ));
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<'de> Deserialize<'de> for RequestId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvelopeType {
     #[serde(rename = "request")]
@@ -174,12 +122,74 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "chief.engine.get")]
+    ChiefEngineGet,
+    #[serde(rename = "chief.engine.set")]
+    ChiefEngineSet,
+    #[serde(rename = "chief.stop")]
+    ChiefStop,
+    #[serde(rename = "credential.verify")]
+    CredentialVerify,
+    #[serde(rename = "credential.mint")]
+    CredentialMint,
+    #[serde(rename = "credential.rotate")]
+    CredentialRotate,
+    #[serde(rename = "conversation.list")]
+    ConversationList,
+    #[serde(rename = "conversation.get")]
+    ConversationGet,
+    #[serde(rename = "conversation.history")]
+    ConversationHistory,
+    #[serde(rename = "conversation.search")]
+    ConversationSearch,
+    #[serde(rename = "conversation.send")]
+    ConversationSend,
+    #[serde(rename = "conversation.typing")]
+    ConversationTyping,
+    #[serde(rename = "conversation.draft")]
+    ConversationDraft,
+    #[serde(rename = "conversation.events")]
+    ConversationEvents,
+    #[serde(rename = "git.commit")]
+    GitCommit,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.list")]
+    GitFilesList,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
+    #[serde(rename = "git.push")]
+    GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
+    #[serde(rename = "git.worktree.create")]
+    GitWorktreeCreate,
+    #[serde(rename = "git.worktree.apply")]
+    GitWorktreeApply,
+    #[serde(rename = "git.worktree.remove")]
+    GitWorktreeRemove,
+    #[serde(rename = "history.entries.list")]
+    HistoryEntriesList,
+    #[serde(rename = "history.entries.remove")]
+    HistoryEntriesRemove,
+    #[serde(rename = "history.site.remove")]
+    HistorySiteRemove,
+    #[serde(rename = "history.clear")]
+    HistoryClear,
+    #[serde(rename = "history.restore")]
+    HistoryRestore,
+    #[serde(rename = "history.backups.purge")]
+    HistoryBackupsPurge,
+    #[serde(rename = "history.visit.record")]
+    HistoryVisitRecord,
+    #[serde(rename = "history.visit.title")]
+    HistoryVisitTitle,
+    #[serde(rename = "history.visit.remove")]
+    HistoryVisitRemove,
+    #[serde(rename = "history.visit.summaries")]
+    HistoryVisitSummaries,
+    #[serde(rename = "history.visit.import")]
+    HistoryVisitImport,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
@@ -188,6 +198,8 @@ pub enum ResourceOperation {
     WorkspaceCreate,
     #[serde(rename = "workspace.ensure_home")]
     WorkspaceEnsureHome,
+    #[serde(rename = "workspace.ensure_app")]
+    WorkspaceEnsureApp,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -350,6 +362,12 @@ pub enum ResourceOperation {
     AgentList,
     #[serde(rename = "agent.report")]
     AgentReport,
+    #[serde(rename = "agent.message.send")]
+    AgentMessageSend,
+    #[serde(rename = "agent.message.list")]
+    AgentMessageList,
+    #[serde(rename = "agent.message.mark")]
+    AgentMessageMark,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -368,8 +386,24 @@ pub enum ResourceOperation {
     OriginConfirmationIssue,
     #[serde(rename = "closed.list")]
     ClosedList,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "settings.schema")]
+    SettingsSchema,
+    #[serde(rename = "settings.list")]
+    SettingsList,
+    #[serde(rename = "settings.get")]
+    SettingsGet,
+    #[serde(rename = "settings.snapshot")]
+    SettingsSnapshot,
+    #[serde(rename = "settings.set")]
+    SettingsSet,
+    #[serde(rename = "settings.reset")]
+    SettingsReset,
+    #[serde(rename = "settings.reset_all")]
+    SettingsResetAll,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -380,6 +414,28 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "project.list")]
+    ProjectList,
+    #[serde(rename = "project.observe")]
+    ProjectObserve,
+    #[serde(rename = "project.add")]
+    ProjectAdd,
+    #[serde(rename = "project.update")]
+    ProjectUpdate,
+    #[serde(rename = "project.remove")]
+    ProjectRemove,
+    #[serde(rename = "project.sync")]
+    ProjectSync,
+    #[serde(rename = "palette_usage.get")]
+    PaletteUsageGet,
+    #[serde(rename = "palette_usage.record")]
+    PaletteUsageRecord,
+    #[serde(rename = "palette_usage.import")]
+    PaletteUsageImport,
+    #[serde(rename = "palette_usage.hide")]
+    PaletteUsageHide,
+    #[serde(rename = "palette_usage.forget")]
+    PaletteUsageForget,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -454,6 +510,8 @@ pub enum ResourceOperation {
     WorkspaceUpdate,
     #[serde(rename = "workspace.agent_folder.set")]
     WorkspaceAgentFolderSet,
+    #[serde(rename = "workspace.agent_start.get")]
+    WorkspaceAgentStartGet,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -514,110 +572,12 @@ impl LocalOperation {
     }
 }
 
-impl ResourceOperation {
-    pub const fn class(self) -> OperationClass {
-        if matches!(
-            self,
-            Self::SessionEvents
-                | Self::SessionJournalSubscribe
-                | Self::TerminalAttach
-                | Self::BrowserAttach
-                | Self::SidebarViewAttach
-        ) {
-            OperationClass::StreamOpen
-        } else if matches!(
-            self,
-            Self::RequestCancel
-                | Self::StreamCancel
-                | Self::OriginConfirmationIssue
-                | Self::ClientMetadataUpdate
-                | Self::ClientSizingSet
-                | Self::ClientSizingRelease
-                | Self::ClientCellPixelsSet
-                | Self::ClientDetach
-                | Self::TerminalRendererGrantCreate
-                | Self::TerminalViewerResize
-                | Self::TerminalViewerRelease
-                | Self::BrowserViewerResize
-                | Self::BrowserViewerRelease
-        ) {
-            OperationClass::ConnectionControl
-        } else if matches!(
-            self,
-            Self::MachineList
-                | Self::MachineGet
-                | Self::SessionList
-                | Self::SessionGet
-                | Self::SessionSnapshot
-                | Self::SessionCreationResolve
-                | Self::SessionPing
-                | Self::SessionJournalProducerList
-                | Self::SessionJournalHookList
-                | Self::SessionJournalCheckpointList
-                | Self::SessionJournalRestorePreview
-                | Self::SessionJournalSegmentList
-                | Self::ClientList
-                | Self::ClientGet
-                | Self::PairingRequestList
-                | Self::FrontendProjectionGet
-                | Self::GitCheckpointDiff
-                | Self::GitCheckpointGet
-                | Self::GitCheckpointList
-                | Self::GitDiff
-                | Self::GitFilesSearch
-                | Self::GitStatus
-                | Self::WorkspaceList
-                | Self::WorkspaceGet
-                | Self::ScreenList
-                | Self::ScreenGet
-                | Self::ScreenLayoutExport
-                | Self::PaneList
-                | Self::PaneGet
-                | Self::PaneNeighborGet
-                | Self::TabList
-                | Self::TabGet
-                | Self::TerminalList
-                | Self::TerminalGet
-                | Self::TerminalScreenRead
-                | Self::TerminalStateRead
-                | Self::TerminalHistoryRead
-                | Self::TerminalOutputRead
-                | Self::TerminalWait
-                | Self::TerminalWaitExit
-                | Self::TerminalCopy
-                | Self::TerminalProcessGet
-                | Self::BrowserList
-                | Self::BrowserGet
-                | Self::NotificationList
-                | Self::AgentList
-                | Self::SidebarViewGet
-                | Self::ClosedList
-                | Self::WindowRecordList
-                | Self::SidebarLayoutGet
-                | Self::RoomList
-                | Self::SavedTabGroupList
-                | Self::ScreenGroupGet
-                | Self::ScreenGroupList
-                | Self::TabGroupGet
-                | Self::TabGroupList
-                | Self::WorkspacePlacementList
-                | Self::WorkspaceGroupList
-                | Self::WorkspaceLogList
-                | Self::WorkspaceStatusList
-        ) {
-            OperationClass::Read
-        } else {
-            OperationClass::Mutation
-        }
-    }
-
-    pub const fn is_mutation(self) -> bool {
-        matches!(self.class(), OperationClass::Mutation)
-    }
-}
-
+mod class;
 mod envelope;
+mod hex;
 mod journal;
+mod name_index;
+pub use name_index::{PublicSlotIndexes, resolve_name};
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -625,55 +585,13 @@ mod scope;
 mod wire_decimal;
 mod wire_name;
 
-pub use envelope::{RequestEnvelope, ResponseEnvelope};
+pub use envelope::{
+    RequestEnvelope, ResourceCursor, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
+    StreamItemEnvelope,
+};
+use hex::encode_hex;
 pub use journal::{ResourceDelta, ResourceDeltaBatch, ResourceJournal};
 pub use wire_decimal::WireDecimal;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResourceCursor {
-    pub generation: String,
-    pub revision: WireDecimal,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StreamItemEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub stream_id: StreamPublicId,
-    pub sequence: WireDecimal,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ResourceCursor>,
-    pub item: Value,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StreamEndReason {
-    Completed,
-    Canceled,
-    Closed,
-    Gap,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StreamEndEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub stream_id: StreamPublicId,
-    pub reason: StreamEndReason,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ResourceCursor>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResourceError>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub recovery: Option<String>,
-}
 
 macro_rules! public_id {
     ($name:ident, $prefix:literal) => {
@@ -805,16 +723,6 @@ impl ContentPublicId {
     }
 }
 
-fn encode_hex(bytes: [u8; 16]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(32);
-    for byte in bytes {
-        output.push(char::from(HEX[(byte >> 4) as usize]));
-        output.push(char::from(HEX[(byte & 0x0f) as usize]));
-    }
-    output
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selector {
     Current,
@@ -843,94 +751,6 @@ impl Selector {
     }
 }
 
-/// A noun-first CLI token: a resource may keep the name; callers select it with `name:`.
-pub fn is_reserved_selector_token(value: &str) -> bool {
-    matches!(
-        value,
-        "machine"
-            | "session"
-            | "client"
-            | "window"
-            | "pairing"
-            | "request"
-            | "frontend"
-            | "projection"
-            | "workspace"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "terminal"
-            | "browser"
-            | "split"
-            | "notification"
-            | "agent"
-            | "sidebar"
-            | "view"
-            | "plugin"
-            | "provider"
-            | "scope"
-            | "action"
-            | "notice"
-            | "list"
-            | "get"
-            | "show"
-            | "create"
-            | "open"
-            | "rename"
-            | "delete"
-            | "restore"
-            | "purge"
-            | "connect"
-            | "snapshot"
-            | "events"
-            | "ping"
-            | "shutdown"
-            | "update"
-            | "metadata"
-            | "detach"
-            | "set"
-            | "clear"
-            | "resolve"
-            | "put"
-            | "move"
-            | "focus"
-            | "close"
-            | "run"
-            | "apply"
-            | "export"
-            | "undo"
-            | "neighbor"
-            | "swap"
-            | "zoom"
-            | "resize"
-            | "send"
-            | "keys"
-            | "read"
-            | "history"
-            | "state"
-            | "direction"
-            | "process"
-            | "renderer"
-            | "grant"
-            | "cell"
-            | "pixels"
-            | "copy"
-            | "attach"
-            | "navigate"
-            | "back"
-            | "forward"
-            | "reload"
-            | "activate"
-            | "install"
-            | "use"
-            | "builtin"
-            | "disable"
-            | "remove"
-            | "report"
-            | "notify"
-    )
-}
-
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
@@ -956,47 +776,6 @@ fn is_registered_public_id(value: &str) -> bool {
             | "sidebar_plugin"
     ) && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-pub fn resolve_name<T: Clone>(
-    kind: &str,
-    selector: &str,
-    candidates: impl IntoIterator<Item = (String, Option<String>, T)>,
-) -> Result<T, ResourceError> {
-    let mut matches = candidates
-        .into_iter()
-        .filter(|(_, name, _)| name.as_deref() == Some(selector))
-        .collect::<Vec<_>>();
-    match matches.len() {
-        0 => Err(ResourceError::not_found(kind, selector)),
-        1 => Ok(matches.pop().expect("one match").2),
-        _ => {
-            let mut ids = matches.into_iter().map(|(id, _, _)| id).collect::<Vec<_>>();
-            ids.sort();
-            Err(ResourceError::ambiguous(kind, selector, ids))
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct PublicSlotIndexes {
-    pub workspaces: HashMap<WorkspacePublicId, WorkspaceId>,
-    pub screens: HashMap<ScreenPublicId, ScreenId>,
-    pub panes: HashMap<PanePublicId, PaneId>,
-    pub tabs: HashMap<TabPublicId, SurfaceId>,
-    /// Every view placement of a content resource. Terminal content may have
-    /// any number of placements; browser content currently has one.
-    pub content_placements: HashMap<ContentPublicId, Vec<SurfaceId>>,
-    pub workspace_ids: HashMap<WorkspaceId, WorkspacePublicId>,
-    pub screen_ids: HashMap<ScreenId, ScreenPublicId>,
-    pub pane_ids: HashMap<PaneId, PanePublicId>,
-    pub tab_ids: HashMap<SurfaceId, TabPublicId>,
-    pub content_ids: HashMap<SurfaceId, ContentPublicId>,
-    pub splits: HashMap<SplitPublicId, SplitId>,
-    pub split_ids: HashMap<SplitId, SplitPublicId>,
-    pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
-    pub pane_screen: HashMap<PaneId, ScreenId>,
-    pub tab_pane: HashMap<SurfaceId, PaneId>,
 }
 
 #[cfg(test)]

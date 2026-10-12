@@ -49,8 +49,8 @@ PACKAGE="$1" SOURCES="$2" FORK_REF="$3"; shift 3
 ALL=(signals slow-teardown duplicate zoom-bubble bookmark-bubble window-close move-parent transparent pref-control opaque-webauthn passkeys password-core)
 cases=("$@")
 die() { echo "cmux-embedder: error: $*" >&2; exit 2; }
-for c in "${cases[@]}"; do [[ " ${ALL[*]} " == *" $c "* ]] || die "unknown case $c"; done
 (( ${#cases[@]} )) || cases=("${ALL[@]}")
+for c in "${cases[@]}"; do [[ " ${ALL[*]} " == *" $c "* ]] || die "unknown case $c"; done
 [[ "$SOURCES" =~ ^sha256:[0-9a-f]{64}$ ]] || die "SOURCES must be sha256:<64 hex>"
 [[ "$FORK_REF" =~ ^[0-9a-f]{40}$ ]] || die "FORK_REF must be a 40-hex commit"
 here="$(cd "$(dirname "$0")" && pwd)"

@@ -39,10 +39,16 @@ export async function settle(): Promise<void> {
 }
 
 export async function renderPage(
-  options: { mock?: MockOptions; path?: string; locale?: string } = {},
+  options: {
+    mock?: MockOptions;
+    path?: string;
+    locale?: string;
+    setup?: (provider: MockSettingsProvider) => void;
+  } = {},
 ): Promise<Rendered> {
   setLocale(options.locale ?? "en");
   const mock = createMockClient(options.mock);
+  options.setup?.(mock.provider);
   const store = new SettingsStore(mock.client);
   await act(async () => {
     await store.start();

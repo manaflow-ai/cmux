@@ -15,6 +15,8 @@ enum StatusIndicatorConfigParser {
         }
         if let value = reader.points("thickness", range: StatusIndicatorSettings.thicknessRange) { settings.thickness = value }
         if let value = reader.color("color") { settings.color = value }
+        if let value = reader.bool("showAgentWorkingOnTabs") { settings.showsAgentWorkingOnTabs = value }
+        if let value = reader.bool("showPageLoading") { settings.showsPageLoading = value }
         if let value = honoredSources(reader.members["honorStatusStyle"]) {
             settings.honoredStyleSources = value
         } else if reader.members["honorStatusStyle"] != nil {

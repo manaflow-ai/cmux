@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A source of omnibar rows (`browser.omnibar.sources` in cmux.json). The
 /// order of the enabled sources breaks score ties.

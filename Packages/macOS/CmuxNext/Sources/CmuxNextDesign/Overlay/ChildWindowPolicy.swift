@@ -47,7 +47,4 @@ public struct ChildWindowPolicy {
         #endif
         return false
     }
-
-    /// Forgets recorded violations (tests).
-    public static func resetViolations() { violations.removeAll() }
 }

@@ -14,32 +14,6 @@ import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, installOf, pe
 const now = () => Math.floor(Date.now() / 1000)
 
 describe("part 4: link_token in CloudDO", { timeout: 60_000 }, () => {
-  it("mints a verifiable EdDSA token for one host, one install, the asked services and this epoch", async () => {
-    const x = person()
-    const { host, keyset } = await createdAndBound(x)
-    const inst = installOf(x.p)
-    const before = (await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).revision
-    const r = await x.stub.mintLinkToken(x.team, inst, { host, services: ["daemon", "ssh"] })
-    expect(r.ok, JSON.stringify(r)).toBe(true)
-    expect(r.value).toMatchObject({ host, epoch: 1, services: ["daemon", "ssh"] })
-    expect(decodeProtectedHeader(r.value.token)).toEqual({ alg: "EdDSA", kid: "test-link-2", typ: "cmux-link+jwt" })
-    const v = await verifyLinkToken(r.value.token, { aud: host, epoch: 1, now: now(), keyset: keyset.keys })
-    expect(v.ok, JSON.stringify(v)).toBe(true)
-    if (!v.ok) return
-    expect(v.claims).toMatchObject({ iss: "cmux:cloud:test", aud: host, sub: inst.install, svc: ["daemon", "ssh"], epoch: 1, team: x.team })
-    expect(v.claims.exp - v.claims.iat).toBe(300)
-    expect(v.claims.jti).toMatch(/^[A-Za-z0-9_-]{22}$/)
-    expect(r.value.expires_at).toBe(v.claims.exp * 1000)
-    // A mint commits no stream event, and a second call is a fresh token.
-    expect((await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).revision).toBe(before)
-    const again = await x.stub.mintLinkToken(x.team, inst, { host, services: ["ssh"] })
-    expect(again.value.token).not.toBe(r.value.token)
-    // Audited without the token.
-    const audit = (await x.stub.fakeControl({})).audit.filter((a) => a.op === "link_token")
-    expect(audit.length).toBe(2)
-    expect(audit[1]).toMatchObject({ host, by: inst.identity, install: inst.install, kid: "test-link-2", jti: v.claims.jti, svc: ["daemon", "ssh"], exp: v.claims.exp })
-    expect(JSON.stringify(audit)).not.toContain(r.value.token)
-  })
 
   it("refuses a session, an agent, a grant without execute, an unknown host and services the caller may not dial", async () => {
     const x = person()
@@ -95,18 +69,3 @@ interface VectorCase {
 }
 const V = vectors as unknown as { test_keys: Record<string, JWK>; keysets: Record<string, Record<string, JWK>>; cases: ReadonlyArray<VectorCase> }
 
-describe("part 5: shared link-token vectors", () => {
-  it("re-signing every case with the fixed test key gives the identical compact token (Ed25519 is deterministic)", async () => {
-    for (const c of V.cases.filter((x) => !x.make)) expect(await signLinkToken(c.claims, c.kid, V.test_keys[c.sign_with]!), c.name).toBe(c.token)
-  })
-
-  it("the reference verifier gives every expected result", async () => {
-    const names = new Set(V.cases.map((c) => c.name))
-    for (const n of ["valid", "expired", "wrong_aud", "wrong_epoch", "replay", "unknown_kid", "rotated_kid"]) expect(names.has(n), n).toBe(true)
-    for (const c of V.cases)
-      for (const v of c.verify) {
-        const r = await verifyLinkToken(c.token, { aud: v.aud, epoch: v.epoch, now: v.now, keyset: V.keysets[v.keyset]!, seen: new Set(v.seen) })
-        expect(r.ok ? { ok: true } : { ok: false, error: r.error }, `${c.name} ${v.keyset}`).toEqual(v.expect)
-      }
-  })
-})

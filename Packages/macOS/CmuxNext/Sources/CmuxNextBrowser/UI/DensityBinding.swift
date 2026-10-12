@@ -24,6 +24,12 @@ final class DensityBinding {
         appliers.append(apply)
     }
 
+    /// Applies every value now, as a token change does (tests: a density
+    /// change without writing the app-wide `DesignSettings.shared`).
+    func reapply() {
+        appliers.forEach { $0() }
+    }
+
     /// Applies every value now and again whenever a token it read changes.
     func start() {
         loop?.cancel()

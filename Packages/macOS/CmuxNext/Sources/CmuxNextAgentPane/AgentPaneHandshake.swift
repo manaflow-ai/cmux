@@ -23,8 +23,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, machineName
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses
     }
 
     public var protocolVersion: Int
@@ -47,6 +47,15 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
+    /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
+    /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
+    /// CLI, MCP or a script seeded: the relay refuses it and it waits in the composer.
+    public var promptTicket: PromptTicket?
+    public nonisolated struct PromptTicket: Codable, Sendable, Equatable {
+        public var promptId: String
+        public var ticket: String
+    }
     /// The harness a new chat starts on before `prompt` is sent. Pages that
     /// predate it ignore it (the chat starts on the default harness).
     public var harness: String?
@@ -60,10 +69,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// the links the page copies (`links.ts` `sessionLink`). Pages that
     /// predate it ignore it.
     public var linkScheme: String?
-    /// True for a tab a `cmux://session/<id>` link opened: `sessionId`
-    /// must exist. When the daemon has no such session the page says so
-    /// instead of falling back to the most recent one, and marks nothing
-    /// seen. Pages that predate it fall back as before.
+    /// True whenever `sessionId` is set (a tab's recorded session): it must
+    /// exist. When the daemon has no such session, or it goes away, the page
+    /// says so instead of showing another session, and marks nothing seen.
+    /// Pages that predate it fall back as before.
     public var sessionMustExist: Bool?
     /// The turn a `cmux://session/<id>#turn-<turnId>` link names: the page
     /// scrolls to it once its row renders, and gives up quietly after a few
@@ -73,9 +82,28 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// agent-home folder, and the page offers "Choose Folder…" (`workspace.chooseFolder`,
     /// AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). Pages that predate it ignore it.
     public var chooseFolder: Bool?
+    /// Which rule gave a new chat's folder (`cwd`): `seed`, `chosen`, `workspace` or `agent_home`,
+    /// the store's answer (`workspace.agent_start.get`, cx-9aps). The page shows it; pages that
+    /// predate it ignore it.
+    public var startKind: String?
+    /// A chat that opened without its folder (cx-nn3e.1): the page explains it above the composer
+    /// and offers Choose Folder (`chat.folder.choose`). Pages that predate it ignore it.
+    public var folderNeeded: FolderNeeded?
+
+    public nonisolated struct FolderNeeded: Codable, Sendable, Equatable {
+        public var reason: String
+    }
+    /// True for a page opened by Integrate a Harness… (cx-uj5g8): it shows its Harnesses page.
+    /// Handed out once. Pages that predate it ignore it.
+    public var harnesses: Bool?
+    /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
+    /// them read-only until the chat has a session. Pages that predate it ignore it.
+    public var pastTurns: [AgentPanePastTurn]?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
+    public var githubRepository: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A typed Chromium internal page (`chrome://`, `chrome-extension://`, or an
 /// `about:` alias of a `chrome://` page) in Chromium's canonical form, so
@@ -12,8 +12,25 @@ import Foundation
 ///   it; `about:blank` and `about:srcdoc` are not aliases.
 /// - Userinfo, a port, or a host with other characters than letters, digits,
 ///   `-`, `_` and `.` is not an internal page (nil).
-nonisolated struct ChromiumInternalURL: Sendable, Equatable {
-    let url: URL
+public nonisolated struct ChromiumInternalURL: Sendable, Equatable {
+    public let url: URL
+
+    /// Schemes whose pages only a Chromium tab shows.
+    static let chromiumSchemes: Set<String> = ["chrome", "chrome-extension"]
+
+    /// Typed text that names a Chromium internal page, in canonical form;
+    /// nil for anything else (`about:blank` included: every engine has it).
+    public init?(typed text: String) {
+        guard let colon = text.firstIndex(of: ":") else { return nil }
+        let scheme = text[..<colon].lowercased()
+        guard Self.chromiumSchemes.contains(scheme) || scheme == "about" else { return nil }
+        self.init(text, scheme: scheme)
+    }
+
+    /// Whether `url` is a page only a Chromium tab can show.
+    public static func needsChromium(_ url: URL) -> Bool {
+        url.scheme.map { chromiumSchemes.contains($0.lowercased()) } ?? false
+    }
 
     /// `scheme` is the lowercased scheme of `text`.
     init?(_ text: String, scheme: String) {

@@ -60,7 +60,7 @@ enum RoomConfirmation {
         let programs = await DestructiveConfirmation.runningPrograms(
             of: closing.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs), on: context.services.machines.local)
         guard !programs.isEmpty else { return nil }
-        let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", "))]
+        let body = [RoomStrings.deleteClosesBody(closing.count), ConfirmationStrings.stillRunning(programs.joined(separator: ", "))]
         return DestructiveConfirmation.Prompt(title: RoomStrings.deleteTitle(room.name), body: body.joined(separator: "\n"),
                                               button: RoomStrings.delete, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
     }

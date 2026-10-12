@@ -20,7 +20,10 @@ enum MiscHandlerStrings {
     static var omnibarToggle: String { String(localized: "handlers.misc.unavailable.omnibarToggle", defaultValue: "The address bar cannot be hidden yet.", table: "MiscHandlers", bundle: .module) }
     static var browserHistory: String { String(localized: "handlers.misc.unavailable.browserHistory", defaultValue: "cmux-next keeps no browser history store yet.", table: "MiscHandlers", bundle: .module) }
     static var browserToggle: String { String(localized: "handlers.misc.unavailable.browserToggle", defaultValue: "The cmux browser is always on in cmux-next; there is no setting to turn it off yet.", table: "MiscHandlers", bundle: .module) }
-    static var linkTarget: String { String(localized: "handlers.misc.unavailable.linkTarget", defaultValue: "Link context menus do not pass a link to actions yet.", table: "MiscHandlers", bundle: .module) }
+    static var defaultBrowserIsCmux: String {
+        String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module)
+    }
+    static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
     static var sectionScreenshot: String { String(localized: "handlers.misc.unavailable.sectionScreenshot", defaultValue: "Section screenshots need a selection overlay that is not built yet.", table: "MiscHandlers", bundle: .module) }
     static var agentChat: String { String(localized: "handlers.misc.unavailable.agentChat", defaultValue: "Agent chat views are not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var agentTeams: String { String(localized: "handlers.misc.unavailable.agentTeams", defaultValue: "The Claude and Codex Teams launcher is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
@@ -31,18 +34,28 @@ enum MiscHandlerStrings {
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
+    static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
     static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module) }
     static var noUnread: String { String(localized: "handlers.misc.failed.noUnread", defaultValue: "There are no unread notifications.", table: "MiscHandlers", bundle: .module) }
+    static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
     static var markUnread: String { String(localized: "handlers.misc.failed.markUnread", defaultValue: "The daemon cannot mark a notification unread.", table: "MiscHandlers", bundle: .module) }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
+    static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
     static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
+    static var gitNeedsAgentChat: String { String(localized: "handlers.misc.failed.gitNeedsAgentChat", defaultValue: "Commit and Push work in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
+    static var switchModelNeedsAgentChat: String { String(localized: "handlers.misc.failed.switchModelNeedsAgentChat", defaultValue: "Switch Model… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var copyCodeNeedsAgentChat: String { String(localized: "handlers.misc.failed.copyCodeNeedsAgentChat", defaultValue: "Copy Last Code Block works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var archiveChatNeedsAgentChat: String { String(localized: "handlers.misc.failed.archiveChatNeedsAgentChat", defaultValue: "Archive Chat works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var searchFilesNeedsAgentChat: String { String(localized: "handlers.misc.failed.searchFilesNeedsAgentChat", defaultValue: "Search Files… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
-    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Quick Agent Chat opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
-    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Quick Agent Chat needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
+    static var gitWriteNeedsFocus: String { String(localized: "handlers.misc.failed.gitWriteNeedsFocus", defaultValue: "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless.", table: "MiscHandlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
     static var agentChromiumPage: String { String(localized: "handlers.misc.failed.agentChromiumPage", defaultValue: "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://).", table: "MiscHandlers", bundle: .module) }
     static func unknownBrowserProfile(_ text: String) -> String {

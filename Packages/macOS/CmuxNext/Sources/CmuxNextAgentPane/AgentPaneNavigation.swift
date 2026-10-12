@@ -4,12 +4,17 @@ import WebKit
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
 /// document. A clicked http(s) link opens outside the pane after a real user gesture
 /// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
-/// turn's preview card, `URL.isAgentPanePreview`); every other navigation is cancelled.
+/// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
+/// `AgentPaneRenderFrame`); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        guard let view else { return .cancel }
+    /// Answered in this turn: the `async` form waits for a task hop, behind the launch's main
+    /// actor work, before the page's navigation can start (bd cx-z9kz0).
+    @objc(webView:decidePolicyForNavigationAction:decisionHandler:)
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        guard let view else { return decisionHandler(.cancel) }
         switch Self.decision(
             for: action.request.url,
             source: view.source,
@@ -17,20 +22,31 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             mainFrame: action.targetFrame?.isMainFrame ?? true
         ) {
         case .allow:
-            return .allow
+            decisionHandler(.allow)
         case .openOutside(let url):
             _ = Self.openOutside(url, gestures: view.model.transport.gestures, open: view.openURL)
-            return .cancel
+            decisionHandler(.cancel)
         case .cancel:
-            return .cancel
+            decisionHandler(.cancel)
         }
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    /// A New Tab page gets its context as its document commits, so its first render draws the
+    /// page with no `newTab.context` round trip (`injectedNewTabContext`, bd cx-z9kz0). The host
+    /// gives what is true at this load: a reloaded page that became a chat gets none.
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        guard let model = view?.model, model.sessionId == nil, let page = model.newTab,
+              let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.__cmuxNewTabContext = \(json);", completionHandler: nil)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
+        AgentPaneWarmup.finish()
         view?.applyTheme()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        view?.applyEditedFiles()
         view?.replayCustomization()
     }
 
@@ -52,7 +68,10 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
-        if !mainFrame { return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel }
+        if !mainFrame {
+            if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
+            return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
+        }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         return .cancel
     }

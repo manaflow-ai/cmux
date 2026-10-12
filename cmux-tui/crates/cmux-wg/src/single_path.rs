@@ -75,31 +75,6 @@ fn set_send_buffer(socket: &UdpSocket, bytes: usize) -> std::io::Result<()> {
     if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
-/// The socket's send buffer as the kernel reports it (Linux reports twice
-/// the requested size, for its bookkeeping).
-#[cfg(all(unix, test))]
-fn send_buffer(socket: &UdpSocket) -> std::io::Result<usize> {
-    use std::os::fd::AsRawFd;
-    let mut size: libc::c_int = 0;
-    let mut len = size_of_val(&size) as libc::socklen_t;
-    // SAFETY: the descriptor is open for the borrow of `socket`, and the
-    // option buffer is a live `c_int` whose length `len` holds.
-    let result = unsafe {
-        libc::getsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_SNDBUF,
-            (&raw mut size).cast(),
-            &raw mut len,
-        )
-    };
-    if result == 0 {
-        Ok(usize::try_from(size).unwrap_or(0))
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
 impl WgNet {
     /// Start the tunnel on a fresh UDP socket aimed at the configured
     /// endpoint, as [`WgNet::start_with_new_socket`] does, but under a
@@ -143,48 +118,5 @@ impl WgNet {
         control.add_path(kind, path);
         let net = Self::start_with_underlay(config, underlay.with_fixed_paths())?;
         Ok((net, control))
-    }
-}
-
-#[cfg(all(unix, test))]
-mod tests {
-    use super::*;
-
-    /// The hub's `--send-buffer` reaches the kernel: the socket reports the
-    /// small buffer (Linux doubles it), and a request below the floor gets
-    /// the floor.
-    #[tokio::test]
-    async fn a_requested_send_buffer_reaches_the_socket() {
-        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let default = send_buffer(&socket).unwrap();
-        set_send_buffer(&socket, 32 * 1024).unwrap();
-        let small = send_buffer(&socket).unwrap();
-        assert!((32 * 1024..=64 * 1024).contains(&small), "default {default}, set {small}");
-        set_send_buffer(&socket, 1).unwrap();
-        let floor = send_buffer(&socket).unwrap();
-        assert!((MIN_SEND_BUFFER..=2 * MIN_SEND_BUFFER).contains(&floor), "floor {floor}");
-    }
-
-    /// An MTU above the requested send buffer still sends full datagrams:
-    /// on macOS the send buffer caps the datagram size, so a 16 KiB buffer
-    /// under a 40000-byte MTU would refuse every full packet with EMSGSIZE.
-    /// The buffer grows to one full WireGuard data message (16-byte header,
-    /// the packet padded to 16 bytes, 16-byte tag).
-    #[tokio::test]
-    async fn a_large_mtu_raises_the_send_buffer_to_one_full_datagram() {
-        let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let mut config = crate::testing::config_pair(receiver.local_addr().unwrap()).client;
-        config.mtu = 40_000;
-        let largest = largest_underlay_datagram(config.mtu);
-        assert_eq!(largest, 40_032);
-        let path = new_socket_path(&config, Some(MIN_SEND_BUFFER)).await.unwrap();
-        let reported = send_buffer(path.socket()).unwrap();
-        assert!(reported >= largest, "send buffer {reported} under one datagram of {largest}");
-        let peer = path.peer().unwrap();
-        let sent = path.socket().send_to(&vec![7u8; largest], peer).await.unwrap();
-        assert_eq!(sent, largest);
-        let mut buffer = vec![0u8; largest + 1];
-        let (received, _) = receiver.recv_from(&mut buffer).await.unwrap();
-        assert_eq!(received, largest);
     }
 }

@@ -72,6 +72,8 @@ public final class DaemonStore: StateResourceQueries {
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
+    /// Runs when the connection drops or the daemon shuts down (before any reconnect).
+    @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
@@ -88,7 +90,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
-    @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
+    @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
@@ -150,6 +152,8 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.note(directory, surface: surface))
     }
     public func tab(terminal: TerminalID) -> TabModel? { tabsBySurface.values.first { $0.terminalID == terminal } }
+    /// The tab of a public terminal id (`term_…`, `CMUX_TUI_TERMINAL_ID`).
+    public func tab(terminalResource id: ResourceID) -> TabModel? { tabsBySurface.values.first { $0.terminalResourceID == id } }
     /// The tab with durable id `id` (`TabModel.id`).
     public func tab(id: String) -> TabModel? { tabsBySurface.values.first { $0.id == id } }
     public func tabGroup(_ id: TabGroupID) -> TabGroupModel? { tabGroupsByID[id] }
@@ -231,8 +235,8 @@ public final class DaemonStore: StateResourceQueries {
 
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
-        agentsBySurface = Dictionary(agents.map { ($0.surface, $0) }, uniquingKeysWith: { $1 })
-        for (surface, tab) in tabsBySurface { tab.setAgent(agentsBySurface[surface]) }
+        self.agents.seed(agents)
+        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
     }
 
     /// Records a completed handshake before its `.connected` event drains,
@@ -266,8 +270,8 @@ public final class DaemonStore: StateResourceQueries {
                     for group in pane.tabGroups { tabGroups[group.id] = group }
                     for tab in pane.tabs {
                         tabs[tab.surface] = tab
-                        if tab.agent == nil, let agent = agentsBySurface[tab.surface] { tab.setAgent(agent) }
-                        tab.setObservedCwd(directories[tab.surface])
+                        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+                        tab.setObservedCwd(directories.directory(for: tab.surface))
                     }
                 }
             }

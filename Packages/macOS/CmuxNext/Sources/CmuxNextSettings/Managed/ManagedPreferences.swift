@@ -30,9 +30,10 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
     /// reads. Not a bundle id, so the app's own `UserDefaults` never mix in;
     /// non-forced values there act only as defaults (a user could write them).
     public static let domain = "com.manaflow.cmux"
-    /// The shipped updater's domain; only its forced `DisableAutoUpdate` is read.
+    /// The shipped app's domain; only its forced `DisableAutoUpdate` and
+    /// `DisableTelemetry` are read (profiles written for the shipped app keep working).
     public static let legacyDomain = "com.cmuxterm.app"
-    public static let legacyKeys = ["DisableAutoUpdate"]
+    public static let legacyKeys = ["DisableAutoUpdate", "DisableTelemetry"]
     /// DEV and test builds read this plist instead of the domain.
     public static let fileOverrideKey = "CMUX_NEXT_MANAGED_PREFS_FILE"
 
@@ -47,7 +48,8 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
         ManagedPolicyKey("UpdateChannel", type: .choice(["stable", "nightly"]), help: "Update channel this device follows."),
         ManagedPolicyKey("MinimumVersion", type: .string, help: "Oldest cmux version allowed to sign in, for example 1.2.0."),
         ManagedPolicyKey("AllowedSignInMethods", type: .stringArray(["sso", "password", "oauth"]), help: "Sign-in methods the app offers."),
-        ManagedPolicyKey("DisableAutoUpdate", type: .boolean, help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain).")
+        ManagedPolicyKey("DisableAutoUpdate", type: .boolean, help: "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain)."),
+        ManagedPolicyKey("DisableTelemetry", type: .boolean, help: "Turn off anonymous telemetry, crash reports included, whatever the user chose (also honored in the legacy com.cmuxterm.app domain).")
     ]
 
     /// Whether `key` names a cmux.json setting (as opposed to a policy key).

@@ -53,10 +53,27 @@ impl FakeApp {
                         })
                     }
                     // tabs.open answers the tab named by the URL's last
-                    // path segment (tests announce it up front).
+                    // path segment, or `new` without a URL (tests announce
+                    // it up front).
                     Frame::Call { id, method, params } if method == "tabs.open" => {
                         let url = params["url"].as_str().unwrap_or("");
-                        let target = url.rsplit('/').next().unwrap_or("").to_owned();
+                        let target = match url.rsplit('/').next().unwrap_or("") {
+                            "" => "new".to_owned(),
+                            last => last.to_owned(),
+                        };
+                        // As the app does: a new Chromium tab's access
+                        // report goes out before the reply names the tab.
+                        if params["engine"] == "cef" {
+                            let access = Frame::TabAccess {
+                                target_id: target.clone(),
+                                extension_host_access: false,
+                                user_override: false,
+                                extensions: Vec::new(),
+                            };
+                            if write_frame(&mut *thread_writer.lock().unwrap(), &access).is_err() {
+                                break;
+                            }
+                        }
                         Some(Frame::Result {
                             id,
                             result: Some(json!({"method": method, "targetId": target})),
@@ -77,6 +94,12 @@ impl FakeApp {
                             "Page.getFrameTree" => json!({"frameTree": {"frame": {
                                 "id": format!("CDP-{target_id}"), "loaderId": "L1",
                                 "url": "https://a.test/"}}}),
+                            // The page loaded before the relay attached.
+                            "Runtime.evaluate"
+                                if message["params"]["expression"] == "document.readyState" =>
+                            {
+                                json!({"result": {"type": "string", "value": "complete"}})
+                            }
                             _ => json!({}),
                         };
                         let mut reply = json!({"id": message["id"], "result": result});
@@ -300,14 +323,15 @@ fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
 }
 
 /// One `tabs.list` shape for every source (driver-protocol.md): the
-/// headless source checks the same contract in tests/chromium.rs.
+/// headless source checks the same contract in tests/chromium.rs. `all`
+/// lists every announced tab, of both engines.
 #[test]
 fn provider_tabs_list_has_the_protocol_shape() {
     let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     for kind in ["webkit", "cef"] {
-        let tabs = engine(&provider, kind).call("tabs.list", &json!({})).unwrap();
+        let tabs = engine(&provider, kind).call("tabs.list", &json!({"all": true})).unwrap();
         crate::tab_source::check_tabs_list_shape(&tabs).unwrap();
-        assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+        assert_eq!(tabs.as_array().map(Vec::len), Some(2), "{tabs}");
     }
 }
 
@@ -315,13 +339,14 @@ fn provider_tabs_list_has_the_protocol_shape() {
 fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let webkit = engine(&provider, "webkit");
-    let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-    assert_eq!(tabs.as_array().unwrap().len(), 1);
-    assert_eq!(tabs[0]["targetId"], "W");
+    let tabs = webkit.call("tabs.list", &json!({"all": true})).unwrap();
+    assert_eq!(tabs.as_array().unwrap().len(), 2);
+    assert!(tabs.as_array().unwrap().iter().any(|t| t["targetId"] == "W"), "{tabs}");
     assert_eq!(webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
     assert_eq!(app.attaches("W"), 0);
     let cef = engine(&provider, "cef");
-    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()[0]["targetId"], "C");
+    let all = cef.call("tabs.list", &json!({"all": true})).unwrap();
+    assert!(all.as_array().unwrap().iter().any(|t| t["targetId"] == "C"), "{all}");
 }
 
 #[test]
@@ -364,8 +389,10 @@ pub(super) fn calls(app: &FakeApp, method: &str) -> usize {
 
 /// Review P0: tab-less calls (cookies of the person's profile) never
 /// reach the app; a session drives only its own engine's tabs.
+/// A tab-less call never reaches the app; a call on a claimed tab of the
+/// other engine runs on that tab's engine (here the CEF relay).
 #[test]
-fn tab_less_calls_and_other_engine_tabs_are_refused() {
+fn tab_less_calls_are_refused_and_other_engine_tabs_run_on_their_engine() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     app.access(&provider, "C");
     let webkit = engine(&provider, "webkit");
@@ -376,9 +403,8 @@ fn tab_less_calls_and_other_engine_tabs_are_refused() {
     }
     let bad = webkit.call("tab.info", &json!({"targetId": 7})).unwrap_err();
     assert_eq!(bad.code, crate::protocol::ErrorCode::Invalid, "{bad}");
-    let other = webkit.call("tab.info", &json!({"targetId": "C"})).unwrap_err();
-    assert_eq!(other.code, crate::protocol::ErrorCode::NotFound, "{other}");
-    assert_eq!(app.attaches("C"), 0);
+    webkit.call("tab.info", &json!({"targetId": "C"})).unwrap();
+    assert_eq!(app.attaches("C"), 1, "the claimed Chromium tab runs on its relay");
 }
 
 /// Review P1: raw CDP on a relayed tab cannot reach Target, Browser or
@@ -448,7 +474,7 @@ fn a_policy_on_a_provider_session_fails_closed() {
 /// the profile and workspace.
 #[test]
 fn tabs_open_drops_agent_chosen_profile_and_workspace() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call(
         "tabs.open",
@@ -463,7 +489,7 @@ fn tabs_open_drops_agent_chosen_profile_and_workspace() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(open, json!({"url": "https://b.test/", "engine": "cef"}));
+    assert_eq!(open, json!({"engine": "cef"}));
 }
 
 /// Private data P1: an incognito tab opens only in a non-persistent store.
@@ -484,7 +510,7 @@ fn an_incognito_tab_is_refused_when_the_app_has_no_private_store() {
 
 #[test]
 fn tabs_open_goes_to_the_app_with_the_session_engine() {
-    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
     let cef = engine(&provider, "cef");
     cef.call("tabs.open", &json!({"url": "https://b.test/"})).unwrap();
     let frames = app.frames.lock().unwrap();
@@ -496,6 +522,258 @@ fn tabs_open_goes_to_the_app_with_the_session_engine() {
         })
         .unwrap();
     assert_eq!(open["engine"], "cef");
+}
+
+/// A Chromium session's `tabs.open {url}` opens a blank tab in the app,
+/// then navigates it through the tab's CDP relay and waits for the commit,
+/// as a headless tab does: the reply means the document committed, and the
+/// navigation passes the session's checks like any other. Before, the URL
+/// went to the app, which loaded nothing for a Chromium tab until the first
+/// CDP touch, and never waited for the commit.
+#[test]
+fn a_cef_tabs_open_with_a_url_navigates_the_blank_tab_through_cdp() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef")]);
+    let cef = engine(&provider, "cef");
+    let opened = cef.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    assert_eq!(opened["targetId"], "new");
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"engine": "cef"}), "the app opens a blank Chromium tab");
+    let navigations: Vec<Value> =
+        app.cdp_messages("new").into_iter().filter(|m| m["method"] == "Page.navigate").collect();
+    assert_eq!(navigations.len(), 1, "one CDP navigation: {navigations:?}");
+    assert_eq!(navigations[0]["params"]["url"], "https://b.test/page");
+}
+
+/// An agent's `tabs.close` on a tab its own session opened closes it the
+/// way the session's end would (a store close kept out of Reopen Closed),
+/// for either engine. A tab the session did not open belongs to the
+/// person's layout: a Chromium session closes nothing there. Before, every
+/// Chromium `tabs.close` reached the WebKit driver and failed (no tab).
+#[test]
+fn a_cef_session_closes_the_tab_it_opened_and_nothing_else() {
+    let (app, provider) =
+        FakeApp::start(vec![tab("W", "webkit"), tab("new", "cef"), tab("C2", "cef")]);
+    app.access(&provider, "C2");
+    let cef = engine(&provider, "cef");
+    cef.call("tabs.open", &json!({})).unwrap();
+    cef.call("tabs.close", &json!({"targetId": "new"})).unwrap();
+    assert_eq!(cef.call("tabs.close", &json!({"targetId": "C2"})).unwrap(), Value::Null);
+    let closes: Vec<Value> = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.close" => Some(params.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closes.len(), 1, "only the session's own tab closes: {closes:?}");
+    assert_eq!(closes[0]["targetId"], "new");
+    assert_eq!(closes[0]["reason"], "session_end");
+}
+
+/// In `tabs.list`, a tab the session opened is `active` when it is the
+/// session's current tab (its last foreground `tabs.open`), as on a
+/// headless session. Before, rows were active only while the person saw
+/// them, so an agent's own background tabs were never active.
+#[test]
+fn the_sessions_last_opened_tab_is_active_in_its_list() {
+    let (_app, provider) = FakeApp::start(vec![
+        tab("W", "webkit"),
+        TabAnnounce { visible: false, ..tab("a", "webkit") },
+        TabAnnounce { visible: false, ..tab("b", "webkit") },
+    ]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({"url": "https://a.test/a"})).unwrap();
+    session.call("tabs.open", &json!({"url": "https://a.test/b"})).unwrap();
+    let rows = session.call("tabs.list", &json!({"all": true})).unwrap();
+    let active = |id: &str| {
+        rows.as_array().unwrap().iter().find(|r| r["targetId"] == id).unwrap()["active"].clone()
+    };
+    assert_eq!(active("b"), true, "{rows}");
+    assert_eq!(active("a"), false, "{rows}");
+    assert_eq!(active("W"), true, "the person's shown tab stays active: {rows}");
+}
+
+/// An agent's clipboard on the person's Chromium tab is the tab's own
+/// virtual clipboard, as on headless: `clipboard.write` and `clipboard.read`
+/// work, and nothing reaches the person's system clipboard. Before, both
+/// were unsupported on app tabs.
+#[test]
+fn a_cef_tab_has_the_agents_virtual_clipboard() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let items = json!([{"type": "text/plain", "base64": "aGk="}]);
+    cef.call("clipboard.write", &json!({"targetId": "c1", "items": items})).unwrap();
+    let read = cef.call("clipboard.read", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(read["items"], items, "{read}");
+}
+
+/// `tab.bringToFront` on a Chromium tab goes to the app, which owns tab
+/// selection, as `tabs.activate` does. Before, it went to the tab's page
+/// relay, where CDP cannot activate a target (bringToFront: ok false).
+#[test]
+fn a_cef_bring_to_front_goes_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    cef.call("tab.bringToFront", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(calls(&app, "tab.bringToFront"), 1);
+    assert!(app.cdp_messages("c1").iter().all(|m| m["method"] != "Target.activateTarget"));
+}
+
+/// A download in one of the person's tabs reaches the session as the app's
+/// `download.started` / `download.finished` events; `download.path` answers
+/// from the finished event (waiting for it), as on headless. Before,
+/// `download.path` on a provider session had no answer at all.
+#[test]
+fn download_path_answers_from_the_apps_finished_event() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    let cef = engine(&provider, "cef");
+    let finished = |id: &str, outcome: Value| {
+        let mut payload = json!({"targetId": "c1", "downloadId": id});
+        payload.as_object_mut().unwrap().extend(outcome.as_object().unwrap().clone());
+        Frame::Event { name: "download.finished".into(), payload }
+    };
+    app.send(finished("d1", json!({"path": "/tmp/d1.txt"})));
+    let path = cef.call("download.path", &json!({"downloadId": "d1"})).unwrap();
+    assert_eq!(path, json!({"path": "/tmp/d1.txt"}));
+    // A path asked for before the download ends waits for it.
+    let late = std::thread::spawn(move || {
+        engine(&provider, "cef")
+            .call("download.path", &json!({"downloadId": "d2", "timeoutMs": 5000}))
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    app.send(finished("d2", json!({"error": "canceled"})));
+    let error = late.join().unwrap().unwrap_err();
+    assert!(error.message.contains("canceled"), "{error}");
+    // An unknown download times out at the call's deadline.
+    let unknown = cef.call("download.path", &json!({"downloadId": "nope", "timeoutMs": 50}));
+    assert_eq!(unknown.unwrap_err().code, crate::protocol::ErrorCode::Timeout);
+}
+
+/// A Chromium page that finished loading before the relay attached (a
+/// popup, a tab the person opened) is `load` at once: the driver reads its
+/// readyState when it attaches. Before, it waited for a load event that had
+/// already passed (popup.waitForLoadState timed out).
+#[test]
+fn a_page_loaded_before_the_relay_attached_is_loaded() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let cef = engine(&provider, "cef");
+    let info = cef.call("tab.info", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(info["loadState"], "load", "{info}");
+}
+
+/// A provider session's plain `tabs.list()` is its own tabs (opened or
+/// driven), as on headless; `{all: true}` lists every tab the app announced,
+/// of both engines, for claims (`tabs.use(id)`). Before, a plain list showed
+/// every tab of the session's engine, in every workspace.
+#[test]
+fn a_plain_tabs_list_is_the_sessions_own_tabs_and_all_lists_both_engines() {
+    let (app, provider) = FakeApp::start(vec![
+        tab("W", "webkit"),
+        tab("other", "webkit"),
+        tab("c1", "cef"),
+        tab("new", "webkit"),
+    ]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({})).unwrap();
+    session.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    let ids = |rows: Value| {
+        let mut ids: Vec<String> = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["targetId"].as_str().unwrap().to_owned())
+            .collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(ids(session.call("tabs.list", &json!({})).unwrap()), ["W", "new"]);
+    assert_eq!(
+        ids(session.call("tabs.list", &json!({"all": true})).unwrap()),
+        ["W", "c1", "new", "other"]
+    );
+    drop(app);
+}
+
+/// A tab the session kept (`tab.keep`) stays in its own `tabs.list()`: the
+/// session's end no longer closes it, but the session still drives it.
+/// Before, keeping dropped it from the list (tabs.keep-deliverable).
+#[test]
+fn a_kept_tab_stays_in_the_sessions_own_list() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "webkit")]);
+    let session = engine(&provider, "webkit");
+    session.call("tabs.open", &json!({})).unwrap();
+    session.call("tab.keep", &json!({"targetId": "new"})).unwrap();
+    let rows = session.call("tabs.list", &json!({})).unwrap();
+    assert!(rows.as_array().unwrap().iter().any(|r| r["targetId"] == "new"), "{rows}");
+}
+
+/// A one-shot eval opens and closes its session (each with its own name): a
+/// tab it kept is a deliverable in the person's layout, listed as their own
+/// by later agent sessions, as on headless (tabs.keep-deliverable). A tab
+/// the person opened and nobody kept is not.
+#[test]
+fn a_kept_tab_is_listed_by_later_sessions() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tabs.open", &json!({})).unwrap();
+    first.call("tab.keep", &json!({"targetId": "new"})).unwrap();
+    drop(first);
+    let listed = |name: &str| {
+        let rows = session(&provider, "webkit", name).call("tabs.list", &json!({})).unwrap();
+        rows.as_array().unwrap().iter().any(|r| r["targetId"] == "new")
+    };
+    assert!(listed("s1"), "the same session name lists the kept tab");
+    assert!(listed("oneshot-2"), "a later one-shot session lists it too");
+    let rows = session(&provider, "webkit", "s3").call("tabs.list", &json!({})).unwrap();
+    let person = rows.as_array().unwrap().iter().any(|r| r["targetId"] == "W");
+    assert!(!person, "the person's own tab: {rows}");
+}
+
+/// A WebKit session drives a Chromium tab it claimed: the call goes to that
+/// tab's engine (the CDP relay), never refused. Before: "tab c1 is a cef tab;
+/// this session runs on webkit".
+#[test]
+fn a_webkit_session_drives_a_claimed_chromium_tab() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("c1", "cef")]);
+    app.access(&provider, "c1");
+    let session = engine(&provider, "webkit");
+    let info = session.call("tab.info", &json!({"targetId": "c1"})).unwrap();
+    assert_eq!(info["loadState"], "load", "{info}");
+    assert!(app.cdp_messages("c1").iter().any(|m| m["method"] == "Target.getTargetInfo"));
+}
+
+/// A WebKit session's URL still goes to the app (its driver navigates).
+#[test]
+fn a_webkit_tabs_open_passes_the_url_to_the_app() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("page", "webkit")]);
+    let webkit = engine(&provider, "webkit");
+    webkit.call("tabs.open", &json!({"url": "https://b.test/page"})).unwrap();
+    let open = app
+        .frames
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|f| match f {
+            Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(open, json!({"url": "https://b.test/page", "engine": "webkit"}));
 }
 
 /// A CEF tab's automation.input names the tab as the app knows it, so

@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Streams by id for one connection, shared with its reader thread.
 final class LoopbackStreamTable: Sendable {

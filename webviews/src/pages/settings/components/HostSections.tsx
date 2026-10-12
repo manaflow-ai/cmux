@@ -19,7 +19,11 @@ function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
       <div className="row-main">
         <div className="row-label">
           <div className="row-title">{row.title}</div>
-          {row.subtitle && <div className="row-help">{row.subtitle}</div>}
+          {row.subtitle && (
+            <div className="row-help" title={row.subtitle}>
+              {row.subtitle}
+            </div>
+          )}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>
@@ -27,32 +31,38 @@ function ListRows({ rows, empty }: { rows: HostListRow[]; empty: string }) {
   ));
 }
 
-export function RoomsSection() {
+/** Spaces (General): the active window's spaces, or why the host has none. */
+export function SpacesSection() {
   const { host } = useSettingsState();
   if (!host) return null;
   return (
-    <>
-      <section className="group" data-card="rooms">
-        <div className="rows">
-          {host.rooms ? (
-            <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} />
-          ) : (
-            <div className="row">
-              <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-            </div>
-          )}
-        </div>
-      </section>
-      <BrowserProfilesSection host={host} />
-    </>
+    <section className="group" data-card="rooms">
+      <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
+      <div className="rows">
+        {host.rooms ? (
+          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} />
+        ) : (
+          <div className="row">
+            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
-export function MachinesSection() {
+/** Browser profiles (Browser). */
+export function BrowserProfiles() {
+  const { host } = useSettingsState();
+  return host ? <BrowserProfilesSection host={host} /> : null;
+}
+
+export function MachinesSection({ title }: { title: string }) {
   const { host } = useSettingsState();
   if (!host) return null;
   return (
     <section className="group" data-card="machines">
+      <h3 className="group-title">{title}</h3>
       <div className="rows">
         <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} />
       </div>
@@ -86,7 +96,6 @@ function BrowserProfilesSection({ host }: { host: HostLists }) {
         >
           {t("settingsWindow.newBrowserProfile")}
         </button>
-        <span className="row-help">{t("settingsWindow.browserProfilesHint")}</span>
       </div>
     </section>
   );

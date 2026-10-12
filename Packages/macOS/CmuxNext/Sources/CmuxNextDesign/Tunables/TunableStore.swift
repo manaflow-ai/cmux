@@ -1,6 +1,6 @@
 public import Foundation
 public import Observation
-import Synchronization
+import CmuxNextCompat
 
 /// The live overrides of every tunable. Defaults stay in code; the store
 /// holds only what the developer changed in Debug Settings.

@@ -27,6 +27,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        // Never pass a feature-list switch expecting it to replace CEF's own
+        // list: the shim merges disable-features/enable-features into it
+        // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
+        // (MacAppCodeSignClone) stays on: it protects running helpers when an
+        // update replaces the bundle, and its --type=code-sign-clone-cleanup
+        // helper exits by itself about 1 s after the app (cx-dj33).
         if useMockKeychain {
             result.append("use-mock-keychain")
         }

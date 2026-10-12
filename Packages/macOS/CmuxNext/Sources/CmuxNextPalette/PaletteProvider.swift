@@ -33,6 +33,11 @@ public final class StaticPaletteProvider: PaletteProvider {
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     public var immediateItems: [PaletteItem]? { itemsList }
     public func items() async -> [PaletteItem] { itemsList }
 }
@@ -48,6 +53,11 @@ public final class AsyncPaletteProvider: PaletteProvider {
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
         self.load = load
     }
+
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
 
     public func items() async -> [PaletteItem] { await load() }
 }

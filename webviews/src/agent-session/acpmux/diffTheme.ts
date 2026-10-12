@@ -4,6 +4,7 @@
 // Pierre's shadow roots; the dark values below are the fallbacks.
 import { registerCustomTheme } from "@pierre/diffs";
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "../../scrollers";
+import { agentSyntaxColor, syntaxTokenRules } from "../../syntax-theme";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
 export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
@@ -13,17 +14,8 @@ const fallbackDark = {
   bg: "#272823",
   fg: "#f8f8f3",
   muted: "#a8a9a3",
-  heading: "#b3e053",
-  inlineCode: "#ef9c40",
-  link: "#a783f7",
-  string: "#e4db82",
-  comment: "#8f908a",
   addition: "#90b345",
   deletion: "#b4365e",
-  additionLine: "#3b412a",
-  deletionLine: "#422e2e",
-  additionGutter: "#1a1d10",
-  deletionGutter: "#1f1113",
   separator: "#43443f",
   line: "#383934",
   selected: "#32332d",
@@ -49,89 +41,28 @@ export const diffColors = {
   separator: `var(--agent-control, ${fallbackDark.separator})`,
 } as const;
 
-/// Syntax colors for Shiki: the terminal's ANSI colors where the host sends them
-/// (`--agent-ansi-N`, set by applyAgentTheme), the dark fallbacks otherwise. Shiki writes each color
-/// into the token's inline style, so a CSS variable resolves against the page's theme.
-/// The background is transparent so the themed background shows through.
-type Syntax = Record<
-  "fg" | "keyword" | "fn" | "string" | "number" | "comment" | "added" | "removed" | "heading" | "link",
-  string
->;
-const syntax = (fallback: Syntax): Syntax => ({
-  fg: `var(--agent-text, ${fallback.fg})`,
-  keyword: `var(--agent-ansi-5, ${fallback.keyword})`,
-  fn: `var(--agent-ansi-4, ${fallback.fn})`,
-  string: `var(--agent-ansi-2, ${fallback.string})`,
-  number: `var(--agent-ansi-3, ${fallback.number})`,
-  comment: `var(--agent-soft, ${fallback.comment})`,
-  added: `var(--agent-ansi-2, ${fallback.added})`,
-  removed: `var(--agent-ansi-1, ${fallback.removed})`,
-  heading: `var(--agent-ansi-4, ${fallback.heading})`,
-  link: `var(--agent-ansi-5, ${fallback.link})`,
-});
-
-function shikiTheme(name: string, type: "dark" | "light", fallbackFg: string, color: Syntax) {
+/// Syntax colors for Shiki, from the terminal's ANSI palette as Ghostty colors output: each role
+/// (syntax-theme.ts, shared with the diff viewer and Markdown page) reads its slot's
+/// `--agent-ansi-N`, which applyAgentTheme sets lifted to read on the pane, with the default
+/// palette behind it. Shiki writes each color into the token's inline style, so a CSS variable
+/// resolves against the page's theme and a theme change recolors code in place. The background
+/// is transparent so the themed background shows through.
+function shikiTheme(name: string, type: "dark" | "light", fallbackFg: string) {
   return {
     name,
     type,
     colors: { "editor.background": "#00000000", "editor.foreground": fallbackFg },
     fg: fallbackFg,
     bg: "#00000000",
-    tokenColors: [
-      { settings: { foreground: color.fg } },
-      {
-        scope: ["markup.heading", "entity.name.section.markdown", "punctuation.definition.heading.markdown"],
-        settings: { foreground: color.heading, fontStyle: "bold" },
-      },
-      { scope: ["markup.inline.raw", "markup.inline.raw.string.markdown"], settings: { foreground: color.number } },
-      { scope: ["markup.underline.link", "string.other.link.title.markdown"], settings: { foreground: color.link } },
-      { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: color.comment } },
-      { scope: ["string", "string.quoted"], settings: { foreground: color.string } },
-      { scope: ["keyword", "storage", "keyword.control"], settings: { foreground: color.keyword } },
-      { scope: ["variable.other", "variable.parameter"], settings: { foreground: color.number } },
-      { scope: ["constant.numeric", "constant.language"], settings: { foreground: color.number } },
-      { scope: ["support.function", "entity.name.function"], settings: { foreground: color.fn } },
-      { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color.added } },
-      { scope: ["markup.deleted", "punctuation.definition.deleted"], settings: { foreground: color.removed } },
-    ],
+    tokenColors: syntaxTokenRules({ foreground: `var(--agent-text, ${fallbackFg})` }, (_role, spec) =>
+      agentSyntaxColor(spec, type, `var(--agent-text, ${fallbackFg})`),
+    ),
   };
 }
 
-const theme = shikiTheme(
-  AGENT_DIFF_THEME,
-  "dark",
-  fallbackDark.fg,
-  syntax({
-    fg: fallbackDark.fg,
-    keyword: fallbackDark.link,
-    fn: fallbackDark.heading,
-    string: fallbackDark.string,
-    number: fallbackDark.inlineCode,
-    comment: fallbackDark.comment,
-    added: fallbackDark.addition,
-    removed: fallbackDark.deletion,
-    heading: fallbackDark.heading,
-    link: fallbackDark.link,
-  }),
-);
-/// The same scopes in darker fallbacks for a light pane.
-const light = shikiTheme(
-  AGENT_DIFF_THEME_LIGHT,
-  "light",
-  "#24292f",
-  syntax({
-    fg: "#24292f",
-    keyword: "#6f42c1",
-    fn: "#3f7d0f",
-    string: "#0a6b52",
-    number: "#b35900",
-    comment: "#6e7781",
-    added: "#1a7f37",
-    removed: "#cf222e",
-    heading: "#3f7d0f",
-    link: "#6f42c1",
-  }),
-);
+const theme = shikiTheme(AGENT_DIFF_THEME, "dark", fallbackDark.fg);
+/// The same roles over the light default palette for a light pane.
+const light = shikiTheme(AGENT_DIFF_THEME_LIGHT, "light", "#24292f");
 
 /// The two syntax themes, for tests.
 export const syntaxThemes = { dark: theme, light };
@@ -201,7 +132,36 @@ export const treeUnsafeCSS = /* css */ `
   --trees-border-radius-override: 6px;
   --trees-focus-ring-width-override: 0px;
   --trees-indent-guide-bg-override: ${c.line};
+  --trees-status-added-override: ${c.addition};
+  --trees-status-deleted-override: ${c.deletion};
 }
 [data-type="item"][data-item-focused="true"]::before { display: none; }
 [data-item-section="decoration"] { font-size: 12px; }
+/* Long names (changes/treeTitles.ts): one unclipped line inside the content section, which clips
+   it with a fade at its end (no ellipsis, no middle truncation keeping the extension); the counts
+   never shrink. --cmux-title-lead is padding left of the first glyph, inside the section, that a
+   marquee fades glyphs across; the negative margin keeps the name where Pierre puts it.
+   --cmux-title-tail is the gap before the counts, also inside the section, so the fade ends at
+   the counts (or the row's end) and the name uses all the room there is. */
+[data-type="item"] [data-item-section="content"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  margin-inline-start: calc(-1 * var(--cmux-title-lead, 0px));
+  padding-inline-start: var(--cmux-title-lead, 0px);
+  padding-inline-end: var(--cmux-title-tail, 0px);
+}
+[data-type="item"] [data-item-section="content"] > * { width: max-content; min-width: max-content; max-width: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-group-container] > div { flex: none; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-container] { overflow: visible; min-width: max-content; }
+[data-type="item"] [data-item-section="content"] [data-truncate-grid] { display: block; }
+[data-type="item"] [data-item-section="content"] :is([data-truncate-content="overflow"], [data-truncate-marker-cell], [data-truncate-fill]) { display: none; }
+[data-type="item"] [data-item-section="content"] [data-truncate-content="visible"] { white-space: pre; }
+[data-type="item"] [data-item-section="content"][data-cmux-clipped] {
+  -webkit-mask-image: var(--cmux-title-mask);
+  mask-image: var(--cmux-title-mask);
+}
+[data-type="item"] [data-item-section="decoration"] { flex: 0 0 auto; margin-inline-start: auto; }
 ${PIERRE_TREES_SCROLLER_CSS}`;

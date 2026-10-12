@@ -115,12 +115,12 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.checkpointAvailability":
     case "pane.renderRate":
     case "newTab.remember":
+    case "newTab.setTemplate":
     case "newTab.touched":
     case "shortcut.edit":
     case "tab.jump":
     case "tab.open":
     case "action.run":
-    case "onboarding.importAndSync":
       return { ok: true, value: null };
     case "browser.open": {
       const url = String(request.params?.url ?? "");

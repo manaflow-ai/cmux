@@ -1,11 +1,11 @@
 import type { OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import { DomainRelease, DomainVerify } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { txtContains } from "./domains/team-domains.ts"
+import { RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import type { TeamState } from "./domains/team.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { RowReader } from "@cmux/ownership"
-import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
+import { can, hostByInstall, memberOf } from "./domains/team-members.ts"
 
 export type Http = (request: Request) => Promise<Response>
 
@@ -71,9 +71,8 @@ export const domainExternal = async (
 ): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: deps.stream, sequence: 0, replayed: false }
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
-  const role = roleOf(deps.state, deps.rows, principal.user)
   if (principal.kind !== "session" || principal.agent) return fail("auth.forbidden", "domain changes need a person's session")
-  if (role !== "owner" && role !== "admin") return fail("auth.forbidden", "only team owners and admins may verify or release domains")
+  if (!can(deps.state, deps.rows, principal.user, "team.manage")) return fail("auth.forbidden", "only team owners and admins may verify or release domains")
   const decoded = decodeParams<{ domain: string }>(frame.op === "domain.verify" ? DomainVerify : DomainRelease, frame.params)
   if (!decoded.ok) return fail(decoded.code, decoded.message)
   const domain = decoded.value.domain
@@ -114,4 +113,46 @@ export const domainExternal = async (
   // so it never owns a domain TeamDO does not claim (review P1-a).
   if (!reply.ok) await deps.domainStub(domain).release(deps.team)
   return reply
+}
+
+/** What the weekly re-check needs from TeamDO (team-do.ts). */
+export interface RecheckDeps {
+  readonly state: TeamState
+  readonly team: string
+  readonly http: Http
+  readonly domainStub: (domain: string) => DurableObjectStub<DomainDO>
+  /** The state after the last commit. */
+  readonly current: () => TeamState
+  /** submitSystem that throws on a refusal (TeamDO.requireCommitted). */
+  readonly commit: (op: string, params: unknown, key: string) => void
+}
+
+/**
+ * Weekly DNS re-check of verified domains (spec 3.4). Every attempt records
+ * its time, so a failing resolver cannot spin the alarm. On the third failure
+ * DomainDO frees the domain first (so a new owner can verify), then the
+ * domain becomes lapsed.
+ */
+export const recheckDomains = async (deps: RecheckDeps, now: number) => {
+  const due = Object.values(deps.state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + RECHECK_MS <= now)
+  for (const d of due.slice(0, 5)) {
+    try {
+      const domainDO = deps.domainStub(d.domain)
+      const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(deps.http, r(d.record_name))))
+      // A resolver failure is "unknown": record the attempt time without counting a failure.
+      const unknown = results.some((answers) => answers === null)
+      const ok = unknown || results.every((answers) => answers !== null && txtContains(answers, d.record_value))
+      deps.commit("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`)
+      const after = deps.current().domains?.[d.domain]
+      // Commit first, then free: a lost release is retried by the next verify or re-check (release is idempotent);
+      // a passing re-check re-asserts ownership, so TeamDO and DomainDO cannot drift apart for long.
+      if (after?.state === "lapsed") await domainDO.release(deps.team)
+      else if (ok && !unknown) {
+        const held = await domainDO.claim(d.domain, deps.team, now)
+        if (!held.ok) deps.commit("domain.mark_lost", { domain: d.domain }, `domain-lost:${d.domain}:${d.record_value}:${now}`)
+      }
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "domain re-check failed", domain: d.domain, error: String(e) }))
+    }
+  }
 }

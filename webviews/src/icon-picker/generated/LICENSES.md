@@ -5,9 +5,13 @@ sources in `webviews/scripts/icon-picker/sources.json` (each checked by SHA-256)
 
 | Source                                                                           | Version            | License            |
 | -------------------------------------------------------------------------------- | ------------------ | ------------------ |
-| Unicode `emoji-test.txt` (groups, order, names, Emoji versions, skin-tone forms) | 17.0               | Unicode License v3 |
+| Unicode `emoji-test.txt` (groups, order, names, Emoji versions, skin-tone forms) | 18.0               | Unicode License v3 |
 | CLDR annotations and derived annotations, `en` and `ja` (names, keywords)        | 48.2.0 (cldr-json) | Unicode License v3 |
 | emojibase-data GitHub shortcodes (`en/shortcodes/github.json`)                   | 17.0.0             | MIT                |
+
+
+Emoji 18.0 is newer than the final CLDR annotations (48.2.0; CLDR 49 is in beta). Its emoji use the
+`emoji-test.txt` English name in both locales and have no keywords until CLDR 49 is pinned.
 
 ## Unicode License v3 (verbatim from cldr-annotations-full 48.2.0)
 

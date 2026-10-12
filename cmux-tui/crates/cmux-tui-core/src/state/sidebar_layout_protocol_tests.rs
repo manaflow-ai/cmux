@@ -61,7 +61,7 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
         gap["value"]["sections"][3]["arrangement"],
         json!({"layout": "inline", "align": "leading", "gap": 6})
     );
-    let same = json!({"id": "itm_x", "ref": {"kind": "built_in", "value": "settings"}});
+    let same = json!({"id": "itm_x", "ref": {"kind": "built_in", "value": "account"}});
     let noop = update(
         &mux,
         "s-5",
@@ -90,7 +90,7 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
     );
     assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
     let personal = mux.personal_snapshot().unwrap().personal_revision;
-    update(&mux, "s-6", json!({"kind": "item.remove", "id": "itm_settings"})).unwrap();
+    update(&mux, "s-6", json!({"kind": "item.remove", "id": "itm_app_store"})).unwrap();
     assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1);
     update(&mux, "s-7", json!({"kind": "item.update", "id": "itm_account", "shows_label": false}))
         .unwrap();
@@ -160,7 +160,7 @@ fn sidebar_layout_persists_conflicts_resets_and_survives_a_damaged_row() {
         let mux = session.open();
         update(&mux, "r-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
         assert_eq!(
-            error_code(update(&mux, "r-1", json!({"kind": "item.remove", "id": "itm_settings"}))),
+            error_code(update(&mux, "r-1", json!({"kind": "item.remove", "id": "itm_app_store"}))),
             "idempotency.conflict"
         );
     }
@@ -202,7 +202,7 @@ fn int_max_index_appends_through_the_protocol() {
         json!({"kind": "item.add", "item": item, "section": "sec_bottom", "index": i64::MAX}),
     )
     .unwrap();
-    assert_eq!(added["value"]["sections"][3]["items"][2]["id"], "itm_ws");
+    assert_eq!(added["value"]["sections"][3]["items"][1]["id"], "itm_ws");
     let moved = update(
         &mux,
         "m-2",

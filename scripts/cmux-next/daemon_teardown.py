@@ -16,6 +16,7 @@ Exit 1 when a host outlived the shutdown.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import socket
@@ -55,14 +56,31 @@ def daemon_status(binary: str, tag: str) -> dict | None:
     return data if data.get("status") == "running" else None
 
 
-def terminal_hosts(daemon_pid: int, binary: str | None = None) -> set[int]:
-    """The daemon's terminal hosts: its children, plus (with `binary`) every
-    host of that tag-private binary. Hosts outlive a daemon restart and the
-    next daemon adopts them without becoming their parent."""
+def terminal_hosts(daemon_pid: int, tag: str | None = None) -> set[int]:
+    """The daemon's terminal hosts: its children, plus (with `tag`) every host
+    whose discovery record is in the tag's state directory. Hosts outlive a
+    daemon restart and the next daemon adopts them without becoming their
+    parent. A host's command line names neither the tag nor the bundle
+    (cx-0tgl LF), so records, not process patterns, find adopted hosts."""
     out = subprocess.run(["pgrep", "-P", str(daemon_pid), "-f", "__terminal-host"], capture_output=True, text=True).stdout
-    if binary:
-        out += subprocess.run(["pgrep", "-f", f"{binary} __terminal-host"], capture_output=True, text=True).stdout
-    return {int(pid) for pid in out.split()}
+    pids = {int(pid) for pid in out.split()}
+    if tag:
+        pids |= recorded_hosts(daemon_env(tag)["CMUX_TUI_STATE_DIR"])
+    return pids
+
+
+def recorded_hosts(state_dir: str) -> set[int]:
+    """Host PIDs named by the discovery records under a cmux-tui state dir."""
+    pids = set()
+    for record in glob.glob(os.path.join(state_dir, "terminal-hosts-*", "*.json")):
+        try:
+            with open(record) as handle:
+                pid = json.load(handle).get("host_pid")
+        except (OSError, ValueError):
+            continue
+        if isinstance(pid, int) and pid > 0:
+            pids.add(pid)
+    return pids
 
 
 def alive(pids: set[int]) -> set[int]:
@@ -103,7 +121,7 @@ def end_terminals(binary: str, tag: str, exit_timeout: float = 10.0) -> dict:
         return {"daemon_pid": identity.get("pid"), "hosts_before": 0, "ended_terminals": 0, "hosts_leaked": [],
                 "error": "daemon lacks terminal-reap-v1 (shutdown-daemon end_terminals)"}
     pid = int(identity["pid"])
-    hosts = terminal_hosts(pid, binary)
+    hosts = terminal_hosts(pid, tag)
     reply = request(status["socket"], {"id": 2, "cmd": "shutdown-daemon", "pid": pid, "generation": identity["generation"],
                                        "end_terminals": True}, 90)
     if not reply.get("ok"):

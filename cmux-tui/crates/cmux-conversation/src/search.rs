@@ -80,6 +80,7 @@ pub fn message_text(message: &Message) -> String {
         .iter()
         .filter_map(|part| match part {
             Part::Text { text, .. } => Some(text.as_str()),
+            Part::Question(question) => question.items.first().map(|item| item.prompt.as_str()),
             Part::Work { .. } | Part::Attachment { .. } => None,
         })
         .collect::<Vec<_>>()

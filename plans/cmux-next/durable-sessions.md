@@ -24,12 +24,12 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
 | acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
 | acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
-| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts (memory only) are gone; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
+| acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts come back from the log in order (each `queued` record carries the prompt; `hub/queue.rs` `restore_queues`) and run after any adopted turn; a resend of one waits for that run; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
 
 What survives an agent restart is the transcript (`$ACPMUX_HOME/sessions/<id>/session.json` +
 `events/NNNNNN.ndjson`) and the harness's own resume. What is lost: the turn in flight (tool calls
 mid-run, background shells under the harness process group, streamed output not yet produced),
-pending permission prompts, queued prompts, and the Claude stdio translator state (pending ACP
+pending permission prompts, and the Claude stdio translator state (pending ACP
 request map, control-request map: `claude_stdio/mod.rs:147-165`).
 
 Gaps on the PTY side (it is the model, but not complete):
@@ -135,8 +135,9 @@ replayed spool:
   the `permission_request` payload (`agentRequestId`, additive).
 - Other agent-to-client requests with no logged answer (fs reads and writes) are handled again as if
   they just arrived; a write asks permission again.
-- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent; their
-  clients resend them (`_meta.acpmux.resend`, which already looks in the log). Not rebuilt (A3).
+- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent. The
+  new daemon rebuilds the queue from the log and runs it after the recovered turn; a client resend
+  (`_meta.acpmux.resend`) waits for that run.
 - Status: `running` while the recovered turn runs, `waiting` while a recovered prompt is open, else
   `ready`; never forced to `idle` for an adopted agent.
 
@@ -254,7 +255,12 @@ tree pushes):
 - `end` (only when `exited`): `{kind: "exited", code}` | `{kind: "signaled", signal, core_dumped}` |
   `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
-  died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended, other`.
+  died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
+  restart_exhausted, restart_failed, other`. The last two come from the respawn supervisor
+  (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
+  30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
+  `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
+  losses an earlier owner never ran (also `session_shutdown`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;
   unknown future values decode as nil / `.other`.
@@ -266,8 +272,20 @@ lost: <reason words>", `unadoptable` "Running under an older cmux; close to end 
 "Reconnecting…", `failed` "Lost connection to the terminal" with Reconnect.
 
 Not covered yet: the `surface-exited` event carries no `end` (clients read it from the next tree);
-a handshake with no common protocol version still retries as `adopting` (only unreadable records
-become `unadoptable`); `failed` has no daemon-side retry trigger beyond a new adoption.
+`failed` has no daemon-side retry trigger beyond a new adoption.
+
+No common protocol version: a host closes an owner hello without HostHello when it shares no
+version with this build (a newer build's host after a rollback). A host of this build closes it the
+same way when it cannot start a client thread or denies the owner token, so one refusal proves
+nothing. When every protocol attempt of an adoption is refused, the error is typed
+`NoCommonHostProtocol`. After at least 3 refusals in a row over at least 10 s while the host's live
+marker is held, the terminal becomes `unadoptable` (with `host_record_version` = its readable
+record's version), its host is watched like C3, and `tree-changed` is pushed. This daemon does not
+try to adopt it again. One refusal can be a host that closed while it exits; then its marker frees
+and the watcher ends the terminal with the real status. Close ends such a host with SIGKILL after
+the same marker + PID proof, because it cannot take Terminate; every caller of the proven host
+termination (cleanup of ended records, End Sessions) does the same on a refusal instead of retrying
+Terminate later. No wire change.
 
 ## 8. Risks and the strongest objection
 

@@ -21,7 +21,7 @@ nonisolated enum CEFFocusSource: Int32, Sendable {
 let cefFocusRequestCallback: CEFShimLibrary.FocusRequestFn = { context, browser, source in
     guard let context, Thread.isMainThread else { return 0 }
     let address = UInt(bitPattern: context)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         CEFRuntime.from(address)?.focusRequested(browser: browser, source: source) == true ? 1 : 0
     }
 }
@@ -57,12 +57,5 @@ extension CEFTab {
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
-    }
-
-    /// Runs `body` as if inside cmux's own `SetFocus(true)` (tests).
-    func withFocusGrant<T>(_ body: () -> T) -> T {
-        isGrantingFocus = true
-        defer { isGrantingFocus = false }
-        return body()
     }
 }

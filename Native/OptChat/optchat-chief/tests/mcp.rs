@@ -54,7 +54,14 @@ fn the_mcp_server_answers_zoom_and_date_from_the_live_memory() {
     assert_eq!(answers[0]["result"]["protocolVersion"], "2025-06-18");
     let tools = &answers[1]["result"]["tools"];
     assert_eq!(tools[0]["name"], "zoom");
-    assert_eq!(tools[0]["description"], ZOOM_DESCRIPTION);
+    // The MCP zoom also opens a subagent's chat.
+    assert_eq!(
+        tools[0]["description"],
+        format!(
+            "{ZOOM_DESCRIPTION}{}",
+            optchat_chief::prompt::ZOOM_AGENT_DESCRIPTION
+        )
+    );
     assert_eq!(tools[1]["name"], "date");
     assert_eq!(tools[1]["description"], DATE_DESCRIPTION);
     let text = |i: usize| {

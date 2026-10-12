@@ -177,11 +177,13 @@ pub(super) fn handle_websocket_connection(
 }
 
 /// The Origin and Host rule of a daemon WebSocket listener bound on `local`.
+/// The Host rule holds on every bind: `--ws-insecure-bind` widens the
+/// address, never the accepted names (names come from `--ws-allow-host`).
 fn websocket_listener_policy(
     local: SocketAddr,
     access: &WebSocketAccess,
 ) -> cmux_local_auth::ListenerPolicy {
-    let policy = cmux_local_auth::ListenerPolicy::for_bind(local);
+    let policy = cmux_local_auth::ListenerPolicy::for_bind_keeping_host_rule(local);
     let policy = access.hosts.iter().fold(policy, |policy, host| policy.with_host(host));
     access.origins.iter().fold(policy, |policy, origin| policy.with_origin(origin))
 }

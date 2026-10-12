@@ -3,6 +3,8 @@
 //!
 //! Runs when `CMUX_SDK_LIVE_TUI_BIN` names a cmux-tui binary, like the SDK's
 //! `byte_attachment_live.rs`; otherwise it reports the skip and passes.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux_daemon_client::attach::{AttachmentItem, CellSize, Replay};
 use cmux_daemon_client::cmux::{self, RunCommand};

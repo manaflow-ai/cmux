@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Reads the first newline-terminated line from a pipe on the handle's own
 /// dispatch source (never the caller's thread). Cancelling the awaiting task

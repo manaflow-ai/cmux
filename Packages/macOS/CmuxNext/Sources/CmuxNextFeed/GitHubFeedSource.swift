@@ -125,9 +125,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         let url = notificationURL(repository: notification.repository, subject: notification.subject)
         let isReview = notification.reason == "review_requested"
         let number = githubNumber(from: notification.subject.url)
-        let dedupe = isReview && number != nil
-            ? "github:review:\(notification.repository.fullName):\(number!)"
-            : "github:notification:\(notification.id)"
+        let dedupe = (isReview ? number : nil).map { "github:review:\(notification.repository.fullName):\($0)" }
+            ?? "github:notification:\(notification.id)"
         let prompt: FeedPrompt = isReview
             ? .review(.init(subject: .pr, ref: url?.absoluteString ?? notification.subject.title))
             : .notice

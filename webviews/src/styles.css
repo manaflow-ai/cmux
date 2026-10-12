@@ -4,14 +4,35 @@
 /* The icon picker's emoji keywords ("uppercase", "italic") are data, not class names. */
 @source not "./icon-picker/generated";
 
+/* The type scale (pages/shared/desktop.css, ui/README.md "Type scale") as Tailwind font sizes:
+   text-caption, text-detail, text-body, text-control, text-title, text-heading, text-content. */
+@theme inline {
+  --text-caption: var(--text-caption);
+  --text-caption--line-height: var(--text-caption--line-height);
+  --text-detail: var(--text-detail);
+  --text-detail--line-height: var(--text-detail--line-height);
+  --text-body: var(--text-body);
+  --text-body--line-height: var(--text-body--line-height);
+  --text-control: var(--text-control);
+  --text-control--line-height: var(--text-control--line-height);
+  --text-title: var(--text-title);
+  --text-title--line-height: var(--text-title--line-height);
+  --text-heading: var(--text-heading);
+  --text-heading--line-height: var(--text-heading--line-height);
+  --text-content: var(--text-content);
+  --text-content--line-height: var(--text-content--line-height);
+}
+
 :root {
   color-scheme: light dark;
-  --cmux-diff-bg-light: #fff;
-  --cmux-diff-bg-dark: #000;
-  --cmux-diff-fg-light: #000;
-  --cmux-diff-fg-dark: #fff;
-  --cmux-diff-selection-bg-light: #abd8ff;
-  --cmux-diff-selection-bg-dark: #3f638b;
+  /* Until applyDiffViewerAppearance sets them from the terminal theme: the page theme's
+     (WebTheme.swift), else black and white. */
+  --cmux-diff-bg-light: var(--cmux-app-content, #fff);
+  --cmux-diff-bg-dark: var(--cmux-app-content, #000);
+  --cmux-diff-fg-light: var(--cmux-app-text, #000);
+  --cmux-diff-fg-dark: var(--cmux-app-text, #fff);
+  --cmux-diff-selection-bg-light: var(--cmux-text-selection, #abd8ff);
+  --cmux-diff-selection-bg-dark: var(--cmux-text-selection, #3f638b);
   --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   /* 13 px UI text, the classic viewer's size (its 2x screenshots). */
   --cmux-diff-ui-font-size: 13px;
@@ -35,7 +56,7 @@
   --cmux-diff-text-dim: color-mix(in srgb, var(--cmux-diff-fg) 50%, var(--cmux-diff-solid-bg));
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
-  --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-accent: var(--cmux-accent, light-dark(#0a84ff, #7ab7ff));
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
   /* The page background is the shared backdrop (R48): the host's
@@ -98,7 +119,8 @@ body {
      the implicit `auto` track sizes to content max-width, letting #content
      (and its files sidebar) overflow the window and clip on the right. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  /* The toolbar, the commit form and write status (.diff-git-bar, empty without git), the diff. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   overscroll-behavior: contain;
   contain: strict;
@@ -279,7 +301,6 @@ body {
 #jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .toolbar-icon:focus-visible,
-.menu-item:focus-visible,
 .file-entry:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
   outline-offset: 1px;
@@ -508,17 +529,17 @@ body {
   text-align: center;
 }
 .base-picker-status-error {
-  color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
+  color: var(--cmux-diff-deletion-fg);
 }
 .base-picker-group-header {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
 }
 .base-picker-more {
   padding: 5px 8px 7px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
   cursor: default;
   user-select: none;
@@ -912,11 +933,8 @@ body[data-status-only="true"] #files-motion-curtain {
   --trees-status-added-override: var(--cmux-diff-count-added);
   --trees-status-deleted-override: var(--cmux-diff-count-deleted);
 }
-/* SCROLLBARS-FOLLOW-MACOS: the tree has no scroller of its own width in overlay mode (rows keep the
-   full width); for "Always" it shows the library's scroller in a gutter (scrollers.ts). */
-html[data-scrollers="legacy"] #file-list {
-  --trees-scrollbar-gutter-override: 6px;
-}
+/* SCROLLBARS-THIN: the tree has no scroller of its own width (rows keep the full width); its
+   scroller shows over the rows while the list scrolls (scrollers.ts), "Always" too. */
 body[data-loading="false"] .diff-loading-placeholder {
   display: none;
 }
@@ -1028,7 +1046,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     margin: 0;
     padding: 0;
     border: 0;
-    background: color-mix(in srgb, #000 38%, transparent);
+    background: var(--cmux-scrim, color-mix(in srgb, #000 38%, transparent));
     -webkit-backdrop-filter: blur(2px);
     backdrop-filter: blur(2px);
     cursor: default;
@@ -1192,7 +1210,7 @@ body[data-loading="true"] #status::before {
   animation: cmuxDiffPendingSpin 800ms linear infinite;
 }
 #status[data-error="true"] {
-  color: light-dark(#b42318, #ff8a80);
+  color: var(--cmux-diff-deletion-fg);
 }
 @keyframes cmuxDiffPendingSpin {
   to { transform: rotate(360deg); }
@@ -1289,9 +1307,10 @@ body[data-loading="true"] #status::before {
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 10px;
+  /* A step toward the text color: lighter on a dark theme, a faint gray on a light one. */
   background: light-dark(
-    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
-    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
+    color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg)),
+    color-mix(in lab, var(--cmux-diff-bg) 90%, var(--cmux-diff-fg))
   );
   box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
   color: var(--cmux-diff-fg);
@@ -1350,11 +1369,11 @@ body[data-loading="true"] #status::before {
 }
 .comment-button-primary {
   background: var(--cmux-diff-accent);
-  color: light-dark(#fff, #08233f);
+  color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-button-primary:hover:not(:disabled) {
-  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
-  color: light-dark(#fff, #08233f);
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-bg));
+  color: var(--cmux-on-accent, light-dark(#fff, #08233f));
 }
 .comment-card-header {
   display: flex;
@@ -1474,7 +1493,7 @@ body[data-loading="true"] #status::before {
 }
 .file-review-badge {
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: 4px;
   border: 1px solid var(--cmux-diff-border);
   white-space: nowrap;
 }
@@ -1482,7 +1501,8 @@ body[data-loading="true"] #status::before {
   border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, transparent);
   color: var(--cmux-diff-accent);
 }
-.file-review-load {
+.file-review-load,
+.file-review-stage {
   padding: 1px 8px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 5px;
@@ -1491,8 +1511,60 @@ body[data-loading="true"] #status::before {
   font: inherit;
   cursor: pointer;
 }
-.file-review-load:hover {
+.file-review-load:hover,
+.file-review-stage:hover {
   background: var(--cmux-diff-hover-bg);
+}
+/* Stage, Commit and Push reuse the changes view's git.css (cx-ueuc8): its tokens, from the viewer's. */
+.diff-git {
+  --agent-text: var(--cmux-diff-fg);
+  --agent-muted: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
+  --agent-page-bg: var(--cmux-diff-solid-bg);
+  --agent-border: var(--cmux-diff-border);
+  --agent-surface-elevated: var(--cmux-diff-solid-bg);
+  --agent-control: color-mix(in srgb, var(--cmux-diff-fg) 8%, var(--cmux-diff-solid-bg));
+  --agent-control-hover: var(--cmux-diff-hover-bg);
+  --agent-input-bg: var(--cmux-diff-solid-bg);
+  --agent-accent: var(--cmux-diff-accent);
+  --agent-danger: var(--cmux-diff-deletion-fg);
+  --acpmux-motion-hover: 80ms;
+  --acpmux-motion-ease: ease-out;
+  --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.diff-git-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.diff-git-bar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Beside a chat (the ± opens the viewer about 400 px wide) Commit and Push leave the toolbar
+   for a row of their own, so the scope chip keeps its label (cx-ku7r1). */
+.diff-git-tools-row {
+  display: none;
+}
+@media (max-width: 600px) {
+  #toolbar .diff-git-tools {
+    display: none;
+  }
+  .diff-git-tools-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--cmux-diff-border);
+  }
+}
+.diff-files-changed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  color: var(--cmux-diff-fg);
+  font-size: var(--text-detail);
 }
 .file-review-viewed {
   display: inline-flex;
@@ -1573,7 +1645,7 @@ svg[data-icon-fill] {
   flex: 1 1 auto;
   gap: 6px;
 }
-/* Source pill: "Branch v +N -N". */
+/* Source chip: "Branch v +N -N". */
 .source-pill {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1581,7 +1653,7 @@ svg[data-icon-fill] {
   gap: 2px;
   height: 28px;
   padding: 2px 10px 2px 2px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   font-variant-numeric: tabular-nums;
 }
@@ -1592,7 +1664,7 @@ svg[data-icon-fill] {
   height: 24px;
   padding: 0 8px 0 10px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: transparent;
   color: var(--cmux-diff-fg);
   font: inherit;
@@ -1619,12 +1691,12 @@ svg[data-icon-fill] {
 .source-pill-deletions {
   color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
 }
-/* The base picker joins the toolbar as a pill too: "head -> base v". */
+/* The base picker joins the toolbar as a chip too: "head -> base v". */
 #toolbar .base-picker-button {
   height: 28px;
   padding: 0 10px 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   font-weight: 400;
 }
@@ -1644,7 +1716,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 6px;
   background: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   color: var(--cmux-diff-fg);
   cursor: pointer;
@@ -1655,8 +1727,7 @@ svg[data-icon-fill] {
 }
 .source-pill-button:focus-visible,
 .toolbar-round-button:focus-visible,
-.diff-pill-button:focus-visible,
-.toolbar-menu-item:focus-visible {
+.diff-pill-button:focus-visible {
   outline: 2px solid color-mix(in lab, var(--cmux-diff-accent) 70%, transparent);
   outline-offset: 1px;
 }
@@ -1691,11 +1762,17 @@ svg[data-icon-fill] {
 .source-menu .toolbar-menu-item {
   grid-template-columns: minmax(0, 1fr) 18px;
 }
-.toolbar-menu-item:focus,
+.toolbar-menu-item:focus:not(:focus-visible),
 .toolbar-menu-item:hover {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
   outline: none;
+}
+/* Keyboard focus on a menu row is the row tint and optional accent bar (desktop.css). */
+.menu-item:focus-visible,
+.toolbar-menu-item:focus-visible {
+  outline: none;
+  color: var(--cmux-diff-fg);
 }
 .toolbar-menu-item[aria-disabled="true"] {
   color: color-mix(in lab, var(--cmux-diff-fg) 38%, var(--cmux-diff-bg));
@@ -1826,7 +1903,7 @@ svg[data-icon-fill] {
   gap: 4px;
   padding: 2px;
   border: 1px solid color-mix(in srgb, var(--cmux-diff-fg) 16%, transparent);
-  border-radius: 999px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--cmux-diff-fg) 9%, var(--cmux-diff-solid-bg));
 }
 .diff-pill-button {
@@ -1838,7 +1915,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 5px;
   background: transparent;
   color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
   cursor: pointer;
@@ -1852,6 +1929,13 @@ svg[data-icon-fill] {
 .diff-pill-button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--cmux-diff-fg) 5%, var(--cmux-diff-solid-bg));
   color: var(--cmux-diff-fg);
+}
+/* Unavailable here (split in a narrow viewer): its tooltip says why, and hover does not light it. */
+.diff-pill-button[aria-disabled="true"],
+.diff-pill-button[aria-disabled="true"]:hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--cmux-diff-fg) 30%, var(--cmux-diff-solid-bg));
+  cursor: default;
 }
 /* The 20 px stroke glyphs at 19 px: about 14 px of ink, as in the classic pill. */
 .diff-pill-button svg {
@@ -1937,7 +2021,7 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 12px;
+  border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
   box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
 }
@@ -1946,15 +2030,14 @@ svg[data-icon-fill] {
   border-bottom: 0;
 }
 .base-picker-input {
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .base-picker-input:focus,
 .base-picker-input:focus-visible {
   outline: none;
 }
 .base-picker-row {
-  min-height: 30px;
-  border-radius: 7px;
+  border-radius: 6px;
 }
 /* File header row (FileHeader in App.tsx), slotted into Pierre's opaque sticky
    header: language icon, dim directory + bright file name, collapse caret,
@@ -2121,20 +2204,53 @@ svg[data-icon-fill] {
     transition: none;
   }
 }
-/* Language icon hues, matching the @pierre/trees built-in icon colors so a
-   file looks the same in its header and in the files tree. */
-.cmux-file-icon[data-icon-hue="gray"] { color: light-dark(#84848a, #adadb1); }
-.cmux-file-icon[data-icon-hue="red"] { color: light-dark(#d52c36, #ff6762); }
-.cmux-file-icon[data-icon-hue="orange"] { color: light-dark(#d47628, #ffa359); }
-.cmux-file-icon[data-icon-hue="yellow"] { color: light-dark(#d5a910, #ffd452); }
-.cmux-file-icon[data-icon-hue="green"] { color: light-dark(#199f43, #5ecc71); }
-.cmux-file-icon[data-icon-hue="teal"] { color: light-dark(#17a5af, #64d1db); }
-.cmux-file-icon[data-icon-hue="cyan"] { color: light-dark(#1ca1c7, #68cdf2); }
-.cmux-file-icon[data-icon-hue="blue"] { color: light-dark(#1a85d4, #69b1ff); }
-.cmux-file-icon[data-icon-hue="indigo"] { color: light-dark(#693acf, #9d6afb); }
-.cmux-file-icon[data-icon-hue="purple"] { color: light-dark(#a631be, #d568ea); }
-.cmux-file-icon[data-icon-hue="pink"] { color: light-dark(#d32a61, #ff678d); }
-.cmux-file-icon[data-icon-hue="mauve"] { color: light-dark(#594c5b, #79697b); }
+/* Language icon hues, from the terminal theme's ANSI palette like code colors (syntax-theme.ts:
+   each hue takes the nearest slot's code role, at least 3:1 on the background); a hue between two
+   slots mixes them. fileTreeUnsafeCSS points the files tree's icon hues here, so a file looks the
+   same in its header and in the tree. */
+:root {
+  --cmux-file-icon-gray: light-dark(var(--cmux-syntax-light-comment), var(--cmux-syntax-dark-comment));
+  --cmux-file-icon-red: light-dark(var(--cmux-syntax-light-tag), var(--cmux-syntax-dark-tag));
+  --cmux-file-icon-yellow: light-dark(var(--cmux-syntax-light-constant), var(--cmux-syntax-dark-constant));
+  --cmux-file-icon-green: light-dark(var(--cmux-syntax-light-string), var(--cmux-syntax-dark-string));
+  --cmux-file-icon-cyan: light-dark(var(--cmux-syntax-light-type), var(--cmux-syntax-dark-type));
+  --cmux-file-icon-blue: light-dark(var(--cmux-syntax-light-function), var(--cmux-syntax-dark-function));
+  --cmux-file-icon-purple: light-dark(var(--cmux-syntax-light-keyword), var(--cmux-syntax-dark-keyword));
+  --cmux-file-icon-vermilion: var(--cmux-file-icon-red);
+  /* Mixed within each scheme, not light-dark() nested in color-mix(), which no page here relies on. */
+  --cmux-file-icon-orange: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-tag) 50%, var(--cmux-syntax-light-constant)),
+    color-mix(in oklab, var(--cmux-syntax-dark-tag) 50%, var(--cmux-syntax-dark-constant))
+  );
+  --cmux-file-icon-teal: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-type) 70%, var(--cmux-syntax-light-string)),
+    color-mix(in oklab, var(--cmux-syntax-dark-type) 70%, var(--cmux-syntax-dark-string))
+  );
+  --cmux-file-icon-indigo: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-function) 50%, var(--cmux-syntax-light-keyword)),
+    color-mix(in oklab, var(--cmux-syntax-dark-function) 50%, var(--cmux-syntax-dark-keyword))
+  );
+  --cmux-file-icon-pink: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-keyword) 50%, var(--cmux-syntax-light-tag)),
+    color-mix(in oklab, var(--cmux-syntax-dark-keyword) 50%, var(--cmux-syntax-dark-tag))
+  );
+  --cmux-file-icon-mauve: light-dark(
+    color-mix(in oklab, var(--cmux-syntax-light-keyword) 50%, var(--cmux-syntax-light-comment)),
+    color-mix(in oklab, var(--cmux-syntax-dark-keyword) 50%, var(--cmux-syntax-dark-comment))
+  );
+}
+.cmux-file-icon[data-icon-hue="gray"] { color: var(--cmux-file-icon-gray); }
+.cmux-file-icon[data-icon-hue="red"] { color: var(--cmux-file-icon-red); }
+.cmux-file-icon[data-icon-hue="orange"] { color: var(--cmux-file-icon-orange); }
+.cmux-file-icon[data-icon-hue="yellow"] { color: var(--cmux-file-icon-yellow); }
+.cmux-file-icon[data-icon-hue="green"] { color: var(--cmux-file-icon-green); }
+.cmux-file-icon[data-icon-hue="teal"] { color: var(--cmux-file-icon-teal); }
+.cmux-file-icon[data-icon-hue="cyan"] { color: var(--cmux-file-icon-cyan); }
+.cmux-file-icon[data-icon-hue="blue"] { color: var(--cmux-file-icon-blue); }
+.cmux-file-icon[data-icon-hue="indigo"] { color: var(--cmux-file-icon-indigo); }
+.cmux-file-icon[data-icon-hue="purple"] { color: var(--cmux-file-icon-purple); }
+.cmux-file-icon[data-icon-hue="pink"] { color: var(--cmux-file-icon-pink); }
+.cmux-file-icon[data-icon-hue="mauve"] { color: var(--cmux-file-icon-mauve); }
 
 /* R139 desktop feel for the chrome this file restyles (the toolbar and its
    pill, the files sidebar, the file bars, the file menu): not selectable, an

@@ -204,7 +204,7 @@ class ToolchainNoticesTest(unittest.TestCase):
         rust = {e.version: e for e in manifest.rust}
         self.assertIn("cmux-tui/rust-toolchain.toml", rust["1.95.0"].toolchain_files)
         self.assertIn("first-party-apps/cloud/server/rust-toolchain.toml", rust["1.95.0"].toolchain_files)
-        self.assertIn("Native/DiffSidecar/rust-toolchain.toml", rust["1.88.0"].toolchain_files)
+        self.assertIn("Native/DiffSidecar/rust-toolchain.toml", rust["1.98.1"].toolchain_files)
         self.assertEqual(rust["1.95.0"].rustc_commit, "59807616e1fa2540724bfbac14d7976d7e4a3860")
         self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
         [zig] = manifest.zig

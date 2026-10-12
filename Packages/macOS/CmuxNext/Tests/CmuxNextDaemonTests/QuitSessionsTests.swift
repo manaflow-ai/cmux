@@ -19,7 +19,7 @@ struct QuitSessionsTests {
             await h.connection.close()  // what Keep does at quit
             #expect(TerminalHosts.alive(hosts) == hosts, "Keep ended a terminal host")
             #expect(TerminalHosts.alive([h.identity.pid]) == [h.identity.pid], "Keep stopped the daemon")
-            let relaunch = DaemonConnection(endpointProvider: { h.endpoint })
+            let relaunch = DaemonConnection(configuration: BranchDaemonHarness.configuration(), endpointProvider: { h.endpoint })
             let identity = try await relaunch.start()
             #expect(identity.pid == h.identity.pid)
             let tabs = try await relaunch.listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
@@ -66,7 +66,7 @@ struct QuitSessionsTests {
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
-        let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        let next = DaemonConnection(configuration: BranchDaemonHarness.configuration(), endpointProvider: launcher.endpointProvider)
         _ = try await next.start()
         let workspaces = try await next.listWorkspaces().workspaces
         await BranchDaemonHarness.shutDown(next)
@@ -111,7 +111,7 @@ struct QuitSessionsTests {
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
-        let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        let next = DaemonConnection(configuration: BranchDaemonHarness.configuration(), endpointProvider: launcher.endpointProvider)
         _ = try await next.start()
         let workspaces = try await next.listWorkspaces().workspaces
         await BranchDaemonHarness.shutDown(next)
@@ -152,7 +152,7 @@ struct QuitSessionsTests {
             configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
             environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
         _ = try await launcher.ensure()
-        let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        let next = DaemonConnection(configuration: BranchDaemonHarness.configuration(), endpointProvider: launcher.endpointProvider)
         _ = try await next.start()
         do {
             let kept = try await next.listWorkspaces()

@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).

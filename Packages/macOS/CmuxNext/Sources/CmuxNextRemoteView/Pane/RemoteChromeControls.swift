@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextDesign
+import CmuxNextIcons
 
 /// Small AppKit building blocks of the pane chrome: labels, symbols, a
 /// borderless text button with a hover fill, and a pill badge.
@@ -8,7 +10,8 @@ enum RemoteChrome {
         field.font = mono ? .monospacedDigitSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
         field.lineBreakMode = .byTruncatingTail
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The pane's bars are sized by their row's fitting size (cx-k9mc).
+        field.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         return field
     }
 
@@ -18,13 +21,13 @@ enum RemoteChrome {
         field.alignment = .center
         field.preferredMaxLayoutWidth = width
         field.translatesAutoresizingMaskIntoConstraints = false
+        field.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
         return field
     }
 
-    static func symbol(_ name: String, size: CGFloat, weight: NSFont.Weight = .regular) -> NSImageView {
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: size, weight: weight))
-        let view = NSImageView(image: image ?? NSImage())
+    /// The pack icon for SF Symbol `name` (else the symbol) beside a `size`-point label.
+    static func symbol(_ name: String, size: CGFloat) -> NSImageView {
+        let view = NSImageView(image: NSImage.icon(symbol: name, size: .iconRowSize(forLabelPointSize: size)))
         view.translatesAutoresizingMaskIntoConstraints = false
         view.setContentHuggingPriority(.required, for: .horizontal)
         return view
@@ -66,8 +69,7 @@ final class RemoteChromeButton: NSButton {
         super.init(frame: .zero)
         self.title = title
         if let symbol {
-            image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+            image = NSImage.icon(symbol: symbol, size: .iconRowSize(forLabelPointSize: 11))
             imagePosition = title.isEmpty ? .imageOnly : .imageLeading
             imageHugsTitle = true
         }

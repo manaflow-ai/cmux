@@ -11,45 +11,50 @@
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::collections::VecDeque;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::PathBuf;
 
 use super::*;
 
 /// Upper bound on concurrent host-exit waiters. Every host already received
 /// its termination request, so a waiter only observes an exit in progress.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const MAX_HOST_CLOSE_WORKERS: usize = 8;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct PendingHostClose {
     runtime: Arc<Surface>,
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
-    deadline: Instant,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 enum HostCloseStep {
     /// Not yet asked to exit. A worker signals it and queues the wait
     /// behind the other signals, so a batch close signals every host first.
     Signal,
     /// Asked to exit. `None` when the host could not be signaled through its
-    /// connection; the worker then falls back to the host record.
-    Await(Option<crate::surface::HostTermination>),
+    /// connection; the worker then falls back to the host record. The
+    /// deadline starts when the host is signaled, not when the close was
+    /// queued: a teardown that queues a thousand closes must not spend the
+    /// later hosts' exit time waiting in the queue.
+    Await(Option<crate::surface::HostTermination>, Instant),
 }
 
 #[derive(Default)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 struct HostCloseState {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     queue: VecDeque<PendingHostClose>,
     workers: usize,
     /// Closes queued or in progress.
     pending: usize,
+    /// Steps (signals and finished closes) since start; a waiter measures
+    /// progress with it.
+    steps: u64,
 }
 
 /// Shared queue of hosts that were asked to exit.
@@ -60,7 +65,7 @@ pub(crate) struct TerminalHostCloses {
 }
 
 impl TerminalHostCloses {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn enqueue(self: &Arc<Self>, close: PendingHostClose) {
         let spawn = {
             let mut state = self.state.lock().unwrap();
@@ -88,7 +93,7 @@ impl TerminalHostCloses {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn work(&self) {
         loop {
             let close = {
@@ -103,30 +108,40 @@ impl TerminalHostCloses {
             };
             let close = match close.step {
                 HostCloseStep::Signal => signal_host_close(close),
-                HostCloseStep::Await(_) => {
+                HostCloseStep::Await(..) => {
                     finish_host_close(close);
                     None
                 }
             };
             let mut state = self.state.lock().unwrap();
+            // Waiters measure progress, so every step wakes them: a long
+            // signal phase counts too, not only finished closes.
+            state.steps = state.steps.wrapping_add(1);
+            self.idle.notify_all();
             if let Some(close) = close {
                 // Signaled: its wait goes behind the signals still queued.
                 state.queue.push_back(close);
                 continue;
             }
             state.pending -= 1;
-            if state.pending == 0 {
-                self.idle.notify_all();
-            }
         }
     }
 
-    /// Wait until every queued host close finished or `deadline` passed.
-    /// Returns whether the queue drained.
-    pub(crate) fn wait_idle(&self, deadline: Instant) -> bool {
+    /// Wait until every queued host close finished, until no host was
+    /// signaled and no close finished for `stall`, or until `ceiling`.
+    /// Returns whether the queue drained. Each close is bounded by its own
+    /// deadline, so a long queue that keeps progressing is waited for; a
+    /// fixed deadline from the first enqueue made the hosts at the end of a
+    /// large teardown miss it.
+    pub(crate) fn wait_idle(&self, stall: Duration, ceiling: Instant) -> bool {
         let mut state = self.state.lock().unwrap();
+        let mut progress = (state.steps, Instant::now() + stall);
         while state.pending != 0 {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            if state.steps != progress.0 {
+                progress = (state.steps, Instant::now() + stall);
+            }
+            let Some(remaining) = progress.1.min(ceiling).checked_duration_since(Instant::now())
+            else {
                 return false;
             };
             state = self.idle.wait_timeout(state, remaining).unwrap().0;
@@ -142,7 +157,7 @@ impl TerminalHostCloses {
 
 /// Ask one queued host to exit. Returns the close to await, or `None` when a
 /// local runtime was killed inline.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
     let termination = match close.runtime.begin_host_termination() {
         Ok(Some(termination)) => Some(termination),
@@ -169,14 +184,14 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
             None
         }
     };
-    close.step = HostCloseStep::Await(termination);
+    close.step = HostCloseStep::Await(termination, Instant::now() + TERMINAL_HOST_CLOSE_WAIT);
     Some(close)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root, deadline } = close;
-    let HostCloseStep::Await(termination) = step else {
+    let PendingHostClose { runtime, step, identity, host_root } = close;
+    let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
     let acknowledged =
@@ -209,7 +224,10 @@ impl Mux {
     /// the host's termination receipt; a local runtime is killed inline.
     pub(super) fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
         let identity = self.resource_terminal_host_identity(runtime);
-        #[cfg(unix)]
+        if let Some(identity) = identity.as_ref() {
+            self.terminal_respawns.forget_argv(&identity.terminal_id);
+        }
+        #[cfg(any(unix, windows))]
         {
             if !runtime.has_host_termination() {
                 // A local runtime: kill it inline, and end any host record
@@ -229,10 +247,9 @@ impl Mux {
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
-                deadline: Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
             });
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = identity;
             runtime.kill();
@@ -244,29 +261,32 @@ impl Mux {
     /// A batch close's reply does not wait for a hundred hosts to be
     /// signaled one after another.
     pub(super) fn terminate_terminal_runtimes_deferred(&self, runtimes: Vec<Arc<Surface>>) {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
+                if let Some(identity) = identity.as_ref() {
+                    self.terminal_respawns.forget_argv(&identity.terminal_id);
+                }
                 self.terminal_host_closes.enqueue(PendingHostClose {
                     runtime,
                     step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
-                    deadline: Instant::now() + TERMINAL_HOST_CLOSE_WAIT,
                 });
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         for runtime in runtimes {
             runtime.kill();
         }
     }
 
     /// Wait until every closed terminal's host has exited or been handed to
-    /// record cleanup, or `deadline` passed. Returns whether all finished.
-    pub fn wait_for_terminal_host_closes(&self, deadline: Instant) -> bool {
-        self.terminal_host_closes.wait_idle(deadline)
+    /// record cleanup, until the close pool made no progress for `stall`, or
+    /// until `ceiling`. Returns whether all finished.
+    pub fn wait_for_terminal_host_closes(&self, stall: Duration, ceiling: Instant) -> bool {
+        self.terminal_host_closes.wait_idle(stall, ceiling)
     }
 }

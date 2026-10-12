@@ -19,10 +19,18 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     public var lineWidth: CGFloat
     /// Height of one large labeled tile (the tiles arrangement).
     public var favoriteHeight: CGFloat
+    /// Where the rows' glyphs sit, from a line's leading edge. When set, a
+    /// line of icon-only items (the footer's avatar and gear) is
+    /// row-height squares with no gap (unless the section sets one), the
+    /// first glyph on this column (SIDEBAR-FOOTER-AND-SPACE-MENU F1). Nil
+    /// keeps `iconButtonWidth` and `tileGap`.
+    public var glyphColumn: CGFloat?
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
-                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1, favoriteHeight: CGFloat? = nil) {
+                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1, favoriteHeight: CGFloat? = nil,
+                glyphColumn: CGFloat? = nil) {
+        self.glyphColumn = glyphColumn
         self.rowHeight = rowHeight
         self.headerHeight = headerHeight
         self.inset = inset
@@ -80,7 +88,8 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
-                            labelWidths: [LayoutItemID: CGFloat] = [:], appHeights: [LayoutSectionID: CGFloat] = [:]) -> SidebarRegionLayout {
+                            labelWidths: [LayoutItemID: CGFloat] = [:], appHeights: [LayoutSectionID: CGFloat] = [:],
+                            iconWidths: [LayoutItemID: CGFloat] = [:]) -> SidebarRegionLayout {
         // An app section shows only with content (a height from its provider).
         let shown = sections.filter { section in
             switch section.content {
@@ -124,7 +133,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 } else if let mode = SectionFlow.mode(section, look: look) {
                     let flowInset = tiled ? m.cardPadding : m.inset
                     let flow = SectionFlow.place(section, mode: mode, x: x + flowInset, y: y, width: max(0, innerWidth - flowInset * 2),
-                                                 labelWidths: labelWidths, metrics: m)
+                                                 labelWidths: labelWidths, iconWidths: iconWidths, metrics: m)
                     result.rows += flow.rows
                     y += flow.height
                     let lines = min(flow.lines, section.maxRows ?? flow.lines)

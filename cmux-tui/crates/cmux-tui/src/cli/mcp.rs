@@ -33,6 +33,42 @@ use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
 use transport::{CallFailure, FailureKind, Prefix};
 
+/// Runs one daemon request for the agent composite surface. The composite
+/// surface uses the same socket discovery, routing, idempotency and deadline
+/// handling as MCP without exposing the transport plumbing to the CLI module.
+#[cfg(unix)]
+pub(super) fn agent_resource(global: &GlobalArgs, plan: RequestPlan) -> Result<Value, Value> {
+    transport::resource(global, plan, &[]).map_err(agent_failure_value)
+}
+
+/// Runs one app control request for the agent composite surface.
+#[cfg(unix)]
+pub(super) fn agent_app(
+    global: &GlobalArgs,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+    idempotency_key: Option<&str>,
+) -> Result<Value, Value> {
+    transport::app_method(global, method, params, timeout, idempotency_key)
+        .map_err(agent_failure_value)
+}
+
+#[cfg(unix)]
+fn agent_failure_value(failure: CallFailure) -> Value {
+    let mut error = failure.error;
+    if let Some(object) = error.as_object_mut() {
+        let details = object.entry("details").or_insert_with(|| Value::Object(Map::new()));
+        if let Some(details) = details.as_object_mut() {
+            details.insert("state".into(), Value::String(failure.kind.state().into()));
+            if let Some(key) = failure.idempotency_key {
+                details.insert("idempotency_key".into(), Value::String(key));
+            }
+        }
+    }
+    error
+}
+
 /// MCP revisions this server speaks, newest first.
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
@@ -335,6 +371,7 @@ impl<B: Backend> Server<B> {
         tools
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
+        tools.push(super::agents::snapshot_tool());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -389,6 +426,62 @@ impl<B: Backend> Server<B> {
         }
         if name == action_tools::WINDOW_LIST {
             return Ok(self.call_window_list(&arguments));
+        }
+        if name == super::agents::SNAPSHOT_TOOL {
+            let limit = match arguments.get("limit") {
+                None => super::agents::DEFAULT_SNAPSHOT_LIMIT,
+                Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
+                    Some(value) if (1..=super::agents::MAX_SNAPSHOT_LIMIT).contains(&value) => {
+                        value
+                    }
+                    _ => {
+                        return Ok(tool_error(envelope(
+                            v2_tools::invalid(
+                                "agents_snapshot limit must be an integer from 1 to 1000",
+                            ),
+                            "not_run",
+                            None,
+                        )));
+                    }
+                },
+            };
+            let offset = match arguments.get("offset") {
+                None => 0,
+                Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
+                    Some(value) => value,
+                    None => {
+                        return Ok(tool_error(envelope(
+                            v2_tools::invalid(
+                                "agents_snapshot offset must be a nonnegative integer",
+                            ),
+                            "not_run",
+                            None,
+                        )));
+                    }
+                },
+            };
+            if let Some(name) =
+                arguments.keys().find(|name| !matches!(name.as_str(), "limit" | "offset"))
+            {
+                return Ok(tool_error(envelope(
+                    v2_tools::invalid(format!("agents_snapshot has no argument {name:?}")),
+                    "not_run",
+                    None,
+                )));
+            }
+            let daemon = self
+                .backend
+                .resource(None, super::agents::snapshot_plan(), &[])
+                .map_err(agent_failure_value);
+            let app = self
+                .backend
+                .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None)
+                .map_err(agent_failure_value);
+            let snapshot = super::agents::compose_snapshot(daemon, app);
+            if let Some(error) = super::agents::snapshot_error(&snapshot) {
+                return Ok(tool_error(envelope(error, "not_run", None)));
+            }
+            return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {

@@ -22,8 +22,9 @@ nonisolated extension DaemonHomeSource {
     static var defaultAttachmentCacheLimit: Int { 512_000_000 }
 
     func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        let connection = try requireOwner()
         let stored = try await Self.attachmentCall {
-            try await ConversationClient(self.requireConnection())
+            try await ConversationClient(connection)
                 .uploadAttachment(conversation: file.conversation.rawValue, attachment: HomeCoreMapping.attachment(file.ref),
                                   file: file.fileURL, posterFile: file.posterURL, previewFile: file.previewURL,
                                   progress: file.progress)

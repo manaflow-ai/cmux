@@ -24,7 +24,7 @@ final class SignalRelay {
         for signal in signals {
             let source = DispatchSource.makeSignalSource(signal: signal, queue: .main)
             source.setEventHandler {
-                MainActor.assumeIsolated { handler(signal) }
+                MainActor.assumeIsolated { handler(signal) } // main-proof: dispatch source on queue: .main
             }
             source.resume()
             sources.append(source)

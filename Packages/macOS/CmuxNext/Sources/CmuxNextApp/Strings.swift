@@ -20,6 +20,12 @@ enum Strings {
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
     static var menuDebug: String { String(localized: "menu.debug", defaultValue: "Debug", bundle: .module) }
+    static var menuSidebarToggleIcon: String {
+        String(localized: "menu.debug.sidebarToggleIcon", defaultValue: "Sidebar Toggle Icon", bundle: .module)
+    }
+    static var menuStatusIcons: String {
+        String(localized: "menu.debug.statusIcons", defaultValue: "Status Icons", bundle: .module)
+    }
     static var menuServer: String { String(localized: "menu.server", defaultValue: "Server", bundle: .module) }
     static var menuMinimize: String { String(localized: "menu.window.minimize", defaultValue: "Minimize", bundle: .module) }
     static var menuZoom: String { String(localized: "menu.window.zoom", defaultValue: "Zoom", bundle: .module) }
@@ -34,6 +40,10 @@ enum Strings {
 
 extension Strings {
     static var daemonConnecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
-    static var daemonUnavailable: String { String(localized: "daemon.unavailable", defaultValue: "cmux-tui is not responding", bundle: .module) }
+    static var daemonServiceUnavailable: String {
+        String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
+    }
+    static var daemonReinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .module) }
+    static var daemonCopyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
     static var daemonRetrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
 }

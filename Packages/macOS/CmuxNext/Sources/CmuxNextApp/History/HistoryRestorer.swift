@@ -42,49 +42,26 @@ struct HistoryRestorer {
         pane.newBrowserTab(url: url, profile: profile)
     }
 
-    /// Reopens a closed tab, screen or workspace from a history list.
+    /// Reopens a closed tab, screen or workspace from a history list, on the
+    /// daemon that recorded it (the only closed history).
     func reopen(_ item: ClosedItem) {
-        if let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id) {
-            guard let entry = DaemonClosedHistory.entry(id, in: services) else {
-                return services.registry.refuse(HistoryAppStrings.entryGone)
-            }
-            return DaemonClosedHistory.reopen(entry, services: services)
-        }
-        let context = AppActionContext(services: services)
-        switch item.kind {
-        case .terminalTab, .browserTab:
-            reopen(closedID: item.id)
-        case .screen:
-            guard let record = services.closedScreens.take(id: item.id), ScreenHandlers.reopen(record, context) else {
-                return services.registry.refuse(HistoryAppStrings.entryGone)
-            }
-        case .workspace:
-            guard let record = services.closedWorkspaces.take(item.id) else { return services.registry.refuse(HistoryAppStrings.entryGone) }
-            guard record.machine == services.activeDaemon.machineID else {
-                services.closedWorkspaces.restore(record)
-                return services.registry.refuse(HistoryAppStrings.reopenWorkspaceOnMachine(record.machine))
-            }
-            // A reopen gets a new workspace id; the closed workspace's agent-home folder (its chat
-            // files) moves to it before its first chat (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
-            let key = services.closedWorkspaces.reopenKey(for: record)
-            WorkspaceHandlers.createAndShow(context, name: record.name, cwd: record.cwd, key: key)
-        }
+        reopen(closedID: item.id)
     }
 
-    /// Reopens one closed tab (`nil`: the newest) where it was.
+    /// Reopens one closed item by its history id (`nil`: the newest one of
+    /// the key window, as Cmd-Shift-T picks it).
     func reopen(closedID: String?) {
-        // The newest tab a daemon recorded, when the app's tracker has none.
-        if closedID == nil, services.closedTabs?.records.isEmpty ?? true,
-           let newest = DaemonClosedHistory.entries([.tab], in: services).first {
-            return DaemonClosedHistory.reopen(newest, services: services)
+        let entry: DaemonClosedHistory.Entry?
+        if let closedID {
+            entry = DaemonClosedHistory.entry(DaemonClosedHistory.daemonID(fromHistoryID: closedID) ?? closedID, in: services)
+        } else {
+            entry = DaemonClosedHistory.newest(for: services.windows.active?.state.id, in: services)
         }
-        guard let tracker = services.closedTabs else { return }
-        let record = closedID.map { tracker.take($0) } ?? tracker.popLast()
-        guard let record else {
+        guard let entry else {
             services.registry.refuse(closedID == nil ? HistoryAppStrings.nothingClosed : HistoryAppStrings.entryGone)
             return
         }
-        tracker.reopen(record, fallback: services.windows.active?.focusedPane)
+        DaemonClosedHistory.reopen(entry, services: services)
     }
 
     /// Resumes an agent session in a new terminal tab on its machine, in

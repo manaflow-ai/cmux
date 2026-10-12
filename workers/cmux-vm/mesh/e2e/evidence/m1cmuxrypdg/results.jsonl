@@ -1,0 +1,15 @@
+{"t":1791357432937,"event":"mesh","meshId":"mesh_n3rbcc6v0sdzwa9fmf29znp7d8","ipv4Cidr":"10.237.160.0/20","ms":99}
+{"t":1791357433961,"event":"vm","vmId":"vm_n265dd69rzny9gvptd4012xv60","state":"running","idleTimeoutSeconds":300,"ms":1024}
+{"t":1791357434135,"event":"vm-joined","ipv4":"10.237.160.1","ms":174}
+{"t":1791357435172,"event":"vm-server","exitCode":0,"stdout":"1"}
+{"t":1791357435267,"event":"keygen","code":0,"publicKey":"gUwHE+lZwvXAIVIp6REW/A/5MDJ+poVcTjRUHft/rGc="}
+{"t":1791357435309,"event":"enroll","code":1,"stderr":"{\"error\":\"Conflict\",\"message\":\"The tunnel could not be created for this mesh\",\"status\":409}\n"}
+{"t":1791357435310,"event":"error","message":"Error: enroll failed"}
+{"t":1791357435447,"event":"cleanup","path":"/v1/meshes/mesh_n3rbcc6v0sdzwa9fmf29znp7d8/vms/vm_n265dd69rzny9gvptd4012xv60","status":204}
+{"t":1791357435510,"event":"cleanup","path":"/v1/vms/vm_n265dd69rzny9gvptd4012xv60","status":204}
+{"t":1791357435552,"event":"cleanup","path":"/v1/meshes/mesh_n3rbcc6v0sdzwa9fmf29znp7d8","status":204}
+{"t":1791357435554,"event":"cmux-404","path":"/v1/vms/vm_n265dd69rzny9gvptd4012xv60","status":404}
+{"t":1791357435556,"event":"cmux-404","path":"/v1/meshes/mesh_n3rbcc6v0sdzwa9fmf29znp7d8","status":404}
+{"t":1791357435566,"event":"provider-404","kind":"vpc","id":"vpc-873ebe81a5fa4e14a1c858b7b2d13951","status":404}
+{"t":1791357435576,"event":"provider-404","kind":"vm","id":"vm-dd968dd33be9413f9836e17fa8e46be4","status":404}
+{"t":1791357435576,"event":"done","run":"m1cmuxrypdg","ok":false,"out":"/Users/cmux/cmux-agent-work/mesh-m1c/repo/workers/cmux-vm/mesh/e2e/out/m1cmuxrypdg"}

@@ -4,16 +4,17 @@
 use super::*;
 
 impl Mux {
-    /// Commit the full public topology of `state` as one revision, for a
-    /// legacy path that changed the live tree while it already holds both
-    /// writer locks (registry, then state).
+    /// Commit the full public topology of `state` as one revision of
+    /// `actor`, for a legacy path that changed the live tree while it already
+    /// holds both writer locks (registry, then state).
     pub(super) fn commit_full_resource_projection_locked(
         &self,
         registry: &mut WorkspaceRegistry,
         state: &mut State,
+        actor: &Actor,
         operation: &str,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         let mut projection =
             self.resource_effect_projection_locked(registry, state, serde_json::json!({}))?;
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;

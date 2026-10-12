@@ -24,8 +24,10 @@ until every step passes.
    runs `initialize`, `session/new` and one prompt, and prints PASS/WARN/FAIL
    per step with a `fix:` line. Do what the fix says, then run doctor again.
    Use `--no-prompt` when the user does not want a model call.
-5. When doctor says `ready`, tell the user the harness now shows in the cmux
-   model picker. `cmux harness list` shows every harness and its source.
+5. When doctor says `ready`, confirm one real chat:
+   `cmux acp exec -m <id> "Reply with the single word OK."` prints the reply.
+   Then tell the user the harness now shows in the cmux model picker.
+   `cmux harness list` shows every harness and its source.
 
 ## Rules
 
@@ -38,8 +40,11 @@ until every step passes.
 - The file name is the id: `acme.toml` has `id = "acme"` (lowercase letters,
   digits, `-`).
 - A profile in a repository (`.cmux/harnesses/`) runs only after the user
-  trusts the folder and confirms "Enable harness" with the command shown. Do
-  not try to get around that.
+  trusts the folder and confirms "Enable harness" with the command shown:
+  `cmux harness list --folder DIR` shows its state, the user runs
+  `cmux harness enable <id> --folder DIR` (and `disable` to withdraw). Any
+  change to the file, its icon or a script inside the folder that it runs
+  asks again. Never pass `--yes` for the user and do not try to get around it.
 
 ## Schema (schema 1)
 

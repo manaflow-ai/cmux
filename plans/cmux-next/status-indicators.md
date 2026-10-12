@@ -90,7 +90,17 @@ collapsed group rolls up its workspaces.
 
 The client never infers death or clears a stale entry itself; it renders the owner's facts.
 
-## 5. API (daemon + Rust CLI; accepted by the #16174 owner 2026-10-02, not landed)
+## 5. API (daemon + Rust CLI; landed on feat-cmux-next 2026-10-10, PR 16819 re-applied, bead cx-6so.54)
+
+Landed: the `workspace_status.set` fields below (stored in the additive `workspace_status_meta` table), daemon
+auto-clear (TTL, owner terminal exit, owner process exit with start-time identity, re-armed at daemon start),
+`terminal-activity-v1` `extra.busy`, and `cmux status set|clear|list|run` plus the loading flags of
+`workspace status set` in the Rust CLI (cli/status.rs, cli/command/state/status_flags.rs). A process owner is
+accepted only from a local actor (the user's CLI or the verified app; never an app or a remote peer) and only
+where the daemon can watch a process exit (not Windows). Behavior proof: cmux-tui `tests/cli/status.rs`.
+Not landed: `--notify`, `cmux status wait`, `terminal wait --until` (section 9), the `braille` style hint, and
+agent-session owners (accepted and stored, not yet cleared on session end). OSC 7501 program status
+(`extra.program_status`) is a separate source and is not stored as status rows.
 
 Ops extend the v2 status ops instead of adding a parallel table:
 
@@ -161,10 +171,33 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
 
 ## 9. Implementation state
 
-- Rust (PR into feat-cmux-next-acpmux, branch feat-cmux-next-status-rust): `workspace_status.set` loading fields
+- Rust (landed on feat-cmux-next, bead cx-6so.54; PR 16819 closed): `workspace_status.set` loading fields
   and owners, daemon auto-clear (TTL, owner terminal exit, owner process exit with start-time identity),
   `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
   `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist
   as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
 - Swift: renders agent states today; reading `workspace_status` loading fields and `extra.busy` / `extra.progress`
   waits for the cmux-tui pin cut that carries the Rust PR.
+
+## 10. Agent working vs loading (WORKING-AND-LOADING-INDICATORS, 2026-10-07)
+
+Supersedes "one indicator for every tab loading state" (section 8) for agent work.
+
+- `StatusIndicatorState.working(progress:)`: agent work (acpmux turn `running`, hook `working`, OSC 7501
+  `working`). Drawn as three dots in the neutral accent (theme foreground) that dim one after another
+  (`Glyph.dots`, `Animation.wave`: one `CAReplicatorLayer`, render-server animation); with progress, a still
+  accent ring. No loading style changes it (also `none`). Reduce Motion: three still dots.
+- Page and command loading keep the loading style (thin ring by default). Needs input (`waiting`) is a still
+  attention dot everywhere.
+- Sources: acpmux turn state through the app's single `_acpmux/watch` feed (`AgentTurnStateStore`, local
+  host only); OSC 7501 records from `extra.program_status` on the terminal resource (source `program`, ranked
+  under `agent`). Done (success badge) and error (failure badge, error mark on the row) show until seen:
+  `ProgramStatusSeenStore` keeps this client's seen keys (terminal, record id, `updated_seq`; at most 1024, in the
+  user defaults). Focus, typing, a click or an open of the tab sees them; so does a record that arrives while the
+  tab shows in the key window.
+- acpmux `disconnected` (or `unreachable`) alone looks idle: the next prompt respawns the agent. The error
+  mark shows only when `lastTurn.status` is `failed` (coordinator, 2026-10-07).
+- Settings: `appearance.statusIndicator.showAgentWorkingOnTabs`, `.showPageLoading`. The row's working
+  element is a row-content setting (`sidebar.workspaceRow.working`). Browser loading never reaches the row.
+- Gaps: remote acpmux sessions (another machine's chat tab) have no state; OSC 7501 notifications for
+  blocked/error belong to the daemon notification ledger (owner), not the client.

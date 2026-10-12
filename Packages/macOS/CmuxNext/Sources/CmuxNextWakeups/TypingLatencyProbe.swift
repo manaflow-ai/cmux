@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Opt-in keystroke-to-frame timeline for one terminal key at a time
 /// (`CMUX_NEXT_TYPING_PROBE=<csv path>`). Off by default: every hop then

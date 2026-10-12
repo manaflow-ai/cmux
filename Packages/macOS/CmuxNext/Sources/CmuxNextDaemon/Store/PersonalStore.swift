@@ -24,6 +24,10 @@ public final class PersonalStore {
     public internal(set) var terminalThemes: [String: [String: String]] = [:]
     /// Browser profile records (`browser-profiles-v1`), in order.
     public internal(set) var browserProfiles: [BrowserProfileSnapshot] = []
+    /// Groups a client is deleting because they lost their last member
+    /// (cx-rcby). Client state, never from the daemon: the sidebar hides an
+    /// ending group that shows no member until the delete lands.
+    public var endingGroups: Set<WorkspaceGroupID> = []
 
     public init() {}
 

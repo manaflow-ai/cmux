@@ -34,6 +34,11 @@ pub trait Workspaces: Send + Sync {
     fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
+    /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
+    /// goes to the closed history; the agent session stays.
+    fn close(&self, _key: &str) -> Result<(), String> {
+        Err("closing is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -87,17 +92,163 @@ pub fn new_key() -> String {
 pub struct AppWorkspaces {
     pub control: PathBuf,
     pub daemon: PathBuf,
+    /// The Chief home (`MUX_HOME`), whose own acpmux runs the subagents: the
+    /// tab's host is `chief:<home id>`, so the app attaches it there.
+    pub home: Option<PathBuf>,
 }
 
 impl AppWorkspaces {
     /// From the host's env: `CMUX_SOCKET_PATH` (None without it) and the
-    /// daemon socket.
+    /// app's daemon, where the app makes the workspaces.
     pub fn from_env(daemon: &str) -> Option<AppWorkspaces> {
-        crate::cli::env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
+        AppWorkspaces::resolve(daemon, &crate::cli::env)
+    }
+
+    /// `CMUX_SOCKET_PATH` from `env`, and the daemon that holds the app's
+    /// workspaces: `CMUX_APP_DAEMON_SOCKET` when the app sets it (the host's
+    /// `--daemon-socket` is then the Chief's conversation owner), else
+    /// `daemon` (cmux_env::app_daemon_socket).
+    pub fn resolve(daemon: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<AppWorkspaces> {
+        env("CMUX_SOCKET_PATH").map(|control| AppWorkspaces {
             control: control.into(),
-            daemon: daemon.into(),
+            daemon: crate::cmux_env::app_daemon_socket(daemon, env).into(),
+            home: None,
         })
     }
+
+    /// The same, for the Chief home `home`.
+    pub fn with_home(mut self, home: &Path) -> AppWorkspaces {
+        self.home = Some(home.to_owned());
+        self
+    }
+}
+
+/// The Markdown link that names subagent `id` (`[a1](cmux://chief/<home id>/session/<session>)`):
+/// the app's deeplink of its session in the Chief home whose `mux.parent` tag is `parent`
+/// (`optchat-chief:<home id>`). The app opens the tab that shows that session (host
+/// `chief:<home id>`); Home allows the form only for this Chief's own subagents. None when the
+/// tag names no home or the session id needs escaping.
+pub fn subagent_link(parent: &str, id: &str, session: &str) -> Option<String> {
+    let home = parent.strip_prefix("optchat-chief:")?;
+    let token = |t: &str| {
+        !t.is_empty()
+            && t.len() <= 200
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    };
+    (home.len() == 8
+        && home
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && token(session))
+    .then(|| format!("[{id}](cmux://chief/{home}/session/{session})"))
+}
+
+/// `text` with each mention of a known subagent (`a1`, or `[a1]` not already a link) written as
+/// its link (`subagent_link`), so every client shows it as a link whether or not the model
+/// wrote one (Lawrence 2026-10-10). `session_of` names a subagent's session (None: not one of
+/// this Chief's, left as written). Code spans and fences, existing links and words inside a
+/// longer token (`ma1`, `a1b`, `/a1`, `a1.txt`) are left alone.
+pub fn link_subagents(
+    text: &str,
+    parent: &str,
+    session_of: impl Fn(&str) -> Option<String>,
+) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let (mut i, mut copied) = (0, 0);
+    let mut fence = false;
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let link_of = |id: &str| session_of(id).and_then(|s| subagent_link(parent, id, &s));
+    while i < b.len() {
+        let line_start = i == 0 || b[i - 1] == b'\n';
+        if line_start && text[i..].starts_with("```") {
+            fence = !fence;
+            i += 3;
+            continue;
+        }
+        if fence {
+            i += 1;
+            continue;
+        }
+        match b[i] {
+            b'`' => {
+                // An inline code span: to its closing backtick on this line.
+                let end = text[i + 1..]
+                    .find(['`', '\n'])
+                    .map_or(b.len(), |e| i + 1 + e);
+                i = if end < b.len() && b[end] == b'`' {
+                    end + 1
+                } else {
+                    i + 1
+                };
+            }
+            b'[' => {
+                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
+                match close {
+                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
+                        // An existing link: skip it whole.
+                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
+                    }
+                    Some(c) if b[c] == b']' => {
+                        let id = &text[i + 1..c];
+                        if is_id(id)
+                            && let Some(link) = link_of(id)
+                        {
+                            out.push_str(&text[copied..i]);
+                            out.push_str(&link);
+                            copied = c + 1;
+                        }
+                        i = c + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            b'a' if i == 0
+                || !(word(b[i - 1])
+                    || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
+            {
+                let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                let id = &text[i..end];
+                let bounded = end > i + 1
+                    && !(end < b.len()
+                        && (word(b[end])
+                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                if bounded
+                    && is_id(id)
+                    && let Some(link) = link_of(id)
+                {
+                    out.push_str(&text[copied..i]);
+                    out.push_str(&link);
+                    copied = end;
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out.push_str(&text[copied..]);
+    out
+}
+
+/// A subagent id: `a` and 1 to 6 digits, no leading zero.
+fn is_id(id: &str) -> bool {
+    let digits = id.strip_prefix('a').unwrap_or("");
+    (1..=6).contains(&digits.len())
+        && !digits.starts_with('0')
+        && digits.bytes().all(|c| c.is_ascii_digit())
+}
+
+/// The agent tab host of a session in Chief home `home`'s acpmux.
+pub fn chief_host(home: &Path) -> String {
+    format!("chief:{}", crate::paths::home_id(home))
+}
+
+/// `open_request` whose tab names Chief home `home` as its session's host.
+pub fn open_request_for(home: &Path, session: &str, name: &str, key: &str, cwd: &Path) -> Value {
+    let mut request = open_request(session, name, key, cwd);
+    request["params"]["args"]["host"] = json!(chief_host(home));
+    request
 }
 
 /// The `action.run` request that opens `session` in workspace `key`.
@@ -157,7 +308,10 @@ impl Workspaces for AppWorkspaces {
         let key = key.to_owned();
         match control_call(
             &self.control,
-            &open_request(session, name, &key, cwd),
+            &match &self.home {
+                Some(home) => open_request_for(home, session, name, &key, cwd),
+                None => open_request(session, name, &key, cwd),
+            },
             Duration::from_secs(60),
         ) {
             Ok(_) => Ok(key),
@@ -169,6 +323,10 @@ impl Workspaces for AppWorkspaces {
             Err(e) if still_running(&e) => Ok(key),
             Err(e) => Err(e),
         }
+    }
+
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
@@ -280,11 +438,21 @@ impl Workspaces for DaemonWorkspaces {
         result.map(|()| key)
     }
 
+    fn close(&self, key: &str) -> Result<(), String> {
+        close_by_key(&self.daemon, key)
+    }
+
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
         rename_by_key(&self.daemon, key, name)
     }
 
     fn place(&self) -> String {
+        // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
+        // as the Chief's machine row.
+        if self.host.starts_with("chief:") {
+            return "the Chief's own cmux session on this Mac (the cmux app shows it under the Chief)"
+                .to_owned();
+        }
         format!(
             "the cmux session on {0} (a cmux app shows it only while connected to {0})",
             self.host_name
@@ -313,6 +481,28 @@ pub fn still_running(error: &str) -> bool {
 const MUTATION_ORIGIN: &str = "optchat-chief";
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
+/// Closes workspace `key` and ends its terminal (the subagent's shell); the
+/// agent session is acpmux's and stays.
+fn close_by_key(daemon: &Path, key: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig, CloseWorkspaceRequest, Optional};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let result = client
+        .close_workspace(CloseWorkspaceRequest {
+            end_terminals: Some(true),
+            expected_generation: Optional::Missing,
+            expected_revision: Optional::Missing,
+            key: Optional::Value(key.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-close-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            workspace: Optional::Missing,
+        })
+        .map(|_| ())
+        .map_err(|e| format!("close-workspace: {e}"));
+    client.close();
+    result
+}
+
 fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
     let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
@@ -331,66 +521,4 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
         .map_err(|e| format!("rename-workspace: {e}"));
     client.close();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn names_and_keys() {
-        assert_eq!(
-            name("a1", "list the\nfiles in ~/"),
-            "a1 · list the files in ~/"
-        );
-        assert!(name("a2", &"x".repeat(80)).ends_with('…'));
-        assert_eq!(done_name("a1 · t"), "✓ a1 · t");
-        let key = new_key();
-        assert_eq!(key.len(), 36);
-        assert_eq!(&key[14..15], "4");
-        assert_ne!(key, new_key());
-    }
-
-    #[test]
-    fn a_run_past_the_apps_wait_budget_still_opens_the_workspace() {
-        use std::os::unix::net::UnixListener;
-        let dir = tempfile::tempdir().unwrap();
-        let control = dir.path().join("control.sock");
-        let listener = UnixListener::bind(&control).unwrap();
-        let server = std::thread::spawn(move || {
-            for answer in [
-                r#"{"ok":false,"error":{"message":"action.run did not finish within 1999 ms"}}"#,
-                r#"{"ok":false,"error":{"message":"unavailable: no such action"}}"#,
-            ] {
-                let (mut conn, _) = listener.accept().unwrap();
-                let mut line = String::new();
-                BufReader::new(conn.try_clone().unwrap())
-                    .read_line(&mut line)
-                    .unwrap();
-                writeln!(conn, "{answer}").unwrap();
-            }
-        });
-        let w = AppWorkspaces {
-            control,
-            daemon: dir.path().join("daemon.sock"),
-        };
-        assert_eq!(
-            w.open(&new_key(), "s", "n", Path::new("/w"))
-                .map(|k| k.len()),
-            Ok(36)
-        );
-        assert!(w.open(&new_key(), "s", "n", Path::new("/w")).is_err());
-        server.join().unwrap();
-    }
-
-    #[test]
-    fn the_open_request_runs_the_app_action_as_a_script() {
-        let r = open_request("sess", "a1 · t", "k", Path::new("/w"));
-        assert_eq!(r["method"], "action.run");
-        assert_eq!(r["params"]["action"], OPEN_ACTION);
-        assert_eq!(r["params"]["args"]["session"], "sess");
-        assert_eq!(r["params"]["args"]["key"], "k");
-        assert_eq!(r["params"]["origin"], "script");
-        assert_eq!(r["params"]["wait"], true);
-    }
 }

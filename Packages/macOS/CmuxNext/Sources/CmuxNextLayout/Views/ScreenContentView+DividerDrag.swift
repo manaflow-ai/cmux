@@ -2,28 +2,6 @@ import AppKit
 
 /// Divider and column-edge drags, emitted as transactional layout intents.
 extension ScreenContentView {
-    struct ActiveDrag {
-        var kind: DividerHandleView.Kind
-        var transaction: LayoutTransactionID
-        var grabOffset: CGFloat
-        var container: CGRect
-        var axis: SplitAxis
-        /// Minimum extents of the two sides (split) or of the column.
-        var minimumA: CGFloat = 0
-        var minimumB: CGFloat = 0
-        /// A docked column's handle: on the right edge it grows leftward.
-        var dockEdge: DockEdge?
-        /// A row edge: the column's rows and their frames when the drag
-        /// began (rows.md Z1).
-        var rows: RowDragStart?
-    }
-
-    struct RowDragStart {
-        var rows: [LayoutRow]
-        var stack: RowStackGeometry
-        var minimums: [RowID: CGFloat]
-    }
-
     /// `point` in the geometry space of `kind`: strip space for what
     /// scrolls, view space for a docked column's dividers and edge.
     func contentPoint(fromWindow point: NSPoint, kind: DividerHandleView.Kind) -> CGPoint {
@@ -52,8 +30,9 @@ extension ScreenContentView {
                 guard let divider = geometry.dividers.first(where: { $0.id == id }) else { return }
                 let pointer = divider.axis == .horizontal ? point.x : point.y
                 let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
-                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB)
+                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
+                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
+                                        snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
                 let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
@@ -65,7 +44,7 @@ extension ScreenContentView {
                 case .left?, nil: point.x - frame.maxX
                 }
                 let band = edge?.isBand == true
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
+                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
                                         axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, dockEdge: edge)
             case let .rowEdge(columnID, upper):
                 guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
@@ -74,7 +53,7 @@ extension ScreenContentView {
                 let minimums = Dictionary(uniqueKeysWithValues: column.rows.map {
                     ($0.id, SplitGeometry.minimumSize(of: $0.root, style: context.style).height)
                 })
-                activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
+                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             }
             model.setGestureActive(true)
@@ -89,15 +68,23 @@ extension ScreenContentView {
         }
     }
 
+    /// Ends a drag whose handle left the tree: no release will come. It is
+    /// cancelled (`LayoutModel.cancelGesture`) and gesture mode ends.
+    func endDrag() {
+        guard let drag = activeDrag else { return }
+        activeDrag = nil
+        rowDragPreview = nil
+        context.model.cancelGesture(drag.transaction)
+        context.model.setGestureActive(false)
+    }
+
     func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard let drag = activeDrag else { return }
         let point = contentPoint(fromWindow: windowPoint, kind: drag.kind)
         let style = context.style
         switch drag.kind {
         case let .split(id):
-            let pointer = drag.axis == .horizontal ? point.x : point.y
-            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis,
-                                            style: style, minimumA: drag.minimumA, minimumB: drag.minimumB)
+            guard let ratio = activeDrag?.splitRatio(at: point, style: style, phase: phase) else { return }
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
             // Strip widths are shares of the strip's viewport; a side dock's

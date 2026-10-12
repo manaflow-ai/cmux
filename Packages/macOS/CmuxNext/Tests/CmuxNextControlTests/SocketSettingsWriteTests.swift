@@ -206,7 +206,7 @@ extension SettingDescriptor {
         case .color: return .string("#336699")
         case .sound: return .string("default")
         case .url: return .string("")
-        case .hostList, .folderList, .numberList, .stringList: return .array([])
+        case .hostList, .folderList, .numberList, .stringList, .orderedChoices: return .array([])
         case .stringMap: return .object([:])
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")

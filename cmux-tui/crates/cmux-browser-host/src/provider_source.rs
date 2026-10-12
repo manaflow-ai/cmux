@@ -173,6 +173,41 @@ impl ProviderDriver {
     }
 }
 
+impl ProviderDriver {
+    /// The undo of a clear on an app CEF tab: the host kept the backup
+    /// (`host:` id) and it names the tab's CDP target, so the restore runs
+    /// on that tab's relay, in that tab's profile and nowhere else. None
+    /// when the id is no relayed tab's backup.
+    fn restore_relayed(&self, params: &Value) -> Option<Result<Value, DriverError>> {
+        let id = params.get("restoreId").and_then(Value::as_str)?;
+        if !id.starts_with(crate::cookie_backups::RESTORE_PREFIX) {
+            return None;
+        }
+        // A restored, purged or expired backup: the same answer a tab's
+        // driver gives (`invalid`), not "needs a targetId".
+        let record = match crate::cookie_backups::shared().and_then(|b| b.load(id)) {
+            Ok(record) => record,
+            Err(message) => {
+                return Some(Err(DriverError::invalid(format!("cookies.restore: {message}"))));
+            }
+        };
+        let target = record["relayTarget"].as_str()?.to_owned();
+        let tab = self
+            .cef_tabs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .find(|tab| tab.cdp_id == target)
+            .cloned();
+        Some(match tab {
+            Some(tab) => tab.driver.call("cookies.restore", params),
+            None => Err(DriverError::invalid(
+                "cookies.restore: the tab whose cookies were cleared is closed, so their store cannot be named",
+            )),
+        })
+    }
+}
+
 /// Replaces `"targetId": from` (at any depth) with `to`.
 pub(crate) fn rename_target(value: &mut Value, from: &str, to: &str) {
     match value {
@@ -228,6 +263,19 @@ impl TabSource for ProviderSource {
             .collect()
     }
 
+    fn remember_kept(&self, target_id: &str) {
+        let mut kept = self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner);
+        kept.insert(target_id.to_owned());
+    }
+
+    fn kept_tabs(&self) -> Vec<String> {
+        self.0.kept_tabs.lock().unwrap_or_else(PoisonError::into_inner).iter().cloned().collect()
+    }
+
+    fn all_tab_rows(&self) -> Vec<TabRow> {
+        ["cef", "webkit"].iter().flat_map(|engine| self.tab_rows(engine)).collect()
+    }
+
     fn tab_engine(&self, target_id: &str) -> Option<String> {
         self.0.tab_engine(target_id)
     }
@@ -248,8 +296,34 @@ impl TabSource for ProviderSource {
         Driver::call(&*self.0, method, params)
     }
 
+    /// `download.path` names no tab: the app's reported downloads answer it.
+    fn session_call(
+        &self,
+        _session: u64,
+        method: &str,
+        params: &Value,
+    ) -> Option<Result<Value, DriverError>> {
+        match method {
+            "download.path" => Some(self.0.downloads.path(params)),
+            // The undo of a clear on an app WebKit tab: the app keeps that
+            // backup (`app:` ids) and knows its profile, so no tab is named.
+            "cookies.restore"
+                if params
+                    .get("restoreId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.starts_with("app:")) =>
+            {
+                Some(Driver::call(&*self.0, method, params))
+            }
+            "cookies.restore" => self.0.restore_relayed(params),
+            _ => None,
+        }
+    }
+
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
-        if call.engine == "cef" && !matches!(call.method, "tabs.close" | "tabs.activate") {
+        if call.engine == "cef"
+            && !matches!(call.method, "tabs.close" | "tabs.activate" | "tab.bringToFront")
+        {
             self.0.drive_tab(call.session, call.target_id);
             self.0.call_cef(call.method, call.target_id, call.params, call.agent_source)
         } else if let Some(evaluate) = call.observe {

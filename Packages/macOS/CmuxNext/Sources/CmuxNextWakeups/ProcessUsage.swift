@@ -43,13 +43,6 @@ public struct ProcessUsage: Sendable, Equatable {
         return Double(cpuNanos - earlier.cpuNanos) / wall
     }
 
-    /// Wakeups per second between two samples.
-    public func wakeupsPerSecond(since earlier: ProcessUsage) -> Double {
-        let wall = Double(uptimeNanos &- earlier.uptimeNanos) / 1e9
-        guard wall > 0, wakeups >= earlier.wakeups else { return 0 }
-        return Double(wakeups - earlier.wakeups) / wall
-    }
-
     public static func path(of pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))

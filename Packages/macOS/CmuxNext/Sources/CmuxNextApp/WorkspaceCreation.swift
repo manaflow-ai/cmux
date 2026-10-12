@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 import os
@@ -86,9 +87,21 @@ enum WorkspaceCreation {
     @MainActor
     static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard spawn.opensNewTabPage, spawn.command == nil, tabs.canHost(on: daemon), let connection = daemon.connection else { return nil }
+        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
+              tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil || spawn.firstSession != nil),
+              let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
-            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon)
+            if let session = spawn.firstSession {
+                // A session of this Mac never opens in a workspace of another machine (cx-k21v).
+                guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
+                guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
+                // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
+                let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
+                _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                                           origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
+            } else {
+                _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
+            }
             return created.key.rawValue
         }
     }

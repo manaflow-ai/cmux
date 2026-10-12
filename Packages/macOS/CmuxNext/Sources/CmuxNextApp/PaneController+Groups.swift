@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTabs
 
@@ -52,6 +53,7 @@ extension PaneController {
         case .createGroup(let item, let tabs):
             let models = tabs.compactMap { tab($0) }
             let surfaces = models.map(\.surface), resources = models.compactMap(\.resourceID)
+            // Writes stay on the token path until the daemon takes `#RRGGBB` for tab groups (cx-wqn5).
             let name = item.name, color = item.colorToken.rawValue
             groupCommand("create-tab-group") { connection, transaction in
                 if v2, resources.count == surfaces.count, !resources.isEmpty {
@@ -77,10 +79,10 @@ extension PaneController {
                 if v2 { return try await c.state.updateTabGroup(id, name: name) }
                 _ = try await c.updateTabGroup(group, name: name, transaction: t)
             }
-        case .setColor(_, let color):
+        case .setColor(_, let tint):
             groupCommand("update-tab-group") { c, t in
-                if v2 { return try await c.state.updateTabGroup(id, color: color.rawValue) }
-                _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t)
+                if v2 { return try await c.state.updateTabGroup(id, color: tint.wire) }
+                _ = try await c.updateTabGroup(group, color: .set(tint.wire), transaction: t)
             }
         case .newTab(let id):
             let groupTabs = stripModel.orderedTabs.filter { $0.groupID == id }.map(\.id.rawValue)
@@ -98,7 +100,9 @@ extension PaneController {
                 _ = try await c.closeTabGroup(group, transaction: t)
             }
         case .moveToNewWindow:
-            groupCommand("move-tab-group-to-new-workspace") { c, t in _ = try await c.moveTabGroupToNewWorkspace(group, transaction: t) }
+            // The menu's Move Group to New Window: the action places the moved
+            // workspace (the raw daemon move left it at the daemon's place, cx-caoh).
+            services.registry.perform("tabGroup.moveToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .tabGroup, id: id)))
         case .save:
             groupCommand("save-tab-group") { c, _ in _ = try await c.saveTabGroup(group) }
         case .unsave:

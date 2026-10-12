@@ -276,14 +276,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
     this.bind(entity)
-    const principal: Principal = { identity: `system:${source}`, kind: "system" }
+    const principal = this.systemPrincipal(entity, source)
     const done: Array<number> = []
     for (const item of items) {
       const frames: Array<OwnerFrame> = []
       const { engine, publish } = this.systemEngine(item.op, entity)
-      engine.submit(principal, { t: "op", op: item.op, params: item.params, idempotency_key: item.key, origin: "script" }, (target, f) =>
-        target === "all" ? publish(f) : frames.push(f)
-      )
+      engine.submit(principal, { t: "op", op: item.op, params: item.params, idempotency_key: item.key, origin: "script" }, (target, f) => (target === "all" ? publish(f) : frames.push(f)))
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
       this.afterOp(principal, item.op, frames, item.params)
@@ -292,6 +290,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.afterCommit()
     return { done }
   }
+
+  protected systemPrincipal(_entity: string, source: string): Principal { return { identity: `system:${source}`, kind: "system" } }
 
   /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */
   protected async onWake(_now: number): Promise<void> {}

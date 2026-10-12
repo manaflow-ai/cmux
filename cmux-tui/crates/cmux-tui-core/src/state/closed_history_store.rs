@@ -266,17 +266,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         "pinned": pinned,
     });
     if kind == "terminal" {
-        let cwd = connection
-            .query_row(
-                "SELECT json_extract(h.launch_spec_json, '$.cwd')
-                 FROM resource_terminals AS t JOIN terminal_hosts AS h ON h.terminal_id = t.terminal_id
-                 WHERE t.public_id = ?1",
-                [&content_id],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .optional()?
-            .flatten();
-        record["cwd"] = json!(cwd);
+        // The closed tab keeps its own copy of the relaunch record, so reopen
+        // works after the terminal's row is gone.
+        let relaunch =
+            crate::workspace_registry::relaunch_store::closed_fields(connection, &content_id)?;
+        record["cwd"] = relaunch.as_ref().map_or(Value::Null, |fields| fields["cwd"].clone());
+        record["relaunch"] = relaunch.unwrap_or(Value::Null);
         record["terminal_id"] = json!(content_id);
     } else {
         let url = connection
@@ -304,6 +299,16 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                 record["url"] = json!(url);
                 record["browser_profile_id"] = json!(profile);
                 record["engine"] = json!(engine);
+                // Back/forward entries and scroll come back on reopen
+                // (cx-d0d.11); `closed.list` never shows them.
+                record["browser_history"] = connection
+                    .query_row(
+                        "SELECT history FROM frontend_browser_history WHERE browser_id = ?1",
+                        [&content_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map_or(Value::Null, Value::String);
             }
             None => record["url"] = json!(url),
         }
@@ -312,6 +317,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
         {
             record["conversation"] = conversation;
+        }
+        // A remote-terminal tab reopens as one (`remote-terminal-tabs-v1`).
+        if let Some(remote) =
+            super::remote_terminal_tabs_store::tab_remote_wire(connection, tab_id)?
+        {
+            record["remote"] = remote;
         }
     }
     Ok(Some(record))
@@ -392,6 +403,73 @@ fn insert_group(
         ],
     )?;
     queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
+/// A window the app closed (`window_record.put` turned its record's `open`
+/// to false): one `window` group with no member that names the window
+/// record `window` (`install/window`). The window keeps its workspaces, so
+/// reopening the group only tells the app to show that window again
+/// (plans/cmux-next/reopen-closed.md 4). The `kind` column's CHECK predates
+/// window groups; the record's `kind` is the group's level. Returns the
+/// group's public change.
+pub(crate) fn insert_window_group(
+    transaction: &Transaction<'_>,
+    window: &str,
+    name: Option<String>,
+) -> anyhow::Result<Value> {
+    let closed_id = new_closed_id();
+    let closed_at_ms = unix_epoch_ms()?;
+    let record = json!({
+        "id": closed_id,
+        "kind": "window",
+        "window": window,
+        "window_record": window,
+        "name": name,
+        "closed_at_ms": closed_at_ms.to_string(),
+        "members": [],
+    });
+    transaction.execute(
+        "INSERT INTO closed_groups(closed_id, kind, window_id, closed_at_ms, record_json)
+         VALUES(?1, 'workspace', ?2, ?3, ?4)",
+        params![closed_id, window, i64::try_from(closed_at_ms)?, serde_json::to_string(&record)?],
+    )?;
+    Ok(state_upsert("closed", &closed_id, public_item(&record)))
+}
+
+/// Remove the window groups of window record `window` (it opened again or
+/// is gone). Returns their public deletes.
+pub(crate) fn remove_window_groups(
+    transaction: &Transaction<'_>,
+    window: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let ids = {
+        let mut statement = transaction.prepare(
+            "SELECT closed_id FROM closed_groups
+             WHERE window_id = ?1 AND json_extract(record_json, '$.kind') = 'window'",
+        )?;
+        statement
+            .query_map([window], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut changes = Vec::with_capacity(ids.len());
+    for id in ids {
+        super::closed_history_query::remove_closed(transaction, &id)?;
+        changes.push(state_delete("closed", &id));
+    }
+    Ok(changes)
+}
+
+/// The name of the workspace whose key is `key`, for a window group's title.
+pub(crate) fn workspace_name(
+    transaction: &Transaction<'_>,
+    key: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(transaction
+        .query_row("SELECT name FROM workspaces WHERE workspace_key = ?1", [key], |row| {
+            row.get::<_, Option<String>>(0)
+        })
+        .optional()?
+        .flatten())
 }
 
 /// A new closed group id.

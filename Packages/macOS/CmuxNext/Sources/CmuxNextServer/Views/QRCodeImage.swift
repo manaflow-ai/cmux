@@ -19,6 +19,7 @@ enum QRCode {
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
         guard let output = filter.outputImage,
+              // concurrency-allow: software-renderer CIContext on a pairing QR code (at most ~180x180 modules), cached per payload; no GPU wait.
               let modules = context.createCGImage(output, from: output.extent) else { return nil }
         let side = modules.width + quiet * 2
         guard let bitmap = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,

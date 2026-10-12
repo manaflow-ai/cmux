@@ -123,6 +123,9 @@ def pool_order_reason(order: str) -> str | None:
     policy, so the order cannot smuggle in a label the guard refuses.
     """
     for label in (entry.strip() for entry in order.split(",")):
+        if label.lower().startswith(AWS_SIDE_PREFIX):
+            # The glaeda-aws pools have no runners; minis first, Blacksmith overflow.
+            return f"`{label}` is a {AWS_SIDE_PREFIX}* pool, which has no runners"
         if not label or _owned_pattern().fullmatch(label):
             continue
         if _owned_pattern().fullmatch(label.lower()):
@@ -152,12 +155,28 @@ def side_lane_reason(label: str) -> str | None:
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
     """
-    for prefix in (SIDE_LANE_PREFIX, "glaeda-aws-side-"):
-        if label.startswith(prefix):
-            candidate = "glaeda-" + label[len(prefix):]
-            if _owned_pattern().fullmatch(candidate):
-                return None
+    if label.startswith(SIDE_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(SIDE_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
     return forbidden_reason(label)
+
+
+AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
+AWS_SIDE_PREFIX = "glaeda-aws-"
+
+
+def aws_side_reason(label: str) -> str | None:
+    """Why CI_AWS_SIDE_RUNNER is not allowed, or None when it is fine.
+
+    It named the glaeda-aws pools, which no longer have runners (their Macs
+    serve cmux-next only), and no workflow reads it any more: attempt 1 of
+    those jobs takes CI_SIDE_LANE_RUNNER. Only empty is fine, so a leftover
+    value shows as drift until it is deleted.
+    """
+    if not label:
+        return None
+    return f"is retired (the {AWS_SIDE_PREFIX}* pools have no runners); delete the variable"
 
 
 TRUSTED_POOL_VARIABLE = "CI_SEED_TRUSTED_POOL"
@@ -248,6 +267,8 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == AWS_SIDE_VARIABLE:
+            reason = aws_side_reason(value.strip())
         elif name == TRUSTED_POOL_VARIABLE:
             reason = trusted_pool_reason(value.strip())
         elif name == NIGHTLY_RUNNER_VARIABLE:

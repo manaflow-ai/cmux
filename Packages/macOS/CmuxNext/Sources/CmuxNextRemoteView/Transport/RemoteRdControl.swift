@@ -17,13 +17,25 @@ public nonisolated enum RemoteRdControl: Sendable, Equatable {
     /// A message of the session's service (an rb/1 body), passed through
     /// untouched (rd change B3.2); rd never interprets `body`.
     case service(service: String, body: RemoteRdJSON)
+    /// Bulk flow control (rd change C5): the receiver of `transfer` allows
+    /// bytes before `offset`.
+    case bulkCredit(transfer: UInt64, offset: UInt64)
+    /// Opens a stream (sent only when welcome lists `stream.open`).
+    case streamOpen(RemoteRdStreamOpen)
+    /// The peer accepted `stream_open` for `stream`.
+    case streamOpened(stream: UInt16)
+    /// The peer refused `stream_open` for `stream` (`caps`, `kind`, `codec`,
+    /// `unsupported`, `in_use`, `too_many`, `view_only`).
+    case streamRefused(stream: UInt16, reason: String)
+    /// Closes an opened stream; no answer.
+    case streamClose(stream: UInt16)
     /// A message type this viewer does not know (a newer host); ignored.
     case unknown(String)
 }
 
 nonisolated extension RemoteRdControl: Codable {
     private enum TagKey: String, CodingKey { case t }
-    private enum Fields: String, CodingKey { case key, mode, session, reason, service, body }
+    private enum Fields: String, CodingKey { case key, mode, session, reason, service, body, transfer, offset, stream }
 
     public init(from decoder: any Decoder) throws {
         let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .t)
@@ -43,6 +55,19 @@ nonisolated extension RemoteRdControl: Codable {
                 service: try fields.decode(String.self, forKey: .service),
                 body: try fields.decode(RemoteRdJSON.self, forKey: .body)
             )
+        case "bulk_credit":
+            self = .bulkCredit(
+                transfer: try fields.decode(UInt64.self, forKey: .transfer),
+                offset: try fields.decode(UInt64.self, forKey: .offset)
+            )
+        case "stream_open": self = .streamOpen(try RemoteRdStreamOpen(from: decoder))
+        case "stream_opened": self = .streamOpened(stream: try fields.decode(UInt16.self, forKey: .stream))
+        case "stream_refused":
+            self = .streamRefused(
+                stream: try fields.decode(UInt16.self, forKey: .stream),
+                reason: try fields.decode(String.self, forKey: .reason)
+            )
+        case "stream_close": self = .streamClose(stream: try fields.decode(UInt16.self, forKey: .stream))
         default: self = .unknown(tag)
         }
     }
@@ -79,6 +104,23 @@ nonisolated extension RemoteRdControl: Codable {
             try tag.encode("service", forKey: .t)
             try fields.encode(service, forKey: .service)
             try fields.encode(body, forKey: .body)
+        case let .bulkCredit(transfer, offset):
+            try tag.encode("bulk_credit", forKey: .t)
+            try fields.encode(transfer, forKey: .transfer)
+            try fields.encode(offset, forKey: .offset)
+        case let .streamOpen(open):
+            try tag.encode("stream_open", forKey: .t)
+            try open.encode(to: encoder)
+        case let .streamOpened(stream):
+            try tag.encode("stream_opened", forKey: .t)
+            try fields.encode(stream, forKey: .stream)
+        case let .streamRefused(stream, reason):
+            try tag.encode("stream_refused", forKey: .t)
+            try fields.encode(stream, forKey: .stream)
+            try fields.encode(reason, forKey: .reason)
+        case let .streamClose(stream):
+            try tag.encode("stream_close", forKey: .t)
+            try fields.encode(stream, forKey: .stream)
         case let .unknown(name):
             try tag.encode(name, forKey: .t)
         }

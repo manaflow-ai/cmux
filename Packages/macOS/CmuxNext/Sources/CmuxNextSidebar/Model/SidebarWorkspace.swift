@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 public import CmuxNextIcons
-import Foundation
+public import Foundation
 
 /// Unread state for the badge.
 public nonisolated enum UnreadState: Hashable, Sendable {
@@ -52,15 +52,30 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// between machines; drops across machine sections are refused.
     public var machineID: MachineID
     public var title: String
-    /// Passive detail such as the cwd or git branch. It is used as the row's
-    /// secondary line when no live status is available.
-    public var subtitle: String?
-    /// Live status from the agent or hook `set_status`. It takes precedence
-    /// over ``subtitle`` in the row's secondary line.
+    /// Row facts. Which ones a row shows is `sidebar.workspaceRow.*`
+    /// (`WorkspaceRowContent`); none shows by default.
+    /// The folder of the first tab that reports one, `~`-abbreviated.
+    public var directory: String?
+    /// That tab's git branch.
+    public var branch: String?
+    /// The front terminal's program, as the shell or program titles it.
+    public var process: String?
+    /// The status line agents and hooks report (`cmux workspace status set`),
+    /// without the entries other elements show (ports, pr).
     public var status: String?
-    /// Set only when the user chose an icon or color. When nil, the row draws
-    /// ``kindBrand``'s mark, else ``SidebarWorkspaceKind.iconName``, so every
-    /// row keeps a type glyph.
+    /// Listening ports a hook reported (status entry `ports`).
+    public var ports: String?
+    /// A pull request / CI badge a hook reported (status entry `pr`).
+    public var pullRequest: String?
+    /// When an agent or a notification last changed the workspace.
+    public var lastActivity: Date?
+    /// What the workspace's tabs are, for per-kind row settings.
+    public var rowKind: WorkspaceRowKind
+    /// An agent turn runs in one of the workspace's tabs (daemon agent
+    /// state): the row's working indicator.
+    public var agentWorking: Bool
+    /// Set only when the user chose an icon or color. When nil, the row
+    /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
     /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
@@ -74,9 +89,13 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
-    /// The brand id (CmuxAgentBrands) of an agent working or waiting in one of the
-    /// workspace's tabs; the row draws its mark per `SidebarAgentMarkVariant`.
+    /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
+    /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
+    public var agentName: String?
+    /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
+    public var lastMessage: String?
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
@@ -85,13 +104,40 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
+    /// The user muted the workspace's notifications
+    /// (`notifications.mutedWorkspaces`); the row draws a quiet mark.
+    public var muted: Bool
+    /// False for a workspace no close path closes (the store's home
+    /// workspace, `home_not_closable`): the row offers no close button.
+    public var isClosable: Bool
+    /// The front tab's working directory, abbreviated (`~/src/app`): the
+    /// bucket Group by Folder puts the row in. Nil when no tab reports one.
+    public var folder: String?
+    /// A starting Cloud machine's stage (cx-lu8f): the row's machine label
+    /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
+    /// own workspace replaces the row. Nil for every other row.
+    public var stage: String?
+    /// Agents acting in the workspace's tabs right now, in a stable order
+    /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
+    public var presence: [SidebarPresence] = []
+    /// What agents and scripts reported (`cmux workspace status|log|progress`)
+    /// beyond the ports and pr entries: the row's status block. Nil when
+    /// nothing is reported.
+    public var reported: SidebarWorkspaceStatus?
 
     public init(
         id: WorkspaceID,
         machineID: MachineID = .local,
         title: String,
-        subtitle: String? = nil,
+        directory: String? = nil,
+        branch: String? = nil,
+        process: String? = nil,
         status: String? = nil,
+        ports: String? = nil,
+        pullRequest: String? = nil,
+        lastActivity: Date? = nil,
+        rowKind: WorkspaceRowKind? = nil,
+        agentWorking: Bool = false,
         icon: WorkspaceIcon? = nil,
         kind: SidebarWorkspaceKind = .terminal,
         kindBrand: String? = nil,
@@ -99,15 +145,27 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
-        rowState: SidebarRowState = .live
+        rowState: SidebarRowState = .live,
+        muted: Bool = false,
+        isClosable: Bool = true,
+        folder: String? = nil,
+        stage: String? = nil
     ) {
         self.id = id
         self.machineID = machineID
         self.title = title
-        self.subtitle = subtitle
+        self.directory = directory
+        self.branch = branch
+        self.process = process
         self.status = status
+        self.ports = ports
+        self.pullRequest = pullRequest
+        self.lastActivity = lastActivity
+        self.rowKind = rowKind ?? kind.rowKind
+        self.agentWorking = agentWorking
         self.icon = icon
         self.kind = kind
         self.kindBrand = kindBrand
@@ -115,27 +173,33 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentName = agentName
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState
+        self.muted = muted
+        self.isClosable = isClosable
+        self.folder = folder
+        self.stage = stage
+    }
+}
+
+nonisolated extension SidebarWorkspaceKind {
+    /// The row kind of a workspace whose tabs are all of this kind.
+    public var rowKind: WorkspaceRowKind {
+        switch self {
+        case .harness: .agent
+        case .terminal: .terminal
+        case .browser: .browser
+        }
     }
 }
 
 nonisolated extension SidebarWorkspace {
-    /// The second line, when the row carries live information.
-    public var liveDetail: String? {
-        guard let status, !status.isEmpty else { return nil }
-        return status
-    }
-
-    /// The most useful detail to show below the workspace title.
-    public var rowDetail: String? {
-        liveDetail ?? subtitle.flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    /// The row's second line: a live status always; the passive folder
-    /// line only when `sidebar.showWorkspaceDirectory` is on (S1).
-    public func rowDetail(showingDirectory: Bool) -> String? {
-        showingDirectory ? rowDetail : liveDetail
+    /// The folder and branch, for the hover card and the filter (not a row
+    /// element: the row shows each through its own setting).
+    public var folderLine: String? {
+        let parts = [directory, branch].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return parts.isEmpty ? nil : parts.joined(separator: WorkspaceRowContent.separator)
     }
 }

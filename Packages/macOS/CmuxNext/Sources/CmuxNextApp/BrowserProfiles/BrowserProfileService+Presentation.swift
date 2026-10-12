@@ -32,7 +32,7 @@ extension BrowserProfileService {
     /// Re-renders every tab strip and omnibar after a profile or a default
     /// changed (names, colors, which tabs differ from their workspace).
     func refreshPresentation() {
-        for controller in services.windows?.controllers ?? [] {
+        for controller in services.windows.controllers {
             for pane in controller.content?.panes.values.map({ $0 }) ?? [] { pane.resyncStrip() }
         }
         for (key, entry) in services.cache.browsers {

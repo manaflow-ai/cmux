@@ -5,6 +5,21 @@
 //! emit-ir --check    exit 1 if either committed file differs from the generated one
 //! ```
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -36,7 +51,14 @@ fn main() -> ExitCode {
         eprintln!("error: the catalog breaks the IR rules: {error}");
         return ExitCode::FAILURE;
     }
-    let files = [(IR_PATH, catalog().ir_text()), (VECTORS_PATH, vectors_text())];
+    let vectors = match vectors_text() {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("error: the conformance vectors: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let files = [(IR_PATH, catalog().ir_text()), (VECTORS_PATH, vectors)];
     let mut drift = false;
     for (relative, text) in files {
         let path = root.join(relative);

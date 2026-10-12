@@ -31,6 +31,8 @@ export function TrustAsk({
             {t("trust.undo")}
           </button>
         </>
+      ) : ask.state === "remote" ? (
+        <span className="acpmux-trust-ask-text">{t("trust.remote")}</span>
       ) : (
         <>
           <span className="acpmux-trust-ask-text">

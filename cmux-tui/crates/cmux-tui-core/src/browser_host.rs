@@ -82,8 +82,9 @@ impl crate::mux::Mux {
     /// executable): the daemon binds the socket its terminals were told
     /// ([`terminal_env`]) now, and starts the host on the first agent connect
     /// or `browser-host-provider`.
-    pub fn configure_browser_host(&self, daemon_socket: &Path) {
+    pub fn configure_browser_host(self: &Arc<Self>, daemon_socket: &Path) {
         let supervisor = &self.control_clients.browser_host;
+        supervisor.set_history_link(Arc::downgrade(self));
         supervisor.configure(resolve_binary(), socket_path_for(daemon_socket));
     }
 }
@@ -150,6 +151,9 @@ struct Inner {
     restart_due: Mutex<Option<Instant>>,
     #[cfg(unix)]
     activation: activation::Activation,
+    /// The session the host's history link serves (browser_host_history):
+    /// each host start gets a fresh socketpair end as an inherited fd.
+    history: Mutex<Option<Weak<crate::mux::Mux>>>,
 }
 
 #[derive(Clone)]
@@ -201,6 +205,12 @@ impl BrowserHostSupervisor {
         }
         #[cfg(not(unix))]
         let _ = has_binary;
+    }
+
+    /// Hands every host this daemon starts one end of a history link to
+    /// `mux` (browser_host_history; the five history operations only).
+    pub(crate) fn set_history_link(&self, mux: Weak<crate::mux::Mux>) {
+        *lock(&self.inner.history) = Some(mux);
     }
 
     /// The running host's credentials, starting the host first when none
@@ -341,6 +351,19 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         command.args(["--agent-listen-fd", "4", "--provider-listen-fd", "5", "--idle-exit-ms"]);
         command.arg(config.idle_exit.as_millis().to_string());
     }
+    // The history link: the host's end is the next inherited fd; the
+    // daemon serves its own end once the host runs.
+    let history = lock(&inner.history).clone();
+    let link = match history {
+        Some(mux) => {
+            let (daemon_end, host_end) = std::os::unix::net::UnixStream::pair()
+                .map_err(|error| format!("cannot open the history link: {error}"))?;
+            fds.push(host_end.as_raw_fd());
+            command.arg("--history-fd").arg((2 + fds.len()).to_string());
+            Some((mux, daemon_end, host_end))
+        }
+        None => None,
+    };
     command
         .arg("--socket")
         .arg(socket)
@@ -364,6 +387,10 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         command.spawn().map_err(|error| format!("cannot start the browser host: {error}"))?;
     drop(secret_read);
     let pid = child.id();
+    let link = link.map(|(mux, daemon_end, host_end)| {
+        drop(host_end);
+        (mux, daemon_end)
+    });
     let stdin = child.stdin.take().ok_or("the browser host has no stdin")?;
     let stdout = child.stdout.take().ok_or("the browser host has no stdout")?;
     let written = secret_write.write_all(secret.as_bytes());
@@ -381,6 +408,17 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         let _ = child.kill();
         let status = child.wait();
         return Err(format!("the browser host did not start ({status:?})"));
+    }
+    if let Some((mux, daemon_end)) = link {
+        let served = std::thread::Builder::new()
+            .name("browser-host-history".into())
+            .spawn(move || crate::browser_host_history::serve(mux, daemon_end, pid));
+        if let Err(error) = served {
+            // No host runs without the link it was started for.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cannot serve the history link: {error}"));
+        }
     }
     let started = Instant::now();
     let watcher = Arc::downgrade(inner);
@@ -407,7 +445,7 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
 /// other descriptor above them is closed.
 #[cfg(unix)]
 fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Result<()> {
-    let mut high = [0 as libc::c_int; 3];
+    let mut high = [0 as libc::c_int; 4];
     let count = fds.len().min(high.len());
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {

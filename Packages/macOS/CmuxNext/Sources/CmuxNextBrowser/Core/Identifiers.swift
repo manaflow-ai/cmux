@@ -30,7 +30,8 @@ public nonisolated struct BrowserProfileID: RawRepresentable, Hashable, Sendable
     /// The built-in profile. It has its own fixed UUID so that its storage is
     /// a normal identified store, never the engine's shared default store.
     public static let `default` = BrowserProfileID(
-        rawValue: UUID(uuidString: "8E5C0D1F-2B7A-4F3C-9A61-5D2E7B0C4A11")!
+        // 8E5C0D1F-2B7A-4F3C-9A61-5D2E7B0C4A11 as bytes (non-optional by construction).
+        rawValue: UUID(uuid: (0x8E, 0x5C, 0x0D, 0x1F, 0x2B, 0x7A, 0x4F, 0x3C, 0x9A, 0x61, 0x5D, 0x2E, 0x7B, 0x0C, 0x4A, 0x11))
     )
 
     public var description: String { rawValue.uuidString }

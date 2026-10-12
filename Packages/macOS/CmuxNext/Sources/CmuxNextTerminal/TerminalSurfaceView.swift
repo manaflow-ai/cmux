@@ -42,9 +42,6 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// Grid the PTY owner announced last (``applyAnnouncedGrid(_:)``).
-    var announcedGrid: TerminalGridSize? { geometry.announced }
-
     /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
         didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
@@ -90,15 +87,19 @@ public final class TerminalSurfaceView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-        TerminalSecureInput.release(self)
-        if let surface {
-            lane?.close()
-            ghostty_surface_free(surface)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
+            TerminalSecureInput.release(self)
+            if let surface {
+                lane?.close()
+                ghostty_surface_free(surface)
+            }
+            // Released after free: free joins the IO thread that reads the bridge.
+            bridge.release()
         }
-        // Released after free: free joins the IO thread that reads the bridge.
-        bridge.release()
     }
 
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
@@ -158,7 +159,7 @@ public final class TerminalSurfaceView: NSView {
         for name in names {
             windowObservers.append(center.addObserver(forName: name, object: newWindow, queue: .main) { [weak self] note in
                 let name = note.name
-                MainActor.assumeIsolated { self?.windowStateChanged(name) }
+                MainActor.assumeIsolated { self?.windowStateChanged(name) } // main-proof: observer on queue: .main
             })
         }
     }
@@ -358,7 +359,7 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    var hasSelection: Bool {
+    public var hasSelection: Bool {
         guard let surface else { return false }
         return ghostty_surface_has_selection(surface)
     }

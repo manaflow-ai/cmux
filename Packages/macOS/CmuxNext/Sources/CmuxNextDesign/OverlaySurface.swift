@@ -6,9 +6,12 @@ public import AppKit
 /// follows Reduce Transparency live (`ReduceTransparency`) and re-reads
 /// theme colors whenever its effective appearance or theme scope changes.
 /// Content goes in `contentView`, above the material, and may size the
-/// surface through constraints. Every floating glass panel (palette, hover
-/// card, find and prompt bars, drop overlay) is one of these, made with
-/// `Glass.makeOverlayPanel`; raw `Glass.makePanel` has no fallback.
+/// surface through constraints. Every floating panel that carries text
+/// (palette, dialogs, hover cards, find and prompt bars, page info,
+/// popovers) is one of these, made with `Glass.makeOverlayPanel`, which pins
+/// it to the solid popup surface (`Palette.popupSurface`); glass would let
+/// the text under it show through. Overlays without text (the drop overlay,
+/// dock backdrop) follow this Mac's material.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
@@ -37,7 +40,7 @@ public final class OverlaySurfaceView: NSView {
         isInteractive = interactive
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
-        self.material = material ?? OverlayMaterial.current(in: reduceTransparency)
+        self.material = material ?? Self.systemMaterial(reduceTransparency)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -48,10 +51,6 @@ public final class OverlaySurfaceView: NSView {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    /// The view that draws the material (an `NSGlassEffectView`,
-    /// `NSVisualEffectView` or a plain layer-backed view).
-    public var materialDrawingView: NSView? { materialView }
 
     public override func hitTest(_ point: NSPoint) -> NSView? {
         isInteractive ? super.hitTest(point) : nil
@@ -69,10 +68,17 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? OverlayMaterial.current(in: reduceTransparency)
+        let next = materialOverride ?? Self.systemMaterial(reduceTransparency)
         guard next != material else { return }
         material = next
         rebuild()
+    }
+
+    /// This Mac's material; `Glass.isLiquidGlassAvailable` also carries the
+    /// Debug legacy-material switch.
+    private static func systemMaterial(_ reduceTransparency: ReduceTransparency) -> OverlayMaterial {
+        OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                               reduceTransparency: reduceTransparency.isEnabled)
     }
 
     private func rebuild() {
@@ -107,7 +113,7 @@ public final class OverlaySurfaceView: NSView {
         }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
-        // NSGlassEffectView lays its contentView out with constraints; out
+        // The glass panel lays its contentView out with constraints; out
         // of the glass it must size by its frame again.
         if material != .liquidGlass {
             contentView.translatesAutoresizingMaskIntoConstraints = true
@@ -125,7 +131,7 @@ public final class OverlaySurfaceView: NSView {
     }
 
     private func applyShape() {
-        if let glass = materialView as? NSGlassEffectView {
+        if let glass = materialView as? GlassPanelView {
             glass.cornerRadius = cornerRadius
         } else if let layer = materialView?.layer {
             layer.cornerRadius = cornerRadius
@@ -141,13 +147,12 @@ public final class OverlaySurfaceView: NSView {
         performWithTheme {
             switch material {
             case .liquidGlass:
-                (materialView as? NSGlassEffectView)?.tintColor = overlayTint
+                (materialView as? GlassPanelView)?.tintColor = overlayTint
             case .vibrancy:
                 tintView?.layer?.backgroundColor = overlayTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
-                let fill = themeTokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
-                materialView?.layer?.backgroundColor = fill.cgColor
+                materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
                 materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
             }
         }
@@ -165,6 +170,15 @@ public final class OverlaySurfaceView: NSView {
 }
 
 extension NSView {
+    /// Paints this view, a system popover's content, with the solid popup
+    /// surface of `scope`'s theme, so no text under the popover's vibrancy
+    /// shows through. Call it each time the popover opens (it follows the
+    /// theme then).
+    public func fillWithPopupSurface(themeOf scope: NSView) {
+        wantsLayer = true
+        layer?.backgroundColor = scope.performWithTheme { Palette.popupSurface }.cgColor
+    }
+
     /// The material of the overlay surface this view sits in, or nil
     /// outside one. Content that only glass needs (a legibility veil)
     /// checks it in its color hook, which reruns when the material changes.

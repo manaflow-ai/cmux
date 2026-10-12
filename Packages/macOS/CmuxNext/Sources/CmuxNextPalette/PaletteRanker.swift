@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// One ranked row by entry index. Sendable; the main actor maps it to an item.
 nonisolated public struct PaletteRankedRow: Sendable, Hashable {
@@ -21,11 +22,28 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
 /// run in `webviews/src/palette/ranker.ts` through one persistent
 /// ``PaletteRankerBridge``.
 public final class PaletteRanker {
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.ranker")
+
     private let bridge: PaletteRankerBridge?
+    /// Why the shared ranker did not load (its bundle is missing or broken), nil when it did.
+    /// Without it every page ranks to no rows, so the reason is kept and logged instead of lost.
+    nonisolated public let loadError: PaletteRankerBridgeError?
 
     /// Creates a ranker with a persistent JavaScriptCore context.
-    nonisolated public init() {
-        bridge = try? PaletteRankerBridge()
+    nonisolated public convenience init() {
+        self.init(loading: { try PaletteRankerBridge() })
+    }
+
+    nonisolated init(loading: () throws -> PaletteRankerBridge) {
+        do {
+            bridge = try loading()
+            loadError = nil
+        } catch {
+            let reason = error as? PaletteRankerBridgeError ?? .runtimeFailed(String(describing: error))
+            bridge = nil
+            loadError = reason
+            Self.logger.fault("palette ranker did not load, the palette has no rows: \(reason.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Ranks a prepared palette index through the shared TypeScript engine.

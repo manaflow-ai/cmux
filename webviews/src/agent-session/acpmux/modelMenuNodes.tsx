@@ -31,6 +31,34 @@ import type { MenuNode } from "./useMenuTree";
 
 export type PickerData = ReturnType<typeof pickerData>;
 
+type HarnessChoice = ModelPickerProps["catalog"][number];
+
+/// Harness rows use the same nearest-anchor rule as model rows. The current harness counts as
+/// most relevant, then the viewer's recent harnesses, then catalog order. Labels are unique so a
+/// duplicate probe entry such as two "Claude Code" rows never makes the picker ambiguous.
+export function rankHarnesses(
+  harnesses: HarnessChoice[],
+  recents: Combo[],
+  current: string | undefined,
+): HarnessChoice[] {
+  const ids = [current, ...recents.map((combo) => combo.harness)];
+  const rank = (harness: HarnessChoice) => {
+    const at = ids.indexOf(harness.id);
+    return at < 0 ? ids.length : at;
+  };
+  const seen = new Set<string>();
+  return harnesses
+    .map((harness, index) => ({ harness, index, rank: rank(harness) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.harness)
+    .filter((harness) => {
+      const label = harness.name.trim().toLocaleLowerCase();
+      if (seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    });
+}
+
 /// The current harness's models as layers, with what the session runs and the recents it can run.
 /// Models of other harnesses never enter: every row comes from this taxonomy.
 export function pickerData(props: ModelPickerProps) {
@@ -51,7 +79,11 @@ export function pickerData(props: ModelPickerProps) {
       ? (combo.effortName ?? effortName(combo.effort))
       : undefined;
   // Other harnesses are offered only as a new chat, and only when the pane can start one.
-  const harnesses = props.catalog.filter((harness) => harness.id === props.harness || props.onHarness);
+  const harnesses = rankHarnesses(
+    props.catalog.filter((harness) => harness.id === props.harness || props.onHarness),
+    props.recents,
+    props.harness,
+  );
   const land = (landing: Landing | undefined) => {
     if (landing) props.onLand(landing.model, landing.effort);
   };
@@ -258,19 +290,10 @@ export function menuNodes(
       children: families(provider),
     };
   };
-  /// The agent's own default model: the model it resolves to with a "Default" hint, else
-  /// "Default". Picking it keeps the session's effort.
+  /// The agent's own default model is an internal sentinel, not a user-facing row.
   const defaultRow = (section?: string): MenuNode | undefined => {
-    const choice = data.defaultChoice;
-    if (!choice) return undefined;
-    return {
-      key: `model:${choice.id}`,
-      label: props.resolvedDefault ?? t("picker.default"),
-      detail: props.resolvedDefault ? t("picker.default") : undefined,
-      section,
-      checked: choice.id === props.model,
-      run: () => props.onLand(choice.id),
-    };
+    void section;
+    return undefined;
   };
   return {
     modelRow,
@@ -280,7 +303,6 @@ export function menuNodes(
     familyRow,
     providerRow,
     /// The layer above models: providers when the harness serves several, else the one provider's families.
-    /// The agent's default model, when it has one, sits with them, nearest the best row.
     upperLayer(section = true): MenuNode[] {
       const providers = data.taxonomy.providers;
       const title = section ? t(providers.length === 1 ? "picker.family" : "picker.provider") : undefined;
@@ -296,9 +318,7 @@ export function menuNodes(
               expanded,
               expand,
             );
-      const fallback = defaultRow(title);
-      if (!fallback) return rows;
-      return order === "bestLast" ? [...rows, fallback] : [fallback, ...rows];
+      return rows;
     },
     /// One row naming the harness; its submenu lists the catalog's harnesses, others as a new chat.
     harnessRow(): MenuNode | undefined {
@@ -308,7 +328,10 @@ export function menuNodes(
         label: data.harnessName,
         icon: props.harness ? <AgentMark agent={props.harness} size={14} /> : undefined,
         detail: t("picker.harness"),
-        children: data.harnesses.map((harness) => harnessNode(harness, props, t)),
+        children: ordered(
+          data.harnesses.map((harness) => harnessNode(harness, props, t)),
+          order,
+        ),
       };
     },
     /// The reasoning row: the current effort, with the slider as its submenu.
@@ -337,7 +360,7 @@ export function menuNodes(
         key: `recent:${index}`,
         label:
           data.taxonomy.byId.get(combo.model)?.name ??
-          (combo.model === data.defaultChoice?.id ? (props.resolvedDefault ?? t("picker.default")) : combo.model),
+          (combo.model === data.defaultChoice?.id ? (props.resolvedDefault ?? t("picker.model")) : combo.model),
         detail: data.comboEffort(combo),
         hint: String(index + 1),
         section: t("picker.recent"),
@@ -349,12 +372,7 @@ export function menuNodes(
     /// A query's matches across this harness's models, best nearest the chip.
     matches(query: string, within?: TaxModel[]): MenuNode[] {
       const found = data.filter(query, within);
-      // The default row matches "default" and the name of the model it resolves to.
-      const fallback = within ? undefined : defaultRow();
-      const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      const named = `${t("picker.default")} default ${props.resolvedDefault ?? ""}`.toLowerCase();
       const rows = found.map((model) => modelRow(model, undefined, `${model.provider} · ${model.family}`));
-      if (fallback && words.every((word) => named.includes(word))) rows.unshift(fallback);
       if (rows.length === 0) return [{ key: "none", label: t("picker.noMatches") }];
       return ordered(rows, order);
     },

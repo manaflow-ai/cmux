@@ -46,7 +46,7 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         var address = in_addr()
         guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
         guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         let canonical = decode(buffer)
         // Darwin's inet_pton accepts leading-zero octets as decimal while the
@@ -61,7 +61,7 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         var address = in6_addr()
         guard value.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
         let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
         return (decode(buffer).lowercased(), bytes)
     }
@@ -97,6 +97,6 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
         }
         // `fd7a:115c:a1e0::53` is the local MagicDNS service, not a peer.
         let magicDNS = [UInt8](repeating: 0, count: 9) + [0x53]
-        return Array(bytes[6...]) != magicDNS
+        return Array(bytes.dropFirst(6)) != magicDNS
     }
 }

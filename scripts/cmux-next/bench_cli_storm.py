@@ -38,7 +38,7 @@ import time
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from daemon_teardown import daemon_env, end_terminals  # noqa: E402
+from daemon_teardown import daemon_env, end_terminals, recorded_hosts  # noqa: E402
 
 DEADLINE_S = 2.0
 CLIENT_TIMEOUT_S = DEADLINE_S + 3.0
@@ -183,8 +183,9 @@ class NextProfile:
         return pid, identity.get("tag") or self.tag
 
     def pty_holders(self, pid):
-        """Terminal host processes of this app's cmux-tui binary (one PTY each)."""
-        return {int(p) for p in run(["pgrep", "-f", f"{self.tui_binary} __terminal-host"]).split()}
+        """Terminal host processes of this tag (one PTY each), from the tag's
+        discovery records (a host's command line names no path, cx-0tgl LF)."""
+        return recorded_hosts(daemon_env(self.tag)["CMUX_TUI_STATE_DIR"])
 
     def setup(self, control, pid):
         topology = self.topology(control)

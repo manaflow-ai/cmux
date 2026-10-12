@@ -28,7 +28,7 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
     }
 
     public static func service(bundleID: String?) -> String {
-        "\(bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app").ai-provider-keys"
+        "\(bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app").ai-provider-keys"
     }
 
     private func base(_ provider: AIProvider?) -> [String: Any] {

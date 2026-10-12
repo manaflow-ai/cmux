@@ -8,8 +8,4 @@ export default defineConfig({
   // are a backlog to fix, so they report without failing the check yet.
   ...cmuxCheckConfig({ allowWarnings: true }),
   plugins: [react()],
-  test: {
-    environment: "jsdom",
-    setupFiles: "./test/setup.ts",
-  },
 });

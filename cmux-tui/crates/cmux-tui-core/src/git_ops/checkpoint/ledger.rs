@@ -18,14 +18,14 @@ use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
 const ORIGIN: &str = "resource-api";
 
 /// The resolved identity a fingerprint binds.
-pub(super) struct Identity<'a> {
+pub(in crate::git_ops) struct Identity<'a> {
     pub repository_id: &'a str,
     pub worktree_id: &'a str,
 }
 
 /// The fingerprint of a mutation: its operation, selectors and fields, and
 /// the identity they resolved to.
-pub(super) fn fingerprint(
+pub(in crate::git_ops) fn fingerprint(
     operation: &str,
     selectors: &Value,
     fields: &Value,
@@ -52,6 +52,7 @@ fn committed(mux: &Mux, key: &str, operation: &str) -> Result<Option<Committed>,
     let registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     let row = registry
         .connection
+        .get()
         .query_row(
             "SELECT operation, fingerprint, result_json FROM resource_mutations
              WHERE idempotency_key = ?1",
@@ -74,7 +75,7 @@ fn committed(mux: &Mux, key: &str, operation: &str) -> Result<Option<Committed>,
 /// fingerprint; `idempotency.conflict` for other input, and
 /// `repository_changed` when the same operation's target now resolves to
 /// another repository or worktree.
-pub(super) fn prior(
+pub(in crate::git_ops) fn prior(
     mux: &Arc<Mux>,
     key: &str,
     operation: &'static str,
@@ -121,15 +122,17 @@ pub(super) fn created(
 /// Commits `value` as the mutation's result at a new resource revision and
 /// returns the mutation reply; `replayed` marks a reply for a retry that
 /// finished an earlier attempt.
-pub(super) fn commit(
+pub(in crate::git_ops) fn commit(
     mux: &Arc<Mux>,
     key: &str,
     operation: &'static str,
     fingerprint: &Value,
     value: &Value,
     replayed: bool,
+    actor: &crate::Actor,
 ) -> Result<Value, ResourceError> {
-    let mutation = mutation(key, operation)?;
+    let mutation = WorkspaceMutation::new(key, ORIGIN, actor.clone())
+        .map_err(|error| registry_error(operation, error))?;
     let mut registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     let commit = registry
         .commit_resource_patch(
@@ -155,7 +158,7 @@ pub(super) fn commit(
 }
 
 fn mutation(key: &str, operation: &'static str) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(key, ORIGIN).map_err(|error| registry_error(operation, error))
+    WorkspaceMutation::daemon(key, ORIGIN).map_err(|error| registry_error(operation, error))
 }
 
 /// A conflict stays a conflict; any other registry failure is

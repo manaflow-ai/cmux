@@ -1,6 +1,6 @@
 public import CmuxNextDaemon
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One open daemon attachment as the driver uses it. Every command is a
 /// synchronous, nonblocking send, so the driver applies effects in order
@@ -128,8 +128,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     // MARK: Diagnostics
 
     public var machine: Machine { core.withLock { $0.machine } }
-    /// Attach attempts whose task is still running (open or pump).
-    public var runningTasks: Int { core.withLock { $0.tasks.count } }
     public var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     // MARK: Reducer and applier

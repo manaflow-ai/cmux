@@ -138,11 +138,12 @@ pub fn params(entry: &Entry, words: &[String]) -> Result<Value, String> {
             };
             let value = convert(param, &raw)?;
             if param.repeated {
-                out.entry(param.name)
-                    .or_insert_with(|| json!([]))
-                    .as_array_mut()
-                    .expect("array")
-                    .push(value);
+                // The positional word stores one value, not an array: a
+                // flag for the same param after it is a second value.
+                match out.entry(param.name).or_insert_with(|| json!([])) {
+                    Value::Array(values) => values.push(value),
+                    _ => return Err(format!("--{name} given twice")),
+                }
             } else if out.insert(param.name.to_owned(), value).is_some() {
                 return Err(format!("--{name} given twice"));
             }

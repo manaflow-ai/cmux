@@ -16,6 +16,11 @@
 //! claims a URL the page did not load). A confirmed navigation (a resource op
 //! that waits for its outcome) is not held: it fails with "browser is still
 //! starting".
+//! Back, forward and reload are not held either: before attach they are
+//! refused before the acknowledgement. One accepted while attached is dropped,
+//! with a failure status, if a lease replacement removes the session before
+//! the worker runs it: replaying history on a new page's history would be
+//! wrong, and the next attach already loads the record's URL.
 //!
 //! Follow-up (plans/cmux-next/COORDINATION.md): a v2 navigation op that
 //! carries the browser tab record's expected URL revision, owned by the
@@ -53,18 +58,24 @@ impl NavigationHold {
 }
 
 impl crate::Mux {
-    /// Raw `browser-navigate`: a frontend-rendered page has no daemon CDP
-    /// target, so the daemon refuses instead of acknowledging and dropping.
+    /// Raw `browser-navigate`: see [`Self::refuse_frontend_browser`].
     pub(crate) fn navigate_browser_surface(
         &self,
         surface: &crate::Surface,
         url: &str,
     ) -> anyhow::Result<()> {
+        self.refuse_frontend_browser(surface)?;
+        surface.browser_navigate(url)
+    }
+
+    /// A frontend-rendered page has no daemon CDP target, so raw navigation
+    /// and history commands are refused instead of acknowledged and dropped.
+    pub(crate) fn refuse_frontend_browser(&self, surface: &crate::Surface) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.is_frontend_browser_surface(surface),
-            "browser surface is rendered by the frontend; navigate it through its record"
+            "browser surface is rendered by the frontend; drive it through its record"
         );
-        surface.browser_navigate(url)
+        Ok(())
     }
 }
 
@@ -74,6 +85,25 @@ impl BrowserSurface {
             anyhow::bail!("browser failed: {reason}");
         }
         self.enqueue_latest_nav(BrowserCommand::Navigate(url.to_string()))
+    }
+
+    /// Back, forward and reload act on the attached page's own history, and
+    /// attach already loads the record's current URL, so there is nothing to
+    /// hold: before attach they are refused instead of acknowledged. They keep
+    /// the FIFO control lane once the surface is attached.
+    pub(super) fn enqueue_history(&self, command: BrowserCommand) -> anyhow::Result<()> {
+        use std::sync::PoisonError;
+        {
+            let hold = self.navigation_hold.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(reason) = &hold.attach_failure {
+                anyhow::bail!("browser failed: {reason}");
+            }
+            let attached = self.session.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+            if !attached && !self.is_dead() {
+                anyhow::bail!("browser is still starting; retry after it attaches");
+            }
+        }
+        self.enqueue_control(command)
     }
 
     /// A bootstrap failed for good: fail the surface, drop any held

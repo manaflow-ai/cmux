@@ -40,7 +40,7 @@ impl Mux {
     ) -> anyhow::Result<StateCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let commit = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.lock_state_pinned(&registry).unwrap();
             let commit = registry.commit_state_mutation(
                 mutation,
                 operation,

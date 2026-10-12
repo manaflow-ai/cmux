@@ -12,7 +12,12 @@ pub(super) enum OperationOwner {
     Auxiliary,
     State,
     Git,
+    /// The daemon history module (history_ops.rs).
+    History,
+    Credential,
     Connection,
+    /// Settings (the settings file): the config owner (resource_router/config.rs).
+    Config,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -22,6 +27,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
         | ResourceOperation::SessionGet => OperationOwner::Machine,
+        ResourceOperation::CredentialVerify
+        | ResourceOperation::CredentialMint
+        | ResourceOperation::CredentialRotate => OperationOwner::Credential,
         ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate
@@ -119,11 +127,29 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
+        | ResourceOperation::GitFilesList
         | ResourceOperation::GitFilesSearch
+        | ResourceOperation::GitPush
+        | ResourceOperation::GitWorktreeCreate
+        | ResourceOperation::GitWorktreeApply
+        | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitStatus => OperationOwner::Git,
+        ResourceOperation::HistoryEntriesList
+        | ResourceOperation::HistoryEntriesRemove
+        | ResourceOperation::HistorySiteRemove
+        | ResourceOperation::HistoryClear
+        | ResourceOperation::HistoryRestore
+        | ResourceOperation::HistoryBackupsPurge
+        | ResourceOperation::HistoryVisitRecord
+        | ResourceOperation::HistoryVisitTitle
+        | ResourceOperation::HistoryVisitRemove
+        | ResourceOperation::HistoryVisitSummaries
+        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
+        | ResourceOperation::WorkspaceAgentStartGet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate
@@ -166,12 +192,25 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ScreenGroupUngroup
         | ResourceOperation::ClosedList
         | ResourceOperation::ClosedReopen
+        | ResourceOperation::ClosedDelete
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
+        | ResourceOperation::WorkspaceEnsureApp
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::ProjectList
+        | ResourceOperation::ProjectObserve
+        | ResourceOperation::ProjectAdd
+        | ResourceOperation::ProjectUpdate
+        | ResourceOperation::ProjectRemove
+        | ResourceOperation::ProjectSync
+        | ResourceOperation::PaletteUsageGet
+        | ResourceOperation::PaletteUsageRecord
+        | ResourceOperation::PaletteUsageImport
+        | ResourceOperation::PaletteUsageHide
+        | ResourceOperation::PaletteUsageForget
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
@@ -179,7 +218,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceProgressClear
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
-        | ResourceOperation::WorkspaceLogClear => OperationOwner::State,
+        | ResourceOperation::WorkspaceLogClear
+        | ResourceOperation::AgentMessageSend
+        | ResourceOperation::AgentMessageList
+        | ResourceOperation::AgentMessageMark => OperationOwner::State,
         ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList
@@ -212,7 +254,25 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
         | ResourceOperation::StreamCancel
+        | ResourceOperation::ChiefEngineGet
+        | ResourceOperation::ChiefEngineSet
+        | ResourceOperation::ChiefStop
+        | ResourceOperation::ConversationList
+        | ResourceOperation::ConversationGet
+        | ResourceOperation::ConversationHistory
+        | ResourceOperation::ConversationSearch
+        | ResourceOperation::ConversationSend
+        | ResourceOperation::ConversationTyping
+        | ResourceOperation::ConversationDraft
+        | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
+        ResourceOperation::SettingsSchema
+        | ResourceOperation::SettingsList
+        | ResourceOperation::SettingsGet
+        | ResourceOperation::SettingsSnapshot
+        | ResourceOperation::SettingsSet
+        | ResourceOperation::SettingsReset
+        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
     }
 }
 

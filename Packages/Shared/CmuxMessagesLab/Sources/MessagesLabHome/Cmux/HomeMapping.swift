@@ -28,13 +28,51 @@ enum HomeMapping {
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
     typealias Links = (String) -> LinkMetadata?
 
+    /// A thread root's MessagesLab id and part owners, by its owner message id; nil when the
+    /// root is not among the mapped items or is retracted (a reply then shows as a plain message).
+    typealias Roots = (MessageID) -> (id: ID, owners: [Int])?
+
+    /// The thread roots among `items`, for `message(_:roots:)`: indexed by message id, a root's
+    /// parts mapped only when a reply asks for it.
+    static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
+                      media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
+        let wanted = Set(items.compactMap(\.threadRoot))
+        guard !wanted.isEmpty else { return { _ in nil } }
+        var byID: [MessageID: TranscriptItem] = [:]
+        for item in items {
+            if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
+        }
+        let found = byID
+        return { root in
+            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+        }
+    }
+
+    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
+    /// `replyTo` when it names the root, else the root's first part): MessagesLab lays it out and
+    /// animates its arrival as a thread reply (connector, the root's 32 pt thread gap). nil for a
+    /// message that is no thread reply, or whose root is not among the mapped items or retracted.
+    static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
+        guard let root = item.threadRoot, root != item.messageID, let r = roots(root), !r.owners.isEmpty else { return nil }
+        let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
+        // Only a part the root shows: an index from the wire that no shown part owns is the first part.
+        return PartRef(messageId: r.id, partIndex: r.owners.firstIndex(of: homePart) ?? 0)
+    }
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
+                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
+                        roots: Roots = { _ in nil }) -> Message {
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
-        return Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
+        let messageID = id(item, aliases: aliases)
+        // A person's text shows as typed, and so does a part with mentions (their offsets index
+        // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
+        // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
+        let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
+        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
+        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
-                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) })
+                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -64,7 +102,7 @@ enum HomeMapping {
 
     /// A MessagesLab part index as the HomeStore part it shows (a tapback's partIndex).
     static func homeIndex(_ projected: Int, _ owners: [Int]) -> Int {
-        owners.indices.contains(projected) ? owners[projected] : projected
+        owners[checked: projected] ?? projected // // crash program: checked (a projected index past the owners keeps its value)
     }
 
     /// One HomeStore part as MessagesLab parts: a text part by Messages'
@@ -137,11 +175,12 @@ enum HomeMapping {
             let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
             return .link(url: link.url, title: link.title ?? host, siteName: host, image: nil, theme: "dark")
         case .attachment(let ref):
-            return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
+            return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval:
-            // Agent session and approval cards are not MessagesLab rows: their text.
+        case .work, .approval, .question:
+            // Agent session, approval and question cards are not MessagesLab rows
+            // yet: their text. The question card moves to the custom-row seam.
             return .text(p.plainText, runs: [])
         }
     }
@@ -208,9 +247,15 @@ enum HomeMapping {
     }
 
     /// The loaded window's place in the history: (messages before it, total).
-    static func window(_ items: [TranscriptItem], summary: ConversationSummary?) -> (start: Int, total: Int) {
+    /// HomeStore's window always ends at the newest message it has (Home has
+    /// no pager), so the total is the window's end, never the summary's
+    /// lastSeq: that can run ahead of the window (the inbox moves first, or
+    /// the view is made before its first page), and MessagesLab appends a
+    /// received message only while the window reaches the total (`atNewest`),
+    /// so every later message stayed hidden (cx-7nf0).
+    static func window(_ items: [TranscriptItem]) -> (start: Int, total: Int) {
         let first = items.first(where: { $0.seq != nil })?.seq ?? 1
-        let start = max(0, Int(first) - 1)
-        return (start, max(start + items.count, Int(summary?.lastSeq ?? 0)))
+        let start = max(0, Int(clamping: first) - 1) // // crash program: a seq past Int.max clamps
+        return (start, start + items.count)
     }
 }

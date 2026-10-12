@@ -88,14 +88,18 @@ extension DaemonStore {
             return .resync
         case .disconnected(let reason):
             connectionEpoch += 1
+            clearPresence()
             connectionState = .disconnected(reason)
+            onDisconnected?()
             // Nothing newer will arrive for commands sent on this connection.
             drainAppliedWaiters = true
             flushAppliedWaiters()
             return .none
         case .daemonShutdown:
             connectionEpoch += 1
+            clearPresence()
             connectionState = .disconnected("daemon shut down")
+            onDisconnected?()
             return .none
 
         case .workspaceAdded(let delta):
@@ -118,8 +122,8 @@ extension DaemonStore {
         case .workspaceMoved(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
                 let id = WorkspaceModel.identity(delta.entity)
-                guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return }
-                let model = store.workspaces[from]
+                guard let from = store.workspaces.firstIndex(where: { $0.id == id }),
+                      let model = store.workspaces[checked: from] else { return }
                 model.update(delta.entity)
                 let index = min(max(delta.index ?? store.workspaces.count - 1, 0), store.workspaces.count - 1)
                 if index != from {
@@ -182,7 +186,7 @@ extension DaemonStore {
                 existing.update(delta.entity)
             } else {
                 let tab = TabModel(delta.entity)
-                tab.setAgent(agentsBySurface[delta.surface])
+                tab.setAgent(agents.bySurface[delta.surface])
                 pane.insertTab(tab, at: delta.index ?? pane.tabs.count)
             }
             structureChanged()
@@ -207,7 +211,10 @@ extension DaemonStore {
             }
             return .none
 
-        case .treeChanged, .layoutChanged, .overflow:
+        case .treeChanged, .layoutChanged:
+            return .resync
+        case .overflow:
+            clearPresence()
             return .resync
 
         case .titleChanged(let surface, let title):
@@ -226,17 +233,20 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
-            agentsBySurface[status.surface] = status
+            agents.apply(status)
             tabsBySurface[status.surface]?.setAgent(status)
+            return .none
+        case .agentPresenceChanged(let presence):
+            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
             return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
-        case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown(AppServerEvent.eventName, _):
+        case .bookmarksChanged, .historyChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
             return .none
         }
     }
@@ -250,5 +260,17 @@ extension DaemonStore {
         workspaceRevision = delta.workspaceRevision
         structureChanged()
         return .none
+    }
+}
+
+extension DaemonStore {
+    /// Drops every tab's agent presence (cx-gg84) when the store may have
+    /// missed its clear: a lost connection, a daemon shutdown or dropped
+    /// events. The daemon sends no presence in a snapshot; each agent's next
+    /// hook event brings its presence back.
+    func clearPresence() {
+        for tab in tabsBySurface.values where tab.presence != nil {
+            tab.setPresence(nil)
+        }
     }
 }

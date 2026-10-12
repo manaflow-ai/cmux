@@ -333,7 +333,6 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
 
 #[test]
 fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
-    // The clear-history check below covers a shell with no prompt boundary.
     let server = HeadlessServer::start_without_shell_integration("matrix");
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
@@ -647,31 +646,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_success(&copied);
     assert!(json_output(&copied)["text"].as_str().unwrap().contains(&marker));
 
-    let pending = format!("echo prompt_kept_{}", std::process::id());
-    let type_pending =
-        cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", &pending]);
-    assert_success(&type_pending);
-    wait_for_screen(&server, &terminal, &pending);
-
-    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
-    assert_success(&cleared);
-    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
-    let output = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-    assert_success(&output);
-    let cleared_screen = json_output(&output)["text"].as_str().unwrap().to_string();
-    assert!(
-        cleared_screen.contains(&marker),
-        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
-    );
-    assert!(!cleared_screen.trim().is_empty(), "clear-history blanked the active terminal");
-    let cleared_scrollback =
-        json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
-    assert_success(&cleared_scrollback);
-    assert!(
-        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
-        "clear-history retained prior output in scrollback"
-    );
-
     let notify = json_cli(&server, &["notification", "create", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
     assert!(json_output(&notify)["value"]["id"].as_str().unwrap().starts_with("notification_"));
@@ -754,6 +728,140 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+}
+
+/// `history clear` (Cmd-K) on a shell without prompt marks keeps only the
+/// cursor's line (the pending command line) and drops every row above it and
+/// the scrollback, like Ghostty's clear_screen away from a prompt (cx-6so.55;
+/// before, only the scrollback went and Cmd-K looked like it did nothing).
+/// Deterministic on purpose: bash without rc files, a fixed one-cell prompt
+/// and no resize, so only the typed line itself wraps (on purpose, to cover
+/// the soft-wrapped rows), and every step waits for the screen it needs.
+#[cfg(unix)]
+#[test]
+fn history_clear_without_a_prompt_boundary_keeps_only_the_cursor_line() {
+    let server = HeadlessServer::start_without_shell_integration("history-clear");
+    let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string();
+    let write = |text: &str| {
+        let sent = cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", text]);
+        assert_success(&sent);
+    };
+    let screen = || {
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        assert_success(&read);
+        json_output(&read)["text"].as_str().unwrap().to_string()
+    };
+    let wait_until = |what: &str, done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let text = screen();
+            if done(&text) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "{what} never happened: {text:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+
+    // Replace the login shell (any user rc and prompt) with a clean bash.
+    write("exec env PS1='$ ' PROMPT_COMMAND= bash --norc --noprofile -i\r");
+    write("clear\r");
+    wait_until("the clean prompt", &|text| text.trim() == "$");
+
+    // Old output that only the scrollback holds after the next screenful.
+    write("seq -f old_%g 1 60\r");
+    let marker = format!("history_clear_marker_{}", std::process::id());
+    write(&format!("echo {marker}\r"));
+    wait_until("the marker", &|text| text.contains(&format!("{marker}\n$")));
+    // Longer than the 80-column screen: the kept line includes its soft wraps.
+    let pending = format!("echo prompt_kept_{}_{}", std::process::id(), "x".repeat(100));
+    let unwrapped = |text: &str| text.replace('\n', "");
+    write(&pending);
+    wait_until("the pending line", &|text| unwrapped(text).contains(&pending));
+
+    // `old_1` exactly (not `old_10`): the first line, long scrolled off.
+    let history_has_old_1 = || {
+        let read = json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
+        assert_success(&read);
+        let text = String::from_utf8_lossy(&read.stdout).into_owned();
+        text.match_indices("old_1")
+            .any(|(at, _)| !text[at + 5..].starts_with(|c: char| c.is_ascii_digit()))
+    };
+    assert!(history_has_old_1(), "the scrollback never held the old output");
+
+    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
+    // Wait for the result: a hosted terminal applies the clear on its own
+    // reader, and the old screen must not pass by being read too early.
+    let cleared_screen =
+        wait_until("the clear", &|text| !text.contains(&marker) && !text.contains("old_"));
+    assert!(
+        unwrapped(cleared_screen.trim_start()).starts_with(&format!("$ {pending}")),
+        "clear-history did not move the whole wrapped pending line to the top row: {cleared_screen:?}"
+    );
+    assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
+
+    // The journal records the clear (a local terminal: `screen_cleared`; a
+    // hosted one: the resync's `host_reconnect`), so a restore or respawn
+    // starts after it instead of bringing the old text back.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let reasons = journal_gap_reasons(&server.socket, &terminal);
+        if reasons.iter().any(|reason| reason == "screen_cleared" || reason == "host_reconnect") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no journal gap after the clear: {reasons:?}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// `terminal.output.gap` reasons the session journal holds for `terminal`.
+#[cfg(unix)]
+fn journal_gap_reasons(socket: &std::path::Path, terminal: &str) -> Vec<String> {
+    use std::io::{BufRead, BufReader, Write};
+    let stream = UnixStream::connect(socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "clear-gaps",
+        "operation": "session.journal.subscribe",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_33333333333343338333333333333333",
+            "start": "beginning",
+            "filter": {"kinds": ["terminal.output.gap"], "max_sensitivity": "sensitive"},
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+    let mut reasons = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).is_err() || line.is_empty() {
+            break;
+        }
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let ours = record["subjects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|subject| subject["kind"] == "terminal" && subject["id"] == terminal);
+        if ours {
+            reasons.push(record["payload"]["reason"].as_str().unwrap_or_default().to_string());
+        }
+    }
+    reasons
 }
 
 #[test]

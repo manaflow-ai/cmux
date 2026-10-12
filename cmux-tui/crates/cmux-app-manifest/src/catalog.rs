@@ -11,18 +11,21 @@ use std::sync::OnceLock;
 pub const CATALOG_SCHEMA: &str =
     include_str!("../../cmux-app-host/schema/v2/cmux-app-catalog.schema.json");
 
-fn validator() -> &'static jsonschema::Validator {
-    static V: OnceLock<jsonschema::Validator> = OnceLock::new();
-    V.get_or_init(|| {
-        let schema: Value = serde_json::from_str(CATALOG_SCHEMA).expect("catalog schema is JSON");
-        jsonschema::draft202012::new(&schema).expect("catalog schema compiles")
-    })
+pub(crate) fn validator() -> Result<&'static jsonschema::Validator, &'static str> {
+    static V: OnceLock<Result<jsonschema::Validator, String>> = OnceLock::new();
+    V.get_or_init(|| crate::compile_schema("the embedded catalog schema", CATALOG_SCHEMA))
+        .as_ref()
+        .map_err(String::as_str)
 }
 
 /// Validates a parsed catalog fragment against `manifest`. Issue paths are
 /// pointers into the fragment, prefixed with `/catalog`.
 pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
-    let mut out: Vec<Issue> = validator()
+    let validator = match validator() {
+        Ok(validator) => validator,
+        Err(error) => return vec![Issue::error("/catalog", "catalog.schema", error)],
+    };
+    let mut out: Vec<Issue> = validator
         .iter_errors(catalog)
         .map(|e| {
             Issue::error(format!("/catalog{}", e.instance_path), "catalog.schema", e.to_string())

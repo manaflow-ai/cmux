@@ -44,17 +44,13 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
-    /// Changes art and repaints this scope and its descendants without a
-    /// Ghostty reload or changing any terminal colors.
-    /// - Parameter art: The painting to show; nil restores inherited art.
-    public func setBackdropArt(_ art: BackdropArt?) {
-        setBackdropSelection(art.map(BackdropSelection.art))
-    }
-
     /// Changes the selected bundled or system image and repaints descendants.
     public func setBackdropSelection(_ selection: BackdropSelection?) {
         guard selectedBackdropSelection != selection else { return }
         selectedBackdropSelection = selection
+        // Settings pick the art before the first window: start decoding it now, so that window
+        // finds it ready.
+        BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
     }
 
@@ -111,6 +107,10 @@ public final class ThemeScope {
     private let roots = NSHashTable<NSView>.weakObjects()
     private let windows = NSHashTable<NSWindow>.weakObjects()
     private let responders = NSHashTable<AnyObject>.weakObjects()
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     private init() {
         level = .config
@@ -227,7 +227,8 @@ public final class ThemeScope {
     }
 
     private func update(animated: Bool, repaint: Bool) {
-        let next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
+        next.accent = ThemeStore.shared.accent
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
         defer { for view in roots.allObjects { applyAppearance(to: view) } }
@@ -250,15 +251,6 @@ public final class ThemeScope {
         Self.invalidate(view)
     }
 
-    /// Returns `view` to whatever scope its ancestors draw in.
-    public func unroot(_ view: NSView) {
-        guard ThemeScopeRegistry.scope(of: view) === self else { return }
-        ThemeScopeRegistry.setScope(nil, of: view)
-        roots.remove(view)
-        view.appearance = nil
-        Self.invalidate(view)
-    }
-
     /// Makes `window` (a main window or a panel it owns) draw in this scope:
     /// its appearance, and every view in it that roots no other scope.
     public func adopt(_ window: NSWindow) {
@@ -278,11 +270,12 @@ public final class ThemeScope {
     /// Runs `body` with this scope's colors active for `Palette` and its
     /// appearance as the drawing appearance (layer owners without a view).
     public func perform<T>(_ body: () -> T) -> T {
-        ThemeContext.push(tokens)
+        ThemeContext.push(tokens, selection: backdropSelection)
         defer { ThemeContext.pop() }
         var result: T?
         appearance.performAsCurrentDrawingAppearance { result = body() }
-        return result!
+        // The block runs synchronously, so `result` is set; otherwise run `body` without the appearance.
+        return result ?? body()
     }
 
     /// A root view takes an explicit appearance only where its scope's

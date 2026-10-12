@@ -12,18 +12,20 @@ extension ChatController {
     func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
-        let current = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
+        let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
-        // incoming 59 -> 91, outgoing (72,147,247) -> (45,89,192), in about 0.22 s after
-        // 0.08 s; back when the menu closes).
+        // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
+        // the press; back when the menu closes).
         let hl = MenuHighlight(host: host, body: hit.body, outgoing: hit.row.outgoing, tail: hit.row.tail)
         menu.delegate = hl
         menuHighlight = hl
+        hl.start()
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
         let canReact = intents?.canReact == true
         if canReact {
-            TapbackMenuRows.items(current: current, react: { [weak self] in self?.intents?.react(ref, $0) },
+            // MessagesLab 7518134: timed from the choosing input (PaneTapback.swift).
+            TapbackMenuRows.items(current: current, react: { [weak self] in self?.chooseTapback(ref, $0) },
                                   emojiPicker: { [weak self] in self?.showEmojiPicker() }).forEach(menu.addItem)
         }
         // Then (real order, macOS 27): Tapback Details…, Reply…, Attach Sticker…; Edit
@@ -35,7 +37,7 @@ extension ChatController {
         }
         // Attach Sticker…: opens the tapback picker with its emoji (no image stickers).
         if canReact {
-            menu.addItem(MenuAction(title: Strings.menuAttachSticker, symbol: NSImage(systemSymbolName: "sticker", accessibilityDescription: nil) != nil ? "sticker" : "face.smiling") { [weak self] in self?.showPicker(for: hit) })
+            menu.addItem(MenuAction(title: Strings.menuAttachSticker, symbol: MenuSymbols.attachSticker) { [weak self] in self?.showPicker(for: hit) })
         }
         menu.addItem(.separator())
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
@@ -74,7 +76,7 @@ extension ChatController {
     /// Tapback Details…: who reacted, with what (a popover at the bubble).
     /// cmux: names from the HomeStore conversation's participants.
     func showTapbackDetails(_ hit: MessagesWindowView.Hit) {
-        let st = store.state
+        guard let st = store?.state else { return }
         let lines = hit.row.reactions.map { r -> String in
             let who = st.conversation.participants.first { $0.id == r.senderId }?.displayName ?? r.senderId
             let what: String
@@ -125,7 +127,7 @@ extension ChatController {
               let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
         let f = cell.convert(cell.bounds, to: demo)
         let scale = window.backingScaleFactor
-        guard let ctx = CGContext(data: nil, width: Int(f.width * scale), height: Int(f.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
         cell.layer.render(in: ctx)
@@ -152,7 +154,7 @@ final class EmojiBubbleButton: NSView {
     init(frame: CGRect, run: @escaping () -> Void) {
         self.run = run
         super.init(frame: frame.insetBy(dx: 0, dy: 0).union(CGRect(x: frame.minX, y: frame.minY, width: frame.width + 20, height: frame.height + 22)))
-        let glass = NSGlassEffectView(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
+        let glass = LabGlass.surface(frame: CGRect(x: 0, y: 0, width: frame.width, height: frame.height))
         glass.cornerRadius = frame.width / 2
         let img = NSImageView(image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: Strings.menuAttachSticker)?
             .withSymbolConfiguration(.init(pointSize: 18, weight: .regular)) ?? NSImage())
@@ -188,31 +190,79 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
             layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
             layer.compositingFilter = "multiplyBlendMode"
         } else {
-            layer.fillColor = NSColor(white: 1, alpha: 0.163).cgColor
+            layer.fillColor = NSColor(white: 1, alpha: 0.2).cgColor // MessagesLab ced183d: 59 -> 98
         }
         layer.opacity = 0
     }
-    func menuWillOpen(_ menu: NSMenu) {
-        guard let root = host?.layer else { return }
+    private var keys: Any?
+    private var closing = false
+    deinit { if let k = keys { NSEvent.removeMonitor(k) } }
+    /// MessagesLab ced183d: the highlight starts with the press, when AppKit asks for the menu,
+    /// and is committed at once, before AppKit's synchronous menu layout (30-75 ms per open), so
+    /// the render server runs its fade during that work as Messages shows it.
+    func start() {
+        guard let root = host?.layer, layer.superlayer == nil else { return }
         root.addSublayer(layer)
         layer.zPosition = 10
-        fade(to: 1, delay: 0.08, duration: 0.22)
+        fade(to: 1, at: CACurrentMediaTime(), duration: 0.2)
+        CATransaction.flush()
+    }
+    /// MessagesLab 7518134: media time of menuWillOpen (an input before it did not choose an item).
+    private(set) var openedAt: CFTimeInterval?
+    /// Removes the highlight at once, no fade (a menu built and never shown: the debug socket).
+    func discard() {
+        CATransaction.begin(); CATransaction.setDisableActions(true); layer.removeFromSuperlayer(); CATransaction.commit()
+    }
+    func menuWillOpen(_ menu: NSMenu) {
+        openedAt = CACurrentMediaTime()
+        start()
+        // Esc (MessagesLab e17858e): the highlight's fade starts and commits before AppKit tears
+        // the menu down on main (the teardown held the commit 30-40 ms: a late, jumping fade);
+        // cancelTracking() animates the menu's own dismissal, as Messages' Esc does.
+        keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak menu] e in
+            guard e.keyCode == 53, let menu else { return e }
+            self?.close()
+            menu.cancelTracking()
+            return nil
+        }
     }
     func menuDidClose(_ menu: NSMenu) {
+        if let k = keys { NSEvent.removeMonitor(k); keys = nil }
+        // MessagesLab 7518134: AppKit sends the chosen item's action after this; a tapback fades the
+        // highlight with its badge (fadeForChoice), so the plain fade waits for the next main
+        // run-loop pass (no timer; an action AppKit sends later finds the fade running, as before).
+        RunLoop.main.perform(inModes: [.common]) { self.close() }
+    }
+    /// MessagesLab 7518134: Messages fades the highlight with the tapback, CA's default curve over
+    /// 0.228 s, beginning 0.120 s after the tapback's origin (tapback-menu-heart-take1).
+    static let choiceFade = (delay: CFTimeInterval(0.120), duration: CFTimeInterval(0.228), curve: CAMediaTimingFunctionName.default)
+    /// A tapback chosen in the menu: the fade starts `choiceFade.delay` after `origin` (media time; nil: now).
+    func fadeForChoice(origin: CFTimeInterval?) {
+        let f = Self.choiceFade
+        close(at: origin.map { max(CACurrentMediaTime(), $0 + f.delay) }, duration: f.duration, curve: f.curve)
+    }
+    /// Fades the highlight out once (Esc starts it before the menu's teardown; a click when the
+    /// menu has closed, a tapback with its badge) and commits the fade at once.
+    private func close(at begin: CFTimeInterval? = nil, duration: CFTimeInterval = 0.2,
+                       curve: CAMediaTimingFunctionName = .easeInEaseOut) {
+        guard !closing, layer.superlayer != nil else { return }
+        closing = true
         let l = layer
         CATransaction.begin()
         CATransaction.setCompletionBlock { l.removeFromSuperlayer() }
-        fade(to: 0, delay: 0, duration: 0.2)
+        fade(to: 0, at: begin ?? CACurrentMediaTime(), duration: duration, curve: curve)
         CATransaction.commit()
+        CATransaction.flush()
     }
-    private func fade(to v: Float, delay: CFTimeInterval, duration: CFTimeInterval) {
+    private func fade(to v: Float, at begin: CFTimeInterval, duration: CFTimeInterval,
+                      curve: CAMediaTimingFunctionName = .easeInEaseOut) {
         let a = CABasicAnimation(keyPath: "opacity")
         a.fromValue = layer.presentation()?.opacity ?? layer.opacity
         a.toValue = v
-        a.beginTime = CACurrentMediaTime() + delay
+        a.beginTime = begin
         a.duration = duration
         a.fillMode = .backwards
-        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        a.timingFunction = CAMediaTimingFunction(name: curve)
         layer.opacity = v
         layer.add(a, forKey: "hl")
     }

@@ -36,14 +36,14 @@ Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.
 `npx cmux` exposes the same commands when using the npm distribution:
 
 ```sh
-npx cmux server start --session dev --iroh
+npx cmux daemon start --session dev --iroh
 ```
 
-Use `cmux server stop --session dev` to stop the local owner, its workspaces,
-and the authenticated remote listeners embedded by `server start`. `cmux
+Use `cmux daemon stop --session dev` to stop the local owner, its workspaces,
+and the authenticated remote listeners embedded by `daemon start`. `cmux
 remote stop --session dev` stops only a replaceable SSH sidecar; it refuses to
 stop an embedded listener because that action would also terminate the local
-owner and its workspaces. Use `cmux server status|reload-config|stop` for the
+owner and its workspaces. Use `cmux daemon status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client

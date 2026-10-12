@@ -74,21 +74,14 @@ public nonisolated final class RemoteRdCore {
     public func popAccessUnit(codec: RemoteVideoCodec) throws(RemoteRdCoreError) -> RemoteAccessUnit? {
         var frame = CmuxRdFrame()
         guard try RemoteRdCoreError.check(cmux_rd_receiver_pop_frame(handle, &frame)) == 1 else { return nil }
-        return RemoteAccessUnit(
-            frame: frame.frame,
-            flags: RemoteFrameFlags(rawValue: frame.flags),
-            tCaptureMicros: frame.t_capture_us,
-            data: Self.copy(frame.data, frame.len),
-            codec: codec
-        )
+        return Self.unit(frame, codec: codec)
     }
 
     /// The oldest queued transport message, or nil when none is queued.
     public func popMessage() throws(RemoteRdCoreError) -> RemoteRdMessage? {
         var message = CmuxRdMessage()
         guard try RemoteRdCoreError.check(cmux_rd_receiver_pop_message(handle, &message)) == 1 else { return nil }
-        let bytes = Self.copy(message.data, message.len)
-        return UInt32(message.kind) == UInt32(CMUX_RD_MESSAGE_CONTROL) ? .control(bytes) : .datagram(bytes)
+        return Self.message(message)
     }
 
     /// Records one decode time for the feedback's median.
@@ -160,6 +153,27 @@ public nonisolated final class RemoteRdCore {
         }
         _ = try RemoteRdCoreError.check(code)
         return Data(out[0..<length])
+    }
+
+    /// A popped frame as an access unit (shared with `RemoteRdSession`).
+    static func unit(_ frame: CmuxRdFrame, codec: RemoteVideoCodec) -> RemoteAccessUnit {
+        RemoteAccessUnit(
+            frame: frame.frame,
+            flags: RemoteFrameFlags(rawValue: frame.flags),
+            tCaptureMicros: frame.t_capture_us,
+            data: copy(frame.data, frame.len),
+            codec: codec
+        )
+    }
+
+    /// A popped message (shared with `RemoteRdSession`).
+    static func message(_ message: CmuxRdMessage) -> RemoteRdMessage {
+        let bytes = copy(message.data, message.len)
+        switch UInt32(message.kind) {
+        case UInt32(CMUX_RD_MESSAGE_CONTROL): return .control(bytes)
+        case UInt32(CMUX_RD_MESSAGE_BULK): return .bulk(bytes)
+        default: return .datagram(bytes)
+        }
     }
 
     private static func copy(_ pointer: UnsafePointer<UInt8>?, _ count: Int) -> Data {

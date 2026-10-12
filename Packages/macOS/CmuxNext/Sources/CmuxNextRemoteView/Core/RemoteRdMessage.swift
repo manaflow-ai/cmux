@@ -7,4 +7,7 @@ public nonisolated enum RemoteRdMessage: Sendable, Hashable {
     /// A datagram that is not a video shard (input ack, cursor position,
     /// audio, probe), header included.
     case datagram(Data)
+    /// A bulk chunk of a transfer (rd change C5): `u64 transfer`, `u64
+    /// offset`, bytes, from the stream carrier's frame type 3.
+    case bulk(Data)
 }

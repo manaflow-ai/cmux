@@ -4,6 +4,7 @@
 
 use std::time::{Duration, Instant};
 
+use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::tests::captured_writer;
 use super::super::*;
 use crate::cloud_conversations::testing::{FakeBackend, wait_until};
@@ -25,6 +26,7 @@ fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         backoff_max: Duration::from_millis(20),
         poll: Duration::from_millis(5),
         max_concurrent_requests: 1,
+        api_origins: vec!["https://api.cmux.test".into()],
         ..ServiceOptions::default()
     };
     assert!(
@@ -143,6 +145,9 @@ fn every_command_requires_a_trusted_local_connection() {
 #[test]
 fn op_forwards_the_key_and_returns_the_owner_result() {
     let (mux, client, backend) = cloud_mux();
+    // `origin: "user"` is the verified cmux app's (cloud-lease-app-only-v1).
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
     sign_in(&mux, client);
     backend.reply("/v1/ops", 200, json!({"ok":true,"op":"dm.open",
         "value":{"conversation":{"id":"conv_dm_0123456789ABCDEFGHJKMNPQRS","owner":"cloud"}},"revision":"1",
@@ -367,4 +372,102 @@ fn a_later_subscriber_gets_the_current_state_and_a_state_event_after_its_reply()
         })
     });
     mux.cloud_conversations().unwrap().shutdown();
+}
+
+/// G9: a client cannot name a chief. `cloud-mux-ack` takes ids only (an
+/// `agent` field is refused at parse), and `cloud-mux-subscribe` with a
+/// person's lease is refused: the queue is the chief token's own.
+#[test]
+fn the_mux_commands_never_take_a_chief_from_the_request() {
+    let (mux, client, _backend) = cloud_mux();
+    let named = serde_json::from_value::<Command>(json!({
+        "cmd": "cloud-mux-ack", "conversation": CONV, "seq": 3, "agent": "agent_other"
+    }));
+    assert!(named.is_err(), "an agent field must not parse");
+    let subscribe_named = serde_json::from_value::<Command>(json!({
+        "cmd": "cloud-mux-subscribe", "agent": "agent_other"
+    }));
+    assert!(subscribe_named.is_err(), "subscribe takes no agent");
+    run(&mux, client, json!({"cmd": "cloud-session-set", "api_base_url": "https://api.cmux.test",
+                             "access_token": "stack.jwt.token", "expires_at": 9_999_999_999_999u64}))
+        .unwrap();
+    let refused = run(&mux, client, json!({"cmd": "cloud-mux-subscribe"})).unwrap_err();
+    assert!(refused.to_string().contains("chief token"), "{refused}");
+}
+
+/// `cloud-conversation-thread` (cx-59n8.6) is `POST /v1/read
+/// conversation.thread` with the value passed through, and
+/// `cloud-conversation-history` keeps the owner's `threads` root stats.
+#[test]
+fn thread_read_and_root_stats_pass_through_the_proxy() {
+    let (mux, client, backend) = cloud_mux();
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "conversation-thread-v1")
+    );
+    sign_in(&mux, client);
+    let root = json!({"id":"msg_01","seq":1,"author":ME,"parts":[]});
+    let reply_message =
+        json!({"id":"msg_02","seq":2,"author":ME,"parts":[],"thread_root":"msg_01"});
+    let summary = json!({"root":"msg_01","reply_count":1,"last_reply_seq":2,
+                         "last_reply_at":"2026-10-11T00:00:00.000Z","authors":[ME]});
+    let value = json!({"root":root,"replies":[reply_message],"has_more":false,"thread":summary});
+    backend.reply(
+        "/v1/read",
+        200,
+        json!({"ok":true,"op":"conversation.thread","value":value,"revision":""}),
+    );
+    let thread = reply(
+        &mux,
+        client,
+        json!({"id":3,"cmd":"cloud-conversation-thread","conversation":CONV,"root":"msg_01",
+               "after_seq":0,"limit":20}),
+    );
+    assert_eq!(thread["ok"], true, "{thread}");
+    assert_eq!(thread["data"], value);
+    assert_eq!(
+        backend.posted()[0].body,
+        json!({"op":"conversation.thread",
+               "params":{"conversation":CONV,"root":"msg_01","after_seq":0,"limit":20}})
+    );
+
+    backend.reply(
+        "/v1/read",
+        200,
+        json!({"ok":true,"op":"conversation.history",
+        "value":{"messages":[root],"has_more":false,"threads":[summary]},"revision":""}),
+    );
+    let history = reply(
+        &mux,
+        client,
+        json!({"id":4,"cmd":"cloud-conversation-history","conversation":CONV,"before_seq":2,"limit":1}),
+    );
+    assert_eq!(history["ok"], true, "{history}");
+    assert_eq!(history["data"]["threads"], json!([summary]), "{history}");
+
+    // The Worker's 400 body (`{_tag, code, message}` at top level) is a
+    // clear owner refusal, never a transport error.
+    backend.reply(
+        "/v1/read",
+        400,
+        json!({"_tag":"HomeReadError","code":"unknown_message",
+        "message":"not a thread root"}),
+    );
+    let refused = reply(
+        &mux,
+        client,
+        json!({"id":5,"cmd":"cloud-conversation-thread","conversation":CONV,"root":"msg_02"}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["error_code"], "cloud_conversation_rejected", "{refused}");
+    assert_eq!(refused["reason"], "unknown_message", "{refused}");
+    assert_eq!(refused["retryable"], false, "{refused}");
+
+    let bad = run(
+        &mux,
+        client,
+        json!({"cmd":"cloud-conversation-thread","conversation":CONV,"root":"msg_01","limit":201}),
+    )
+    .unwrap_err();
+    assert!(bad.to_string().contains("limit must be 1-200"), "{bad}");
 }

@@ -15,7 +15,10 @@ const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was
 /// yet acknowledged. Nothing is parsed into a command or dispatched.
 pub(super) fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) -> bool {
     if let Some(envelope) = crate::resource_router::parse_resource_line(message) {
-        return match envelope.and_then(crate::resource_router::validate_resource_envelope) {
+        return match envelope.and_then(|envelope| {
+            // Refused below, never dispatched: the actor is not recorded.
+            crate::resource_router::validate_resource_envelope(envelope, crate::Actor::local_user())
+        }) {
             Ok(request) => {
                 let operation = request.envelope.operation;
                 send_resource_response(

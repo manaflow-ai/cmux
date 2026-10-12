@@ -160,13 +160,17 @@ fn at_least_percent(part: u64, whole: u64, pct: u8) -> bool {
     u128::from(part) * 100 >= u128::from(whole) * u128::from(pct)
 }
 
+/// Free space is under `pct` percent of the disk AND under `bytes`. Both
+/// must hold, so a large disk with 5% free (50 GiB of 1 TiB) raises
+/// nothing, and a small disk with 9 GiB free (90% of 10 GiB) raises nothing.
 fn below(disk: &DiskFacts, pct: u8, bytes: u64) -> bool {
-    !at_least_percent(disk.free_bytes, disk.total_bytes, pct) || disk.free_bytes < bytes
+    !at_least_percent(disk.free_bytes, disk.total_bytes, pct) && disk.free_bytes < bytes
 }
 
-/// Warning under 10% or 10 GiB free, critical under 5% or 2 GiB. A raised
-/// level holds until free space is `clear_margin` points (and GiB) above its
-/// threshold.
+/// Warning when free is under 10% AND under 10 GiB; critical when under 5%
+/// AND under 2 GiB (Lawrence decision 8, 2026-10-02). A raised level holds
+/// until free space is `clear_margin` points above the percent threshold or
+/// `clear_margin` GiB above the byte threshold (either one clears it).
 fn disk_severity(s: &HealthSettings, disk: &DiskFacts, prev: Option<Severity>) -> Option<Severity> {
     if disk.total_bytes == 0 {
         return None;

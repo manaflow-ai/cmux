@@ -11,6 +11,7 @@ nonisolated enum WorkspaceVerbStrings {
     static var invalidIcon: String { text("workspaceVerbs.refusal.invalidIcon", "the icon must be an SF Symbol name or one emoji") }
     static var mergeTargetRequired: String { text("workspaceVerbs.refusal.mergeTargetRequired", "an into argument naming a workspace is required") }
     static var mergeIntoItself: String { text("workspaceVerbs.refusal.mergeIntoItself", "a workspace cannot merge into itself") }
+    static var mergeIntoHome: String { text("workspaceVerbs.refusal.mergeIntoHome", "a workspace cannot merge into Home") }
     static var otherMachine: String { text("workspaceVerbs.refusal.otherMachine", "tabs cannot move to a workspace on another machine") }
     static var onlyPane: String { text("workspaceVerbs.refusal.onlyPane", "the pane is the only pane of its workspace") }
 

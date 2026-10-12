@@ -17,14 +17,24 @@ enum FilePageHandlers {
         let services = context.services
         services.pages.register(services.viewers.markdownPages)
         services.pages.register(services.viewers.editorPages)
-        // R96: a recovered draft of a local file opens in the code editor page as an unsaved edit
-        // (the launch notice's Open). The page compares the file with the draft's base itself.
+        services.pages.register(services.viewers.fileTrees)
+        // The chat header's Files (cx-p4rt) shows this Mac's folders only: it opens files and checks
+        // symlinks here, so a chat whose session runs on another machine gets no tree.
+        services.agentTabs.openFiles = { [weak services] chat, folder, target in
+            guard let services, let link = services.agentTabs.gitLink?(chat), link === services.agentGit.local else { return }
+            services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: folder), chat: chat, target: target, link: link)
+        }
+        // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
+        // in the page of its file type (D11): a markdown file in the markdown page, others in the
+        // code editor page. The page compares the file with the draft's base itself.
         RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft), let services,
                       let pane = services.windows.active?.focusedPane else { return }
-                services.viewers.editorPages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
+                let pages = FilePageOpener.kind(for: restore.url) == .markdown
+                    ? services.viewers.markdownPages : services.viewers.editorPages
+                pages.open(restore.url, in: pane, focus: true, recoveredText: restore.text)
                 // The file changed after the draft: say so; the draft stays unsaved changes.
                 if restore.conflict, let window = services.windowController(showing: pane)?.window ?? pane.view.window {
                     _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery-conflict:\(restore.url.path)",
@@ -60,7 +70,8 @@ enum FilePageHandlers {
 
     /// The focused (or targeted) tab's page of `kind`.
     static func page(_ kind: FilePageKind, _ context: AppActionContext, _ invocation: ActionInvocation) throws -> PageWebView {
-        guard let key = context.scope(invocation).tab?.id.rawValue, LocalPageTab.page(of: key) == kind.page,
+        guard let id = context.scope(invocation).tab?.id.rawValue, case let key = providerKey(id, context.services),
+              LocalPageTab.page(of: key) == kind.page,
               let page = service(kind, context.services).pageView(key) else {
             throw ActionFailure(message: FilePageStrings.noFilePage)
         }
@@ -71,15 +82,22 @@ enum FilePageHandlers {
         kind == .markdown ? services.viewers.markdownPages : services.viewers.editorPages
     }
 
+    /// The provider key of strip tab `id`: a store page tab's key, else the id (an app-only tab).
+    static func providerKey(_ id: String, _ services: AppServices) -> String {
+        services.pages.storeKey(of: id) ?? id
+    }
+
     /// The file a file page tab shows (Reveal in Finder, Open With), nil for any other tab.
-    static func file(ofTab key: String, _ services: AppServices) -> URL? {
-        FilePageKind.allCases.lazy.compactMap { kind in
+    static func file(ofTab id: String, _ services: AppServices) -> URL? {
+        let key = providerKey(id, services)
+        return FilePageKind.allCases.lazy.compactMap { kind in
             LocalPageTab.page(of: key) == kind.page ? service(kind, services).file(key) : nil
         }.first
     }
 
     /// Sends a shared find action to an editor page tab; false for any other page.
-    static func sendFind(_ action: String, _ key: String, _ services: AppServices, text: String? = nil) -> Bool {
+    static func sendFind(_ action: String, _ id: String, _ services: AppServices, text: String? = nil) -> Bool {
+        let key = providerKey(id, services)
         guard LocalPageTab.page(of: key) == .editor, let command = EditorPageCommand.forAction[action],
               let page = services.viewers.editorPages.pageView(key) else { return false }
         return page.send(command: command, arguments: text.map { ["text": .string($0)] } ?? [:])

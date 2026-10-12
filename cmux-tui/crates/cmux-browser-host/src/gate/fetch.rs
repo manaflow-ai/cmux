@@ -5,7 +5,7 @@
 //! after the fact), and masks secrets in the body.
 
 use super::redirects::{self, Hop, MAX_REDIRECTS};
-use super::{Gate, now_ms, push_log};
+use super::{Gate, now_ms, push_cors_log, push_log};
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
 use crate::vm::VmHost;
@@ -195,6 +195,26 @@ impl Gate {
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
     /// it): why a response from `url` that came from `ip` is refused.
     pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
+        // Isolated: a response through the egress listener reports the
+        // listener's own address (it checked the real one before it
+        // dialed); any other address went around it and meets the rule.
+        if let Some(isolated) = &self.grants.isolated {
+            let address: std::net::IpAddr =
+                ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
+            if isolated.listener_addr().is_some_and(|listener| listener.ip() == address) {
+                return None;
+            }
+            // Anything else went around the listener: loopback is refused
+            // too (its port is unknown here, so no service check could pass).
+            let reason = if address.is_loopback()
+                || matches!(address, std::net::IpAddr::V6(v6) if v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback()))
+            {
+                Some(format!("{address} is loopback outside the browser egress listener"))
+            } else {
+                isolated.rule().address_refusal(std::net::SocketAddr::new(address, 0))
+            }?;
+            return Some(format!("{url} resolved to {ip}, which is blocked: {reason}"));
+        }
         let address = ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
         let parsed = url::Url::parse(url).ok()?;
         let reason = self.policy.lock().unwrap_or_else(PoisonError::into_inner).range_refusal(
@@ -346,7 +366,7 @@ impl Gate {
                 value.as_object_mut().and_then(|object| object.remove("corsRelaxed"))
             {
                 for entry in relaxed {
-                    push_log(
+                    push_cors_log(
                         &self.cors_log,
                         json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
                     );
@@ -356,7 +376,7 @@ impl Gate {
             // HOP-ADDRESS (ff): a hop whose address never arrived (the engine
             // waited 1 s, unchecked for rebinding) is logged, not silent.
             if redirect.is_some() && remote_ip.is_none() {
-                push_log(
+                push_cors_log(
                     &self.cors_log,
                     json!({"url": hop.url, "what": "hop address missing, waited", "at": now_ms()}),
                 );
@@ -419,6 +439,12 @@ impl Gate {
         ) else {
             return;
         };
+        // Every session of a shared browser sees every tab's responses; a
+        // session's rule stops only the tabs it drives (another session's
+        // tab follows that session's rule).
+        if !self.driver.drives_tab(target) {
+            return;
+        }
         let Some(reason) = self.rebinding_refusal(url, ip) else { return };
         push_log(
             &self.log,

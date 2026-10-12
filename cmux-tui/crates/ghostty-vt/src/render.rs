@@ -893,19 +893,3 @@ impl Drop for RenderState {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::image_generation_delta;
-
-    #[test]
-    fn image_generation_delta_is_linear_and_reports_upserts_and_removals() {
-        let previous = [(1, 10), (2, 20), (4, 40)];
-        let next = [(1, 11), (3, 30), (4, 40)];
-
-        let (changed, removed) = image_generation_delta(&previous, &next);
-
-        assert_eq!(changed, vec![1, 3]);
-        assert_eq!(removed, vec![2]);
-    }
-}

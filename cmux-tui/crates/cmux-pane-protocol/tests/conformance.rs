@@ -49,7 +49,7 @@ fn committed_ir_and_vectors_match_the_generators() {
     );
     assert_eq!(
         read(VECTORS_PATH),
-        cmux_pane_protocol::vectors::vectors_text(),
+        cmux_pane_protocol::vectors::vectors_text().unwrap(),
         "vector drift: run emit-ir"
     );
 }
@@ -141,7 +141,7 @@ fn token_vectors() {
     let token = &vectors["token"];
     let key: [u8; 32] = unhex(token["public_key_hex"].as_str().unwrap()).try_into().unwrap();
     let seed: [u8; 32] = unhex(token["seed_hex"].as_str().unwrap()).try_into().unwrap();
-    let signing = SigningKey::from_seed(&seed);
+    let signing = SigningKey::from_seed(&seed).unwrap();
     assert_eq!(signing.public_key(), key);
     let claims: Claims = serde_json::from_value(token["claims"].clone()).unwrap();
     // Ed25519 is deterministic, so the vector token is reproducible.
@@ -294,7 +294,8 @@ fn matches(expected: &Value, got: &Value) -> bool {
 
 #[tokio::test]
 async fn session_vectors_against_the_example_provider() {
-    let verifier = Verifier::new(SigningKey::from_seed(&TEST_SEED).public_key(), example::APP_ID);
+    let verifier =
+        Verifier::new(SigningKey::from_seed(&TEST_SEED).unwrap().public_key(), example::APP_ID);
     for case in vectors()["session"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let (mut ours, theirs) = memory_pair();
@@ -362,7 +363,7 @@ fn admission_vectors() {
     for (conn, case) in admission["cases"].as_array().unwrap().iter().enumerate() {
         let name = case["name"].as_str().unwrap();
         let app = case["app"].as_str().unwrap();
-        let router = Router::new(SigningKey::from_seed(&TEST_SEED), catalog());
+        let router = Router::new(SigningKey::from_seed(&TEST_SEED).unwrap(), catalog());
         router
             .register_app(AppRecord { app_id: app.into(), credential: None, grants: vec![] })
             .unwrap();

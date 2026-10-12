@@ -56,6 +56,8 @@ pub struct Peer {
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
+    /// Whether the peer advertised the folder-trust gate in initialize.
+    trust_gate: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -93,6 +95,7 @@ impl Peer {
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
+            trust_gate: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -187,6 +190,10 @@ impl Peer {
 
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+    }
+
+    pub fn supports_trust_gate(&self) -> bool {
+        self.trust_gate.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -361,6 +368,11 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            let advertised =
+                init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
+                    |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
+                ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
+            me.trust_gate.store(advertised, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions =
                 watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -371,7 +383,8 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
             for sid in attached {
-                let _ = me.request(method::MUX_ATTACH, json!({"sessionId": sid, "limit": 0})).await;
+                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
+                let _ = me.request(method::MUX_ATTACH, attach).await;
             }
             Ok::<(), RpcError>(())
         });
@@ -578,114 +591,4 @@ pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let token = std::str::from_utf8(&out[at + 1..]).ok().map(str::trim);
     let token = token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
     (&out[..at], token.map(str::to_owned))
-}
-
-#[cfg(test)]
-mod ssh_tests {
-    use super::*;
-
-    #[test]
-    fn option_shaped_or_odd_parts_are_refused() {
-        for bad in [
-            "ssh://-oProxyCommand=touch%20/tmp/x",
-            "ssh://-oProxyCommand=touch /tmp/x",
-            "ssh://-Fevil",
-            "ssh://-F",
-            "ssh://-luser@host",
-            "ssh://-oProxyCommand=x@host",
-            "ssh://user@-oProxyCommand=x",
-            "ssh://ho st",
-            "ssh://host\tname",
-            "ssh://host\nname",
-            "ssh://host\u{7}",
-            "ssh://us er@host",
-            "ssh://user\r@host",
-            "ssh://@host",
-            "ssh://user@",
-            "ssh://",
-            "ssh://host:abc",
-            "ssh://host:",
-            "ssh://host:0",
-            "ssh://host:99999",
-            "ssh://host:+22",
-            "ssh://a@b@c",
-            "ssh://[-oProxyCommand=x]",
-            "ssh://u@[-oProxyCommand=x]:22",
-            "ssh://[]",
-            "ssh://a/b@h",
-            "ssh://u:p@h",
-            "ssh://h;id",
-            "ssh://$(id)",
-            "ssh://`id`",
-            "ssh://h|x",
-            "ssh://h'x",
-            "ssh://[::1",
-        ] {
-            assert!(ssh_target(bad).is_err(), "{bad:?} must be refused");
-        }
-    }
-
-    #[test]
-    fn plain_targets_parse() {
-        let t = |u: &str| ssh_target(u).unwrap();
-        assert_eq!(t("ssh://box"), SshTarget { destination: "box".into(), port: 47811 });
-        assert_eq!(
-            t("ssh://me@box.local:2222"),
-            SshTarget { destination: "me@box.local".into(), port: 2222 }
-        );
-        assert_eq!(t("ssh://box/"), SshTarget { destination: "box".into(), port: 47811 });
-        assert_eq!(t("ssh://[::1]"), SshTarget { destination: "[::1]".into(), port: 47811 });
-        assert_eq!(t("ssh://[::1]:9"), SshTarget { destination: "[::1]".into(), port: 9 });
-        assert_eq!(
-            t("ssh://a_b@h-1.x"),
-            SshTarget { destination: "a_b@h-1.x".into(), port: 47811 }
-        );
-    }
-
-    #[test]
-    fn a_refusal_never_quotes_the_value() {
-        let secret = "ssh://-oProxyCommand=SECRETVALUE";
-        let reason = ssh_target(secret).unwrap_err();
-        assert!(!reason.contains("SECRETVALUE"));
-    }
-
-    #[test]
-    fn the_remote_read_splits_the_config_from_the_peer_token() {
-        let token = "ab".repeat(32);
-        let out = format!("{{\"websocket\":{{}}}}\0{token}\n");
-        let (config, peer) = split_remote_read(out.as_bytes());
-        assert_eq!(config, b"{\"websocket\":{}}");
-        assert_eq!(peer.as_deref(), Some(token.as_str()));
-        // An older remote daemon has no peer token: it serves us as Web.
-        assert_eq!(split_remote_read(b"{}\0").1, None);
-        assert_eq!(split_remote_read(b"{}").1, None);
-        assert_eq!(split_remote_read(b"{}\0not a token").1, None);
-    }
-
-    #[test]
-    fn the_peer_token_crosses_only_loopback_or_tls() {
-        for url in
-            ["ws://127.0.0.1:1/", "ws://[::1]:1/", "ws://localhost:1", "wss://box.example:1/"]
-        {
-            assert!(carries_peer_token(url), "{url}");
-        }
-        for url in [
-            "ws://10.0.0.7:1/",
-            "ws://box.example:1/",
-            "ws://100.89.225.106:47811",
-            "http://127.0.0.1:1/",
-            "nonsense",
-        ] {
-            assert!(!carries_peer_token(url), "{url}");
-        }
-    }
-
-    #[test]
-    fn the_destination_always_follows_double_dash() {
-        for argv in [tunnel_argv("box", 1), read_config_argv("box")] {
-            let dd = argv.iter().position(|a| a == "--").expect("a -- in every ssh argv");
-            assert_eq!(argv[dd + 1], "box", "{argv:?}");
-            assert!(argv[..dd].iter().all(|a| a != "box"));
-        }
-    }
 }

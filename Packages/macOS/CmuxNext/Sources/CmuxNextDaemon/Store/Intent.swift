@@ -39,6 +39,11 @@ public enum Intent: Sendable, Hashable {
     /// `bind-conversation-tab-session`: agent chat tab `surface` shows acpmux `session` (the
     /// compare-and-swap's new value) until the daemon's record has it or refuses it.
     case bindAgentSession(surface: SurfaceID, session: String)
+    /// `split` / `new-pane` with client-minted ids (`split-client-keys-v1`): the new pane shows
+    /// beside `pane` in the input's frame, under the ids the daemon will use, until the daemon's
+    /// pane with the same public id replaces it or the split is refused
+    /// (plans/cmux-next/remote-state-ownership.md S3).
+    case splitPane(pane: PaneID, direction: SplitDirection, ratio: Double, provisional: ProvisionalPane)
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

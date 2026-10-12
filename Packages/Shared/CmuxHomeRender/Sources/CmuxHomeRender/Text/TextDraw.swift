@@ -32,7 +32,7 @@ enum TextDraw {
 
     static func attributes(_ font: CTFont, _ color: CGColor?, kern: CGFloat = 0) -> [NSAttributedString.Key: Any] {
         var a: [NSAttributedString.Key: Any] = [fontKey: font, kernKey: kern]
-        if let color { a[colorKey] = color }
+        if let color { a.updateValue(color, forKey: colorKey) }
         return a
     }
 

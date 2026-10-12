@@ -15,6 +15,25 @@ public protocol DaemonRequest: Encodable, Sendable {
     associatedtype Response: Decodable & Sendable
     /// Wire command name, e.g. `"list-workspaces"`.
     static var command: String { get }
+    /// The capability a daemon advertises in `identify` when it serves
+    /// `command`, or nil for a protocol 12 base command. Every machine runs
+    /// its own cmux-tui build (a Cloud VM keeps its image's daemon until it
+    /// upgrades), so `DaemonConnection.request` refuses the command with
+    /// `DaemonError.missingCapabilities` before it reaches a daemon that
+    /// does not advertise this, instead of sending a command that daemon
+    /// answers with "unknown variant".
+    static var requiredCapability: String? { get }
+}
+
+extension DaemonRequest {
+    public static var requiredCapability: String? { nil }
+
+    /// Throws `missingCapabilities` when `identity` does not advertise
+    /// ``requiredCapability``; the request must then not be sent.
+    static func requireServed(by identity: DaemonIdentity?) throws {
+        guard let capability = requiredCapability, identity?.supports(capability) != true else { return }
+        throw DaemonError.missingCapabilities([capability])
+    }
 }
 
 /// A command whose reply waits for cmux-tui to launch a terminal host.

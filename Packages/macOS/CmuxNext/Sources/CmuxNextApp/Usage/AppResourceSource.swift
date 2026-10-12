@@ -138,8 +138,12 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .terminal,
                                                         processes: [], estimatedAppBytes: estimate))
                 let key = ObjectIdentifier(daemon)
-                if daemonIndex[key] == nil {
-                    daemonIndex[key] = resolved.daemons.count
+                let index: Int
+                if let known = daemonIndex[key] {
+                    index = known
+                } else {
+                    index = resolved.daemons.count
+                    daemonIndex[key] = index
                     resolved.daemons.append(DaemonQuery(
                         host: daemon.isLocal ? ProcessKey.localHost : daemon.machineID,
                         connection: daemon.connection,
@@ -147,7 +151,7 @@ final class AppResourceSource: ResourceSampleSource {
                         terminals: []
                     ))
                 }
-                resolved.daemons[daemonIndex[key]!].terminals.append(TerminalQuery(tabID: tab.id, surface: tab.surface))
+                resolved.daemons[index].terminals.append(TerminalQuery(tabID: tab.id, surface: tab.surface))
             case .browser:
                 let page = services.cache.existingBrowser(tab.id)?.tab
                 let kind: TabResourceKind = switch page?.engineKind {

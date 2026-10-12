@@ -338,9 +338,13 @@
   overflow-x: auto;
 }
 
+/* A fixed height, not a cap: the row keeps it from the first frame, before the data URL decodes. */
 .apps-screenshot {
-  max-height: 220px;
+  flex: none;
+  height: 220px;
+  width: auto;
   max-width: 100%;
+  object-fit: contain;
   border-radius: 8px;
   border: 1px solid var(--page-separator);
 }

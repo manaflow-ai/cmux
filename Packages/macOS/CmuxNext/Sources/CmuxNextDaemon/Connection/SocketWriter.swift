@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Writes to a connected socket without ever blocking the caller
 /// (architecture.md 5a). Callers are actors on the cooperative pool; a

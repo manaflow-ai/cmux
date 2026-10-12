@@ -1,7 +1,7 @@
 // PROPOSED git operations (app platform critique C4). Owner: the session host
 // on the machine that has the repository. Read ops need `git:read`; staging
 // and restoring need `git:write` and origin user (a tap) or an approval.
-// Vendored copy; identical in first-party-apps/{diffs,monaco,codemirror}.
+// Vendored copy; identical in first-party-apps/{diffs,codemirror}.
 
 import type { DiffFileSummary, DiffResource } from "./diff.ts"
 

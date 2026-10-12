@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -18,12 +17,7 @@ public struct TabItemMapping {
     public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
-        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        // A terminal its shell has not titled yet shows its folder, which the
-        // shell's first title usually is, so the label does not change a
-        // frame after the tab opens.
-        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
-        let title = untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+        let title = title(tab, fallbackTitle: fallbackTitle)
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
@@ -35,21 +29,32 @@ public struct TabItemMapping {
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
-        if busy.state.isLoading { item.indicator = busy.state }
+        item.isNewTabPage = isNewTabPage
+        if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
+        if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
+        item.presence = presence(tab)
+        applyUserIcon(tab, to: &item)
         return item
     }
 
-    /// A tab's kind icon from the cmux icon registry. A live agent terminal, and an agent chat
-    /// whose harness is known, wear the agent's brand mark (design/agent-icons); others, and
-    /// agents without a mark, keep their kind's icon.
+    /// The icon the user set on the tab record replaces every derived icon (kind, agent
+    /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
+    /// apply it again last. A busy indicator still covers it while the tab loads.
+    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem) {
+        if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
+    }
+
+    /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
+    /// and an agent chat whose harness is known, wear the agent's brand mark (design/agent-icons);
+    /// others, ended sessions and agents without a mark keep their kind's icon.
     func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
         if isConversation {
-            return AgentBrandCatalog.brand(for: tab.agentSession?.harness).map { TabIcon.agentMark($0.rawValue) } ?? .icon(.agentChat)
+            return tab.agentBrand.map(TabIcon.agentMark) ?? .icon(.agentChat)
         }
         if isBrowser { return .icon(.browser) }
         if tab.dead { return .icon(.terminalDead) }
-        if let brand = AgentBrandCatalog.brand(for: tab.agent?.agent) { return .agentMark(brand.rawValue) }
+        if let brand = tab.agentBrand { return .agentMark(brand) }
         return .icon(.terminal)
     }
 
@@ -64,6 +69,20 @@ public struct TabItemMapping {
         return host
     }
 
+    /// The strip title of `tab`, with `fallbackTitle` for a tab that has
+    /// none of its own (see ``item(_:fallbackTitle:isNewTabPage:)``). The
+    /// App's `TabTitleResolver` picks the fallback.
+    public func title(_ tab: TabModel, fallbackTitle: String) -> String {
+        let isBrowser = tab.kind == .browser
+        let isConversation = tab.kind == .conversation
+        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
+        // A terminal its shell has not titled yet shows its folder, which the
+        // shell's first title usually is, so the label does not change a
+        // frame after the tab opens.
+        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
+        return untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+    }
+
     /// The New Tab page's and the blank page's addresses
     /// (`BrowserNewTabPage` in CmuxNextBrowser), which a page that never
     /// names itself keeps as its title.
@@ -72,7 +91,11 @@ public struct TabItemMapping {
     }
 
     func status(_ tab: TabModel) -> TabStatus {
-        switch tab.agent?.state {
+        // An agent chat's acpmux turn or an OSC 7501 program waits for the user.
+        if StatusMapping.shared.needsInput(tab) { return .needsInput }
+        // An OSC 7501 error or done the user has not seen yet.
+        if let outcome = StatusMapping.shared.outcome(tab) { return outcome }
+        return switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
         default: tab.dead || tab.progress?.state == .error ? .failure : .none

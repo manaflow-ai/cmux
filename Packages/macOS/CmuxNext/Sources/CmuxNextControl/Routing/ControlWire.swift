@@ -96,7 +96,9 @@ enum ControlWire {
 extension Duration {
     var wholeMilliseconds: Int {
         let (seconds, attoseconds) = components
-        return Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000)
+        // Saturates for durations past Int.max milliseconds instead of trapping.
+        return Int(clamping: seconds).saturatingMultiplication(1_000)
+            .saturatingAddition(Int(clamping: attoseconds / 1_000_000_000_000_000))
     }
 
     var fractionalMilliseconds: Double {

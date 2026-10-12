@@ -41,6 +41,13 @@ impl Gate {
         if let Some(target) = target {
             entry["targetId"] = json!(target);
         }
+        self.record_private_data(entry, target);
+    }
+
+    /// Writes one private-data entry (op, site, counts, restore id; never a
+    /// value) to the session's policy log, the host log and the session's
+    /// event path (`browser.privateData`).
+    pub(super) fn record_private_data(&self, mut entry: Value, target: Option<&str>) {
         entry["at"] = json!(now_ms());
         let entry = self.mask_for_target(target, &entry);
         push_log(&self.log, entry.clone());
@@ -99,12 +106,9 @@ mod tests {
         let sink: crate::driver::EventSink =
             Arc::new(move |event| seen.lock().unwrap().push(event));
         let host_log = Arc::new(PrivateDataLog::default());
-        let gate = Gate::new(
-            Arc::new(CookieEngine),
-            Grants { raw_cdp: false, remote: false, signed_in_profile: false },
-        )
-        .with_input_events("agent-s", sink)
-        .with_private_data_log(host_log.clone());
+        let gate = Gate::new(Arc::new(CookieEngine), Grants::default())
+            .with_input_events("agent-s", sink)
+            .with_private_data_log(host_log.clone());
         let id = "host:0123456789abcdef0123456789abcdef";
         gate.driver_call("cookies.clear", json!({"targetId": "T", "name": "sid"})).unwrap();
         gate.driver_call("cookies.restore", json!({"restoreId": id})).unwrap();

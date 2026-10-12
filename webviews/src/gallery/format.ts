@@ -24,8 +24,10 @@ import type { HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
+import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
+import { validateTunables, type Tunable } from "../experiments/tunable";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, HostLists } from "../pages/settings/ops";
+import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
@@ -40,10 +42,18 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
+  agents?: Partial<AgentsState>;
+  /** Settings > Agents > Harnesses; default the mock's four. */
+  harnesses?: HarnessesState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
+  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
+  look?: "quiet" | "dense";
+  /** Publish every bundled theme and its colors (the app does); default the mock's six. */
+  allThemes?: boolean;
 };
 export type PasswordsPageVariant = VariantBase & {
   data: MockData;
@@ -53,6 +63,57 @@ export type PasswordsPageVariant = VariantBase & {
   confirm?: boolean;
   failure?: { op: string; code: string; message: string };
   steps?: PageFixtureStep[];
+};
+
+/** Public-safe answers for the agent pane's link/image/browser host calls. */
+export type ChipHostFixture = {
+  paths?: Record<string, { place: "root" | "outside" | "denied" | "missing"; folder: boolean }>;
+  sites?: Record<string, { icon?: string; title?: string }>;
+  policy?: { outsideRoots?: "confirm" | "text" | "open"; remoteImages?: "click" | "never" | "always" };
+  images?: Record<string, string | null>;
+  /** `media.load` answers: the URL the player plays for each path. */
+  media?: Record<string, string>;
+  browsers?: { id: string; name: string; icon?: string }[];
+};
+
+/** One step of an experiment's scripted interaction (the compare view replays them in sync). */
+export type ExperimentStep = { name: string; run: Play };
+
+/** Frame timings of one arm, from a matrix run on a Freestyle VM (scripts/gallery-matrix). */
+export type ArmMeasurement = {
+  /** The matrix run's name (its index is at :18796/matrix/<run>/). */
+  run: string;
+  engine: "chromium" | "webkit";
+  /** Frames sampled across the script's steps. */
+  frames: number;
+  /** Frame interval percentiles and maximum, in ms. */
+  p50: number;
+  p95: number;
+  max: number;
+  /** Frames over 16.7 ms. */
+  over16: number;
+  /** Main-thread time the arm spent planning its motion, in ms per toggle (largest). */
+  planMs?: number;
+  /** Action-to-settled samples across clicks, keys and press-drag pointer steps. */
+  settleCount?: number;
+  settleP50?: number;
+  settleP95?: number;
+  settleMax?: number;
+  /** The frame strip image, relative to the run's folder. */
+  strip?: string;
+};
+
+/**
+ * An entry's experiment: the arms of `definition` render the same variant side by side in the
+ * `compare` view, and `script` drives them all at once. `setup` runs before step 1 with every
+ * animation finished at once (the starting state). `measurements` are the numbers a matrix run
+ * measured for each arm, shown in the cell captions.
+ */
+export type GalleryExperiment = {
+  definition: Experiment;
+  setup?: Play;
+  script: ExperimentStep[];
+  measurements?: Record<string, ArmMeasurement>;
 };
 
 /** Common to every variant. */
@@ -66,6 +127,8 @@ type VariantBase = {
    * prompt. They run before the stage is ready, in the shell and in the matrix runner alike.
    */
   play?: Play;
+  /** Variant-specific play thresholds, merged over the entry defaults. */
+  checks?: PlayChecks;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -74,6 +137,17 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
+  native?: Record<string, unknown>;
+  /** Gallery-only answers for the reply chips and preview card's host calls. */
+  chipHost?: ChipHostFixture;
+  /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
+   *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
+  afterCall?: Record<string, AcpmuxSnapshot>;
+  /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
+   *  in progress (New Worktree's "Creating worktree…"). */
+  nativeDelayMs?: Record<string, number>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -82,6 +156,8 @@ export type MarkdownPageVariant = VariantBase & {
   /** Null: the page opens in its empty state (no file). */
   text: string | null;
   readOnly?: boolean;
+  /** Gallery-only GitHub `origin` repository used for bare issue references. */
+  githubRepository?: string;
   /** cmux.json's `markdown` section. */
   settings?: Record<string, unknown>;
   /** The user's markdown/theme.css. */
@@ -142,11 +218,16 @@ export type ChangelogPageVariant = VariantBase & {
   error?: { code: string; message: string };
   current?: string;
   notes: ReleaseNotes[];
+  /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
+  route?: string;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
 export type IconPickerPageVariant = VariantBase & {
   session: PickerSession;
+  /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
+  prefs?: unknown;
+  assetState?: "loading" | "error";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";
@@ -193,7 +274,11 @@ export type KeybindingsPageVariant = VariantBase & {
 };
 
 /** A React component with props, for components no page host draws on its own. */
-export type ComponentVariant<P> = VariantBase & { props: P };
+export type ComponentVariant<P> = VariantBase & {
+  props: P;
+  /** Gallery-only answers for the component's reply chip/preview host calls. */
+  chipHost?: ChipHostFixture;
+};
 
 /**
  * A native (Swift) view's variant: the view builder registered under the same id in
@@ -208,6 +293,8 @@ type EntryBase<V> = {
   title: string;
   /** Sidebar group. */
   area: string;
+  /** Flagged or unshipped surfaces live in the final Experimental sidebar group. */
+  experimental?: boolean;
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
@@ -224,6 +311,10 @@ type EntryBase<V> = {
   checks?: PlayChecks;
   /** Opt into viewer choices tied to a tracker item. */
   pick?: { beadId: string; recommendedId: string };
+  /** Arms of an experiment to compare side by side (view `compare`). */
+  experiment?: GalleryExperiment;
+  /** Values the stage edits live (a curve editor each; experiments/tunable.ts). */
+  tunables?: readonly Tunable[];
   variants: Record<string, V>;
 };
 
@@ -244,6 +335,11 @@ export type ComponentEntry<P = Record<string, unknown>> = EntryBase<ComponentVar
   load: () => Promise<ComponentType<P>>;
   /** Stylesheets the component needs, loaded before it. */
   styles?: () => Promise<unknown>;
+  /**
+   * An agent pane component: the host loads the pane's strings and stylesheet and applies its
+   * theme (AgentPaneTheme through applyAgentTheme), as the pane has them around it.
+   */
+  pane?: boolean;
 };
 /** Drawn only by the native gallery; the web gallery lists it and shows its native snapshots. */
 export type NativeEntry = EntryBase<NativeVariant> & { host: "native" };
@@ -266,59 +362,25 @@ export type GalleryEntry =
   | PasswordsPageEntry
   | ComponentEntry<any>
   | NativeEntry;
-export const settingsPageEntry = (entry: Omit<SettingsPageEntry, "host">): SettingsPageEntry => ({
-  ...entry,
-  host: "settings-page",
-});
-export const passwordsPageEntry = (entry: Omit<PasswordsPageEntry, "host">): PasswordsPageEntry => ({
-  ...entry,
-  host: "passwords-page",
-});
 export type HostKind = GalleryEntry["host"];
 
-/** Identity helpers that check an entry against its host's variant type. */
-export const agentPaneEntry = (entry: Omit<AgentPaneEntry, "host">): AgentPaneEntry => ({
-  ...entry,
-  host: "agent-pane",
-});
-export const markdownPageEntry = (entry: Omit<MarkdownPageEntry, "host">): MarkdownPageEntry => ({
-  ...entry,
-  host: "markdown-page",
-});
-export const diffPageEntry = (entry: Omit<DiffPageEntry, "host">): DiffPageEntry => ({ ...entry, host: "diff-page" });
-export const appsPageEntry = (entry: Omit<AppsPageEntry, "host">): AppsPageEntry => ({ ...entry, host: "apps-page" });
-export const cloudPageEntry = (entry: Omit<CloudPageEntry, "host">): CloudPageEntry => ({
-  ...entry,
-  host: "cloud-page",
-});
-export const codeRouterPageEntry = (entry: Omit<CodeRouterPageEntry, "host">): CodeRouterPageEntry => ({
-  ...entry,
-  host: "coderouter-page",
-});
-export const changelogPageEntry = (entry: Omit<ChangelogPageEntry, "host">): ChangelogPageEntry => ({
-  ...entry,
-  host: "changelog-page",
-});
-export const iconPickerPageEntry = (entry: Omit<IconPickerPageEntry, "host">): IconPickerPageEntry => ({
-  ...entry,
-  host: "icon-picker-page",
-});
-export const editorPageEntry = (entry: Omit<EditorPageEntry, "host">): EditorPageEntry => ({
-  ...entry,
-  host: "editor-page",
-});
-export const historyPageEntry = (entry: Omit<HistoryPageEntry, "host">): HistoryPageEntry => ({
-  ...entry,
-  host: "history-page",
-});
-export const keybindingsPageEntry = (entry: Omit<KeybindingsPageEntry, "host">): KeybindingsPageEntry => ({
-  ...entry,
-  host: "keybindings-page",
-});
-export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
-  return { ...entry, host: "component" };
-}
-export const nativeEntry = (entry: Omit<NativeEntry, "host">): NativeEntry => ({ ...entry, host: "native" });
+export {
+  settingsPageEntry,
+  passwordsPageEntry,
+  agentPaneEntry,
+  markdownPageEntry,
+  diffPageEntry,
+  appsPageEntry,
+  cloudPageEntry,
+  codeRouterPageEntry,
+  changelogPageEntry,
+  iconPickerPageEntry,
+  editorPageEntry,
+  historyPageEntry,
+  keybindingsPageEntry,
+  componentEntry,
+  nativeEntry,
+} from "./entry";
 
 export const DEFAULT_STAGE_HEIGHT = 520;
 
@@ -346,7 +408,19 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
       if (!variants.includes(entry.pick.recommendedId)) problems.push(`${entry.id}: recommended variant is missing`);
     }
     if (entry.covers.length === 0) problems.push(`${entry.id}: covers nothing`);
+    if (entry.experiment) {
+      const { definition, script, measurements } = entry.experiment;
+      for (const problem of validateExperiments([definition])) problems.push(`${entry.id}: ${problem}`);
+      if (script.length === 0) problems.push(`${entry.id}: the experiment script has no steps`);
+      if (new Set(script.map((step) => step.name)).size !== script.length)
+        problems.push(`${entry.id}: experiment step names repeat`);
+      for (const arm of Object.keys(measurements ?? {}))
+        if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
+    }
+    for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
+    for (const [name, variant] of Object.entries(entry.variants))
+      for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);
   }
   return problems;
 }

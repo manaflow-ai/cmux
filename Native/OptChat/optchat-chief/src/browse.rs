@@ -191,78 +191,10 @@ pub fn import(dir: &Path, db: &Path, items: &[Imported]) -> Result<usize, String
         ));
     }
     for item in items {
-        match &item.date {
-            Some(date) => chat.append_dated(item.kind, &item.text, date),
-            None => chat.append(item.kind, &item.text),
-        }
-        .map_err(|e| format!("appending: {e}"))?;
+        // Imported: its lines never hold a turn (the chat's own side does).
+        chat.append_imported(item.kind, &item.text, item.date.as_deref())
+            .map_err(|e| format!("appending: {e}"))?;
     }
     chat.shutdown();
     Ok(items.len())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn import_lines_default_to_notes() {
-        let items =
-            parse_import("{\"text\": \"a\"}\n\n{\"text\": \"b\", \"kind\": \"user\"}\n").unwrap();
-        assert_eq!(
-            items,
-            vec![
-                Imported {
-                    kind: Kind::Note,
-                    text: "a".into(),
-                    date: None,
-                },
-                Imported {
-                    kind: Kind::User,
-                    text: "b".into(),
-                    date: None,
-                },
-            ]
-        );
-        assert!(parse_import("{\"kind\": \"note\"}").is_err());
-        assert!(parse_import("{\"text\": \"a\", \"kind\": \"nope\"}").is_err());
-    }
-
-    /// Section 10: imported history keeps each message's own date (`date`,
-    /// RFC 3339), so `date(id)` tells when it was written, not imported.
-    #[test]
-    fn an_import_keeps_each_messages_date() {
-        let items = parse_import(
-            "{\"text\": \"old\", \"date\": \"2026-03-01T09:30:00-08:00\"}\n{\"text\": \"undated\"}\n",
-        )
-        .unwrap();
-        assert_eq!(items[0].date.as_deref(), Some("2026-03-01T09:30:00-08:00"));
-        assert_eq!(items[1].date, None);
-        assert!(parse_import("{\"text\": \"a\", \"date\": \"yesterday\"}").is_err());
-        let dir = tempfile::tempdir().unwrap();
-        let chat_dir = dir.path().join("chat");
-        let db = dir.path().join("memory.sqlite3");
-        assert_eq!(import(&chat_dir, &db, &items).unwrap(), 2);
-        let chat = open_offline(&chat_dir, &db).unwrap();
-        assert_eq!(chat.stamp(0).as_deref(), Some("2026-03-01T09:30:00-08:00"));
-        assert_ne!(chat.stamp(1).as_deref(), Some("2026-03-01T09:30:00-08:00"));
-    }
-
-    #[test]
-    fn an_import_lands_in_the_log_and_the_page_shows_it() {
-        let dir = tempfile::tempdir().unwrap();
-        let chat_dir = dir.path().join("chat");
-        let items =
-            parse_import("{\"text\": \"<b>old</b> note\"}\n{\"text\": \"second\"}\n").unwrap();
-        let db = dir.path().join("memory.sqlite3");
-        assert_eq!(import(&chat_dir, &db, &items).unwrap(), 2);
-        let chat = open_offline(&chat_dir, &db).unwrap();
-        assert_eq!(
-            chat.message(0),
-            Some((Kind::Note, "<b>old</b> note".into()))
-        );
-        let page = html(&chat);
-        assert!(page.contains("&lt;b&gt;old&lt;/b&gt; note"), "{page}");
-        assert!(page.contains("<h2>ROOT</h2>") && page.contains("<h2>Level 1"));
-    }
 }

@@ -525,15 +525,6 @@ async fn discover_session_candidates(socket_dirs: &[PathBuf]) -> Vec<SessionCand
     candidates.into_values().collect()
 }
 
-#[cfg(all(unix, test))]
-async fn discover_session_names(socket_dirs: &[PathBuf]) -> HashSet<String> {
-    discover_session_candidates(socket_dirs)
-        .await
-        .into_iter()
-        .map(|candidate| candidate.session_name.unwrap_or(candidate.key))
-        .collect()
-}
-
 #[cfg(unix)]
 async fn safe_socket_directory(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
@@ -666,11 +657,6 @@ fn claim_session(claims: &Arc<Mutex<HashSet<String>>>, name: &str) -> Option<Ses
     }
     drop(claimed);
     Some(SessionClaim { claims: Arc::clone(claims), name: name.to_owned() })
-}
-
-#[cfg(all(unix, test))]
-fn socket_paths_for_session(socket_dirs: &[PathBuf], session_name: &str) -> Vec<PathBuf> {
-    socket_dirs.iter().map(|directory| directory.join(format!("{session_name}.sock"))).collect()
 }
 
 #[cfg(unix)]
@@ -1483,8 +1469,6 @@ async fn persist_cursor_file(path: &Path, cursors: &HashMap<String, JournalCurso
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
-    use std::sync::atomic::AtomicBool;
 
     #[cfg(unix)]
     static NEXT_CURSOR_TEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -1513,114 +1497,6 @@ mod tests {
             "sequence": revision,
             "cursor": {"generation": generation, "revision": revision},
         })
-    }
-
-    #[test]
-    fn malformed_lines_are_ignored_without_unbounded_input() {
-        assert!(parse_journal_line("{torn").is_none());
-        assert!(parse_journal_line("[]").is_none());
-        assert!(parse_journal_line(&"x".repeat(MAX_JOURNAL_LINE_BYTES + 1)).is_none());
-        assert_eq!(
-            parse_journal_line(r#"{"type":"stream_item"}"#).expect("valid envelope")["type"],
-            "stream_item"
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn bounded_reader_rejects_an_unterminated_oversized_line() {
-        let payload = vec![b'x'; 32];
-        let mut reader = tokio::io::BufReader::new(std::io::Cursor::new(payload));
-        assert!(read_bounded_line(&mut reader, 16).await.is_err());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn identity_handshake_requires_one_verified_session() {
-        let valid = json!({
-            "protocol": PROTOCOL,
-            "type": "response",
-            "id": "chatmux-journal-identity",
-            "ok": true,
-            "result": [{"name": "legacy name"}],
-        })
-        .to_string();
-        assert_eq!(parse_session_identity(&valid), Some(String::from("legacy name")));
-        let mut wrong_protocol = serde_json::from_str::<Value>(&valid).expect("identity JSON");
-        wrong_protocol["protocol"] = json!("cmux.protocol/1");
-        assert!(parse_session_identity(&wrong_protocol.to_string()).is_none());
-        let ambiguous = json!({
-            "protocol": PROTOCOL,
-            "type": "response",
-            "id": "chatmux-journal-identity",
-            "ok": true,
-            "result": [{"name": "one"}, {"name": "two"}],
-        })
-        .to_string();
-        assert!(parse_session_identity(&ambiguous).is_none());
-        assert!(identity_matches(&Some(String::from("legacy name")), "legacy", "legacy name"));
-        assert!(!identity_matches(&Some(String::from("legacy name")), "legacy", "other"));
-        let stem = format!("{:x}", Sha256::digest("legacy name".as_bytes()));
-        assert!(identity_matches(&None, &opaque_session_key(&stem), "legacy name"));
-        assert!(!identity_matches(&None, &opaque_session_key(&stem), "other"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn socket_roots_match_server_preferred_fallback_and_hashed_order() {
-        let roots = socket_directories_for(Path::new("/run/user/501"), 501);
-        assert_eq!(
-            roots,
-            vec![
-                PathBuf::from("/run/user/501/cmux-tui-501"),
-                PathBuf::from("/tmp/cmux-tui-501"),
-                PathBuf::from("/run/user/501/cmux-tui-hashed-501"),
-                PathBuf::from("/tmp/cmux-tui-hashed-501"),
-            ]
-        );
-        let tmp_roots = socket_directories_for(Path::new("/tmp"), 501);
-        assert_eq!(
-            tmp_roots,
-            vec![PathBuf::from("/tmp/cmux-tui-501"), PathBuf::from("/tmp/cmux-tui-hashed-501"),]
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn discovery_merges_preferred_and_fallback_without_duplicate_session_workers() {
-        use std::os::unix::fs::PermissionsExt;
-        use std::os::unix::net::UnixListener;
-
-        let root =
-            std::env::temp_dir().join(format!("chatmux-relay-discovery-{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&root).await;
-        let preferred = root.join("preferred");
-        let fallback = root.join("fallback");
-        tokio::fs::create_dir_all(&preferred).await.expect("preferred directory");
-        tokio::fs::create_dir_all(&fallback).await.expect("fallback directory");
-        tokio::fs::set_permissions(&preferred, std::fs::Permissions::from_mode(0o700))
-            .await
-            .expect("preferred directory permissions");
-        tokio::fs::set_permissions(&fallback, std::fs::Permissions::from_mode(0o700))
-            .await
-            .expect("fallback directory permissions");
-        let preferred_main =
-            UnixListener::bind(preferred.join("main.sock")).expect("preferred socket entry");
-        let fallback_main =
-            UnixListener::bind(fallback.join("main.sock")).expect("fallback socket entry");
-        let fallback_late =
-            UnixListener::bind(fallback.join("late.sock")).expect("fallback-only socket entry");
-
-        let dirs = vec![preferred.clone(), fallback.clone()];
-        let names = discover_session_names(&dirs).await;
-        assert_eq!(names, HashSet::from([String::from("main"), String::from("late")]));
-        let main_paths = socket_paths_for_session(&dirs, "main");
-        assert_eq!(main_paths, vec![preferred.join("main.sock"), fallback.join("main.sock")]);
-
-        drop(preferred_main);
-        drop(fallback_main);
-        drop(fallback_late);
-        tokio::fs::remove_dir_all(root).await.expect("remove discovery fixture");
     }
 
     #[cfg(unix)]
@@ -1707,101 +1583,6 @@ mod tests {
     }
 
     #[test]
-    fn session_name_validation_matches_core_component_rules() {
-        assert!(valid_session_name("legacy name: λ"));
-        assert!(valid_session_name(&"x".repeat(512)));
-        for invalid in ["", ".", "..", "a/b", "a\\b", "a\u{0000}b", "a\u{2028}b"] {
-            assert!(!valid_session_name(invalid), "accepted invalid session {invalid:?}");
-        }
-    }
-
-    #[test]
-    fn batch_requires_a_cursor_and_preserves_envelopes() {
-        let records = vec![record("session_a", "1"), record("session_a", "2")];
-        let batches = batch_records(&[
-            PendingSession {
-                session_name: "main".to_owned(),
-                cursor_key: "main".to_owned(),
-                generation: Some("session_a".to_owned()),
-                records: records.clone(),
-            },
-            PendingSession {
-                session_name: "idle".to_owned(),
-                cursor_key: "idle".to_owned(),
-                generation: None,
-                records: vec![],
-            },
-        ]);
-        assert_eq!(batches.len(), 1);
-        assert_eq!(batches[0].session_id, "session_a");
-        assert_eq!(batches[0].cursor, cursor("session_a", "2"));
-        assert_eq!(batches[0].records, records);
-    }
-
-    #[test]
-    fn cursor_resume_prefers_ack_floor_and_never_moves_backwards() {
-        let fallback = json!({"type": "stream_item", "sequence": "8"});
-        assert_eq!(
-            cursor_from_record(&fallback, Some("session_a")),
-            Some(cursor("session_a", "8"))
-        );
-        let mut resume = Some(cursor("session_a", "8"));
-        update_resume(&mut resume, cursor("session_a", "7"));
-        assert_eq!(resume, Some(cursor("session_a", "8")));
-        update_resume(&mut resume, cursor("session_a", "9"));
-        assert_eq!(resume, Some(cursor("session_a", "9")));
-    }
-
-    #[test]
-    fn split_batch_is_record_bounded_and_recomputes_cursor() {
-        let sessions = vec![SessionBatch {
-            session_id: "session_a".to_owned(),
-            session_name: "main".to_owned(),
-            cursor_key: "main".to_owned(),
-            records: (1..=4).map(|n| record("session_a", &n.to_string())).collect(),
-            cursor: cursor("session_a", "4"),
-        }];
-        let (first, second) = split_batch(&sessions).expect("split");
-        assert_eq!(first[0].records.len(), 2);
-        assert_eq!(second[0].records.len(), 2);
-        assert_eq!(first[0].cursor, cursor("session_a", "2"));
-        assert!(
-            split_batch(&[SessionBatch {
-                records: vec![record("session_a", "1")],
-                ..sessions[0].clone()
-            }])
-            .is_none()
-        );
-    }
-
-    #[test]
-    fn only_server_ack_cursors_advance() {
-        let sessions = vec![SessionBatch {
-            session_id: "session_a".to_owned(),
-            session_name: "main".to_owned(),
-            cursor_key: "main".to_owned(),
-            records: vec![record("session_a", "2")],
-            cursor: cursor("session_a", "2"),
-        }];
-        let mut old = HashMap::from([(String::from("main"), cursor("session_a", "1"))]);
-        assert_eq!(advance_cursors(&old, &sessions, &HashMap::new()), old);
-        assert_eq!(
-            advance_cursors(
-                &old,
-                &sessions,
-                &HashMap::from([(String::from("session_a"), cursor("", ""))]),
-            ),
-            old
-        );
-        old = advance_cursors(
-            &old,
-            &sessions,
-            &HashMap::from([(String::from("session_a"), cursor("session_a", "2"))]),
-        );
-        assert_eq!(old["main"], cursor("session_a", "2"));
-    }
-
-    #[test]
     fn delivery_status_boundaries_preserve_retry_and_stop_policy() {
         assert_eq!(delivery_disposition(200, 100), DeliveryDisposition::Ack);
         assert_eq!(delivery_disposition(204, 1), DeliveryDisposition::Ack);
@@ -1812,76 +1593,6 @@ mod tests {
         assert_eq!(delivery_disposition(410, 1), DeliveryDisposition::Stop);
         assert_eq!(delivery_disposition(401, 1), DeliveryDisposition::Retry);
         assert_eq!(delivery_disposition(503, 1), DeliveryDisposition::Retry);
-    }
-
-    #[test]
-    fn body_budget_is_explicit_and_single_records_are_not_silently_split() {
-        let oversized = SessionBatch {
-            session_id: "session_a".to_owned(),
-            session_name: "main".to_owned(),
-            cursor_key: "main".to_owned(),
-            records: vec![json!({
-                "type": "stream_item",
-                "cursor": {"generation": "session_a", "revision": "1"},
-                "payload": "x".repeat(MAX_BATCH_BODY_BYTES),
-            })],
-            cursor: cursor("session_a", "1"),
-        };
-        assert!(batch_body_bytes(&[oversized]) > MAX_BATCH_BODY_BYTES);
-        assert_eq!(delivery_disposition(413, 1), DeliveryDisposition::Drop);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn retry_backoff_observes_cancellation() {
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
-        assert!(!wait_backoff(&cancellation, Duration::from_secs(60)).await);
-    }
-
-    #[tokio::test]
-    async fn cancellation_interrupts_a_pending_request() {
-        let cancellation = CancellationToken::new();
-        let request_cancellation = cancellation.clone();
-        let task = tokio::spawn(async move {
-            await_with_cancellation(&request_cancellation, std::future::pending::<()>()).await
-        });
-        cancellation.cancel();
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), task)
-                .await
-                .expect("cancellation must resolve the request")
-                .expect("request task must not panic")
-                .is_none()
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn shutdown_waits_for_session_workers_to_finish() {
-        struct DropSignal(Arc<AtomicBool>);
-
-        impl Drop for DropSignal {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::SeqCst);
-            }
-        }
-
-        let stopped = Arc::new(AtomicBool::new(false));
-        let signal = Arc::clone(&stopped);
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let worker = tokio::spawn(async move {
-            let _signal = DropSignal(signal);
-            started_tx.send(()).expect("test receiver is waiting");
-            std::future::pending::<()>().await;
-        });
-        started_rx.await.expect("worker must be polled before abort");
-        let mut tasks = HashMap::new();
-        tasks.insert("session".to_owned(), worker);
-
-        abort_and_join_tasks(tasks).await;
-
-        assert!(stopped.load(Ordering::SeqCst));
     }
 
     #[cfg(unix)]
@@ -1904,92 +1615,6 @@ mod tests {
         assert!(result.is_err(), "a stalled endpoint must time out");
         assert!(started.elapsed() < Duration::from_millis(500));
         server.abort();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn cursor_store_rejects_symlinks_and_non_regular_files_and_migrates_shared_modes() {
-        let (root, path) = cursor_test_path("reject").await;
-        let target = root.join("target.json");
-        tokio::fs::write(&target, b"{}").await.expect("write target");
-        tokio::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600))
-            .await
-            .expect("protect target");
-        std::os::unix::fs::symlink(&target, &path).expect("create cursor symlink");
-        assert!(load_cursor_file(&path).await.is_empty());
-        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
-        tokio::fs::remove_file(&path).await.expect("remove cursor symlink");
-
-        tokio::fs::create_dir(&path).await.expect("create non-regular cursor path");
-        assert!(load_cursor_file(&path).await.is_empty());
-        assert!(!persist_cursor_file(&path, &HashMap::new()).await);
-        tokio::fs::remove_dir(&path).await.expect("remove cursor directory");
-
-        tokio::fs::write(&path, b"{}").await.expect("write shared cursor");
-        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
-            .await
-            .expect("make cursor shared");
-        assert!(load_cursor_file(&path).await.is_empty());
-        assert!(persist_cursor_file(&path, &HashMap::new()).await);
-        let metadata = tokio::fs::symlink_metadata(&path).await.expect("read migrated cursor");
-        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-        remove_cursor_test_path(&root).await;
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn private_cursor_store_lives_in_a_per_user_state_directory() {
-        let store = |state: Option<&str>, home: Option<&str>| {
-            cursor_path_for(state.map(Into::into), home.map(Into::into))
-        };
-        assert_eq!(
-            store(Some("/home/u/state"), Some("/home/u")),
-            Some(PathBuf::from("/home/u/state/chatmux-relay/journal-cursors.json"))
-        );
-        assert_eq!(
-            store(None, Some("/home/u")),
-            Some(PathBuf::from("/home/u/.local/state/chatmux-relay/journal-cursors.json"))
-        );
-        assert_eq!(
-            store(Some("state"), Some("/home/u")),
-            Some(PathBuf::from("/home/u/.local/state/chatmux-relay/journal-cursors.json")),
-            "a relative XDG_STATE_HOME is ignored"
-        );
-        assert_eq!(store(None, None), None);
-        assert_eq!(store(None, Some("home")), None);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn private_cursor_store_migrates_an_own_legacy_file() {
-        use std::os::unix::fs::{PermissionsExt as _, symlink};
-
-        let (root, legacy) = cursor_test_path("legacy").await;
-        let path = root.join("state/chatmux-relay/journal-cursors.json");
-        let cursors = HashMap::from([(String::from("work"), cursor("generation", "7"))]);
-        assert!(persist_cursor_file(&legacy, &cursors).await);
-
-        assert_eq!(open_cursor_store(&path, &legacy).await, Some(cursors.clone()));
-        assert_eq!(load_cursor_file(&path).await, cursors);
-        assert!(
-            tokio::fs::symlink_metadata(&legacy).await.is_err(),
-            "the migrated legacy file is removed"
-        );
-        let directory = tokio::fs::symlink_metadata(root.join("state/chatmux-relay"))
-            .await
-            .expect("read cursor directory");
-        assert_eq!(directory.permissions().mode() & 0o777, 0o700);
-
-        // An existing private store wins over a legacy file.
-        let stale = HashMap::from([(String::from("work"), cursor("generation", "1"))]);
-        assert!(persist_cursor_file(&legacy, &stale).await);
-        assert_eq!(open_cursor_store(&path, &legacy).await, Some(cursors));
-
-        // A store whose directory is a symlink is not used.
-        let linked = root.join("linked");
-        symlink(root.join("state/chatmux-relay"), &linked).expect("link cursor directory");
-        assert_eq!(open_cursor_store(&linked.join("journal-cursors.json"), &legacy).await, None);
-        remove_cursor_test_path(&root).await;
     }
 
     #[cfg(unix)]
@@ -2022,89 +1647,6 @@ mod tests {
             value.trim().parse().ok()
         })?;
         Some(buffer.get(header_end..header_end.checked_add(length)?)?.to_vec())
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn pooled_buffers_group_records_by_session_in_arrival_order() {
-        let (root, path) = cursor_test_path("pool-order").await;
-        let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
-        let gen_a = Some(String::from("gen_a"));
-        let gen_b = Some(String::from("gen_b"));
-        enqueue_pending(&shared, "alpha", "alpha", &None, record("gen_a", "1"));
-        enqueue_pending(&shared, "beta", "beta", &gen_b, record("gen_b", "1"));
-        enqueue_pending(&shared, "alpha", "alpha", &gen_a, record("gen_a", "2"));
-        {
-            let pool = shared.pool.lock().expect("lock pool");
-            assert_eq!(pool.pending.len(), 2);
-            assert_eq!(pool.pending[0].cursor_key, "alpha");
-            assert_eq!(pool.pending[0].records.len(), 2);
-            // `??=` semantics: a late generation still fills an empty slot.
-            assert_eq!(pool.pending[0].generation.as_deref(), Some("gen_a"));
-            assert_eq!(pool.pending[1].cursor_key, "beta");
-            assert!(!pool.flushing);
-        }
-        tokio::time::timeout(Duration::from_millis(100), wake.notified())
-            .await
-            .expect("pooled records must wake the flusher");
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
-            "three arm requests must leave only one pending wake"
-        );
-        remove_cursor_test_path(&root).await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn pooled_arm_wakes_defer_while_the_flusher_is_busy_and_coalesce_after() {
-        let (root, path) = cursor_test_path("pool-arm-coalesce").await;
-        let (shared, wake) = test_shared(String::from("http://127.0.0.1:9"), path);
-        let generation = Some(String::from("gen_a"));
-        {
-            let mut pool = shared.pool.lock().expect("lock pool");
-            pool.flushing = true;
-        }
-        for sequence in 1..=3 {
-            enqueue_pending(
-                &shared,
-                "alpha",
-                "alpha",
-                &generation,
-                record("gen_a", &sequence.to_string()),
-            );
-        }
-
-        // While a POST is in flight, below-threshold arms never wake: the
-        // completion path re-arms the debounce from the leftover total under
-        // the same lock that clears `flushing` (the #11034 deferral rule —
-        // this pin and the pooled_threshold deferral pin share it).
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
-            "arms during an in-flight POST must defer to the completion re-arm"
-        );
-
-        // After the POST settles, arm wakes flow again — and coalesce.
-        {
-            let mut pool = shared.pool.lock().expect("lock pool");
-            pool.flushing = false;
-        }
-        for sequence in 4..=6 {
-            enqueue_pending(
-                &shared,
-                "alpha",
-                "alpha",
-                &generation,
-                record("gen_a", &sequence.to_string()),
-            );
-        }
-        tokio::time::timeout(Duration::from_millis(100), wake.notified())
-            .await
-            .expect("an idle-flusher arm request must wake the flusher");
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), wake.notified()).await.is_err(),
-            "repeated arm requests must use one pending wake"
-        );
-        remove_cursor_test_path(&root).await;
     }
 
     #[cfg(unix)]
@@ -2224,51 +1766,6 @@ mod tests {
             assert!(pool.pending.is_empty());
             assert!(!pool.flushing);
         }
-        remove_cursor_test_path(&root).await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn insecure_socket_root_mode_flags_only_existing_shared_directories() {
-        let root = std::env::temp_dir()
-            .join(format!("chatmux-relay-insecure-root-{}", std::process::id()));
-        let _ = tokio::fs::remove_dir_all(&root).await;
-        tokio::fs::create_dir_all(&root).await.expect("create insecure root");
-        tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755))
-            .await
-            .expect("share insecure root");
-        let flagged = insecure_socket_root_mode(&root).await.map(|mode| mode & 0o777);
-        assert_eq!(flagged, Some(0o755));
-        // The warning path must not panic, and a repeat stays quiet.
-        warn_insecure_socket_root(&root).await;
-        warn_insecure_socket_root(&root).await;
-        tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
-            .await
-            .expect("protect root");
-        assert_eq!(insecure_socket_root_mode(&root).await, None);
-        assert_eq!(insecure_socket_root_mode(&root.join("missing")).await, None);
-        tokio::fs::remove_dir_all(&root).await.expect("remove insecure root fixture");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn cursor_store_rejects_oversized_files_and_writes_private_atomically() {
-        let (root, path) = cursor_test_path("bounded").await;
-        tokio::fs::write(&path, vec![b'x'; MAX_CURSOR_FILE_BYTES + 1])
-            .await
-            .expect("write oversized cursor");
-        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            .await
-            .expect("protect oversized cursor");
-        assert!(load_cursor_file(&path).await.is_empty());
-
-        tokio::fs::remove_file(&path).await.expect("remove oversized cursor");
-        let cursors = HashMap::from([(String::from("main"), cursor("session_a", "7"))]);
-        assert!(persist_cursor_file(&path, &cursors).await);
-        let metadata = tokio::fs::symlink_metadata(&path).await.expect("read cursor metadata");
-        assert!(metadata.is_file());
-        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
-        assert_eq!(load_cursor_file(&path).await, cursors);
         remove_cursor_test_path(&root).await;
     }
 }

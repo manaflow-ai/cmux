@@ -55,7 +55,7 @@ pub(crate) fn closing_keys(
 }
 
 /// The rows of `table` that `filter` selects, as column maps.
-fn rows(
+pub(super) fn rows(
     connection: &Connection,
     table: &str,
     filter: &str,
@@ -81,7 +81,11 @@ fn rows(
 
 /// Write `rows` (column maps) into `table`, keeping only the columns the
 /// table has now. A row whose key exists is left as it is.
-fn insert_rows(transaction: &Transaction<'_>, table: &str, rows: &[Value]) -> anyhow::Result<()> {
+pub(super) fn insert_rows(
+    transaction: &Transaction<'_>,
+    table: &str,
+    rows: &[Value],
+) -> anyhow::Result<()> {
     let present = transaction
         .prepare(&format!("PRAGMA table_info({table})"))?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -154,7 +158,7 @@ pub(crate) fn snapshot_room(connection: &Connection, room: &str) -> anyhow::Resu
 }
 
 /// Put `ids` into `order` at their recorded indexes (ascending, clamped).
-fn reinsert(mut order: Vec<String>, ids: &[(String, Option<u64>)]) -> Vec<String> {
+pub(super) fn reinsert(mut order: Vec<String>, ids: &[(String, Option<u64>)]) -> Vec<String> {
     let mut placed = ids.to_vec();
     placed.sort_by_key(|(_, index)| index.unwrap_or(u64::MAX));
     for (id, index) in placed {

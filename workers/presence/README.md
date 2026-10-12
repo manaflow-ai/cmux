@@ -118,8 +118,11 @@ One-time Worker secrets (survive deploys; production Stack project values):
 
 ```bash
 bunx wrangler secret put STACK_PROJECT_ID
-bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
 ```
+
+Production sets no `STACK_PUBLISHABLE_CLIENT_KEY`: the production Stack
+project requires none, and a revoked key would fail every request. Set it only
+for a project that requires one.
 
 Set `SENTRY_DSN` once for production and for each isolated dev Worker. The
 Worker sends application exceptions to this DSN using Sentry's envelope API;

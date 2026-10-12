@@ -31,7 +31,7 @@ public final class BrowserContextMenuBuilder {
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let view, view.window != nil else { return request.complete(nil) }
                 self.show(request, in: view, leading: leading, extra: extra)
             }

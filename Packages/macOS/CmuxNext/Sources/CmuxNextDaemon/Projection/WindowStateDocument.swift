@@ -40,9 +40,7 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
 
     /// Replaces or appends one window by id.
     public mutating func upsert(_ window: WindowRecord) {
-        if let index = windows.firstIndex(where: { $0.id == window.id }) {
-            windows[index] = window
-        } else {
+        if !windows.modifyFirst(where: { $0.id == window.id }, { $0 = window }) {
             windows.append(window)
         }
     }

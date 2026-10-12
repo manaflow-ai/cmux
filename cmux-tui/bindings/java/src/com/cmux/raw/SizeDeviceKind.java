@@ -9,6 +9,8 @@ public enum SizeDeviceKind implements WireEnum {
     IPAD("ipad"),
     TUI("tui"),
     BROWSER("browser"),
+    LINUX("linux"),
+    WINDOWS("windows"),
     UNKNOWN("unknown");
 
     private final Object wireValue;
@@ -32,6 +34,9 @@ public enum SizeDeviceKind implements WireEnum {
                     || Objects.equals(String.valueOf(candidate.wireValue), value)) {
                 return candidate;
             }
+        }
+        if (value instanceof String) {
+            return UNKNOWN;
         }
         throw new CmuxDecodeException("unknown SizeDeviceKind value " + value, null);
     }

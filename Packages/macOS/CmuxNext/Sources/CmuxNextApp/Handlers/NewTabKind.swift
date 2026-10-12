@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -21,10 +22,36 @@ nonisolated enum NewTabKind: Equatable, Sendable {
         return .terminal
     }
 
+    /// The action that opens this kind on its own, whose title New <Kind> Tab takes in a tab's menu.
+    var newActionID: ActionID {
+        switch self {
+        case .terminal: "newSurface"
+        case .browser: "openBrowser"
+        case .agent: "palette.newAgentChat"
+        case .page: "newTab.page"
+        }
+    }
+
+    /// The kind New <Kind> Tab opens next to tab `id`, as the user sees it:
+    /// agent tabs and New Tab pages count (`newTabOfPaneKind`).
+    @MainActor static func of(_ id: String, tab: TabModel?, services: AppServices) -> NewTabKind {
+        let agent = services.agentTabs.isAgentTab(id)
+        if agent, services.agentTabs.isNewTabPage(id) { return .page }
+        return resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: id.hasPrefix(LocalBrowserTab.prefix), isAgent: agent)
+    }
+
     /// `tabs.newTabKind` over the same-kind rule. Auto takes the kind last
     /// opened in the focused tab's folder (else anywhere), and the same
     /// kind before anything was opened.
-    static func resolve(_ setting: NewTabDefaultKind, sameKind: NewTabKind, recent: NewTabKind?) -> NewTabKind {
+    /// The Terminal template (`tabs.newTabTemplate`) no longer turns the page into a terminal:
+    /// Cmd-T always opens the New Tab page unless `tabs.newTabKind` names another kind
+    /// (Lawrence 2026-10-10, cx-n0i9).
+    static func resolve(_ setting: NewTabDefaultKind, template: NewTabTemplate? = nil, sameKind: NewTabKind,
+                        recent: NewTabKind?) -> NewTabKind {
+        resolveKind(setting, sameKind: sameKind, recent: recent)
+    }
+
+    private static func resolveKind(_ setting: NewTabDefaultKind, sameKind: NewTabKind, recent: NewTabKind?) -> NewTabKind {
         switch setting {
         case .sameKind: sameKind
         case .terminal: .terminal

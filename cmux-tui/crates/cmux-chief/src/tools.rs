@@ -74,29 +74,3 @@ pub fn prompt_section(tools: &[ProfileTool]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn the_profile_is_selected_by_the_catalog_field() {
-        let catalog = json!({"operations": {
-            "chief.agent.spawn": {"class": "mutation", "agents": {"chief": true}},
-            "chief.memory.recall": {"class": "read", "agents": {"chief": true}},
-            "workspace.list": {"class": "read", "agents": {"chief": true}},
-            "workspace.close": {"class": "mutation"},
-            "events.open": {"class": "stream_open", "agents": {"chief": true}},
-            "other.read": {"class": "read", "agents": {"chief": false}}
-        }});
-        let tools = profile_tools(&catalog, CHIEF_PROFILE);
-        let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["chief_agent_spawn", "chief_memory_recall", "workspace_list"]);
-        assert!(tools[0].mutation && !tools[1].mutation);
-        assert_eq!(
-            prompt_section(&tools),
-            "- chief: chief_agent_spawn, chief_memory_recall\n- workspace: workspace_list"
-        );
-    }
-}

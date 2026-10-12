@@ -4,7 +4,7 @@ import CmuxNextDesign
 public import Foundation
 import AppKit
 import ObjectiveC
-import WebKit
+public import WebKit
 
 /// The generic page debug verb (`debug.page {page, state | snapshot}`): what any page shows, read
 /// from the DOM, and the page as WebKit rendered it. Absorbed from the Settings lead's
@@ -30,6 +30,48 @@ extension PageWebView {
             : null,
           data: Object.assign({}, document.documentElement.dataset)
         });
+        """
+        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
+        return value
+    }
+
+    /// SCROLLBARS-THIN audit: the page's `data-scrollers` and every element that would show
+    /// a scroller at rest under "Always" (its overflow is auto or scroll on an axis whose content is
+    /// larger than its box), with the overflow in CSS pixels. An overflow of a few pixels is a
+    /// layout bug that "Always" makes visible.
+    public func debugScrollers() async -> JSONValue {
+        let script = """
+        const out = [];
+        const name = (el) => {
+          let s = el.tagName.toLowerCase();
+          if (el.id) s += '#' + el.id;
+          const cls = typeof el.className === 'string' ? el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '';
+          if (cls) s += '.' + cls;
+          return s;
+        };
+        const path = (el) => {
+          const parts = [];
+          for (let e = el; e && e.nodeType === 1 && parts.length < 4; e = e.parentElement) parts.unshift(name(e));
+          return parts.join(' > ');
+        };
+        const scrolls = (v) => v === 'auto' || v === 'scroll' || v === 'overlay';
+        const visit = (root) => {
+          for (const el of root.querySelectorAll('*')) {
+            if (el.shadowRoot) visit(el.shadowRoot);
+            const cs = getComputedStyle(el);
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            const isRoot = el === document.scrollingElement;
+            const y = el.scrollHeight - el.clientHeight;
+            const x = el.scrollWidth - el.clientWidth;
+            const rootY = isRoot && cs.overflowY !== 'hidden' && getComputedStyle(document.body || el).overflowY !== 'hidden';
+            const rootX = isRoot && cs.overflowX !== 'hidden' && getComputedStyle(document.body || el).overflowX !== 'hidden';
+            if (y > 0 && (scrolls(cs.overflowY) || rootY)) out.push({ element: path(el), axis: 'y', overflow: y, box: el.clientHeight });
+            if (x > 0 && (scrolls(cs.overflowX) || rootX)) out.push({ element: path(el), axis: 'x', overflow: x, box: el.clientWidth });
+          }
+        };
+        visit(document);
+        return JSON.stringify({ scrollers: document.documentElement.getAttribute('data-scrollers'), overflowing: out });
         """
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
               let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
@@ -97,7 +139,7 @@ extension PageWebView {
     /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
     /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
     /// so a live check can prove the user path (a covered window that comes back redraws).
-    nonisolated static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
+    nonisolated public static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
         // The one automation rule for every window surface (terminals, pages).
         return WindowDrawPolicy.isAutomationLaunch(environment)
@@ -106,6 +148,11 @@ extension PageWebView {
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
     /// build behind other windows still renders.
     func keepRenderingWhenCovered() {
+        Self.keepRenderingWhenCovered(webView)
+    }
+
+    /// The same for a web view no `PageWebView` owns (the agent pane's own, cx-zjtn.6).
+    public static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void

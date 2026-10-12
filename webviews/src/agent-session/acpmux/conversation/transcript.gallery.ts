@@ -3,10 +3,123 @@
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
+import {
+  BUILD_REPORT_PDF_PAGE_PNG,
+  BUILD_TIMES_PNG,
+  LOGIN_SCREENSHOT_PNG,
+  LOGIN_TESTS_MP4,
+} from "../../../gallery/fixtures/toolImages";
 
 const prompt = "Add retries with backoff to the fetch helper";
+
+const selectionRows = [
+  user("Select this prompt to copy it into a bug report", 5, { id: "gallery-selection-user" }),
+  assistant(
+    "The response stays selectable while controls keep their keyboard focus.\n\nUse the highlighted prose to compare the real transcript against the reference.",
+    4.9,
+    { id: "gallery-selection-answer" },
+  ),
+  summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
+];
+
+const keyboardRows = [
+  user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
+  activity(
+    [
+      thought("The disclosure should keep its focus while the tool list opens."),
+      tool("Read src/net/client.ts", "read", "completed"),
+      tool("bun test src/net", "execute", "completed"),
+    ],
+    3.9,
+    { id: "gallery-keyboard-activity" },
+  ),
+  assistant("The work details are open without moving the transcript column.", 3.8, {
+    id: "gallery-keyboard-answer",
+  }),
+  summary(3.8, { id: "gallery-keyboard-summary", status: "completed", toolCount: 2 }),
+];
+
+const shellRows = (id: string, title: string, command: string, fields: Parameters<typeof tool>[3] = {}) => [
+  user(title, 3, { id: `${id}-user` }),
+  activity([tool(title, "execute", fields.status ?? "completed", { command, ...fields })], 2.8, {
+    id: `${id}-activity`,
+  }),
+  assistant("The command details stay inside the transcript row.", 2.6, { id: `${id}-answer` }),
+  summary(2.6, { id: `${id}-summary`, status: "completed", toolCount: 1 }),
+];
+
+const groupedShellRows = [
+  user("Run the focused tests and inspect the failure", 3, { id: "gallery-shell-group-user" }),
+  activity(
+    [
+      tool("bun test src/net --filter retry", "execute", "completed", {
+        command: "bun test src/net --filter retry",
+        output: "3 pass\n0 fail",
+        exitCode: 0,
+        startedAt: minutesAgo(2.9),
+        endedAt: minutesAgo(2.8),
+      }),
+      tool("bun test src/net --filter retry --watch", "execute", "failed", {
+        command: "bun test src/net --filter retry --watch",
+        output: "1 failing test\nExpected the retry delay to increase",
+        exitCode: 2,
+        startedAt: minutesAgo(2.7),
+        endedAt: minutesAgo(2.5),
+      }),
+    ],
+    2.8,
+    { id: "gallery-shell-group-activity" },
+  ),
+  assistant("The first command passed; the second shows its nonzero exit inline.", 2.4, {
+    id: "gallery-shell-group-answer",
+  }),
+  summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
+];
+
+const openWorked = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".cv-worked" });
+  await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
+};
+
+const openSingleShell = async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => ctx.find({ selector: ".cv-tool.is-toggle" }).getAttribute("aria-expanded") === "true");
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+};
+
+const openGroupedShells = async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+  await ctx.click({ selector: ".cv-command" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
+  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
+};
+
+const shellDisclosureChecks = {
+  layoutShiftMax: {
+    value: 0.25,
+    reason: "Opening command details intentionally reveals the shell block below its focused row.",
+  },
+};
+
+const longChatRows = Array.from({ length: 24 }, (_, index) => {
+  const at = 3000 - index * 120;
+  return [
+    user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
+    assistant(
+      `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
+      at - 1,
+    ),
+    summary(at - 1, { status: "completed" }),
+  ];
+}).flat();
 
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
@@ -37,6 +150,56 @@ const MATH = [
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
 ].join("\n");
 
+const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
+const WEB_VIDEO_REPLY = [
+  "Yes. The recording attached to the PR shows all six login tests passing:",
+  "",
+  WEB_VIDEO,
+].join("\n");
+
+const BUILD_CHART = [
+  "The app target dominates the build. Per-target wall time from the last 20 CI runs on main:",
+  "",
+  "```vega-lite",
+  JSON.stringify(
+    {
+      $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+      width: 420,
+      height: 180,
+      data: {
+        values: [
+          { target: "app", p50: 312, p90: 371 },
+          { target: "api", p50: 204, p90: 229 },
+          { target: "worker", p50: 171, p90: 190 },
+          { target: "ui-kit", p50: 122, p90: 140 },
+          { target: "docs", p50: 88, p90: 97 },
+          { target: "e2e", p50: 64, p90: 82 },
+          { target: "lint", p50: 41, p90: 45 },
+        ],
+      },
+      layer: [
+        {
+          mark: { type: "bar", color: "#3b6fd8" },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x", title: null },
+            x: { field: "p50", type: "quantitative", title: "seconds (p50, tick = p90)" },
+            tooltip: [{ field: "target" }, { field: "p50" }, { field: "p90" }],
+          },
+        },
+        {
+          mark: { type: "tick", color: "#e8a33d", thickness: 2 },
+          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+  "```",
+  "",
+  "Splitting the app target's type check (41% of its time) is the biggest win.",
+].join("\n");
+
 const MARKDOWN_MIX = [
   "## What changed",
   "",
@@ -56,25 +219,94 @@ const MARKDOWN_MIX = [
   "See [the retry module](src/net/retry.ts) and https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429.",
 ].join("\n");
 
+const GALLERY_IMAGE =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="56"><rect width="96" height="56" fill="#6b7280"/><circle cx="28" cy="28" r="14" fill="#f2cc8f"/><path d="M54 43l12-16 18 16" fill="#81b29a"/></svg>',
+  );
+const TOO_LARGE_IMAGE = `data:image/png;base64,${"A".repeat(2_000_001)}`;
+const CHIP_PREVIEW_MIX = [
+  "## Reply links and images",
+  "",
+  "A globe URL: https://example.test/docs and a cached site: https://docs.example.test/guide.",
+  "The long address is https://example.test/research/2026/agent-session/gallery/fixtures?view=transcript&sort=recent&filter=public.",
+  "Inside the project: [retry.ts](/Users/you/src/atlas-web/src/net/retry.ts) and [net/](/Users/you/src/atlas-web/src/net/).",
+  "Outside the project: [notes](/Users/you/Documents/notes.md); the deny-listed `/Users/you/.ssh/id_ed25519.pem` stays text.",
+  "",
+  "Remote image (click to load): ![remote](https://images.example.test/gallery/remote.png)",
+  "A local image loads through the host: ![diagram](/Users/you/src/atlas-web/assets/diagram.png)",
+  `An oversized inline image stays safe: ![too large](${TOO_LARGE_IMAGE})`,
+  "",
+  "The local preview card is at http://localhost:5173/preview.html?tab=gallery.",
+].join("\n");
+
+const TASKS_REPLY = [
+  "- [x] Checked task",
+  "- [ ] Unchecked task",
+  "- [x] Nested checklist",
+  "  - [ ] Nested unchecked item",
+  "  - [x] Nested checked item",
+  "- [ ] This long task title wraps across several lines in a narrow agent pane so the checkbox stays aligned with the first line.",
+].join("\n");
+
+const CHIP_HOST = {
+  paths: {
+    "/Users/you/src/atlas-web/src/net/retry.ts": { place: "root" as const, folder: false },
+    "/Users/you/src/atlas-web/src/net/": { place: "root" as const, folder: true },
+    "/Users/you/Documents/notes.md": { place: "outside" as const, folder: false },
+  },
+  sites: {
+    "https://docs.example.test/guide": {
+      title: "Example docs",
+      icon:
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="4" fill="#e07a5f"/><path d="M4 8h8M8 4v8" stroke="#fff" stroke-width="2"/></svg>',
+        ),
+    },
+  },
+  policy: { outsideRoots: "confirm" as const, remoteImages: "click" as const },
+  images: {
+    "https://images.example.test/gallery/remote.png": GALLERY_IMAGE,
+    "/Users/you/src/atlas-web/assets/diagram.png": GALLERY_IMAGE,
+  },
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
   area: "Agent pane",
   height: 560,
+  checks: {
+    longFrameFailMs: {
+      value: 33,
+      reason: "Transcript disclosures should settle without a frame longer than two display frames.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "Opening a shell disclosure is a local interaction and should settle within a quarter second.",
+    },
+  },
   covers: [
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/chips/ReplyMedia.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
+    "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/EditDiff.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/PreviewCard.tsx",
@@ -91,8 +323,25 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 30),
         assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000 }),
+        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
       ]),
+    },
+    "github-references": {
+      note: "Issue and pull request references link in prose while code stays untouched.",
+      ready: { githubRepository: "manaflow-ai/cmux" },
+      native: { "git.githubRepository": { repository: "manaflow-ai/cmux" } },
+      snapshot: chat([
+        user("Please review #18325 and manaflow-ai/cmux#18321", 3),
+        assistant(
+          "The fixes are in #18325.\n\n`#18325` stays code, and fenced examples stay code too:\n\n```text\n#18321\n```",
+          2,
+        ),
+        summary(2, { status: "completed", durationMs: 12_000 }),
+      ]),
+    },
+    tasks: {
+      note: "Checked, unchecked, nested and wrapping task-list items.",
+      snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
       note: "A turn that started and has no output yet.",
@@ -113,6 +362,163 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "copy-last-code-block": {
+      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) hands the app the last fenced block of the latest reply, not an earlier one.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("First try:\n\n```ts\nretry(fetch, 3);\n```", 5),
+        summary(4.9, { status: "completed" }),
+        user("Cap the backoff too", 3),
+        assistant(
+          "Two changes:\n\n```ts\nconst delay = Math.min(cap, base * 2 ** attempt);\n```\n\nand the call:\n\n```ts\nretry(fetch, { attempts: 3, cap: 8000 });\n```\n\nDone.",
+          2,
+        ),
+        summary(1.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
+        const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
+        if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
+      },
+    },
+    "archive-chat-key": {
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+        };
+        page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+        );
+      },
+    },
+    "fork-any-turn": {
+      note: "Play: a Claude chat offers Fork under every completed turn (cx-yqiv, Codex parity); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("claude"),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as {
+          cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
+        };
+        const forks = () => [
+          ...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]'),
+        ];
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => forks().length === 2);
+        forks()[0]!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
+        );
+      },
+    },
+    "fork-latest-turn-only": {
+      note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+      },
+    },
+    "mark-unread-menu": {
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: {
+        longFrameFailMs: {
+          value: 140,
+          reason:
+            "Opening Chat actions costs one 64-122 ms frame in dev React, on base too (agent-pane.inspector chat-menu); cx-ncc.87 owns that cost.",
+        },
+      },
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+      },
+    },
+    "thought-row": {
+      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(
+                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
+              ),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
+        if (ctx.document.body.textContent?.includes("jittered backoff"))
+          throw new Error("a closed thought shows only its first line");
+        await ctx.click({ selector: "button.cv-thought" });
+        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+      },
+    },
+    "thought-find": {
+      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason:
+            "The key that opens the closed Worked for fold still re-renders the whole pane once (the fold state lives in AcpmuxPane; Find state moved below it in cx-ncc.86): 70-120 ms at 4x CPU throttle in dev React, other keys now render the transcript alone.",
+        },
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+        },
+      },
+      snapshot: chat([
+        user(prompt, 2),
+        activity(
+          [
+            thought(
+              "Check how the helper parses errors first.\n\nOn second thought, the retry wrapper swallows the status.",
+            ),
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+          ],
+          1.5,
+        ),
+        assistant("Retries now stop on a 4xx.", 1),
+        summary(0.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("find");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        // A key at a time, as a person types: the play's type inserts its whole text in one task,
+        // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
+        for (const key of "thought") await ctx.type(key);
+        const active = () => {
+          const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
+            .CSS.highlights;
+          return [...(highlights?.get("acpmux-find-active") ?? [])][0];
+        };
+        await ctx.waitFor(() => active() !== undefined);
+        const at = active()!.startContainer.parentElement;
+        if (!at?.closest(".cv-thought__body"))
+          throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
     },
     "working-tools": {
       note: "Tool calls running in a live turn.",
@@ -187,6 +593,155 @@ export default agentPaneEntry({
         summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
       ]),
     },
+    "turn-error-with-pdf": {
+      note: "A failed turn keeps its attached PDF available to Retry, so the next request does not lose document context.",
+      snapshot: chat([
+        user("Review the attached build report", 6, {
+          retryAttachments: [
+            {
+              id: "gallery-build-report",
+              kind: "document",
+              name: "build-report.pdf",
+              mimeType: "application/pdf",
+              size: 128,
+              data: "JVBERi0xLjQK",
+              pageCount: 3,
+            },
+          ],
+        }),
+        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+      ]),
+    },
+    "turn-error-long": {
+      note: "A turn that failed with a long gateway error: the note wraps and the row grows.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.5, {
+          status: "failed",
+          error:
+            "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2945s). This is a server-side issue, usually temporary. Try again in a moment. If it persists, check your inference gateway (100.89.225.106:31415).",
+        }),
+      ]),
+    },
+    "turn-error-signed-out": {
+      note: "The CLI's own login is gone: only this class says sign in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Claude Code is not logged in. Please run /login. (OAuth token has expired)",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="subscription-login"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-proxy-401": {
+      note: "A proxy route refused the request: name the route and the status, not a sign-in.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+          }),
+        ],
+        { harness: "claude-sr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="proxy-auth"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-invalid-key": {
+      note: "A bad or missing API key.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="invalid-key"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-rate-limited": {
+      note: "Rate limits mention authentication sometimes; they are still rate limits.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "API Error: 429 rate_limit_error: This request would exceed your account's rate limit. Please check your authentication plan.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-unreachable": {
+      note: "The route's server is down or unreachable.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "Connection error: fetch failed (connect ECONNREFUSED 127.0.0.1:31415)",
+          }),
+        ],
+        { harness: "claude-cr" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="unreachable"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-other": {
+      note: "Anything else keeps the agent's own words.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error: "The agent stopped: the tool output was larger than the context window.",
+          }),
+        ],
+        { harness: "claude" },
+      ),
+      // cx-w10a: the footer classifies the failure honestly; only subscription-login says "sign in".
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="other"]');
+          return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
     "refused-retry": {
       note: "A prompt the host refused: why, and Retry.",
       snapshot: chat([
@@ -220,6 +775,99 @@ export default agentPaneEntry({
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
       ]),
+    },
+    "chips-and-previews": {
+      note: "Markdown mixing URL/path chips, host-mediated images, an oversized image guard, and a local preview.",
+      chipHost: CHIP_HOST,
+      snapshot: chat([user("Show the links and images", 5), assistant(CHIP_PREVIEW_MIX, 4.9), summary(4.9)]),
+    },
+    "tool-images": {
+      note: "Images tool calls produced: a screenshot a browser tool returned, a chart a script saved, and the first page of a PDF report; a click opens the viewer.",
+      chipHost: {
+        paths: {
+          "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false },
+          "/Users/you/src/atlas-web/out/build-report.pdf": { place: "root" as const, folder: false },
+        },
+        images: {
+          "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}`,
+          "/Users/you/src/atlas-web/out/build-report.pdf": `data:image/png;base64,${BUILD_REPORT_PDF_PAGE_PNG}`,
+        },
+      },
+      snapshot: chat([
+        user("Check the sign-in page, then chart the build times", 6),
+        activity(
+          [
+            tool("Screenshot localhost:5173/login", "other", "completed", {
+              output: "Captured 640x400",
+              images: [`data:image/png;base64,${LOGIN_SCREENSHOT_PNG}`],
+            }),
+            tool("python3 scripts/plot_build_times.py", "execute", "completed", {
+              command: "python3 scripts/plot_build_times.py",
+              output: "Saved chart to /Users/you/src/atlas-web/out/build-times.png\n",
+              exitCode: 0,
+            }),
+            tool("python3 scripts/build_report.py", "execute", "completed", {
+              command: "python3 scripts/build_report.py",
+              output: "Wrote 3 pages to /Users/you/src/atlas-web/out/build-report.pdf\n",
+              exitCode: 0,
+            }),
+          ],
+          5.8,
+        ),
+        assistant(
+          "The sign-in page renders with both fields and the Continue button. The app target is the slowest build at 312 s; the report has the per-file timings.",
+          5.6,
+        ),
+        summary(5.6, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "tool-video": {
+      note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
+      chipHost: {
+        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
+        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Record the login tests running so I can attach it to the PR", 4),
+        activity(
+          [
+            tool("vhs scripts/login-tests.tape", "execute", "completed", {
+              command: "vhs scripts/login-tests.tape",
+              output: "Recorded 7 s to /Users/you/src/atlas-web/out/login-tests.mp4\n",
+              exitCode: 0,
+            }),
+          ],
+          3.8,
+        ),
+        assistant("All six login tests pass; the recording is ready to attach.", 3.6),
+        summary(3.6, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "web-video": {
+      note: "A GitHub attachment alone on its line: with images.remote = click (the default) it shows its site and Load video.",
+      chipHost: { media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "web-video-loaded": {
+      note: "The same reply with images.remote = always: the host fetched the attachment and the copy plays inline.",
+      chipHost: {
+        policy: { remoteImages: "always" as const },
+        media: { [WEB_VIDEO]: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      snapshot: chat([
+        user("Did the PR's recording show the login tests passing?", 3),
+        assistant(WEB_VIDEO_REPLY, 2.9),
+        summary(2.9),
+      ]),
+    },
+    "vega-lite-chart": {
+      note: "A vega-lite fence in a reply draws as a chart (the markdown viewer's bundled Vega); Code shows the spec.",
+      height: 520,
+      snapshot: chat([user("Which build targets are slowest?", 3), assistant(BUILD_CHART, 2.9), summary(2.9)]),
     },
     "long-code": {
       note: "Long code blocks: wide lines, many lines, two languages.",
@@ -266,19 +914,148 @@ export default agentPaneEntry({
     "long-chat": {
       note: "Many turns over two days (date lines, virtualized rows).",
       height: 720,
+      snapshot: chat(longChatRows),
+    },
+    "scrolling-history": {
+      note: "Play: move from the latest reply to the oldest history while the virtual transcript keeps its lead rows mounted.",
+      height: 560,
+      snapshot: chat(longChatRows),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-row[aria-posinset="1"]'));
+      },
+    },
+    "jump-latest": {
+      note: "Play: scroll up from the latest reply; Jump to latest shows as a glass circle centered above the composer.",
+      height: 560,
+      snapshot: chat(longChatRows),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
+      },
+    },
+    "jump-latest-working": {
+      note: "Play: scrolled up while a reply streams below, Jump to latest shows its dots.",
+      height: 560,
+      snapshot: chat(longChatRows, { isWorking: true }),
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown][data-working]"));
+      },
+    },
+    selection: {
+      note: "Play: select a whole prompt row, then the assistant's rendered prose; both remain browser text selection.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.selectText({ selector: '[data-row-id="gallery-selection-answer"] .cv-md' });
+      },
+    },
+    "keyboard-selection": {
+      note: "Play: move the transcript roving focus with Shift+ArrowDown and keep the selected range visible.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+      },
+    },
+    "keyboard-copy": {
+      note: "Play: select a transcript range, invoke both Ctrl-C and Cmd-C, and keep the range focused for copy feedback.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+        await ctx.press("Control+c");
+        await ctx.press("Meta+c");
+        await ctx.waitFor(() => {
+          const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
+          return (
+            answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement)
+          );
+        });
+      },
+    },
+    "keyboard-focus": {
+      note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
+      snapshot: chat(keyboardRows),
+      checks: {
+        layoutShiftMax: {
+          value: 0.25,
+          reason: "Opening the disclosure intentionally reveals its folded tool rows below the focused control.",
+        },
+      },
+      play: async (ctx) => {
+        const worked = { selector: ".cv-worked" };
+        await ctx.focus(worked);
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(worked).getAttribute("aria-expanded") === "true");
+      },
+    },
+    "shell-command-only": {
+      note: "A command call with no output still opens a compact Shell block with its command line.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(shellRows("gallery-shell-command", "Run the focused test", "bun test src/net --filter retry")),
+      play: openSingleShell,
+    },
+    "shell-success-output": {
+      note: "A successful command keeps its output selectable below the command line.",
+      checks: shellDisclosureChecks,
       snapshot: chat(
-        Array.from({ length: 24 }, (_, index) => {
-          const at = 3000 - index * 120;
-          return [
-            user(`Question ${index + 1}: how does part ${index + 1} of the retry flow work?`, at),
-            assistant(
-              `Part ${index + 1} waits, then calls the task again. ${"It is covered by a test. ".repeat(1 + (index % 4))}`,
-              at - 1,
-            ),
-            summary(at - 1, { status: "completed" }),
-          ];
-        }).flat(),
+        shellRows("gallery-shell-success", "Run the focused test", "bun test src/net --filter retry", {
+          output: "3 pass\n0 fail",
+          exitCode: 0,
+        }),
       ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__output")?.textContent === "3 pass\n0 fail");
+      },
+    },
+    "shell-failed-exit": {
+      note: "A failed command exposes its nonzero exit status alongside its output.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-failed", "Run the focused test", "bun test src/net --filter retry", {
+          status: "failed",
+          output: "1 failing test",
+          exitCode: 2,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__exit")?.textContent?.includes("2") ?? false);
+      },
+    },
+    "shell-grouped-commands": {
+      note: "Two consecutive commands use the real group disclosure and nested command-row disclosures.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(groupedShellRows),
+      play: openGroupedShells,
     },
   },
 });
+
+/// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
+function forkTurns(family: string | undefined) {
+  const snapshot = chat([
+    user("Add retry with backoff to the uploader", 9, { seq: 1 }),
+    assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+    summary(8.5, { seq: 3, status: "completed" }),
+    user("Now cover it with a test that fakes two timeouts", 6, { seq: 4 }),
+    assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
+    summary(5, { seq: 6, status: "completed" }),
+  ]);
+  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+}

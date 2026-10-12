@@ -1,4 +1,5 @@
-import type { SqlStore } from "@cmux/ownership"
+import type { Principal, SqlStore } from "@cmux/ownership"
+import type { TeamVmState } from "./domains/team-vm.ts"
 
 /**
  * The team journal (plans/cmux-next/team-vm-plan.md 3b, S6): the zero-loss tier for writes the
@@ -141,4 +142,16 @@ export class TeamJournal {
     }
     return { entries, high_water: this.highWater(stream).high_water, more }
   }
+}
+
+/**
+ * The journal is the team's zero-loss tier and holds every person's files: only the VM's own
+ * install for the current epoch reads or writes it, never a member's session or another install.
+ */
+export const journalCaller = (state: TeamVmState, p: Principal, risk: "read" | "mutate-own"): { ok: true } | { ok: false; code: string; message: string } => {
+  if (p.kind !== "install" || p.team === undefined || p.team !== state.team) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
+  if (!state.vm_install) return { ok: false, code: "team_vm.not_bound", message: "the team VM has not bound its install yet" }
+  if (p.install !== state.vm_install) return { ok: false, code: "auth.forbidden", message: "only the team VM's install uses the journal" }
+  if (!p.grant_classes?.includes(risk)) return { ok: false, code: "auth.forbidden", message: `grant does not cover ${risk}` }
+  return { ok: true }
 }

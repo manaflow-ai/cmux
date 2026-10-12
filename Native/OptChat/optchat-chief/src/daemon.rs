@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationBindRequest,
-    ConversationCreateRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationSnapshotRequest, ConversationTypingRequest,
-    Error as SdkError, Event, Nullable, Optional, SubscribeRequest, SubscribeRequestTreeEvents,
+    ConversationCreateRequest, ConversationDraftRequest, ConversationHistoryRequest,
+    ConversationListRequest, ConversationOpRequest, ConversationSnapshotRequest,
+    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
+    SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -56,6 +57,10 @@ pub trait ConversationPort: Send {
     /// Commits `op` as `agent_mux`; returns the change on success.
     fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError>;
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError>;
+    /// Publishes a draft of the running turn's reply (`conversation.draft`,
+    /// never stored). No default: a silent no-op once hid that the local
+    /// port never sent one; a port without drafts says so with an error.
+    fn draft(&mut self, conversation: &str, draft: &crate::draft::Draft) -> Result<(), OpError>;
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
     /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
     /// when the owner has not sent all of it (`local-attachments-v1`).
@@ -68,6 +73,13 @@ pub trait ConversationPort: Send {
     ) -> Result<String, OpError> {
         let _ = (conversation, hash, variant, bytes);
         Err(OpError::Rejected("attachments_unsupported".into()))
+    }
+    /// `cloud-mux-ack`: the chief handled the wakes of `conversation` up to
+    /// `seq` (the lease's chief; the request names no chief). Only the
+    /// cloud port has a wake queue.
+    fn mux_ack(&mut self, conversation: &str, seq: u64) -> Result<(), OpError> {
+        let _ = (conversation, seq);
+        Err(OpError::Rejected("mux_unsupported".into()))
     }
 }
 
@@ -87,6 +99,20 @@ pub enum DaemonEvent {
     Down,
     /// The daemon cannot host local conversations: the host cannot run.
     Fatal(String),
+    /// The chief's wake queue (`cloud-mux-wake`, `cloud-mux-resynced`): wakes
+    /// by ids only, never message text. The brain reads a woken side
+    /// conversation through its own authorized reads.
+    MuxWake(Vec<MuxWake>),
+}
+
+/// One wake of the chief's queue: `conversation` has a message at `seq`
+/// that the server's wake rule says the chief should read.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct MuxWake {
+    pub conversation: String,
+    pub seq: u64,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// The participants of the Chief conversation, the same as the app's
@@ -243,6 +269,30 @@ impl ConversationPort for SdkConversations {
                 actor: Optional::Value(AGENT_MUX.into()),
                 conversation: conversation.into(),
                 on,
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
+    }
+
+    /// `conversation-draft` (capability `conversation-draft-v1`): the v1
+    /// command of `conversation.draft`; this bound connection's principal is
+    /// `agent_mux` (conversation-bind).
+    fn draft(&mut self, conversation: &str, draft: &crate::draft::Draft) -> Result<(), OpError> {
+        self.client
+            .conversation_draft(ConversationDraftRequest {
+                conversation: conversation.into(),
+                turn: draft.turn.clone(),
+                segment: draft.segment,
+                seq: draft.seq,
+                kind: draft.kind.into(),
+                text: draft.text.clone(),
+                fresh: draft.fresh,
+                done: draft.done,
+                truncated: Optional::Value(draft.truncated),
+                harness: match &draft.harness {
+                    Some(harness) => Optional::Value(harness.clone()),
+                    None => Optional::Missing,
+                },
             })
             .map(|_| ())
             .map_err(sdk_error)

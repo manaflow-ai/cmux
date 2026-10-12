@@ -149,6 +149,6 @@ nonisolated struct TagScanner {
     }
 
     private static func lower(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
-        ("A"..."Z").contains(scalar) ? Unicode.Scalar(scalar.value + 32)! : scalar
+        ("A"..."Z").contains(scalar) ? Unicode.Scalar(scalar.value + 32) ?? scalar : scalar
     }
 }

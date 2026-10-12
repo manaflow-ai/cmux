@@ -7,6 +7,13 @@
 //! refuses to start and reports the path; it never repairs it silently,
 //! because a wrong owner on a shared directory (`/tmp`, `%ProgramData%`)
 //! means someone else created it first.
+//!
+//! One rule for modes (decision SV-R4): an existing directory is never
+//! changed. A policy path is refused when it is wider than its mode;
+//! narrower is accepted. 0700 is required only on the folders the server
+//! creates for secrets and state (the state directory, the socket
+//! directories); a store root holds only signed public packages and needs
+//! no more than "not writable by others" (0755).
 
 use crate::layout::Layout;
 use crate::platform::{HostPath, InstallMode, Platform};
@@ -123,8 +130,15 @@ pub fn access_policy(layout: &Layout) -> Vec<PathAccess> {
             // The LaunchDaemon runs as the account in its `UserName`.
             posix(state, user, None, 0o700),
         ],
+        // macOS: the root is the shared `~/Library/Application Support/cmux`,
+        // which the app may have created 0755 before the server existed;
+        // requiring 0700 there would refuse those installs (decision SV-R4).
+        // Linux `~/.local/share/cmux` follows the same rule (decision D2):
+        // the store root holds only signed public packages, so "not
+        // writable by others" (0755) is enough. Only the server's own state
+        // folder must be 0700.
         (Platform::Linux | Platform::MacOs, InstallMode::User) => {
-            vec![posix(root, user, None, 0o700), posix(state, user, None, 0o700)]
+            vec![posix(root, user, None, 0o755), posix(state, user, None, 0o700)]
         }
         (Platform::Windows, InstallMode::System) => vec![
             windows(
@@ -160,7 +174,7 @@ pub fn socket_dir_check(layout: &Layout, port: u16) -> Option<Vec<PathAccess>> {
         return None;
     };
     let dir = layout.postgres_socket_dir(port);
-    let parent = HostPath::new(Platform::MacOs, &format!("/tmp/cmux-{uid}")).expect("absolute");
+    let parent = HostPath::unix_absolute(Platform::MacOs, format!("/tmp/cmux-{uid}"));
     Some(vec![
         posix(parent, PosixOwner::Uid(uid), None, 0o700),
         posix(dir, PosixOwner::Uid(uid), None, 0o700),

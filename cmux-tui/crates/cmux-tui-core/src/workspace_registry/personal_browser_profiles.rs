@@ -11,8 +11,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::personal_store::{
-    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, subject, validate_appearance,
-    validate_browser_profile_ref, validate_name, validate_personal_json, write_order,
+    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, require_icon_asset, subject,
+    validate_appearance, validate_browser_profile_ref, validate_name, validate_personal_json,
+    write_order,
 };
 use super::{WorkspaceRegistry, new_uuid_v4};
 
@@ -144,10 +145,12 @@ impl WorkspaceRegistry {
             .as_ref()
             .map(|source| validate_personal_json("source", source, true))
             .transpose()?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
+        input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         let mut ids = order(&tx)?;
         let index = input.index.unwrap_or(ids.len()).min(ids.len());
         tx.execute(
@@ -183,7 +186,9 @@ impl WorkspaceRegistry {
             update.color.as_ref().and_then(Option::as_deref),
             update.icon.as_ref().and_then(Option::as_deref),
         )?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        update.icon.clone().flatten().map_or(Ok(()), |icon| require_icon_asset(&tx, &icon))?;
         let before = read_browser_profile(&tx, id)?
             .ok_or_else(|| anyhow::anyhow!("unknown browser profile {id}"))?;
         if let Some(name) = &update.name {
@@ -226,7 +231,8 @@ impl WorkspaceRegistry {
         index: usize,
     ) -> anyhow::Result<(PersonalBrowserProfile, bool)> {
         validate_browser_profile_ref(id)?;
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let mut ids = order(&tx)?;
         let old = ids
             .iter()
@@ -260,7 +266,8 @@ impl WorkspaceRegistry {
             id != DEFAULT_PROFILE_ID,
             "bad request: the default browser profile cannot be deleted"
         );
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         anyhow::ensure!(read_browser_profile(&tx, id)?.is_some(), "unknown browser profile {id}");
         let cleared_workspaces = {
             let mut statement = tx.prepare(

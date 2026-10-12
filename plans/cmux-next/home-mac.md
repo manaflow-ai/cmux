@@ -166,3 +166,16 @@ the left, `HomeHostView` on the right), never in the window sidebar.
 - Not built: pin and mute from the list (the daemon proxy refuses
   `inbox.pin`/`inbox.mute`), a delivery state for an invite the staging
   allow list refused after commit, the row menu through `ActionMenuContext`.
+- 2026-10-07: the list is MessagesLab's vendored sidebar (`HomeSidebarView`
+  over `HomeSidebarSource`) in a split with the transcript. The divider
+  keeps the list between its 76 pt minimum and half the window, a
+  double-click resets it to 320 pt, and each window keeps its width. The
+  column draws no background of its own. Below 180 pt (avatars only) the
+  search field hides instead of clipping.
+- Home's list is native UI that no close path reaches, so it is not a
+  cmux-tui dock pane and the app marks no column permanent. The daemon's
+  `permanent` flag (`permanent-dock-v1`) is for docked panes a client must
+  keep: undock, edge moves, replacement and closes that would remove it
+  are refused with `dock-column-permanent`. A user's close the daemon
+  refuses beeps and shows the refusal HUD ("This column stays docked and
+  can't be closed.").

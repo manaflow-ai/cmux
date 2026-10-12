@@ -10,8 +10,6 @@
 //! clock in microseconds, and each source keeps its own I/O loop, capture
 //! and encoder.
 
-mod loss;
-
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
@@ -25,7 +23,7 @@ use cmux_rd_proto::{
     MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE, flags,
 };
 
-pub use loss::LossMeter;
+pub use cmux_rd_core::loss::LossMeter;
 
 /// Frames kept for NACK resends.
 pub const HISTORY_FRAMES: usize = 16;
@@ -127,6 +125,17 @@ pub enum StreamError {
     TooMany,
     /// A tile stream names a surface stream that does not exist.
     NoSurface(u16),
+}
+
+impl StreamError {
+    /// The `stream_refused` reason for this error.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Exists(_) => "in_use",
+            Self::TooMany => "too_many",
+            Self::NoSurface(_) => "no_surface",
+        }
+    }
 }
 
 /// Counters for the stats control message.
@@ -316,7 +325,7 @@ impl MediaEngine {
     /// Adds a display stream (a popup surface) of `width` x `height`. Its
     /// first damage covers the whole stream and is an IDR.
     pub fn add_stream(&mut self, stream: u16, width: u32, height: u32) -> Result<(), StreamError> {
-        if self.streams.contains_key(&stream) {
+        if self.streams.contains_key(&stream) || self.upstreams.contains_key(&stream) {
             return Err(StreamError::Exists(stream));
         }
         if self.streams.len() >= MAX_STREAMS {
@@ -353,7 +362,9 @@ impl MediaEngine {
     /// `Output::upstream` even without control (the service's permission
     /// for mic and camera is the service's check, not rd's input gate).
     pub fn add_upstream(&mut self, stream: u16) -> Result<(), StreamError> {
-        if self.upstreams.contains_key(&stream) {
+        // One id names one stream in both directions: the viewer routes the
+        // host's feedback for this stream by its id (rd-ffi session).
+        if self.upstreams.contains_key(&stream) || self.streams.contains_key(&stream) {
             return Err(StreamError::Exists(stream));
         }
         if self.upstreams.len() >= MAX_UPSTREAMS {

@@ -10,7 +10,12 @@ WebContent footprint. Run on cmux-lawrence-2 or the fleet, never the laptop.
 Launches the tagged app itself (no-activate, automation socket, scratch cmux.json
 and an empty Ghostty config) and kills it at the end.
 
-Usage: new-tab-e2e.py --tag <tag> [--runs 20] [--budget-ms 16]
+Usage: new-tab-e2e.py --tag <tag> [--runs 20] [--budget-ms 16] [--bench | --bench-open]
+
+--bench-open (hqacp-v2 proof, 2026-10-06): Cmd-T through the real key path; fails when a run
+adopts no spare, resizes the spare at adoption (the page then shows at the parked width until
+WebKit lays it out again), misses a display frame, or shows the page and its tab later than the
+first display frame after the key.
 """
 import argparse, glob, json, os, signal, socket, statistics, subprocess, sys, tempfile, time
 
@@ -22,6 +27,8 @@ parser.add_argument("--text", default="hello")
 parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
 parser.add_argument("--bench", action="store_true",
                     help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
+parser.add_argument("--bench-open", action="store_true",
+                    help="Cmd-T: first frame, missed frames and spare refit per run, with a pass/fail verdict")
 parser.add_argument("--budget-close-ms", type=float, default=10)
 parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
                     help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
@@ -235,6 +242,46 @@ def run_bench():
         main_thread_profile(trace)
 
 
+def run_bench_open():
+    if opts.neighbor == "terminal":
+        print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
+        time.sleep(1.5)  # test harness: the terminal starts
+    opens = []
+    for _ in range(opts.runs):
+        ready_spare()
+        time.sleep(0.3)  # test harness: input is quiet before the measured key
+        opens.append(rpc("debug.new_tab", {"action": "bench_open"}))
+        time.sleep(0.4)  # test harness: the page settles before it closes
+        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+    bad = [r for r in opens if not isinstance(r, dict) or "error" in r]
+    if bad:
+        sys.exit(f"FAIL bench errors: {bad[:3]}")
+    summarize("Cmd-T", opens)
+    failures = []
+    for i, r in enumerate(opens):
+        frames, opening = r["frames"], r.get("opening") or {}
+        period = frames["refresh_ms"] or 8.33
+        first = frames.get("first_tick_ms")
+        after_key = None if first is None else first - r["key_ms"]
+        print(f"  run {i}: key {r['key_ms']:.2f} ms, first frame +{first if first is not None else -1:.1f} ms "
+              f"({after_key if after_key is not None else -1:.1f} ms after the key's turn), visible "
+              f"{r.get('visible_ms') if r.get('visible_ms') is not None else -1:.1f} ms, missed {frames['missed']}, "
+              f"max {frames['max_ms']:.1f} ms, opening {opening}", flush=True)
+        if not opening.get("spare"):
+            failures.append(f"run {i}: no spare adopted")
+        if opening.get("refit"):
+            failures.append(f"run {i}: the spare was resized at adoption (it waited at another size than its pane)")
+        if frames["missed"]:
+            failures.append(f"run {i}: {frames['missed']} missed frames (max {frames['max_ms']:.1f} ms)")
+        if after_key is None or after_key > period * 1.5:
+            failures.append(f"run {i}: the first frame came {after_key} ms after the key's turn (refresh {period:.2f} ms)")
+        if r.get("visible_ms") is None or first is None or r["visible_ms"] > first + 0.5:
+            failures.append(f"run {i}: the page and its tab were not shown at the first frame")
+    if failures:
+        sys.exit("FAIL Cmd-T:\n" + "\n".join(failures))
+    print("ok: every Cmd-T adopted a spare at its pane size and showed the page and its tab at the first frame, no missed frame")
+
+
 app = None
 try:
     if os.path.exists(SOCKET):
@@ -251,6 +298,9 @@ try:
     time.sleep(2)  # test harness: let the first workspace settle
     if opts.bench:
         run_bench()
+        sys.exit(0)
+    if opts.bench_open:
+        run_bench_open()
         sys.exit(0)
     spare_ms, footprints = [], []
     for run in range(opts.runs):

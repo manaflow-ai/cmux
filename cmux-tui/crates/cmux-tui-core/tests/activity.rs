@@ -2,6 +2,7 @@
 //! VM activity sender, daemon side (plans/cmux-next/cloud-automation.md 27): `subscribe-activity`
 //! streams times and counts only, pushed on change, never polled.
 
+use cmux_tui_core::Actor;
 use cmux_tui_core::{Mux, SurfaceOptions, server};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -62,7 +63,8 @@ fn activity_until(watcher: &mut BufReader<UnixStream>, pred: impl Fn(&Value) -> 
 #[test]
 fn subscribe_activity_streams_input_agent_actions_and_people() {
     let mux = Mux::new("activity-integration", SurfaceOptions::default());
-    let surface = mux.new_workspace(Some("work".into()), Some((80, 24))).unwrap();
+    let surface =
+        mux.new_workspace_as(&Actor::Daemon, Some("work".into()), Some((80, 24))).unwrap();
     let socket =
         std::env::temp_dir().join(format!("cmux-activity-{}", std::process::id())).join("s.sock");
     server::serve(mux.clone(), Some(socket.clone())).unwrap();
@@ -155,7 +157,8 @@ fn v2(stream: &mut BufReader<UnixStream>, id: &str, operation: &str, params: Val
 #[test]
 fn v2_terminal_input_counts_only_from_a_persons_attached_client() {
     let mux = Mux::new("activity-v2-input", SurfaceOptions::default());
-    let surface = mux.new_workspace(Some("work".into()), Some((80, 24))).unwrap();
+    let surface =
+        mux.new_workspace_as(&Actor::Daemon, Some("work".into()), Some((80, 24))).unwrap();
     let terminal = surface.terminal_public_id().unwrap().to_string();
     let socket = std::env::temp_dir()
         .join(format!("cmux-activity-v2-{}", std::process::id()))

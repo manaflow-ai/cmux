@@ -40,8 +40,12 @@ final class CEFHostView: NSView {
         }
     }
 
-    isolated deinit {
-        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
+        }
     }
 
     /// Read by the fork (`-cmuxOcclusionRects`, NSArray of NSValue NSRect)
@@ -68,7 +72,18 @@ final class CEFHostView: NSView {
                 if !local.isNull, !local.isEmpty { rects.append(local) }
             }
         }
-        return rects
+        return Self.outermost(rects)
+    }
+
+    /// `rects` without those inside another (one of equal rects stays): a
+    /// hole inside a hole, such as the error page's in the New Tab page's,
+    /// would cancel it in an even-odd mask and show the page there again.
+    static func outermost(_ rects: [CGRect]) -> [CGRect] {
+        rects.enumerated().filter { index, rect in
+            !rects.enumerated().contains { other, outer in
+                other != index && outer.contains(rect) && (outer != rect || other < index)
+            }
+        }.map(\.element)
     }
 
     override func viewDidMoveToWindow() {
@@ -77,7 +92,7 @@ final class CEFHostView: NSView {
         windowObserver = nil
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.postGeometryChange() }
+            MainActor.assumeIsolated { self?.postGeometryChange() } // main-proof: observer on queue: .main
         }
     }
 
@@ -121,11 +136,28 @@ final class CEFTabContentView: NSView {
         super.viewDidMoveToWindow()
         guard let tab else { return }
         tab.pageThemeDidChange()
-        if window != nil {
+        // A tab parked hidden in its pane (PaneContentView+Parking) shows
+        // when it is unhidden, not when it enters the window.
+        if window != nil, !isHiddenOrHasHiddenAncestor {
             tab.contentDidAppear(in: self)
         } else {
             tab.contentDidDisappear()
         }
+    }
+
+    /// The pane parked this tab (another tab of the pane shows): it lets the
+    /// shared host view go, as when it leaves the window, at no window move.
+    override func viewDidHide() {
+        super.viewDidHide()
+        tab?.contentDidDisappear()
+    }
+
+    /// The pane shows this parked tab again: it takes the host view.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        guard let tab, window != nil else { return }
+        tab.pageThemeDidChange()
+        tab.contentDidAppear(in: self)
     }
 
     override func layout() {
@@ -158,19 +190,5 @@ final class CEFTabContentView: NSView {
             if subview.frame != frame { subview.frame = frame }
         }
         tab?.applyOcclusion()
-    }
-
-    /// Shows `image` over the page area (nil removes it).
-    func showSnapshot(_ image: CGImage?) {
-        if let image {
-            let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
-            snapshotView.image = NSImage(cgImage: image, size: page.size)
-            snapshotView.frame = page
-            if snapshotView.superview == nil { addSubview(snapshotView) }
-            snapshotView.isHidden = false
-        } else {
-            snapshotView.isHidden = true
-            snapshotView.image = nil
-        }
     }
 }

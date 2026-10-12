@@ -61,7 +61,13 @@ pub(super) fn new_screen(
     let frontend = frontend_shell(mux, client);
     let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend)?;
     let size = optional_surface_size(cols, rows);
-    let (surface, screen) = mux.new_screen_with_spec(workspace, spawn, size, spec)?;
+    let (surface, screen) = mux.new_screen_with_spec_as(
+        &origin_gate::connection_actor(mux, client),
+        workspace,
+        spawn,
+        size,
+        spec,
+    )?;
     let terminal_id = mux.resource_terminal_host_identity(&surface).map(|id| id.terminal_id);
     Ok(json!({ "surface": surface.id, "screen": screen, "terminal_id": terminal_id }))
 }

@@ -1,31 +1,39 @@
 // Runs a variant's play steps in the stage frame and measures each one (play.ts has the rules).
 import {
   describeTarget,
+  judgePopups,
   judgeStep,
   overall,
   rectDelta,
   resolveTarget,
   type Play,
+  type PlayAction,
   type PlayChecks,
   type PlayContext,
   type PlayReport,
   type PlayTarget,
+  type PopupMeasure,
   type Rect,
   type Shift,
   type StepReport,
 } from "../play";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
-type InputDriver = (action: {
-  kind: "click" | "hover" | "down" | "move" | "up" | "type" | "press";
+export type GalleryInputAction = {
+  kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
   x?: number;
   y?: number;
   text?: string;
-}) => Promise<void>;
+};
+type InputDriver = (action: GalleryInputAction) => Promise<void>;
+
+/** What the matrix runner installs to take one still per settled step (a filmstrip). */
+type StepStill = (step: { index: number; step: string }) => Promise<void>;
 
 declare global {
   interface Window {
     cmuxGalleryInput?: InputDriver;
+    cmuxGalleryStep?: StepStill;
     cmuxGalleryPlayReport?: PlayReport;
   }
 }
@@ -37,10 +45,9 @@ const rectOf = (element: Element | null): Rect | null => {
 };
 
 /** The element's center in the top page's coordinates (through same-origin parent frames). */
-function pageCenter(element: Element): { x: number; y: number } {
-  const rect = element.getBoundingClientRect();
-  let x = rect.x + rect.width / 2;
-  let y = rect.y + rect.height / 2;
+function pagePoint(point: { x: number; y: number }): { x: number; y: number } {
+  let x = point.x;
+  let y = point.y;
   for (let frame: Window = window; frame !== frame.parent && frame.frameElement; frame = frame.parent) {
     const offset = frame.frameElement.getBoundingClientRect();
     x += offset.x;
@@ -49,7 +56,51 @@ function pageCenter(element: Element): { x: number; y: number } {
   return { x, y };
 }
 
+function pageCenter(element: Element): { x: number; y: number } {
+  const rect = element.getBoundingClientRect();
+  return pagePoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+}
+
+type SelectionRect = Pick<DOMRect, "left" | "right" | "top" | "width" | "height">;
+type SelectionPoint = { x: number; y: number };
+
+/** The first and last line points a trusted mouse drag should cross for a text range. */
+export function selectionDragPoints(
+  rects: readonly SelectionRect[],
+): { start: SelectionPoint; end: SelectionPoint } | undefined {
+  const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  const first = visible[0];
+  const last = visible.at(-1);
+  if (!first || !last) return undefined;
+  const inset = (rect: SelectionRect) => Math.min(2, Math.max(0.5, rect.width / 2));
+  return {
+    start: { x: first.left + inset(first), y: first.top + first.height / 2 },
+    end: { x: last.right - inset(last), y: last.top + last.height / 2 },
+  };
+}
+
+/** Selects text with the matrix's trusted pointer driver, falling back to a DOM range in the shell. */
+export async function selectTextWithDriver(element: Element, driver?: InputDriver): Promise<void> {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const points = selectionDragPoints(Array.from(range.getClientRects()));
+  if (driver && points) {
+    const start = pagePoint(points.start);
+    const end = pagePoint(points.end);
+    await driver({ kind: "down", ...start });
+    await driver({ kind: "move", ...end });
+    await driver({ kind: "up", ...end });
+    return;
+  }
+  const selection = document.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+
+let actionSequence = 0;
 
 /** Two frames, then every running animation and transition finished: the step has settled. */
 async function settle(): Promise<void> {
@@ -74,8 +125,10 @@ function synthetic(element: Element, kind: string): void {
     composed: true,
     clientX: x,
     clientY: y,
-    button: 0,
+    button: kind === "contextmenu" ? 2 : 0,
+    buttons: kind === "contextmenu" ? 2 : 0,
     pointerId: 1,
+    pointerType: "mouse",
     isPrimary: true,
   };
   const fire = (type: string) =>
@@ -86,27 +139,202 @@ function synthetic(element: Element, kind: string): void {
   if (kind === "move") ["pointermove", "mousemove"].forEach(fire);
   if (kind === "up" || kind === "click") ["pointerup", "mouseup"].forEach(fire);
   if (kind === "click") fire("click");
+  if (kind === "contextmenu") fire("contextmenu");
 }
 
-function syntheticKey(key: string): void {
+const TABBABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "iframe",
+  "object",
+  "embed",
+  "audio[controls]",
+  "video[controls]",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function tabOrder(element: Element): number {
+  const value = element.getAttribute("tabindex");
+  if (value === null) return 0;
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) ? parsed : -1;
+}
+
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement;
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+function hiddenByAncestor(element: Element): boolean {
+  for (let ancestor: Element | null = element; ancestor; ancestor = composedParent(ancestor)) {
+    if (ancestor.hasAttribute("hidden") || ancestor.hasAttribute("inert")) return true;
+    const style = ancestor.ownerDocument.defaultView?.getComputedStyle(ancestor);
+    if (style?.display === "none" || style?.visibility === "hidden" || style?.visibility === "collapse") return true;
+    if (ancestor.tagName === "DETAILS" && !ancestor.hasAttribute("open")) {
+      const summary = Array.from(ancestor.children).find((child) => child.tagName === "SUMMARY");
+      if (!summary?.contains(element)) return true;
+    }
+  }
+  return false;
+}
+
+function isTabbable(element: Element): element is HTMLElement {
+  if (!(element instanceof HTMLElement) || !element.matches(TABBABLE_SELECTOR) || tabOrder(element) < 0) return false;
+  if (element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden") return false;
+  return !hiddenByAncestor(element);
+}
+
+function tabbableElements(): HTMLElement[] {
+  const elements: HTMLElement[] = [];
+  const visit = (root: Document | Element | ShadowRoot) => {
+    for (const child of Array.from(root.children)) {
+      if (isTabbable(child)) elements.push(child);
+      if (child.shadowRoot) visit(child.shadowRoot);
+      visit(child);
+    }
+  };
+  visit(document);
+  const normal = elements.filter((element) => tabOrder(element) === 0);
+  const positive = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element }) => tabOrder(element) > 0)
+    .sort((a, b) => tabOrder(a.element) - tabOrder(b.element) || a.index - b.index)
+    .map(({ element }) => element);
+  return [...positive, ...normal];
+}
+
+function deepestActiveElement(): Element {
+  let target: Element = document.activeElement ?? document.body;
+  while (target instanceof HTMLElement && target.shadowRoot?.activeElement) target = target.shadowRoot.activeElement;
+  return target;
+}
+
+function moveFocusForTab(backward: boolean): void {
+  const elements = tabbableElements();
+  if (!elements.length) return;
+  const current = deepestActiveElement();
+  const index = elements.indexOf(current as HTMLElement);
+  const next = index < 0 ? (backward ? elements.at(-1) : elements[0]) : elements[index + (backward ? -1 : 1)];
+  if (next && next !== current) next.focus({ preventScroll: true });
+}
+
+export function syntheticKey(key: string): void {
   const parts = key.split("+");
   const name = parts.pop()!;
+  // Playwright exposes the space key as " "; the gallery DSL spells it "Space".
+  const eventKey = name === "Space" ? " " : name;
   const modifiers = {
     metaKey: parts.includes("Meta"),
     ctrlKey: parts.includes("Control"),
     altKey: parts.includes("Alt"),
     shiftKey: parts.includes("Shift"),
   };
-  const target = document.activeElement ?? document.body;
-  for (const type of ["keydown", "keyup"])
-    target.dispatchEvent(
-      new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, composed: true, ...modifiers }),
-    );
+  // The focused element, inside open shadow roots too (a web component's focused row).
+  const target = deepestActiveElement();
+  const keydown = new KeyboardEvent("keydown", {
+    key: eventKey,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    ...modifiers,
+  });
+  target.dispatchEvent(keydown);
+  // KeyboardEvent dispatch does not run the browser's default focus traversal. Reproduce Tab for
+  // the gallery shell, which has no trusted-input driver. The hosted matrix runner uses Playwright
+  // instead, so its native traversal remains authoritative.
+  if (!keydown.defaultPrevented && eventKey === "Tab") moveFocusForTab(modifiers.shiftKey);
+  deepestActiveElement().dispatchEvent(
+    new KeyboardEvent("keyup", { key: eventKey, bubbles: true, cancelable: true, composed: true, ...modifiers }),
+  );
+  // KeyboardEvent dispatch does not run the browser's default button activation.
+  // Reproduce it for the shell runner so a native button behaves like the trusted
+  // Playwright path used by the matrix runner.
+  if (!keydown.defaultPrevented && (eventKey === "Enter" || eventKey === " ") && target instanceof HTMLElement) {
+    const role = target.getAttribute("role");
+    if (
+      target instanceof HTMLButtonElement ||
+      role === "button" ||
+      (eventKey === " " &&
+        target instanceof HTMLInputElement &&
+        (target.type === "checkbox" || target.type === "radio")) ||
+      (eventKey === " " && (role === "checkbox" || role === "radio" || role === "switch"))
+    )
+      target.click();
+  }
+}
+
+/** What counts as an open popup: the shared primitives' surfaces and ARIA popups. */
+const POPUP_SELECTOR =
+  '.ui-popup, [role="menu"], [role="listbox"], [role="dialog"], [role="tooltip"], .acpmux-menu, [data-agent-popup]';
+
+function describeElement(element: Element): string {
+  const name = element.getAttribute("aria-label");
+  const className = typeof element.className === "string" ? element.className.split(/\s+/)[0] : "";
+  return `${element.tagName.toLowerCase()}${className ? `.${className}` : ""}${name ? `[${name}]` : ""}`;
+}
+
+/**
+ * The open popups after a step, outermost only, each sampled at its corners (inset 3 px) and
+ * center with elementFromPoint, and checked against every ancestor that clips its overflow.
+ * Needs a real engine's layout (the shell and the matrix runner); jsdom has none.
+ */
+function measurePopups(): PopupMeasure[] {
+  const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
+  });
+  const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
+  return outermost.map((popup) => {
+    const rect = popup.getBoundingClientRect();
+    const inset = 3;
+    const points: [string, number, number][] = [
+      ["top-left", rect.left + inset, rect.top + inset],
+      ["top-right", rect.right - inset, rect.top + inset],
+      ["bottom-left", rect.left + inset, rect.bottom - inset],
+      ["bottom-right", rect.right - inset, rect.bottom - inset],
+      ["center", rect.left + rect.width / 2, rect.top + rect.height / 2],
+    ];
+    const hits = points
+      .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
+      .map(([point, x, y]) => {
+        const top = document.elementFromPoint(x, y);
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
+        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
+      });
+    const clippedBy: string[] = [];
+    for (let parent = popup.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+      const box = parent.getBoundingClientRect();
+      if (
+        rect.left < box.left - 1 ||
+        rect.top < box.top - 1 ||
+        rect.right > box.right + 1 ||
+        rect.bottom > box.bottom + 1
+      )
+        clippedBy.push(describeElement(parent));
+    }
+    return {
+      label: describeElement(popup),
+      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      hits,
+      clippedBy,
+    };
+  });
 }
 
 /** Measures one step: anchors before and after, layout shifts and frame times during it. */
 async function measured(
   step: string,
+  action: PlayAction,
   targeted: Element | null,
   anchors: { label: string; target: PlayTarget }[],
   checks: PlayChecks,
@@ -154,8 +382,18 @@ async function measured(
       }
     })();
   }
+  const mark = `cmux-gallery-action-${++actionSequence}`;
+  const startMark = `${mark}-start`;
+  const endMark = `${mark}-settled`;
+  performance.mark(startMark);
   await run();
   await settle();
+  performance.mark(endMark);
+  const timing = performance.measure(mark, startMark, endMark);
+  const settleMs = Math.round(timing.duration * 10) / 10;
+  performance.clearMarks(startMark);
+  performance.clearMarks(endMark);
+  performance.clearMeasures(mark);
   rafRunning = false;
   for (const observer of observers) {
     observer.takeRecords();
@@ -178,11 +416,14 @@ async function measured(
   const layoutShift = shifts.reduce((sum, shift) => sum + shift.value, 0);
   const result = {
     step,
+    action,
+    settleMs,
     anchorMoves,
     layoutShift,
     shifts,
     longFrames,
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
+    popupProblems: judgePopups(measurePopups(), { width: innerWidth, height: innerHeight }),
   };
   return { ...result, ...judgeStep(result, checks) };
 }
@@ -194,33 +435,74 @@ export async function runPlay(
   const anchors = (options.anchors ?? []).map((target) => ({ label: describeTarget(target), target }));
   const checks = options.checks ?? {};
   const steps: StepReport[] = [];
+  // Each step is recorded once it has settled; the matrix runner then takes that step's still.
+  const record = async (step: StepReport) => {
+    steps.push(step);
+    await window.top?.cmuxGalleryStep?.({ index: steps.length - 1, step: step.step });
+  };
   const find = (target: PlayTarget) => {
     const element = resolveTarget(document, target);
     if (!element) throw new Error(`play: no element for ${describeTarget(target)}`);
     return element;
   };
-  const input = async (kind: "click" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
+  const input = async (kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
-    await measured(`${kind} ${describeTarget(target)}`, element, anchors, checks, async () => {
+    const action: PlayAction =
+      kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
+    await measured(`${kind} ${describeTarget(target)}`, action, element, anchors, checks, async () => {
       if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind, ...pageCenter(element) });
       else synthetic(element, kind);
-    }).then((step) => steps.push(step));
+    }).then(record);
+  };
+  const gesture = async (
+    name: string,
+    action: PlayAction,
+    target: Element | null,
+    run: () => void | Promise<void>,
+  ): Promise<void> => {
+    steps.push(
+      await measured(name, action, target, anchors, checks, async () => {
+        await run();
+      }),
+    );
   };
   const ctx: PlayContext = {
     document,
     find,
     click: (target) => input("click", target),
+    contextMenu: (target) => input("contextmenu", target),
     hover: (target) => input("hover", target),
     focus: async (target) => {
       const element = find(target) as HTMLElement;
-      steps.push(
-        await measured(`focus ${describeTarget(target)}`, element, anchors, checks, async () => element.focus()),
+      await record(
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
+          element.focus(),
+        ),
+      );
+    },
+    scroll: async (target, position) => {
+      const element = find(target) as HTMLElement;
+      await gesture(`scroll ${describeTarget(target)} to ${String(position)}`, "scroll", element, () => {
+        const top =
+          typeof position === "number"
+            ? position
+            : position === "bottom"
+              ? Math.max(0, element.scrollHeight - element.clientHeight)
+              : 0;
+        element.scrollTop = top;
+        element.dispatchEvent(new Event("scroll", { bubbles: false }));
+      });
+    },
+    selectText: async (target) => {
+      const element = find(target);
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () =>
+        selectTextWithDriver(element, window.top?.cmuxGalleryInput),
       );
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);
-      steps.push(
-        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, element, anchors, checks, async () => {
+      await record(
+        await measured(`type ${JSON.stringify(text.slice(0, 20))}`, "type", element, anchors, checks, async () => {
           element?.focus();
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "type", text });
           // eslint-disable-next-line @typescript-eslint/no-deprecated -- insertText is the one DOM path that edits inputs, textareas and contenteditable as typing does.
@@ -229,8 +511,8 @@ export async function runPlay(
       );
     },
     press: async (key) => {
-      steps.push(
-        await measured(`press ${key}`, document.activeElement, anchors, checks, async () => {
+      await record(
+        await measured(`press ${key}`, "key", document.activeElement, anchors, checks, async () => {
           if (window.top?.cmuxGalleryInput) await window.top.cmuxGalleryInput({ kind: "press", text: key });
           else syntheticKey(key);
         }),

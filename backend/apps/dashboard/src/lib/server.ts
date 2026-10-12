@@ -1,5 +1,6 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
+import { teamHeaders } from "./team-scope"
 
 /**
  * Server functions. They call only the cmux API Worker and Stack Auth's client
@@ -34,12 +35,14 @@ export const apiUrl = createServerOnlyFn(() => {
 
 const stackHeaders = () => {
   const project = process.env.CMUX_STACK_PROJECT_ID
-  const key = process.env.CMUX_STACK_PUBLISHABLE_CLIENT_KEY
-  if (!project || !key) throw new Error("Stack project is not configured")
+  // The publishable key is optional: the production project requires none,
+  // and a revoked key is refused.
+  const key = process.env.CMUX_STACK_PUBLISHABLE_CLIENT_KEY?.trim()
+  if (!project) throw new Error("Stack project is not configured")
   return {
     "content-type": "application/json",
     "x-stack-project-id": project,
-    "x-stack-publishable-client-key": key,
+    ...(key ? { "x-stack-publishable-client-key": key } : {}),
     "x-stack-access-type": "client"
   }
 }
@@ -114,12 +117,15 @@ export interface OpResponse {
 
 export type ApiResult<T> = { readonly status: number; readonly body: T }
 
-/** POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401. */
-const postImpl = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> => {
+/**
+ * POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401.
+ * `team` (cx-5xew) names the team to act in (x-cmux-team); the API checks the membership.
+ */
+const postImpl = async <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...teamHeaders(team) },
       body: JSON.stringify(payload)
     })
     return { status: res.status, body: (await res.json().catch(() => ({}))) as T }
@@ -138,39 +144,46 @@ const postImpl = async <T,>(path: string, payload: unknown): Promise<ApiResult<T
 export const post = createServerOnlyFn(postImpl)
 
 export const mutate = createServerFn({ method: "POST" })
-  .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
+  .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string; team?: string }) => d)
   .handler(async ({ data }) => {
     requireSameOrigin()
-    return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" })
-  })
-
-export const read = createServerFn({ method: "POST" })
-  .validator((d: { op: string; params: Record<string, unknown> }) => d)
-  .handler(async ({ data }) => {
-    requireSameOrigin()
-    return post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params })
+    return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
   })
 
 /**
- * Token for the live WebSocket panel only. Browsers cannot attach cookies or
- * headers to a cross-origin WebSocket handshake, so the panel needs the access
- * token in the `bearer.<token>` subprotocol. Trade-off: this one response
- * exposes the short-lived (about 10 minute) access token to page script; the
- * refresh token never leaves the HttpOnly cookie. Replace with a
- * channel ticket minted by the API (spec sync-and-transport.md section 5) when
- * it exists.
+ * team_vm.retired.export (cx-lyvg): sends the op with the session, then answers the absolute
+ * download URL on the API origin (single use, 5 minutes) for the browser to open; null on failure.
  */
-export const wireToken = createServerFn({ method: "POST" }).handler(async (): Promise<{ token: string | null; apiUrl: string }> => {
+export const exportTeamFiles = createServerFn({ method: "POST" })
+  .validator((d: { vm: string; idempotency_key: string; team?: string }) => d)
+  .handler(async ({ data }) => {
     requireSameOrigin()
-  let at = getCookie(ACCESS)
-  if (at) {
-    // Make sure it is still valid for the API before handing it to the socket.
-    const probe = await fetch(`${apiUrl()}/v1/read`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${at}` },
-      body: JSON.stringify({ op: "install.list", params: {} })
-    })
-    if (probe.status === 401) at = undefined
-  }
-  return { token: at ?? (await refreshAccess()) ?? null, apiUrl: apiUrl() }
+    const r = await post<OpResponse>("/v1/ops", { op: "team_vm.retired.export", params: { vm: data.vm }, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
+    const value = r.body.ok && r.body.value && typeof r.body.value === "object" && !Array.isArray(r.body.value) ? r.body.value : null
+    const path = value && typeof value.path === "string" && value.path.startsWith("/v1/team-vm/export/") ? value.path : null
+    return { ...r, url: path ? `${apiUrl()}${path}` : null }
+  })
+
+export const read = createServerFn({ method: "POST" })
+  .validator((d: { op: string; params: Record<string, unknown>; team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params }, data.team)
+  })
+
+/**
+ * The credential subprotocol for the live WebSocket panel. Browsers cannot attach cookies or
+ * headers to a cross-origin WebSocket handshake, and Workers invocation logs record every
+ * header but Authorization (cx-dgsp). So this server function mints a single-use ticket
+ * (POST /v1/wire/ticket, 30 s) with the cookie's access token, and page script sees only the
+ * ticket, never the token. A Worker from before cx-dgsp answers 404: then, and only then, the
+ * panel gets the legacy `bearer.<access token>` subprotocol, as before.
+ */
+export const wireCredential = createServerFn({ method: "POST" }).handler(async (): Promise<{ protocol: string | null; apiUrl: string }> => {
+  requireSameOrigin()
+  const minted = await postImpl<{ ticket?: string }>("/v1/wire/ticket", {})
+  if (minted.status === 200 && typeof minted.body.ticket === "string") return { protocol: `ticket.${minted.body.ticket}`, apiUrl: apiUrl() }
+  if (minted.status !== 404) return { protocol: null, apiUrl: apiUrl() }
+  const legacy = getCookie(ACCESS) ?? (await refreshAccess())
+  return { protocol: legacy ? `bearer.${legacy}` : null, apiUrl: apiUrl() }
 })

@@ -33,6 +33,14 @@ enum SidebarStyle {
     static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
     static var badgeHeight: CGFloat { Metrics.iconSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
+    /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
+    /// 16 pt avatar circle at the compact density (the icon box), a small
+    /// chevron after it, and the control as wide as a row-height square
+    /// plus the chevron, so the circle keeps a square item's center.
+    static var avatarDiameter: CGFloat { iconBox }
+    static var avatarChevronSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
+    static var avatarChevronGap: CGFloat { Metrics.space1 }
+    static var avatarControlWidth: CGFloat { Metrics.sidebarRowHeight + avatarChevronGap + avatarChevronSize }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
@@ -47,6 +55,25 @@ enum SidebarStyle {
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
     static var titleLeading: CGFloat { horizontalInset }
+    /// How far a group member's content moves in past the row's own
+    /// leading edge, which already starts right of the line (`groupGutter`).
+    static var groupMemberIndent: CGFloat { Metrics.space1 }
+    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
+    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The header's name: medium weight (cx-qno.17: more contrast on the
+    /// pastel bar), 14 pt on a 26 pt bar, scaled.
+    static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
+        NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
+    }
+    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
+    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
+    /// A member row starts right of its group's line (cx-q5jw, the Edge
+    /// group line): its hover and selection fills never cover the line, so
+    /// the line runs unbroken from the header to the last member.
+    static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    /// The group header's color dot, on the line's x (cx-25az).
+    static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
@@ -56,9 +83,9 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// Muted tint for a user color, shared with tab groups (`GroupColor`).
+    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
-        color.swatch
+        color.markColor
     }
 
 }

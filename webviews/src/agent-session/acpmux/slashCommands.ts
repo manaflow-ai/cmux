@@ -3,7 +3,13 @@
 /// `/word` at its start, filters by that word, and picking a command writes
 /// `/name ` back so its arguments can follow.
 
-export type SlashCommand = { name: string; description: string; hint?: string };
+export type SlashCommand = {
+  name: string;
+  description: string;
+  hint?: string;
+  /** Where the command came from. Harness commands are the default for old snapshots. */
+  source?: "agent" | "cmux";
+};
 
 /// One menu row: the command and the ranges of its name the query matched.
 export type SlashMatch = { command: SlashCommand; ranges: [number, number][] };
@@ -18,7 +24,12 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
     const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
-    commands.push({ name, description: typeof entry.description === "string" ? entry.description : "", hint });
+    commands.push({
+      name,
+      description: typeof entry.description === "string" ? entry.description : "",
+      hint,
+      source: "agent",
+    });
   }
   return commands;
 }

@@ -92,7 +92,7 @@ extension TranscriptWindow {
         }
         let committedKeys = Set(items.map(\.key))
         for entry in pending where !committedKeys.contains(entry.intent.key) {
-            guard case .sendMessage(_, let parts) = entry.intent.op else { continue }
+            guard case .sendMessage(_, let parts, let threadRoot) = entry.intent.op else { continue }
             let delivery: TranscriptItem.Delivery = if case .failed(let rejection) = entry.state {
                 .notDelivered(rejection)
             } else {
@@ -106,7 +106,8 @@ extension TranscriptWindow {
                 createdAt: entry.intent.issuedAt,
                 delivery: delivery,
                 reactions: [],
-                isRetracted: false
+                isRetracted: false,
+                threadRoot: threadRoot
             )
             item.mayHaveBeenDelivered = delivery != .sending && entry.mayHaveBeenDelivered
             items.append(item)

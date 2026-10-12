@@ -51,18 +51,37 @@ export interface ToolbarButtonProps {
   disabled?: boolean;
   /** Show the tooltip (default when the button has only an icon or a glyph). */
   tooltip?: boolean;
+  /** The button marks the current item of a set (`aria-current`), e.g. the visible section. */
+  current?: boolean;
+  /** A toggle's state (`aria-pressed`), e.g. a format that is on at the selection. */
+  pressed?: boolean;
+  /** A pointer press leaves focus where it was (the button acts on another view). */
+  keepsFocus?: boolean;
   onPress?(): void;
   children: ReactNode;
 }
 
-export function ToolbarButton({ label, className, disabled, tooltip = true, onPress, children }: ToolbarButtonProps) {
+export function ToolbarButton({
+  label,
+  className,
+  disabled,
+  tooltip = true,
+  current,
+  pressed,
+  keepsFocus,
+  onPress,
+  children,
+}: ToolbarButtonProps) {
   const hint = useHint();
   return (
     <>
       <BaseToolbar.Button
         className={cx("ui-button ui-toolbar-button", className)}
         aria-label={label}
+        aria-current={current || undefined}
+        aria-pressed={pressed}
         disabled={disabled}
+        onMouseDown={keepsFocus ? (event) => event.preventDefault() : undefined}
         // A disabled toolbar button stays focusable so arrows do not skip over it silently.
         focusableWhenDisabled
         onClick={() => onPress?.()}

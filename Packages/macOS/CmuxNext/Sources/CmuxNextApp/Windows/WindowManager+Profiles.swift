@@ -1,5 +1,7 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
+import Observation
 
 // Which profile each window shows (plans/cmux-next/data-model.md 4). The
 // profile is the window's own state (`WindowState.profileID`, persisted in
@@ -31,7 +33,7 @@ extension WindowManager {
             // soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            Task { await createWorkspace(into: state.id) }
+            Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
@@ -64,16 +66,23 @@ extension WindowManager {
             .map(\.id).filter { !shownElsewhere.contains($0) }
     }
 
-    /// The profile a workspace created for `windowID` is born in: that
-    /// window's, else the active window's, else `default`.
-    func profileForNewWorkspace(window windowID: String?) -> ProfileID {
-        windowID.flatMap { states[$0]?.profileID } ?? active?.state.profileID ?? .defaultProfile
-    }
-
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
     func enterProfile(of workspaceID: String, in state: WindowState) {
         guard let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) else { return }
         state.enterProfile(room)
+    }
+}
+
+extension DaemonStore {
+    /// Returns once this store holds room `id`, or the connection changed.
+    /// A command's reply comes before the mirror: rooms arrive through
+    /// `personal-changed` and a resync. Event-driven: it observes the store.
+    func mirrored(profile id: ProfileID) async {
+        guard profile(id) == nil else { return }
+        let state = connectionState
+        for await done in ObservationStream({ self.profile(id) != nil || self.connectionState != state }) where done {
+            return
+        }
     }
 }

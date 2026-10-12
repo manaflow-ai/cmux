@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
+import { updatable } from "./harnesses";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -15,19 +16,29 @@ import {
   type HostLists,
   type AccountsRow,
   type AccountsRun,
+  type AgentsRun,
+  type AgentsState,
   type AccountsState,
+  type HarnessesRun,
+  type HarnessesState,
   type Diagnostic,
   type Domains,
   type ListRow,
   type ManagedInfo,
+  type MuseumArtResult,
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
+import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
+import { MockAgents } from "./mockAgents";
+import { mockThemeColors } from "./mockThemes";
+import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
 export type MockOptions = {
+  chatFolders?: ListRow["folders"];
   managed?: Record<string, { value: unknown } & ManagedInfo>;
   values?: Record<string, unknown>;
   diagnostics?: Diagnostic[];
@@ -38,10 +49,23 @@ export type MockOptions = {
   failing?: Partial<Record<string, string>>;
   /** The loaded settings file's path (the host lists' `settings_file`). */
   settingsFile?: string;
+  /** The theme file the mock picker returns for `cmux.settings.theme.import`. */
+  importable?: GhosttyTheme;
+  /** What `cmux.settings.art.search` finds (Browse More Art). */
+  museumArt?: MuseumArtResult[];
 };
 
 export const mockDomains: Domains = {
-  themes: ["Catppuccin Mocha", "Dracula", "GitHub Light", "Gruvbox Dark", "Solarized Light", "Tokyo Night"],
+  themes: [
+    "Apple System Colors",
+    "Apple System Colors Light",
+    "Catppuccin Mocha",
+    "Dracula",
+    "GitHub Light",
+    "Gruvbox Dark",
+    "Solarized Light",
+    "Tokyo Night",
+  ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
 };
@@ -53,9 +77,17 @@ type Params = Record<string, unknown>;
 
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
+  /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
+  themeColors: GhosttyTheme[] = mockThemeColors;
   revision = 1;
+  /** What `cmux.app.clipboard.write` last wrote. */
+  clipboard: string | null = null;
   diagnostics: Diagnostic[];
-  readonly domains: Domains | null;
+  domains: Domains | null;
+  /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
+  importable: GhosttyTheme | null = null;
+  private readonly importTokens = new Map<string, GhosttyTheme>();
+  private readonly chatFolders: ListRow["folders"];
   private readonly failing: Partial<Record<string, string>>;
   private readonly values = new Map<string, unknown>();
   private readonly managed: Map<string, { value: unknown } & ManagedInfo>;
@@ -64,8 +96,10 @@ export class MockSettingsProvider {
   private readonly commands = new Set<EventSourceContext>();
   private readonly usedKeys = new Map<string, string>();
   private connected: boolean;
+  private museumArt: MuseumArtResult[];
 
   constructor(options: MockOptions = {}) {
+    this.chatFolders = options.chatFolders;
     this.managed = new Map(
       Object.entries(
         options.managed ?? {
@@ -79,6 +113,8 @@ export class MockSettingsProvider {
     this.failing = options.failing ?? {};
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
+    this.importable = options.importable ?? null;
+    this.museumArt = options.museumArt ?? [];
   }
 
   /** Registers every op and stream on `session` (the provider side). */
@@ -94,20 +130,48 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.agents.state": () => this.agents.state,
+      "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
         this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
         return {};
       },
+      "cmux.settings.theme.colors": () => ({ themes: this.themeColors }),
+      "cmux.settings.theme.save": (params) => {
+        const { name, base, replace } = params as { name: string; base: string; replace: boolean };
+        const colors = this.themeColors.find((theme) => theme.name === base);
+        if (!colors) throw new ProtocolError("cmux.settings.theme.unknown_base", "the theme has no file");
+        return this.addTheme(
+          { ...withEdits(colors, this.values.get("appearance.themeEdits") as ThemeEditMap), name },
+          replace,
+        );
+      },
+      "cmux.settings.theme.import": (params) => {
+        const { token, replace } = params as { token?: string; replace?: boolean };
+        const file = token === undefined ? this.importable : this.importTokens.get(token);
+        if (!file) return {};
+        try {
+          return this.addTheme(file, replace ?? false);
+        } catch (error) {
+          if (!(error instanceof ProtocolError) || error.code !== "cmux.settings.theme.exists") throw error;
+          const retry = `token-${this.importTokens.size + 1}`;
+          this.importTokens.set(retry, file);
+          throw new ProtocolError(error.code, error.message, { details: { token: retry, name: file.name } });
+        }
+      },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
       // The registry buttons SettingsSchema.actions(in:) lists for these sections.
       "cmux.settings.section.actions": (params) =>
         ({
-          general: [{ id: "palette.welcomeChecklist", title: "Welcome Checklist", enabled: true }],
+          general: [{ id: "palette.makeDefaultTerminal", title: "Make cmux the Default Terminal", enabled: true }],
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
+      "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.art.search": () => ({ results: this.museumArt }),
+      "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -119,11 +183,35 @@ export class MockSettingsProvider {
         return { added };
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
+      "cmux.settings.harnesses.state": () => this.harnesses,
+      "cmux.settings.harnesses.run": (params) => {
+        const run = params as HarnessesRun;
+        if (
+          (run.action === "signIn" || run.action === "check" || run.action === "autoUpdate") &&
+          !this.harnesses.harnesses.some((h) => h.id === run.id)
+        ) {
+          throw new ProtocolError("cmux.settings.invalid", "id must be a listed harness");
+        }
+        // Like the host: only an outdated harness that needs no sudo updates.
+        const canUpdate = updatable(this.harnesses);
+        if (
+          (run.action === "update" && !canUpdate.some((h) => h.id === run.id)) ||
+          (run.action === "updateAll" && canUpdate.length === 0)
+        ) {
+          throw new ProtocolError("cmux.settings.invalid", "no harness can be updated here");
+        }
+        this.harnessRuns.push(run);
+        return {};
+      },
+      "cmux.app.clipboard.write": (params) => {
+        this.clipboard = String(params.text);
+        return {};
+      },
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
         if (
           !(settingsPageActions as readonly string[]).includes(params.action as string) &&
-          params.action !== "palette.welcomeChecklist"
+          params.action !== "palette.makeDefaultTerminal"
         ) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
@@ -142,12 +230,21 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.agents.state",
+      "cmux.settings.agents.run",
+      "cmux.settings.harnesses.state",
+      "cmux.settings.harnesses.run",
       "cmux.settings.theme.set",
+      "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
+      "cmux.settings.backdrop.choose_image",
+      "cmux.settings.art.search",
+      "cmux.settings.art.use",
       "cmux.settings.section.actions",
       "cmux.app.action.run",
+      "cmux.app.clipboard.write",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
       session.register(op, (params) => {
@@ -165,6 +262,55 @@ export class MockSettingsProvider {
     session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
     session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
     session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
+    session.provide("cmux.settings.agents.changed", (ctx) => {
+      const listener = (state: AgentsState) => ctx.emit(state);
+      this.agents.listeners.add(listener);
+      ctx.signal.addEventListener("abort", () => this.agents.listeners.delete(listener));
+    });
+    session.provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
+  }
+
+  /** acpmux's harnesses as the app serves them (`SettingsHarnesses.state`). */
+  harnesses: HarnessesState = {
+    loading: false,
+    problem: null,
+    harnesses: [
+      {
+        id: "claude",
+        name: null,
+        kind: "claude-stdio",
+        source: "path",
+        problem: null,
+        version: "2.0.5",
+        latest: "2.0.9",
+        outdated: true,
+        auth: "signedIn",
+        update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+      },
+      {
+        id: "codex",
+        name: null,
+        kind: "acp",
+        source: "path",
+        problem: null,
+        version: "0.3.1",
+        latest: "0.4.0",
+        outdated: true,
+        auth: "signedOut",
+        update: { command: "npm install -g @openai/codex@latest", elevated: false },
+      },
+      { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
+      { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
+    ],
+  };
+  /** Harnesses gestures the page sent. */
+  readonly harnessRuns: HarnessesRun[] = [];
+  private readonly harnessesChanged = new Set<EventSourceContext>();
+
+  /** Replaces the Harnesses part and tells the page, like the app's observation push. */
+  setHarnesses(harnesses: HarnessesState): void {
+    this.harnesses = harnesses;
+    for (const ctx of this.harnessesChanged) ctx.emit(harnesses);
   }
 
   /** What the cmux picker returns for Add Folder… (tests set it). */
@@ -186,14 +332,21 @@ export class MockSettingsProvider {
       { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
       { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
     ],
-    theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
+    theme: {
+      levels: ["room", "workspace", "terminal"],
+      current: { room: null, workspace: "Dracula", terminal: null },
+      config: { ...mockThemeColors.find((theme) => theme.name === "Apple System Colors")!, name: "" },
+    },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
+    computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
+  /** Settings > Agents (cmux.settings.agents.*); tests set `agents.state.manages` and rows. */
+  readonly agents = new MockAgents();
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {
@@ -285,6 +438,26 @@ export class MockSettingsProvider {
   }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */
+  /** A theme file landing in the user's themes: listed and colored, like the catalog's reload. */
+  private addTheme(theme: GhosttyTheme, replace: boolean): { name: string } {
+    if (!theme.name || /[/=#"]/.test(theme.name) || theme.name.startsWith(".")) {
+      throw new ProtocolError("cmux.settings.theme.invalid_name", "not a theme name");
+    }
+    if (mockThemeColors.some((shipped) => shipped.name === theme.name)) {
+      throw new ProtocolError("cmux.settings.theme.shipped_name", "a theme that ships with cmux has this name");
+    }
+    if (!replace && this.themeColors.some((known) => known.name === theme.name)) {
+      throw new ProtocolError("cmux.settings.theme.exists", "a theme with this name exists", {
+        details: { name: theme.name },
+      });
+    }
+    this.themeColors = [...this.themeColors.filter((known) => known.name !== theme.name), theme];
+    if (this.domains && !this.domains.themes.includes(theme.name)) {
+      this.domains = { ...this.domains, themes: [...this.domains.themes, theme.name].sort() };
+    }
+    return { name: theme.name };
+  }
+
   setHost(host: HostLists): void {
     this.host = host;
     for (const ctx of this.hostChanged) ctx.emit(host);
@@ -363,6 +536,9 @@ export class MockSettingsProvider {
     const managed = this.managed.get(key);
     return {
       key,
+      ...(key === "agents.chats.roots"
+        ? { folders: this.chatFolders, user_roots: this.values.get(key) as string[] | undefined }
+        : {}),
       value: managed ? managed.value : this.values.has(key) ? this.values.get(key) : row.default,
       default: row.default,
       customized: this.values.has(key),

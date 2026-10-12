@@ -20,36 +20,57 @@ export function linkPath(href: string): string | undefined {
   return path || undefined;
 }
 
-/// An inline code span that is a path: absolute or from home, with a folder in it, and either a
-/// file name with an extension or a trailing slash (`/tmp/app.log`, `~/repo/src/`, also with a
-/// space as in `Application Support`), optionally with a `:line[:col]` suffix. Shell commands,
-/// globs and flags stay code.
+/// An inline code span that is a path: absolute, from home, `./` or `../` relative, or a
+/// `file://` URL, with either a file name with an extension or a trailing slash (`/tmp/app.log`,
+/// `~/repo/src/`, also with a space as in `Application Support`), optionally with a
+/// `:line[:col]` suffix. Shell commands, globs and flags stay code.
 export function codePath(text: string): string | undefined {
   const value = text.trim();
-  if (!/^~?\/[^\t\n`'"<>|*?$;&(){}[\]]+$/.test(value) || / -/.test(value)) return undefined;
+  if (/^file:\/\//i.test(value)) {
+    const path = linkPath(value);
+    return path && isPathShape(path) ? path : undefined;
+  }
+  if (!/^(?:~|\.{1,2})?\/[^\t\n`'"<>|*?$;&(){}[\]]+$/.test(value) || / -/.test(value)) return undefined;
   const path = stripLine(value);
-  const parts = path.split("/").filter((part) => part && part !== "~");
-  if (parts.length < 2) return undefined;
-  if (!path.endsWith("/") && !/\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!)) return undefined;
-  return path;
+  return isPathShape(path) ? path : undefined;
 }
 
-/// A path or URL in plain reply text: `kind` and where it is. A path is absolute or from home,
-/// with a folder and a file extension (`/Users/me/repo/demo.ts`, `~/notes/todo.md`); a URL is
-/// http or https with a host. Trailing sentence punctuation stays text.
-export type TextLink = { kind: "path" | "url"; start: number; end: number; value: string };
+/// The one shape every written path has, in prose, code and links alike (D4): `/`, `~/`, `./` or
+/// `../` first; a folder and a name (one name after `./`); and a file extension or a trailing
+/// slash (a folder). `/usr`, `and/or` and `~/notes` stay text.
+export function isPathShape(path: string): boolean {
+  if (!/^(?:~|\.{1,2})?\//.test(path)) return false;
+  const relative = /^\.{1,2}\//.test(path);
+  const parts = path.split("/").filter((part) => part && part !== "~" && part !== "." && part !== "..");
+  if (parts.length < (relative ? 1 : 2)) return false;
+  return path.endsWith("/") || /\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!);
+}
 
+/// A path or URL in plain reply text: `kind`, where it is and, for a path, the path to open (a
+/// `file://` URL decoded, a line suffix dropped). Paths have the shape of `isPathShape` and no
+/// spaces (prose has no quotes to bound one); a URL is http or https with a host. Trailing
+/// sentence punctuation stays text.
+export type TextLink = { kind: "path" | "url"; start: number; end: number; value: string; path?: string };
+
+// Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
+// with its trailing slash that is not followed by more of a name); a web URL.
 const TEXT_LINK =
-  /(?<![\w/.:~@-])(?:(~?\/(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?)(?![\w/])|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*))/g;
+  /(?<![\w/.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|((?:~|\.{1,2})?\/(?:[\w.@+-]+\/)+(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?(?![\w/])|(?![\w@+-]|\.\w)))|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!text.includes("/")) return [];
   const out: TextLink[] = [];
   for (const match of text.matchAll(TEXT_LINK)) {
     let value = match[0];
-    if (match[2]) value = value.replace(/[.,;:!?*_]+$/, "");
-    if (match[2] && !/^https?:\/\/[^/?#]*[A-Za-z0-9]/.test(value)) continue;
-    out.push({ kind: match[1] ? "path" : "url", start: match.index!, end: match.index! + value.length, value });
+    if (match[1] || match[3]) value = value.replace(/[.,;:!?*_]+$/, "");
+    const start = match.index!;
+    const end = start + value.length;
+    if (match[3]) {
+      if (/^https?:\/\/[^/?#]*[A-Za-z0-9]/.test(value)) out.push({ kind: "url", start, end, value });
+      continue;
+    }
+    const path = match[1] ? linkPath(value) : stripLine(value);
+    if (path && isPathShape(path)) out.push({ kind: "path", start, end, value, path });
   }
   return out;
 }

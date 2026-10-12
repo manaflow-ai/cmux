@@ -202,6 +202,7 @@ fn check_in_use_ids(state: &LayoutState, next: u64) {
 fn check_runtime_exit(state: &LayoutState) {
     let runtime = kani::any_where(|value: &u64| *value <= 2);
     let (after, _) = apply(state, &keyed(LayoutOpKind::RuntimeExited { runtime }))
+        // crash-allow: Kani harness (cfg(kani), never in a build); a panic is the proof failure
         .expect("a runtime exit is never rejected");
     assert_eq!(after.workspaces, state.workspaces);
     assert_eq!(after.panes, state.panes);
@@ -219,10 +220,13 @@ fn check_runtime_exit(state: &LayoutState) {
 fn check_own_position(state: &LayoutState, next: u64) {
     let tab = any_known(next);
     kani::assume(state.tabs.contains_key(&tab));
+    // crash-allow: Kani harness (cfg(kani), never in a build); a panic is the proof failure
     let pane = state.pane_of(tab).expect("valid state places every tab");
+    // crash-allow: Kani harness (cfg(kani), never in a build); a panic is the proof failure
     let old = state.panes[&pane].iter().position(|t| *t == tab).expect("tab in its pane");
     let index = old + any_below(2);
     let (after, events) =
+        // crash-allow: Kani harness (cfg(kani), never in a build); a panic is the proof failure
         apply(state, &keyed(LayoutOpKind::MoveTab { tab, pane, index })).expect("own move");
     assert!(events.is_empty());
     assert_eq!(&after, state);

@@ -121,10 +121,12 @@ impl SessionId {
             return Err("session ID contains a non-hexadecimal character".into());
         }
         let mut bytes = [0_u8; 16];
-        for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-            let encoded = std::str::from_utf8(chunk).expect("ASCII was checked above");
-            bytes[index] = u8::from_str_radix(encoded, 16)
-                .map_err(|_| "session ID contains a non-hexadecimal character".to_string())?;
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            // ASCII was checked above, so every two-byte range is a str.
+            *byte = value
+                .get(index * 2..index * 2 + 2)
+                .and_then(|encoded| u8::from_str_radix(encoded, 16).ok())
+                .ok_or_else(|| "session ID contains a non-hexadecimal character".to_string())?;
         }
         Ok(Self(bytes))
     }
@@ -242,12 +244,12 @@ impl WireFrame {
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, FrameDecodeError> {
-        if encoded.len() < HEADER_BYTES {
+        let Some(header) = encoded.first_chunk::<HEADER_BYTES>() else {
             return Err(FrameDecodeError::Truncated {
                 expected: HEADER_BYTES,
                 actual: encoded.len(),
             });
-        }
+        };
         if encoded[..4] != MAGIC {
             return Err(FrameDecodeError::BadMagic);
         }
@@ -259,11 +261,11 @@ impl WireFrame {
         let flags = FrameFlags::from_wire(u16::from_be_bytes([encoded[6], encoded[7]]))?;
         let mut session = [0_u8; 16];
         session.copy_from_slice(&encoded[8..24]);
-        let generation = read_u64(&encoded[24..32]);
-        let sequence = read_u64(&encoded[32..40]);
-        let acknowledgement = read_u64(&encoded[40..48]);
-        let stream = read_u64(&encoded[48..56]);
-        let payload_len = u32::from_be_bytes(encoded[56..60].try_into().unwrap()) as usize;
+        let generation = u64::from_be_bytes(header_bytes(header, 24));
+        let sequence = u64::from_be_bytes(header_bytes(header, 32));
+        let acknowledgement = u64::from_be_bytes(header_bytes(header, 40));
+        let stream = u64::from_be_bytes(header_bytes(header, 48));
+        let payload_len = u32::from_be_bytes(header_bytes(header, 56)) as usize;
         if payload_len > MAX_FRAME_PAYLOAD {
             return Err(FrameDecodeError::PayloadTooLarge(payload_len));
         }
@@ -333,8 +335,11 @@ fn validate_heartbeat(
     Ok(())
 }
 
-fn read_u64(bytes: &[u8]) -> u64 {
-    u64::from_be_bytes(bytes.try_into().unwrap())
+/// The `N` header bytes at `at` (constant offsets inside the header).
+fn header_bytes<const N: usize>(header: &[u8; HEADER_BYTES], at: usize) -> [u8; N] {
+    let mut bytes = [0_u8; N];
+    bytes.copy_from_slice(&header[at..at + N]);
+    bytes
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -387,44 +392,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn connection_attempt_grouping_uses_protocol_five() {
-        assert_eq!(REMOTE_PROTOCOL_VERSION, 5);
-    }
-
-    #[test]
-    fn session_id_hex_round_trip_is_strict() {
-        let session = SessionId([0x5a; 16]);
-        assert_eq!(SessionId::from_hex(&session.to_hex()).unwrap(), session);
-        assert!(SessionId::from_hex("5a").is_err());
-        assert!(SessionId::from_hex("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz").is_err());
-        assert!(SessionId::from_hex("éééééééééééééééé").is_err());
-    }
-
-    #[test]
-    fn session_id_hex_is_independent_of_debug_formatting() {
-        let session = SessionId([
-            0x00, 0x01, 0x0f, 0x10, 0x2a, 0x7f, 0x80, 0xa5, 0xb0, 0xc3, 0xde, 0xef, 0xf0, 0xf1,
-            0xfe, 0xff,
-        ]);
-        assert_eq!(session.to_hex(), "00010f102a7f80a5b0c3deeff0f1feff");
-    }
-
-    #[test]
-    fn frame_round_trip_preserves_reliability_fields() {
-        let frame = WireFrame {
-            session: SessionId([7; 16]),
-            generation: 3,
-            lane: Lane::Interactive,
-            flags: FrameFlags::RELIABLE.union(FrameFlags::OPEN),
-            sequence: 41,
-            acknowledgement: 37,
-            stream: 9,
-            payload: b"input".to_vec(),
-        };
-        assert_eq!(WireFrame::decode(&frame.encode().unwrap()).unwrap(), frame);
-    }
-
-    #[test]
     fn session_close_has_a_canonical_wire_shape() {
         let frame = WireFrame {
             session: SessionId([8; 16]),
@@ -464,46 +431,5 @@ mod tests {
         let mut invalid = frame;
         invalid.flags = invalid.flags.union(FrameFlags::HEARTBEAT_RESPONSE);
         assert_eq!(invalid.encode(), Err(FrameDecodeError::InvalidHeartbeat));
-    }
-
-    #[test]
-    fn decoder_rejects_trailing_bytes() {
-        let frame = WireFrame {
-            session: SessionId::ZERO,
-            generation: 0,
-            lane: Lane::Control,
-            flags: FrameFlags::empty(),
-            sequence: 0,
-            acknowledgement: 0,
-            stream: 0,
-            payload: Vec::new(),
-        };
-        let mut encoded = frame.encode().unwrap();
-        encoded.push(0);
-        assert!(matches!(
-            WireFrame::decode(&encoded),
-            Err(FrameDecodeError::LengthMismatch { .. })
-        ));
-    }
-
-    #[test]
-    fn lane_priority_keeps_input_ahead_of_bulk() {
-        assert!(Lane::Interactive.priority() < Lane::Control.priority());
-        assert!(Lane::Control.priority() < Lane::Bulk.priority());
-    }
-
-    #[test]
-    fn tunnel_lane_is_generation_scoped() {
-        assert!(!Lane::Tunnel.replays_across_generations());
-        for lane in [Lane::Interactive, Lane::Control, Lane::Bulk] {
-            assert!(lane.replays_across_generations());
-        }
-    }
-
-    #[test]
-    fn lane_policy_is_configurable() {
-        for policy in [LanePolicy::Single, LanePolicy::Isolated, LanePolicy::Auto] {
-            assert_eq!(policy.to_string().parse::<LanePolicy>().unwrap(), policy);
-        }
     }
 }

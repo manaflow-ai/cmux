@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
@@ -13,11 +14,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// The machine daemon that owns `workspace`; every command goes there.
     let daemon: DaemonService
     let layoutModel = LayoutModel()
-    private(set) var layoutView: LayoutRootView!
+    // Built in init in this order (lazy because they hold self; no IUOs).
+    private(set) lazy var layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
     /// Layout plus the bottom screen bar; what the window shows.
-    private(set) var contentView: WorkspaceContentView!
+    private(set) lazy var contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
     private(set) var emptyView: EmptyWorkspaceView?
-    private(set) var screenBar: ScreenBarController!
+    private(set) lazy var screenBar = ScreenBarController(content: self)
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
@@ -29,6 +31,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// True while `apply` mounts panes: it sends the topology once at its end,
+    /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
+    private var isApplying = false
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -61,20 +66,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
-        layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        screenBar = ScreenBarController(content: self)
-        contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        _ = layoutView  // built here, then the bar and the content view, as before
+        _ = screenBar
+        _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
-            if services.agentTabs.canHost(on: daemon) {
+            // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)
         }
         emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() },
-            onImportAndSync: { [weak services] in services?.onboarding.show(step: .projects) }
+            onNew: { [weak self] in self?.newFromEmptyState() }
         )
         themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
@@ -98,7 +103,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let workspace = workspace
         apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in Observations({ LayoutMapping.shared.map(workspace) }) {
+            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
                 self?.apply(result)
             }
         }
@@ -107,22 +112,22 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // is live, even if the tree itself does not change.
         let store = daemon.store
         connectionObservation = Task { [weak self] in
-            for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
+            for await _ in ObservationStream({ (String(describing: store.connectionState), store.isLoaded) }) {
                 self?.repairIfEmpty()
             }
         }
         // A first terminal or a close that starts or ends while the
-        // workspace is empty decides whether it offers its actions.
+        // workspace is empty decides whether it shows its title.
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+            for await _ in ObservationStream({ workspace.key.map { repair.isSettling($0) } ?? false }) {
                 self?.updateEmptyState()
             }
         }
         // Panes with an unread notification draw the attention ring.
         let notifications = services.notifications
         attentionObservation = Task { [weak self] in
-            for await marks in Observations({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
                 if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
             }
@@ -136,12 +141,25 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func apply(_ result: LayoutMapping.Result) {
+        #if DEBUG
+        DebugLayoutCounters.workspaceApplies &+= 1
+        #endif
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
         handles = result.handles
+        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
+        for (id, controller) in panes {
+            if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
+        }
         layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         // No row op is sent to a daemon without rows-v1 (rows.md step 4).
         let rows = daemon.supports(DaemonCapabilities.shared.rows)
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        #if DEBUG
+        DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
+        #endif
         // The view mounts the panes in this turn: a workspace shown now
         // draws its first frame with them, not one blank frame.
         layoutView.syncWithModel()
@@ -150,11 +168,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
     }
 
-    /// A workspace with no pane shows actions; an explicit New creates the
-    /// first terminal and focuses it when the daemon reports the surface.
-    /// One that is settling (its first terminal on the way, or closing)
-    /// shows nothing: its actions would flash for a frame before the tab
-    /// strip and terminal land, or before it closes.
+    /// A workspace with no pane shows its title; Return creates the first
+    /// terminal and focuses it when the daemon reports the surface. One that
+    /// is settling (its first terminal on the way, or closing) shows nothing
+    /// so the title does not flash before the tab strip and terminal land, or
+    /// before the workspace closes.
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
         let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
@@ -212,14 +230,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
+        controller.view.toolbar = PaneToolbar(pane: controller) // split right/down and the tab's actions (cx-kk7lm)
+        controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
-        sendTopology()
+        if !isApplying { sendTopology() }
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {
             let settings = services.settingsWindow
             Task { settings.windowDidShowContent() }
+        }
+        // So does the App Store (S22: never a window of its own).
+        if panes.count == 1, services.apps.isStoreWaiting {
+            let apps = services.apps
+            Task { apps.windowDidShowContent() }
         }
         return controller.view
     }

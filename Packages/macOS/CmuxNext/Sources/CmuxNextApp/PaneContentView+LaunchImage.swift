@@ -18,6 +18,7 @@ extension PaneContentView {
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
+        LaunchImageHold.shared.began()
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
         launchImageDeadline.schedule(after: paneLaunchImageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
     }
@@ -26,7 +27,14 @@ extension PaneContentView {
     func clearLaunchImage() {
         launchImageDeadline.cancel()
         if launchImageView != nil { DebugTimings.markLaunch("agent_pane.launch_image_cleared") }
-        launchImageView?.removeFromSuperview()
-        launchImageView = nil
+        if let launchImageView {
+            launchImageView.removeFromSuperview()
+            self.launchImageView = nil
+            LaunchImageHold.shared.ended()
+        }
+        // A page that has not painted when the image goes (its limit) shows its loading state.
+        let cleared = onLaunchImageCleared
+        onLaunchImageCleared = nil
+        cleared?()
     }
 }

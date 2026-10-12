@@ -82,6 +82,8 @@ pub struct ResourceMachineRequest {
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
     pub idempotency_key: Option<String>,
+    /// Who sends it, set by the daemon's dispatcher.
+    pub actor: crate::Actor,
 }
 
 pub trait ResourceMachineService: Send + Sync {
@@ -194,7 +196,8 @@ impl LocalResourceMachineService {
         let intent = json!({"session_id":context.session_id});
         let preparation = mux
             .prepare_resource_effect(
-                key,
+                &crate::WorkspaceMutation::new(key, "resource-api", request.actor.clone())
+                    .map_err(operation_failed)?,
                 "session.open",
                 &fingerprint,
                 &intent,
@@ -456,6 +459,11 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
         extra.insert("program_status".into(), status);
     }
+    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D). An
+    // exited terminal publishes none.
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_busy_since_ms) {
+        extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
+    }
     if !extra.is_empty() {
         terminal["extra"] = Value::Object(extra);
     }
@@ -495,7 +503,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
-        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
+        let journal_head = registry.session_journal_head()?;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
@@ -839,6 +847,3 @@ fn public_browser_snapshot(
         },
     })
 }
-
-#[cfg(test)]
-mod tests;

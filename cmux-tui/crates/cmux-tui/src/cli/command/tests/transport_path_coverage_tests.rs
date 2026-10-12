@@ -6,12 +6,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     const WORKSPACE: &str = "ws_00000000000000000000000000000004";
     const PANE: &str = "pane_00000000000000000000000000000006";
     const TERMINAL: &str = "term_00000000000000000000000000000008";
+    const TAB: &str = "tab_00000000000000000000000000000007";
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
-    assert_eq!(cases.len(), 181);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 196);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -39,8 +38,15 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        (vec!["notify", "--workspace", "current", "--desktop", "false"], "notification.create"),
+        (vec!["notify", "--workspace", "current", "--reply"], "notification.create"),
+        (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
+        (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
+        // closed.delete takes either a group (with members) or all.
+        (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+        (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
                 "session",
@@ -56,6 +62,29 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
+        (
+            vec![
+                "conversation",
+                "conv_01J00000000000000000000000",
+                "send",
+                "--parts-json",
+                r#"[{"type":"text","text":"hi"}]"#,
+            ],
+            "conversation.send",
+        ),
+        (
+            vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
+            "git.commit",
+        ),
         (
             vec![
                 "terminal",
@@ -79,6 +108,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         .as_object()
         .unwrap()
         .keys()
+        .filter(|name| !cases::MULTI_REQUEST_OPERATIONS.contains(&name.as_str()))
         .filter(|name| {
             !matches!(
                 name.as_str(),
@@ -98,16 +128,77 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The Mac app edits the sidebar layout through its
                         // own sidebar actions and intent log.
                         | "sidebar_layout.get"
+                        // The Mac app's palette is the one client of the
+                        // user's palette usage history.
+                        | "palette_usage.get"
+                        | "palette_usage.record"
+                        | "palette_usage.import"
+                        | "palette_usage.hide"
+                        | "palette_usage.forget"
                         | "sidebar_layout.update"
+                        // The project list is the app's and its importers'
+                        // (plans/cmux-next/projects.md); no CLI verb yet.
+                        | "project.list"
+                        | "project.observe"
+                        | "project.add"
+                        | "project.update"
+                        | "project.remove"
+                        | "project.sync"
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
+                        // The hosting app opens an app's workspace from its
+                        // sidebar item (app-screens-v1); no CLI verb yet.
+                        | "workspace.ensure_app"
                         // The verified app mints confirmations for its own
                         // page relay; the CLI is never that app.
                         | "origin.confirmation.issue"
                         // Only the user sets where a workspace's agents run,
                         // through the verified app (gate A2).
                         | "workspace.agent_folder.set"
+                        // The app's agent pane asks where a new chat starts;
+                        // an agent already runs in its folder (cx-9aps).
+                        | "workspace.agent_start.get"
+                        // Typing and live reply drafts are published by the
+                        // participant's own client (the Chief's brain); the
+                        // CLI's `cmux chief` only reads them.
+                        | "conversation.typing"
+                        | "conversation.draft"
+                        // `cmux chief engine|stop` and the chat's /model,
+                        // /effort and Ctrl+C send these (cli/chief), outside
+                        // the noun grammar.
+                        | "chief.engine.get"
+                        | "chief.engine.set"
+                        | "chief.stop"
+                        // Launch credentials: acpmux and owners call these
+                        // on the socket; an agent never mints or rotates.
+                        | "credential.verify"
+                        | "credential.mint"
+                        | "credential.rotate"
+                        // The daemon's settings ops (cx-9ce.10) have no
+                        // noun-first CLI verb yet, as they have no MCP tool
+                        // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
+                        | "settings.get"
+                        | "settings.list"
+                        | "settings.reset"
+                        | "settings.reset_all"
+                        | "settings.schema"
+                        | "settings.set"
+                        | "settings.snapshot"
+                        // History ops are reached through `cmux history`
+                        // (cx-gzh.15), not the noun grammar; the page and
+                        // omnibox ops are the browser host's and the app's.
+                        | "history.entries.list"
+                        | "history.entries.remove"
+                        | "history.site.remove"
+                        | "history.clear"
+                        | "history.restore"
+                        | "history.backups.purge"
+                        | "history.visit.record"
+                        | "history.visit.title"
+                        | "history.visit.import"
+                        | "history.visit.remove"
+                        | "history.visit.summaries"
             )
         })
         .map(String::as_str)

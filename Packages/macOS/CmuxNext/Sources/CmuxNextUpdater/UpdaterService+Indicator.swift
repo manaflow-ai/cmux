@@ -17,19 +17,6 @@ extension UpdaterService {
         return UpdateIndicatorPhase(probe: lastProbe, error: lastProbeError, probing: isProbing)
     }
 
-    /// A click on the circle: install a waiting or downloading update, or
-    /// show a failure's details.
-    public func indicatorClicked() {
-        switch indicatorPhase {
-        case .ready, .available, .downloading:
-            installClicked()
-        case .note(_, isError: true):
-            presentUpdateUI?()
-        case .hidden, .checking, .installing, .note:
-            break
-        }
-    }
-
     /// The note beside the circle timed out (up to date clears itself).
     public func dismissIndicatorNote() {
         // Sparkle's error is what the open sheet shows; a probe's sheet reads
@@ -46,11 +33,5 @@ extension UpdaterService {
     /// Later), or no circle on screen (window rail off).
     var needsSheet: Bool {
         disabledReason == .managedPolicy || requiredMinimumVersion != nil || !showsIndicator()
-    }
-
-    /// The release notes for the waiting update, or nil.
-    public var indicatorReleaseNotesURL: URL? {
-        guard case .ready(let version?) = indicatorPhase else { return nil }
-        return UpdateState.ReleaseNotes(displayVersionString: version)?.url
     }
 }

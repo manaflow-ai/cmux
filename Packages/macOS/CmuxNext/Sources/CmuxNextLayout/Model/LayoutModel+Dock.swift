@@ -48,6 +48,6 @@ extension LayoutModel {
 
     /// cmux.json `layout.stripScrollbar`, or the pin for tests and the demo.
     public var stripScrollbar: StripScrollbarMode {
-        stripScrollbarOverride ?? (followsDesignMetrics ? DesignSettings.shared.stripScrollbar : .auto)
+        stripScrollbarOverride ?? (followsDesignMetrics ? DesignSettings.shared.stripScrollbar : .system)
     }
 }

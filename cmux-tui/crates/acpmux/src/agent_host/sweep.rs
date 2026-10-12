@@ -66,23 +66,48 @@ pub fn running_hosts(hosts: &Path) -> Vec<OwnedHost> {
 /// harness group on SIGTERM), wait up to `grace` on `clock`, then SIGKILL
 /// the harness group and the host of each one whose lock is still held, and
 /// wait up to `grace` again. Returns the hosts not proven dead after that.
+///
+/// A harness process that moved itself into a new session (setsid) is out of
+/// reach of the group signal and outlives its host. So every process under a
+/// live host is noted before the first signal, and the ones still running
+/// (the same pid with the same start time) are killed at the end.
+#[cfg(unix)]
 pub async fn end_hosts(
     clock: &dyn Clock,
     hosts: Vec<OwnedHost>,
     grace: Duration,
 ) -> Vec<OwnedHost> {
+    let mut under = under_live(&hosts);
     for h in &hosts {
         signal_if_live(h, libc::SIGTERM);
     }
     let left = wait_all(clock, hosts, grace).await;
+    for p in under_live(&left) {
+        if !under.contains(&p) {
+            under.push(p);
+        }
+    }
     for h in &left {
         signal_if_live(h, libc::SIGKILL);
     }
-    wait_all(clock, left, grace).await
+    let left = wait_all(clock, left, grace).await;
+    super::tree::kill_still_running(&under);
+    left
+}
+/// Windows port: hosts are signalled through their job objects there (a
+/// later landing); until then they are only waited for.
+#[cfg(not(unix))]
+pub async fn end_hosts(
+    clock: &dyn Clock,
+    hosts: Vec<OwnedHost>,
+    grace: Duration,
+) -> Vec<OwnedHost> {
+    wait_all(clock, hosts, grace).await
 }
 
 /// Signal the host (and, for SIGKILL, first its harness group, which a
 /// killed host can no longer end) only while its lock proves the pid.
+#[cfg(unix)]
 fn signal_if_live(h: &OwnedHost, signal: i32) {
     if h.liveness() != Liveness::Live {
         return;
@@ -96,6 +121,18 @@ fn signal_if_live(h: &OwnedHost, signal: i32) {
     }
     // SAFETY: the held lock proves `pid` is this record's live host.
     unsafe { libc::kill(pid, signal) };
+}
+
+/// The processes under each host whose lock is held: the held lock proves
+/// the host pid, so its descendants by parent are its own.
+#[cfg(unix)]
+fn under_live(hosts: &[OwnedHost]) -> Vec<super::tree::Started> {
+    let roots: Vec<u32> =
+        hosts.iter().filter(|h| h.liveness() == Liveness::Live).map(|h| h.host_pid).collect();
+    if roots.is_empty() {
+        return Vec::new();
+    }
+    super::tree::descendants(&roots)
 }
 
 /// Wait until every host is dead or `grace` passed on `clock`; the hosts
@@ -189,6 +226,47 @@ mod tests {
             .expect("SIGKILL did not follow the grace on the injected clock");
         assert!(left.is_empty(), "{left:?}");
         assert!(child.wait().unwrap().code().is_none(), "the host was not killed");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_harness_child_that_left_the_group_ends_with_its_host() {
+        let dir = temp_dir("setsid");
+        // A host whose child moves itself into a new session, out of reach
+        // of the harness group signal, then a host that ends on SIGTERM.
+        let script = "import fcntl, subprocess, sys, time\nf = open(sys.argv[1], 'a+')\nfcntl.flock(f, fcntl.LOCK_EX)\nc = subprocess.Popen([sys.executable, '-c', 'import os, sys, time; os.setsid(); print(os.getpid(), flush=True); time.sleep(600)'], stdout=subprocess.PIPE)\nprint('locked', c.stdout.readline().decode().strip(), flush=True)\ntime.sleep(600)\n";
+        let mut child = Command::new("python3")
+            .args(["-c", script])
+            .arg(live_path(&dir, "s1", "00ff"))
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("python3");
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let escaped: i32 = line.trim().strip_prefix("locked ").unwrap().parse().unwrap();
+        let host = owned(&dir, "s1", &child);
+        let left = tokio::time::timeout(
+            Duration::from_secs(20),
+            end_hosts(&*ManualClock::new(), vec![host], GRACE),
+        )
+        .await
+        .expect("the wait outlived the host");
+        assert!(left.is_empty(), "{left:?}");
+        child.wait().unwrap();
+        // The escaped child is reparented and reaped once killed.
+        let gone = (0..100).any(|_| {
+            // SAFETY: signal 0 only probes whether the pid exists.
+            let alive = unsafe { libc::kill(escaped, 0) } == 0;
+            if alive {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            !alive
+        });
+        if !gone {
+            // SAFETY: the test started this pid; end it before failing.
+            unsafe { libc::kill(escaped, libc::SIGKILL) };
+        }
+        assert!(gone, "the child that left the harness group outlived its host");
     }
 
     #[tokio::test]

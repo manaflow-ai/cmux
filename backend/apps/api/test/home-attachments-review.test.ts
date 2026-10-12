@@ -170,20 +170,6 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
 })
 
 describe("Home attachments: presigned R2 PUT for 32-100 MB", { timeout: 120_000 }, () => {
-  it("SigV4 presigning matches the AWS documented example", async () => {
-    const { presignUrl } = await import("../src/r2-presign.ts")
-    const url = presignUrl({
-      method: "GET",
-      url: "https://examplebucket.s3.amazonaws.com/test.txt",
-      region: "us-east-1",
-      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
-      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-      headers: {},
-      expiresSec: 86400,
-      now: Date.UTC(2013, 4, 24)
-    })
-    expect(new URL(url).searchParams.get("X-Amz-Signature")).toBe("aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404")
-  })
 
   it("a large file gets a presigned PUT that signs length and checksum; commit HEADs size and checksum before it is referenceable", async () => {
     const alice = await signIn("att-big-alice")

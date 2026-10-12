@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextFeed
 import Foundation
 
@@ -28,13 +29,14 @@ final class FeedService {
     /// Owner-confirmed state of each item (never the overlay).
     private var confirmed: [String: FeedItemState] = [:]
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Told every owner-confirmed item (snapshot and events), never the overlay
+    /// (the agent permission feed bridge reads answers here).
+    var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
     static func apiBaseURL(auth: CloudAuth, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        // The override is for development only: a release build never sends its token to another origin.
-        if auth.configuration.isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
-        return URL(string: auth.configuration.isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
+        auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
     init(auth: CloudAuth, showcase: Bool = false) {
@@ -56,7 +58,7 @@ final class FeedService {
         // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
         accountWatch = Task { [weak self] in
             await auth.awaitRestored()
-            for await signedIn in Observations({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
+            for await signedIn in ObservationStream({ auth.isSignedIn ? (auth.user?.id ?? "") : nil }) {
                 self?.accountChanged(signedIn)
             }
         }
@@ -73,7 +75,7 @@ final class FeedService {
             if forced == nil { source.checkAlive() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } }
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
@@ -170,9 +172,12 @@ final class FeedService {
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
             resumeClosed()
+            onConfirmedItems?(snapshot.items)
         case let .event(event):
             switch event.change {
-            case let .items(items): for item in items { confirmed[item.id] = item.state }
+            case let .items(items):
+                for item in items { confirmed[item.id] = item.state }
+                onConfirmedItems?(items)
             case let .remove(ids): for id in ids { confirmed[id] = nil }
             }
             resumeClosed()

@@ -1,4 +1,4 @@
-//! Staging a legacy workspace row inside a prepared resource effect.
+//! Committing a prepared resource effect, and staging a legacy workspace row inside one.
 
 use super::*;
 
@@ -66,5 +66,30 @@ impl WorkspaceRegistry {
             false,
             extra,
         )
+    }
+
+    /// Prepare a `commit_resource_effect` intent that also writes `extra` in
+    /// its transaction (a notification's local feed rows, B2). The caller
+    /// commits it through the journal writer (`Mux::commit_effect_intent`):
+    /// the receipt and the extra rows land under one SAVEPOINT of a writer
+    /// batch, or in one request-side transaction when the writer is not
+    /// running.
+    pub(crate) fn prepare_effect_outcome_intent_with(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        outcome: &ResourceEffectOutcome,
+        deltas: Option<&Value>,
+        extra: OwnedTransactionWrite,
+    ) -> anyhow::Result<(EffectCommitIntent, EffectCommitFinish)> {
+        let (intent, finish) = self.prepare_effect_outcome_intent(
+            idempotency_key,
+            operation,
+            fingerprint,
+            outcome,
+            deltas,
+        )?;
+        Ok((intent.with_extra_rows(extra), finish))
     }
 }

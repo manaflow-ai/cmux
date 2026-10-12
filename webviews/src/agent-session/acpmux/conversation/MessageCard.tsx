@@ -39,6 +39,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         type="button"
         className="cv-message__head"
         aria-expanded={open}
+        aria-controls={bodyId}
         // The route reads as a sentence (the arrow is a glyph a screen reader skips); the message
         // itself is the text below, outside the button, so it stays selectable.
         aria-label={[t("message.label", { from, to }), failed ? t("tools.failed") : ""].filter(Boolean).join(". ")}

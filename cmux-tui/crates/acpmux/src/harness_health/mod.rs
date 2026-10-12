@@ -1,0 +1,296 @@
+//! Agent CLI health (hq #1875): for each harness, the program's installed
+//! version, how it was installed, the newest version that channel offers,
+//! whether it is signed in, and the commands that update it or sign it in.
+//! Served as `_acpmux/harness/health` (`hub/health_view.rs`); checked when the
+//! daemon starts and every few hours, and on request after an update.
+//!
+//! Sign-in is reported only from evidence: a profile's `auth.check` command,
+//! else the hub's probe error naming sign-in (it can be older than a login
+//! since). Without either it is `unknown`, never a guess from missing
+//! credential files.
+
+pub mod auto;
+pub mod channel;
+pub mod latest;
+pub mod probe;
+
+use channel::{Channel, UpdatePlan};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
+
+/// How often the daemon checks again.
+pub const REFRESH_EVERY: Duration = Duration::from_secs(6 * 3600);
+/// A newest-version answer younger than this is reused: a little under
+/// `REFRESH_EVERY`, so each periodic check asks again.
+const LATEST_TTL_MS: u64 = (6 * 3600 - 600) * 1000;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Auth {
+    SignedIn,
+    SignedOut,
+    Unknown,
+}
+
+/// One harness's health.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessHealth {
+    pub id: String,
+    /// The program as configured (the profile's first word).
+    pub program: String,
+    /// Where it was found.
+    pub path: Option<String>,
+    pub channel: Channel,
+    /// The npm package or Homebrew formula behind it.
+    pub package: Option<String>,
+    pub version: Option<String>,
+    pub latest: Option<String>,
+    /// When `latest` was read (ms since the epoch).
+    pub latest_checked_at: Option<u64>,
+    pub outdated: bool,
+    pub auth: Auth,
+    /// Why `auth` is what it is (the probe error, or the check that ran).
+    pub auth_detail: Option<String>,
+    /// The command that signs it in, for a terminal tab.
+    pub login: Option<String>,
+    /// The command that updates it; None when only the way it was installed can.
+    pub update: Option<UpdatePlan>,
+    /// Why a part of the check failed (not installed, `--version` failed).
+    pub problem: Option<String>,
+    pub checked_at: u64,
+    /// The person turned auto-update on for it (`auto.rs`; off by default).
+    #[serde(default)]
+    pub auto_update: bool,
+    /// The last update auto-update ran for it, since the daemon started.
+    #[serde(default)]
+    pub last_auto_update: Option<auto::AutoUpdateResult>,
+}
+
+/// A harness to check, as the hub's configuration describes it.
+#[derive(Clone, Debug)]
+pub struct Subject {
+    pub id: String,
+    pub program: String,
+    pub family: String,
+    /// The profile's `auth.check` command.
+    pub check: Vec<String>,
+    /// The profile's env for the check (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`);
+    /// values naming a secret or a login variable are left out.
+    pub env: BTreeMap<String, String>,
+    /// The profile's `auth.login` command.
+    pub login: Option<String>,
+    /// The hub's probe error for it (`Hub::probe_errors`).
+    pub probe_error: Option<String>,
+}
+
+/// Where the service asks and keeps its copy.
+#[derive(Clone, Debug, Default)]
+pub struct Settings {
+    /// None: no newest-version lookups (the default until the daemon attaches;
+    /// tests attach a loopback server).
+    pub sources: Option<latest::Sources>,
+    /// The saved copy (`<acpmux home>/harness-health.json`).
+    pub cache: Option<PathBuf>,
+    /// The user's home, where bun and the native installers live.
+    pub home: PathBuf,
+    /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
+    pub auto_update: Option<PathBuf>,
+}
+
+#[derive(Default)]
+pub struct HealthService {
+    settings: Mutex<Settings>,
+    rows: Mutex<Vec<HarnessHealth>>,
+    /// One check at a time.
+    checking: tokio::sync::Mutex<()>,
+    /// What auto-update ran, by harness id.
+    ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
+    /// One auto-update run at a time.
+    updating: tokio::sync::Mutex<()>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Login commands for the harnesses acpmux finds on PATH, which carry no
+/// profile (`config/discover.rs`). A profile's `auth.login` comes first.
+fn builtin_login(family: &str) -> Option<&'static str> {
+    Some(match family {
+        "codex" => "codex login",
+        "claude" => "claude auth login",
+        "gemini" => "gemini",
+        "opencode" => "opencode auth login",
+        _ => return None,
+    })
+}
+
+static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
+        .expect("sign-in pattern") // crash-allow: constant pattern
+});
+
+impl HealthService {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets where to ask and keep the copy, and reads the saved copy.
+    pub fn attach(&self, settings: Settings) {
+        let saved = settings
+            .cache
+            .as_deref()
+            .and_then(|p| std::fs::read(p).ok())
+            .and_then(|b| serde_json::from_slice::<Vec<HarnessHealth>>(&b).ok());
+        if let Some(rows) = saved {
+            *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows;
+        }
+        *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings;
+    }
+
+    /// The last check's rows (the saved copy until the first check).
+    pub fn rows(&self) -> Vec<HarnessHealth> {
+        self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// The first check: callers that ask before any check ended share one (the
+    /// daemon's own, or the first caller's) instead of each running a full check.
+    pub async fn first_check(&self, subjects: Vec<Subject>) -> Vec<HarnessHealth> {
+        drop(self.checking.lock().await);
+        let rows = self.rows();
+        if rows.is_empty() { self.check(subjects, false).await } else { rows }
+    }
+
+    /// Checks every subject on this machine, and asks each channel for its
+    /// newest version unless a fresh answer is kept (always with `check_latest`).
+    pub async fn check(&self, subjects: Vec<Subject>, check_latest: bool) -> Vec<HarnessHealth> {
+        let _one = self.checking.lock().await;
+        let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let previous = self.rows();
+        let probes = subjects.into_iter().map(|s| {
+            let home = settings.home.clone();
+            tokio::task::spawn_blocking(move || local(s, &home))
+        });
+        let mut rows: Vec<HarnessHealth> =
+            futures::future::join_all(probes).await.into_iter().filter_map(Result::ok).collect();
+        let now = now_ms();
+        let mut asked: HashMap<String, Option<String>> = HashMap::new();
+        for row in &mut rows {
+            let kept = previous.iter().find(|p| {
+                p.id == row.id
+                    && p.channel == row.channel
+                    && p.package == row.package
+                    && p.latest.is_some()
+            });
+            let fresh = kept.filter(|p| {
+                p.latest_checked_at.is_some_and(|t| now.saturating_sub(t) < LATEST_TTL_MS)
+            });
+            let install = channel::Install {
+                channel: row.channel,
+                package: row.package.clone(),
+                writes: None,
+            };
+            let url = settings.sources.as_ref().and_then(|s| latest::url(&install, s));
+            match (fresh, url) {
+                (Some(p), _) if !check_latest => {
+                    row.latest = p.latest.clone();
+                    row.latest_checked_at = p.latest_checked_at;
+                }
+                (_, Some(url)) => {
+                    if !asked.contains_key(&url) {
+                        let answer = match latest::fetch_json(&url).await {
+                            Ok(body) => latest::parse(row.channel, &body),
+                            Err(e) => {
+                                tracing::info!(harness = %row.id, error = %e, "newest version not read");
+                                None
+                            }
+                        };
+                        asked.insert(url.clone(), answer);
+                    }
+                    match asked[&url].clone() {
+                        Some(v) => (row.latest, row.latest_checked_at) = (Some(v), Some(now)),
+                        None => {
+                            row.latest = kept.and_then(|p| p.latest.clone());
+                            row.latest_checked_at = kept.and_then(|p| p.latest_checked_at);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            row.outdated =
+                matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
+        }
+        self.mark_auto(&mut rows, &settings);
+        if let Some(path) = settings.cache.as_deref() {
+            save(path, &rows);
+        }
+        *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows.clone();
+        rows
+    }
+}
+
+fn save(path: &Path, rows: &[HarnessHealth]) {
+    let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path)) {
+        tracing::info!(error = %e, "harness health not saved");
+    }
+}
+
+/// The part of a check that runs here: where the program is, how it was
+/// installed, its version, its sign-in, and its update and login commands.
+fn local(s: Subject, home: &Path) -> HarnessHealth {
+    let found = if Path::new(&s.program).is_absolute() {
+        Path::new(&s.program).is_file().then(|| s.program.clone())
+    } else {
+        crate::config::which(&s.program)
+    };
+    let real = found.as_deref().and_then(|p| std::fs::canonicalize(p).ok());
+    let install = channel::detect(&s.program, real.as_deref(), home);
+    let mut problem = None;
+    let version = match (&found, install.channel) {
+        (_, Channel::Launcher) => None,
+        (None, _) => {
+            problem = Some(format!("`{}` is not installed", s.program));
+            None
+        }
+        (Some(path), _) => probe::installed_version(path).map_err(|e| problem = Some(e)).ok(),
+    };
+    let update =
+        channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
+    let (auth, auth_detail) = match &s.probe_error {
+        _ if !s.check.is_empty() && found.is_some() => match probe::auth_check(&s.check, &s.env) {
+            Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
+            Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
+            Err(e) => (Auth::Unknown, Some(e)),
+        },
+        Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
+        _ => (Auth::Unknown, None),
+    };
+    HarnessHealth {
+        id: s.id,
+        login: s.login.or_else(|| builtin_login(&s.family).map(str::to_owned)),
+        program: s.program,
+        path: found,
+        channel: install.channel,
+        package: install.package,
+        version,
+        latest: None,
+        latest_checked_at: None,
+        outdated: false,
+        auth,
+        auth_detail,
+        update,
+        problem,
+        checked_at: now_ms(),
+        auto_update: false,
+        last_auto_update: None,
+    }
+}

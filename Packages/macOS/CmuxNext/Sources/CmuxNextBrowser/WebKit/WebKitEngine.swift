@@ -39,6 +39,14 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
+    var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
+
+    /// The remembered-sign-in rules for a profile's tabs.
+    func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
+        BrowserHTTPSignInMemory(store: httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+    }
+
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
     /// Browser passkey authorization (one per app; tests inject a fake).
@@ -67,16 +75,28 @@ public final class WebKitEngine: BrowserEngine {
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
-        makeWebKitTab(configuration)
+        try makeWebKitTab(configuration)
     }
 
-    /// Synchronous tab creation. `webViewConfiguration` is set only for
-    /// page-opened windows, where WebKit hands over the configuration that
-    /// links the new page to its opener.
-    public func makeWebKitTab(
-        _ configuration: BrowserTabConfiguration,
-        webViewConfiguration: WKWebViewConfiguration? = nil
-    ) -> WebKitTab {
+    /// Synchronous tab creation. Refuses a configuration with a machine
+    /// store (a proxied tab): WebKit cannot send loopback requests to a
+    /// per-store proxy (remote-localhost.md section 7), so it would load
+    /// this Mac's localhost.
+    public func makeWebKitTab(_ configuration: BrowserTabConfiguration) throws(BrowserEngineError) -> WebKitTab {
+        guard configuration.machineStore == nil else { throw .machineStoreRequiresChromium }
+        return makeTab(unproxied: configuration, webViewConfiguration: nil)
+    }
+
+    /// A tab that cannot carry a machine store. `webViewConfiguration` is set
+    /// only for page-opened windows, where WebKit hands over the
+    /// configuration that links the new page to its opener.
+    public func makeWebKitTab(id: BrowserTabID = .random(), profile: BrowserProfileID = .default, initialURL: URL? = nil,
+                              zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil) -> WebKitTab {
+        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom),
+                webViewConfiguration: webViewConfiguration)
+    }
+
+    private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
         let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
         prepare(webConfiguration)
         let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
@@ -136,6 +156,13 @@ public final class WebKitEngine: BrowserEngine {
         configuration.preferences.isElementFullscreenEnabled = false
         // Private preference: enables "Inspect Element" in the context menu.
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Private preference: a page's video may enter picture-in-picture
+        // (`requestPictureInPicture`, the controls' button); off, WebKit
+        // refuses it with NotSupportedError.
+        // crash-allow: guarded by responds(to:) on the private setter the KVC key resolves to; absent on older WebKit, skipped.
+        if configuration.preferences.responds(to: NSSelectorFromString("_setAllowsPictureInPictureMediaPlayback:")) { // crash-allow: same guard
+            configuration.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+        }
         // Every tab gets its own controller. A page-opened configuration is a
         // copy of the opener's and would otherwise share its message handlers.
         configuration.userContentController = WKUserContentController()

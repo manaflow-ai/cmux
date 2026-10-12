@@ -29,8 +29,12 @@ enum MobileCompatIDs {
     static func uuidString(fromHex hex: String) -> String? {
         let digits = hex.lowercased().filter(\.isHexDigit)
         guard digits.count == 32, digits.count == hex.count else { return nil }
-        let chars = Array(digits.uppercased())
-        let parts = [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { String(chars[$0]) }
+        var rest = Substring(digits.uppercased())
+        var parts: [Substring] = []
+        for length in [8, 4, 4, 4, 12] {
+            parts.append(rest.prefix(length))
+            rest = rest.dropFirst(length)
+        }
         return parts.joined(separator: "-")
     }
 
@@ -40,8 +44,8 @@ enum MobileCompatIDs {
         var high: UInt64 = 0xcbf29ce484222325
         var low: UInt64 = 0x84222325cbf29ce4
         for byte in name.utf8 {
-            high = (high ^ UInt64(byte)) &* 0x100000001b3
-            low = (low ^ UInt64(byte)) &* 0x100000001b3 &+ high
+            high = (high ^ UInt64(clamping: byte)) &* 0x100000001b3
+            low = (low ^ UInt64(clamping: byte)) &* 0x100000001b3 &+ high
         }
         return uuidString(fromHex: String(format: "%016llx%016llx", high, low)) ?? UUID().uuidString
     }

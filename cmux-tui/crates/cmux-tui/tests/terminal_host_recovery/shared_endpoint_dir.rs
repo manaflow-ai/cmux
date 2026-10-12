@@ -12,7 +12,7 @@ use std::os::unix::fs::FileTypeExt;
 #[test]
 fn a_daemon_prunes_only_its_own_hosts_in_the_shared_endpoint_directory() {
     let a = RecoveryHarness::start("shared-th-dir-a");
-    let mut b = RecoveryHarness::start("shared-th-dir-b");
+    let mut b = RecoveryHarness::start_without_respawn("shared-th-dir-b");
     // Same session name, different state directories.
     assert_eq!(a.session, b.session);
     assert_ne!(a.host_root(), b.host_root());

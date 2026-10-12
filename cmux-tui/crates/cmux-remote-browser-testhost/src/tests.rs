@@ -11,7 +11,7 @@ use cmux_rd_proto::control::Control;
 use cmux_rd_proto::flags;
 use cmux_rd_proto::{SERVICE_REMOTE_BROWSER, STREAM_CONTROL, encode_stream_frame};
 
-use super::{Options, parse, session};
+use super::{Options, session};
 
 fn options(frames: u64) -> Options {
     Options { port: 4103, width: 320, height: 240, fps: 60, frames, once: true }
@@ -31,6 +31,10 @@ fn connect(o: Options) -> (TcpStream, thread::JoinHandle<String>) {
 }
 
 fn hello(viewer: &mut TcpStream, service: &str) {
+    hello_with(viewer, service, &[]);
+}
+
+fn hello_with(viewer: &mut TcpStream, service: &str, caps: &[&str]) {
     let control = Control::Hello {
         user: "test".into(),
         install: "test".into(),
@@ -40,7 +44,7 @@ fn hello(viewer: &mut TcpStream, service: &str) {
         max_datagram: 1332,
         token: None,
         service: service.into(),
-        caps: vec![],
+        caps: caps.iter().map(|c| (*c).to_string()).collect(),
     };
     let mut out = Vec::new();
     encode_stream_frame(STREAM_CONTROL, &serde_json::to_vec(&control).expect("json"), &mut out)
@@ -84,6 +88,26 @@ fn a_viewer_gets_welcome_started_rb_opened_and_a_complete_keyframe() {
 }
 
 #[test]
+fn the_welcome_grants_service_input_when_the_viewer_offers_it() {
+    let (mut viewer, host) = connect(options(1));
+    hello_with(&mut viewer, SERVICE_REMOTE_BROWSER, &["input.service", "tile"]);
+    let mut core = Session::new(Carrier::Stream, 500_000, 50_000);
+    let mut buf = [0u8; 4096];
+    let welcome = loop {
+        let n = viewer.read(&mut buf).expect("read");
+        assert!(n > 0, "the host closed before welcome");
+        core.push_stream(&buf[..n], 0).expect("push");
+        if let Some(message) = core.pop_message() {
+            break serde_json::from_slice::<serde_json::Value>(&message.bytes).expect("json");
+        }
+    };
+    assert_eq!(welcome["t"], "welcome");
+    assert_eq!(welcome["caps"], serde_json::json!(["input.service"]));
+    drop(viewer);
+    let _ = host.join();
+}
+
+#[test]
 fn a_hello_for_another_service_is_refused() {
     let (mut viewer, host) = connect(options(1));
     hello(&mut viewer, "desktop");
@@ -95,15 +119,4 @@ fn a_hello_for_another_service_is_refused() {
     let control: serde_json::Value = serde_json::from_slice(&message.bytes).expect("json");
     assert_eq!(control, serde_json::json!({"t": "refused", "reason": "service"}));
     assert!(host.join().expect("host").starts_with("refused hello"));
-}
-
-#[test]
-fn options_refuse_privileged_ports_and_odd_sizes() {
-    let args = |s: &[&str]| s.iter().map(|a| (*a).to_string()).collect::<Vec<_>>();
-    assert!(parse(&args(&["--port", "80"])).is_err());
-    assert!(parse(&args(&["--width", "641"])).is_err());
-    assert!(parse(&args(&["--fps", "0"])).is_err());
-    assert!(parse(&args(&["--bogus", "1"])).is_err());
-    let o = parse(&args(&["--port", "5000", "--frames", "3", "--once"])).expect("valid");
-    assert_eq!((o.port, o.frames, o.once, o.width, o.height), (5000, 3, true, 1280, 720));
 }

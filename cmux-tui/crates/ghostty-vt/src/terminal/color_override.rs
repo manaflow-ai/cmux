@@ -222,7 +222,8 @@ impl ColorOverrideTracker {
                         10 => self.foreground = true,
                         11 => self.background = true,
                         12 => self.cursor = true,
-                        _ => unreachable!(),
+                        // Codes start at 10 and stop after 12 (above).
+                        _ => {}
                     }
                 }
             }

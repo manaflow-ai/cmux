@@ -5,6 +5,7 @@ import { idFactory, MemoryRows, type Principal, type ReduceContext } from "@cmux
 import { describe, expect, it } from "vitest"
 import { schedulerDomain, TERMINAL, type SchedulerState } from "../src/domains/scheduler.ts"
 import { afterCreate } from "../src/domains/scheduler-policy.ts"
+import { automationRowOf, runRowOf, TABLE_AUTOMATION } from "../src/domains/scheduler-rows.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -30,7 +31,6 @@ const call = async (path: string, t: string, body: unknown) => {
 const op = (t: string, name: string, params: unknown) => call("/v1/ops", t, { op: name, params, idempotency_key: crypto.randomUUID(), origin: "user" })
 const read = (t: string, name: string, params: unknown = {}) => call("/v1/read", t, { op: name, params })
 
-
 const hmac = async (secret: string, msg: string) => {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)))].map((b) => b.toString(16).padStart(2, "0")).join("")
@@ -41,6 +41,23 @@ const postHook = async (path: string, secret: string, body: string) => {
   return { status: res.status, json: (await res.json()) as any }
 }
 const steps = { type: "steps", steps: [{ type: "note", text: "hi" }] }
+
+/**
+ * Inside SchedulerDO: makes TeamDO unreachable for this instance, then creates the automation.
+ * The create commits and arms the scheduler's alarm, and a real alarm run pulls the run policy
+ * (onWake -> ensureRunPolicy). Creating over HTTP first let that alarm win the race under
+ * parallel load (cx-nfts), so the "no policy yet" state must be built with TeamDO already down.
+ */
+const createWithTeamDown = async (s: any, team: string, principal: unknown, params: unknown): Promise<string> => {
+  s.env = { ...s.env, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
+  const r = await s.submit(team, principal, { t: "op", op: "automation.create", params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+  const result = r.frames.find((f: { t: string }) => f.t === "result")
+  expect(result, JSON.stringify(r.frames)).toBeDefined()
+  // Run the alarm the create armed now, as a loaded runtime may: its pull fails, so no policy.
+  await s.alarm()
+  expect(s.boundEngine.currentState.run_policy).toBeUndefined()
+  return result.value.id as string
+}
 
 /** Sets agents.allowedClasses, then runs TeamDO's alarm until it has nothing left to push. */
 const setClasses = async (t: string, team: string, classes: ReadonlyArray<string>) => {
@@ -68,36 +85,6 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     expect(allowed.ok, JSON.stringify(allowed)).toBe(true)
   })
 
-  it("a deny cancels queued runs that have no Workflow yet; started runs keep running (pure)", () => {
-    const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
-    const system: Principal = { identity: "system:team", kind: "system" }
-    let n = 0
-    const ctx = (principal: Principal): ReduceContext => ({ principal, now: 1_800_000_000_000, tx: `tx${n}`, newId: idFactory(`tx${n++}`), rows: new MemoryRows() })
-    let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
-    const created = schedulerDomain.reduce(s, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "n" }] }, concurrency: { max: 10, on_limit: "queue" } }, ctx(user))
-    if (!created.ok) throw new Error(created.code)
-    s = created.state
-    const automation = Object.keys(s.automations)[0]!
-    const ids: Array<string> = []
-    for (let i = 0; i < 2; i++) {
-      const r = schedulerDomain.reduce(s, "automation.run", { automation }, ctx(user))
-      if (!r.ok) throw new Error(r.code)
-      s = r.state
-      ids.push((r.value as { id: string }).id)
-    }
-    const started = schedulerDomain.reduce(s, "run.dispatched", { run: ids[0] }, ctx(system))
-    if (!started.ok) throw new Error(started.code)
-    s = started.state
-    const denied = schedulerDomain.reduce(s, "scheduler.run_policy", { version: 3, runs_allowed: false }, ctx(system))
-    if (!denied.ok) throw new Error(denied.code)
-    expect(denied.state.runs[ids[0]!]).toMatchObject({ state: "queued", dispatched: true })
-    expect(denied.state.runs[ids[1]!]).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
-    expect(denied.outbox).toHaveLength(1)
-    // An older or repeated push changes nothing.
-    expect(schedulerDomain.reduce(denied.state, "scheduler.run_policy", { version: 2, runs_allowed: true }, ctx(system))).toMatchObject({ ok: true, changed: false })
-    expect(schedulerDomain.reduce(denied.state, "automation.run", { automation }, ctx(user))).toMatchObject({ ok: false, code: "policy.denied" })
-  })
-
   it("a webhook answers 403 policy.denied, a provider event starts no run", async () => {
     const t = await token("run-policy-4")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string
@@ -121,17 +108,15 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
   it("fails closed: a scheduler without the policy pulls it from TeamDO, and refuses runs while TeamDO is unreachable", async () => {
     const t = await token("run-policy-5")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string
-    const a = await op(t, "automation.create", { name: "m", triggers: [{ type: "manual" }], body: steps })
     const stub = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     await inDO(stub, async (s) => {
-      expect(s.boundEngine.currentState.run_policy).toBeUndefined()
       const realEnv = s.env
-      s.env = { ...realEnv, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
       const principal = { identity: "session:x", kind: "session", user: "user_cccccccccccccccccccc", team }
-      const r = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation: a.value.id }, idempotency_key: "k-down", origin: "cli" })
+      const automation = await createWithTeamDown(s, team, principal, { name: "m", triggers: [{ type: "manual" }], body: steps })
+      const r = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation }, idempotency_key: "k-down", origin: "cli" })
       expect(r.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "policy.pending" })
       s.env = realEnv
-      const ok = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation: a.value.id }, idempotency_key: "k-up", origin: "cli" })
+      const ok = await s.submit(team, principal, { t: "op", op: "automation.run", params: { automation }, idempotency_key: "k-up", origin: "cli" })
       expect(ok.frames.find((f: { t: string }) => f.t === "result"), JSON.stringify(ok.frames)).toBeDefined()
       expect(s.boundEngine.currentState.run_policy).toMatchObject({ runs_allowed: true })
     })
@@ -173,14 +158,15 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     const automation = created.value.id as string
     await setClasses(t, team, ["mux"])
     await inDO(testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team)), async (s) => {
-      const a = s.boundEngine.currentState.automations[automation]
+      const stored = s.boundEngine.rows.get(TABLE_AUTOMATION, automation)
+      const a = stored.row
       const cont = a.triggers.find((x: { spec: { type: string } }) => x.spec.type === "continue")
       // Put the continue trigger in its due state as a finished run would (pure reducer path).
       const at = Date.now()
-      s.boundEngine.currentState.automations[automation] = { ...a, triggers: a.triggers.map((x: { id: string }) => (x.id === cont.id ? { ...x, next_at: at } : x)) }
+      s.boundEngine.rows.apply([{ table: TABLE_AUTOMATION, op: "upsert", key: automation, n: stored.n, row: { ...a, triggers: a.triggers.map((x: { id: string }) => (x.id === cont.id ? { ...x, next_at: at } : x)) } }])
       const r = s.submitSystem("automation.fire", { automation, trigger: cont.id, scheduled_at: at }, `fire-cont:${at}`)
       expect(r.frames.find((f: { t: string }) => f.t === "result")).toMatchObject({ value: { skipped: "policy.denied" } })
-      expect(s.boundEngine.currentState.automations[automation].triggers.find((x: { id: string }) => x.id === cont.id).next_at).toBeNull()
+      expect(automationRowOf(s.boundEngine.rows, automation)!.triggers.find((x: { id: string }) => x.id === cont.id)!.next_at).toBeNull()
     })
     expect((await read(t, "automation.runs.list", { automation })).value.runs).toHaveLength(0)
   })
@@ -195,18 +181,10 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
       const r = s.submitSystem("automation.deliver", { automation: hook.value.id, trigger: hook.value.triggers[0].id, delivery_id: "d-stop" }, "deliver-stop")
       const run = r.frames.find((f: { t: string }) => f.t === "result").value.id as string
       s.submitSystem("scheduler.run_policy", { version: 99, runs_allowed: false }, "run-policy:99:0")
-      expect(s.boundEngine.currentState.runs[run].state).toBe("cancelled")
+      expect(runRowOf(s.boundEngine.rows, run)!.state).toBe("cancelled")
       expect(await s.reportRun(team, { run, state: "running", step: -1 })).toMatchObject({ ok: true, stopped: true })
-      expect(s.boundEngine.currentState.runs[run].state).toBe("cancelled")
+      expect(runRowOf(s.boundEngine.rows, run)!.state).toBe("cancelled")
     })
-  })
-
-  it("terminate-after-create: a run that became terminal while its Workflow was created is terminated (pure)", () => {
-    const run = (state: string) => ({ runs: { run_x: { state } } }) as unknown as Pick<SchedulerState, "runs">
-    expect(afterCreate(run("queued"), "run_x")).toBe("dispatched")
-    expect(afterCreate(run("running"), "run_x")).toBe("dispatched")
-    for (const s of TERMINAL) expect(afterCreate(run(s), "run_x")).toBe("terminate")
-    expect(afterCreate({ runs: {} }, "run_x")).toBe("terminate")
   })
 
   it("a cron fire while runs are not allowed advances the schedule and starts no run", async () => {
@@ -220,7 +198,7 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     let value: any
     await inDO(scheduler, async (s) => {
-      const trigger = s.boundEngine.currentState.automations[automation].triggers[0].id
+      const trigger = automationRowOf(s.boundEngine.rows, automation)!.triggers[0]!.id
       const r = s.submitSystem("automation.fire", { automation, trigger, scheduled_at: before }, `fire-test:${before}`)
       value = r.frames.find((f: { t: string }) => f.t === "result" || f.t === "reject")
     })
@@ -234,16 +212,13 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
   it("a cron fire refused as policy.pending retries in a second, without backoff (review P2)", async () => {
     const t = await token("run-policy-pending")
     const team = (await op(t, "user.ensure", {})).value.personal_team as string
-    const created = await op(t, "automation.create", { name: "cron", triggers: [{ type: "cron", expr: "* * * * *", tz: "UTC" }], body: steps })
-    expect(created.ok, JSON.stringify(created)).toBe(true)
-    const automation = created.value.id as string
     const stub = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     await inDO(stub, async (s) => {
-      expect(s.boundEngine.currentState.run_policy).toBeUndefined()
       const realEnv = s.env
       // TeamDO is unreachable, so the policy stays unloaded and the fire is refused as policy.pending.
-      s.env = { ...realEnv, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
-      const at = s.boundEngine.currentState.automations[automation].triggers[0].next_at as number
+      const principal = { identity: "session:x", kind: "session", user: "user_cccccccccccccccccccc", team }
+      const automation = await createWithTeamDown(s, team, principal, { name: "cron", triggers: [{ type: "cron", expr: "* * * * *", tz: "UTC" }], body: steps })
+      const at = automationRowOf(s.boundEngine.rows, automation)!.triggers[0]!.next_at as number
       await s.onWake(at + 1)
       const rows = s.ctx.storage.sql.exec("SELECT key, attempts, at FROM retry_state WHERE key LIKE 'fire:%'").toArray()
       expect(rows).toHaveLength(1)

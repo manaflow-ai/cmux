@@ -1,5 +1,5 @@
 // PROPOSED embed contract `cmux.ui.embed` (app platform critique C3).
-// Vendored copy; identical in first-party-apps/{diffs,monaco,codemirror}.
+// Vendored copy; identical in first-party-apps/{diffs,codemirror}.
 //
 // An app asks the shell to mount another app's implementation of an interface
 // inside its own pane. The shell picks the implementation (the user's default

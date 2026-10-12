@@ -10,11 +10,15 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod agent_hook_install;
+use cmux_tui_hooks as agent_hook_install;
+mod agent_plugin_config;
+#[cfg(unix)]
+mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
@@ -25,6 +29,10 @@ mod cloud_conversations_backend;
 mod coderouter_usage;
 mod config;
 mod headless;
+mod local_actor;
+mod private_mode;
+#[cfg(unix)]
+mod signal_sender;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -71,6 +79,7 @@ mod remote_cli {
         1
     }
 }
+mod owner_start;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -138,20 +147,6 @@ unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
 
-#[cfg(unix)]
-extern "C" fn handle_signal(_: libc::c_int) {
-    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
-    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
-    if writer >= 0 {
-        let byte = 1_u8;
-        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
-        // socket descriptor, and the one-byte source remains valid for the call.
-        unsafe {
-            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
-        }
-    }
-}
-
 pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
@@ -176,7 +171,7 @@ fn install_signal_handlers() -> io::Result<()> {
     SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
-        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        action.sa_sigaction = signal_sender::handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
             SIGNAL_WAKE_READER.store(-1, Ordering::Release);
             SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
@@ -185,7 +180,8 @@ fn install_signal_handlers() -> io::Result<()> {
         // Termination must interrupt startup and teardown syscalls. In
         // particular, reopening `/dev/tty` can block forever after the host
         // PTY disappears if the handler is installed with SA_RESTART.
-        action.sa_flags = 0;
+        // SA_SIGINFO names the sender (cx-0tgl LA).
+        action.sa_flags = libc::SA_SIGINFO;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
                 SIGNAL_WAKE_READER.store(-1, Ordering::Release);
@@ -1374,7 +1370,7 @@ fn rewrite_server_start(args: &mut Vec<String>) {
             }
             "-h" | "--help" => return,
             scope
-                if cli::canonical_scope(scope) == "server"
+                if cli::is_lifecycle_scope(scope)
                     && args.get(index + 1).map(String::as_str) == Some("start") =>
             {
                 let start_args = &args[index + 2..];
@@ -1629,12 +1625,9 @@ fn main() -> std::process::ExitCode {
         let code = acp::run_standalone(std::env::args_os().skip(1).collect());
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
-    // Hook helper mode for hosts that received only this binary (see
-    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
-    // so it touches no daemon, log, or config state.
-    let mut arguments = std::env::args().skip(1);
-    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
-        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    // Hook helper mode and classic cmux's hook commands (see `classic_hooks::run`).
+    if let Some(code) = classic_hooks::run() {
+        return code;
     }
     run_main();
     // Reached only by the normal return paths (never client_log::exit): flush
@@ -1653,6 +1646,31 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
+/// Records this daemon's build id and its own binary (which is also its CLI)
+/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
+/// path cannot be resolved reports its build id only.
+#[cfg(unix)]
+fn install_daemon_build() {
+    // cmux-remote (which stamps the source revision) is a Unix-only
+    // dependency; a Windows daemon reports its package version until the
+    // stamp moves to a cross-platform crate.
+    #[cfg(unix)]
+    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let build_id = env!("CARGO_PKG_VERSION");
+    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
+        build_id, cli_path,
+    ));
+}
+
+/// The build id comes from cmux-remote's build script, and cmux-remote is a
+/// unix-only dependency. A Windows daemon installs no build, so `identify`
+/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
+/// embedder does.
+#[cfg(not(unix))]
+fn install_daemon_build() {}
+
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -1670,9 +1688,8 @@ fn run_main() {
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        client_log::exit(agent_browser_provider::run());
+    if let Some(code) = private_mode::run(&raw_args) {
+        client_log::exit(code);
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
@@ -1686,18 +1703,20 @@ fn run_main() {
         }
         return;
     }
-    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux
+    // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
     // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
-    if let Some(head @ ("acp" | "harness" | "chats")) = raw_args.first().map(String::as_str) {
+    if let Some(head @ ("acp" | "harness" | "chats" | "route")) =
+        raw_args.first().map(String::as_str)
+    {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
-        client_log::exit(acp::run(args));
+        client_log::exit(acp::run_scope(head, args));
     }
     #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("link") {
+    if let Some(run) = cli::early_unix_scope(&raw_args) {
         discard_provider_secret_environment();
-        client_log::exit(link::run(&raw_args[1..]));
+        client_log::exit(run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -1762,9 +1781,9 @@ fn run_main() {
         }
         return;
     }
-    // `server start` is the canonical spelling for the existing foreground
-    // headless owner. Keep startup in the established Args/run_server path so
-    // lifecycle aliases cannot drift into a second server launcher.
+    // `daemon start` (`server start` on cmux-tui; pre-D1 `cmux server start`, rewritten first) is
+    // the foreground headless owner, on the one Args/run_server path: no second server launcher.
+    cli::rewrite_deprecated_server_lifecycle(&mut raw_args);
     rewrite_server_start(&mut raw_args);
     if is_cli_invocation(&raw_args) {
         discard_provider_secret_environment();
@@ -1774,6 +1793,12 @@ fn run_main() {
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
+    if !args.attach {
+        // This process hosts terminals now (cx-4nar): an agent that started
+        // it must not mark a person's shells there as agent callers.
+        // SAFETY: still single-threaded startup, as for the captures above.
+        unsafe { startup_env::take_agent_caller_env() };
+    }
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -1828,12 +1853,8 @@ fn run_main() {
 }
 
 fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
-    cmux_tui_core::terminal_host_runtime::isolate_terminal_host_process_fds()?;
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut reader = stdin.lock();
-    let mut writer = stdout.lock();
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
+    cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
+    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
@@ -2059,7 +2080,7 @@ impl Drop for ServedMuxCleanup {
     fn drop(&mut self) {
         if let Some(mux) = self.mux.take() {
             mux.shutdown();
-            cmux_tui_core::server::cleanup(&self.socket_path);
+            mux.release_ownership(&self.socket_path);
         }
     }
 }
@@ -2103,9 +2124,8 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    if args.ephemeral && args.state.is_some() {
-        anyhow::bail!("--ephemeral and --state are mutually exclusive");
-    }
+    install_daemon_build();
+    owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2117,7 +2137,7 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = args.ws_token.clone().or(config.server.ws_token.clone());
+    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2156,7 +2176,6 @@ fn run_server(
     ) {
         return start_detached_owner_session(args, config, socket_path);
     }
-
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
         let relays =
@@ -2182,6 +2201,7 @@ fn run_server(
         (Vec::new(), None, None)
     };
 
+    localization::terminal_respawn::install();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();
@@ -2202,6 +2222,9 @@ fn run_server(
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
     claude_wrapper::configure_pane_path(&mut surface_options);
+    // The app's bundled `cmux` (the app starts the daemon with it) stays
+    // first after the shim on a caller PATH (`terminal_spawn_options`).
+    surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
 
     let state_root = if args.ephemeral {
         None
@@ -2225,6 +2248,23 @@ fn run_server(
         }
     }
     let provider_management_pending = provider_management_listener.is_some();
+    // Bind and serve the session socket before the restore below (registry
+    // load, terminal host adoption), which can take minutes on a loaded
+    // machine (cx-n3bs). For that whole time the socket names this process
+    // as the session's owner: `server ensure` sees a restoring owner and
+    // waits for it on every platform, and a second owner loses the bind and
+    // exits before it touches the registry or a terminal host.
+    // A saved state this build cannot open fails before the bind, so its
+    // recovery text can still tell whether another server holds the socket.
+    if let Some(root) = state_root.as_deref()
+        && let Err(error) =
+            cmux_tui_core::WorkspaceRegistry::check_supported_schema(root, &args.session)
+    {
+        return Err(workspace_schema_startup_error(error, &args.session, &socket_path, Some(root)));
+    }
+    let restoring_server =
+        cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
+            .serve_restoring()?;
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2254,15 +2294,22 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }
-        .map_err(|error| {
-            workspace_schema_startup_error(
+        };
+    let mux = match mux {
+        Ok(mux) => mux,
+        Err(error) => {
+            // Release the socket first: the recovery text probes it to say
+            // whether a server still listens there, and this process no
+            // longer will.
+            drop(restoring_server);
+            return Err(workspace_schema_startup_error(
                 error,
                 &args.session,
                 &socket_path,
                 state_root.as_deref(),
-            )
-        })?;
+            ));
+        }
+    };
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2300,14 +2347,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
-    {
-        Ok(server) => server,
-        Err(error) => {
-            mux.shutdown();
-            return Err(error);
-        }
-    };
+    let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
     let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
@@ -2401,10 +2441,13 @@ fn run_server(
             [bound, remote_direct_websocket, remote_workspace_http],
         );
     }
-    mux.set_loopback_forward_policy(loopback_forward_policy);
-    mux.set_loopback_forward_audit_reporter(Arc::new(|line| {
-        crate::client_log::stderr_log!("loopback-forward", "{BIN}: {line}");
-    }));
+    loopback_policy::install(&mux, loopback_forward_policy);
+    #[cfg(unix)]
+    mux.watch_agent_chats(acp::daemon_socket_path());
+    #[cfg(unix)]
+    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    #[cfg(unix)]
+    mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
@@ -2544,7 +2587,7 @@ fn run_server(
     {
         drop(websocket_server);
         mux.shutdown();
-        cmux_tui_core::server::cleanup(&socket_path);
+        mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();
         drop(served_mux_cleanup);
         result.and(owner_event_result)
@@ -2608,7 +2651,7 @@ fn finish_server_shutdown<W, R>(
 ) -> anyhow::Result<()> {
     drop(websocket_server);
     mux.shutdown();
-    cmux_tui_core::server::cleanup(socket_path);
+    mux.release_ownership(socket_path);
     remote_shutdown.map(|_| ())?;
     result
 }
@@ -2769,17 +2812,33 @@ fn start_detached_owner_session(
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
+        chief_tools_socket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
-    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
+    // A restore can take minutes on a loaded machine: say so once instead of
+    // a silent terminal (cx-n3bs).
+    let told = std::cell::Cell::new(false);
+    let report = |_: &local_owner::Restoring| {
+        if !told.replace(true) {
+            eprintln!("{}", messages.owner_restoring);
+        }
+    };
+    let progress = local_owner::RestoreProgress::new(&report);
+    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline, &progress) {
         match error {
             local_owner::EnsureError::Spawn(_error) => {
                 anyhow::bail!("{}", messages.owner_spawn_failed())
             }
             local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
+            local_owner::EnsureError::RestoreTimeout => {
+                anyhow::bail!("{}", messages.owner_restore_timeout)
+            }
             local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
             local_owner::EnsureError::DifferentSession => {
                 anyhow::bail!("{}", messages.different_session)
+            }
+            local_owner::EnsureError::DifferentState => {
+                anyhow::bail!("{}", messages.different_state)
             }
             local_owner::EnsureError::InvalidIdentity => {
                 anyhow::bail!("{}", messages.invalid_identity)

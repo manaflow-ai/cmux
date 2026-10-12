@@ -52,6 +52,8 @@ pub(super) fn eligible(request: &Value) -> bool {
             tool.pointer("/_meta/claude/tool").and_then(Value::as_str),
             Some("AskUserQuestion" | "ExitPlanMode")
         )
+        // A question (any harness) is answered on its own card, never in a batch.
+        && !super::questions::needs_person(request)
 }
 
 pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
@@ -88,7 +90,7 @@ impl PermissionState {
             .iter()
             .map(|(id, pending)| {
                 let group = self.groups.iter().find(|g| g.items.iter().any(|item| &item.id == id));
-                json!({"permissionId":id,"request":pending.request,
+                json!({"permissionId":id,"request":pending.request,"decisionNonce":pending.decision_nonce,
                     "groupId":group.map(|g| &g.id),"turnId":group.and_then(|g| g.turn_id.as_ref())})
             })
             .collect()
@@ -386,7 +388,3 @@ impl Hub {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "permission_groups/tests.rs"]
-mod tests;

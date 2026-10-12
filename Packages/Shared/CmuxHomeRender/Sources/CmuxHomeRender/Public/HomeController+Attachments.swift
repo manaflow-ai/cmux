@@ -53,7 +53,7 @@ extension HomeController {
     /// The pending send `intent` as `HomeStore.send` arguments when it
     /// carries attachments whose local files this controller holds.
     func attachmentSend(_ intent: HomeIntent) -> (conversation: ConversationID, text: String, attachments: [LocalAttachment])? {
-        guard case .sendMessage(let conversation, let parts) = intent.op else { return nil }
+        guard case .sendMessage(let conversation, let parts, _) = intent.op else { return nil }
         var attachments: [LocalAttachment] = []
         var text = ""
         for part in parts {
@@ -96,8 +96,8 @@ extension HomeController {
 
     /// The playback state of a video part (nil when the part is not a video).
     public func videoState(for item: IdempotencyKey, partIndex: Int) -> HomeVideoState? {
-        guard let parts = items.first(where: { $0.key == item })?.parts, parts.indices.contains(partIndex),
-              case .attachment(let ref) = parts[partIndex], AttachmentLayout.media(ref)?.isVideo == true else { return nil }
+        guard let parts = items.first(where: { $0.key == item })?.parts, let part = parts.indices.contains(partIndex) ? parts[checked: partIndex] : nil,
+              case .attachment(let ref) = part, AttachmentLayout.media(ref)?.isVideo == true else { return nil }
         return scene.video.state("part:\(item.rawValue):\(partIndex)")
     }
 

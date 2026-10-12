@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Page Info geometry and colors. Sizes come from `Metrics`/`Typography`;
 /// colors from `Palette` (Ghostty-derived). cmux has no accent color, so
@@ -13,10 +14,10 @@ enum PageInfoStyle {
     static var rowInset: CGFloat { Metrics.panelInset }
     static var iconSize: CGFloat { Metrics.iconSize }
     static var iconColumn: CGFloat { Metrics.iconSize + Metrics.panelInset * 2 }
-    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
+    static var cornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
     static var itemCornerRadius: CGFloat { Metrics.itemCornerRadius }
     static var spacing: CGFloat { Metrics.panelInset }
-    static var shadowMargin: CGFloat { Metrics.panelInset * 3 }
+    static var shadowMargin: CGFloat { PopupStyle.standard.shadowMargin }
     static var toggleSize: CGSize { Metrics.density == .compact ? CGSize(width: 28, height: 16) : CGSize(width: 32, height: 18) }
 
     static var titleFont: NSFont { Typography.bodyEmphasized }
@@ -34,9 +35,9 @@ enum PageInfoStyle {
     static var focusRing: NSColor { Palette.focusRing } // theme-scoped
     static var danger: NSColor { Palette.danger } // theme-scoped
 
-    static func symbol(_ name: String, size: CGFloat? = nil, weight: NSFont.Weight = .regular) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: size ?? iconSize, weight: weight))
+    /// The pack icon for SF Symbol `name` (else the symbol) beside a `size`-point label.
+    static func symbol(_ name: String, size: CGFloat? = nil) -> NSImage? {
+        NSImage.icon(symbol: name, size: .iconRowSize(forLabelPointSize: size ?? iconSize))
     }
 
     /// A label whose `color` is read inside its theme scope on every theme

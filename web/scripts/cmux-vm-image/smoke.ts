@@ -4,6 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
+ *       [--expect-capabilities <json>] [--team-vm]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -16,6 +17,8 @@
  * sshd trusts only the bound CA on loopback (empty CA refuses, throwaway CA
  * cert login + scp pass, KRL refuses); display and first-use roles are off and
  * CJK fonts are present (cloud-automation.md 2 and 5).
+ * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
+ * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
@@ -24,10 +27,12 @@ import path from "node:path";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
 import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
-import { GUEST_DIR, TMP_LEFTOVERS } from "./bake";
+import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
+import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
+import { HOST_CLI } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -203,6 +208,30 @@ async function functionalChecks(vm: Vm, lock: InputsLock, report: Report): Promi
   check(report, "daemon-from-store", env.code === 0 && env.stdout.includes(CURRENT_BIN), env.stdout.trim());
 }
 
+/** Capabilities every Cloud image must serve (the frontend's browser tabs; bead cx-4l51). */
+export const REQUIRED_IMAGE_CAPABILITIES = ["frontend-browser-tabs-v1", "loopback-forward-v1"] as const; // vm-agent-v1 is added by `cmux host cloud daemon-info`, not identify (the bake checks it)
+
+/** The fresh clone's full handshake; with `expected` (the tip's list) none may be missing. */
+export async function handshakeChecks(vm: Vm, report: Report, expected?: readonly string[]): Promise<void> {
+  const out = await run(vm, daemonIdentifyCommand(), 60_000);
+  let served: string[] = [];
+  try {
+    const identify = parseDaemonIdentify(out.stdout);
+    report.daemonIdentify = identify;
+    served = identify.capabilities;
+  } catch (error) {
+    check(report, "daemon-handshake", false, `${String(error)} ${out.stderr.slice(-200)}`);
+    return;
+  }
+  const required = REQUIRED_IMAGE_CAPABILITIES.filter((c) => !served.includes(c));
+  check(report, "daemon-handshake", required.length === 0, required.length ? `missing ${required.join(", ")}` : `${served.length} capabilities, build ${String((report.daemonIdentify as { build_commit?: string }).build_commit)}`);
+  if (expected) {
+    const missing = expected.filter((c) => !served.includes(c));
+    report.handshakeMissing = missing;
+    check(report, "daemon-handshake-matches-expected", missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : `all ${expected.length} expected capabilities served`);
+  }
+}
+
 /** sshd trust (LINK-FILES) and roles that stay off (cloud-automation.md 5 and 2). Runs after the secret scan: the cert smoke makes a temp CA. */
 async function automationChecks(vm: Vm, report: Report): Promise<void> {
   const effective = await run(vm, `sshd -T -C user=${DEVBOX_WORK_USER},host=localhost,addr=127.0.0.1`);
@@ -211,7 +240,7 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   check(report, "sshd-ca-only-loopback", effective.code === 0 && sshd.length === 0, sshd.join("\n") || "policy and loopback listen ok");
   const cert = await run(vm, sshdCertSmokeCommand(DEVBOX_WORK_USER), 120_000);
   check(report, "sshd-cert-login", cert.code === 0, cert.stdout.trim() || cert.stderr.slice(-300));
-  const probe = await run(vm, `/usr/local/bin/bun /opt/cmux/guest/vm-agent.ts --probe-activity`, 60_000);
+  const probe = await run(vm, `${HOST_CLI} cloud probe-activity`, 60_000);
   const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
   check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
   const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);
@@ -227,7 +256,7 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
   return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -254,6 +283,13 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     check(report, "ssh-host-key-differs", ids.length === 2 && Boolean(ids[0].sshkey) && ids[0].sshkey !== ids[1].sshkey, `${ids[0]?.sshkey} vs ${ids[1]?.sshkey}`);
     report.machineIdShared = ids[0]?.machineid === ids[1]?.machineid;
     console.log(`INFO machine-id ${report.machineIdShared ? "SHARED (regenerated by the bind agent, pending)" : "differs"}`);
+    await handshakeChecks(kept[1].vm, report, options.expectCapabilities);
+    if (options.teamVm) {
+      // The bake's own command is idempotent and verifies owner and mode; on a clone it must change nothing.
+      const before = await run(kept[1].vm, `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`);
+      const verify = await run(kept[1].vm, teamVmDirsCommand());
+      check(report, "team-files-root", before.code === 0 && verify.code === 0 && before.stdout.trim() === verify.stdout.trim().split("\n").at(-1), before.stdout.trim() || before.stderr.slice(-200));
+    }
     await functionalChecks(kept[1].vm, lock, report);
     await automationChecks(kept[1].vm, report);
     if (options.agentProbe) {
@@ -285,6 +321,15 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
   return report;
 }
 
+/** --expect-capabilities <file>: a JSON array of capability names, or a probe/bake JSON with identify.capabilities. */
+function expectedCapabilities(file: string | undefined): string[] | undefined {
+  if (!file) return undefined;
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  const list = Array.isArray(parsed) ? parsed : ((parsed as { identify?: { capabilities?: unknown }; daemonIdentify?: { capabilities?: unknown } }).identify?.capabilities ?? (parsed as { daemonIdentify?: { capabilities?: unknown } }).daemonIdentify?.capabilities);
+  if (!Array.isArray(list) || !list.every((c) => typeof c === "string")) throw new Error(`${file}: no capability list`);
+  return list as string[];
+}
+
 export async function main(argv = process.argv): Promise<number> {
   const snapshotId = argValue("--snapshot", argv);
   const tag = argValue("--tag", argv);
@@ -299,6 +344,8 @@ export async function main(argv = process.argv): Promise<number> {
     agentProbe: argv.includes("--agent-probe"),
     resizeProbe: argv.includes("--resize-probe"),
     browserProbe: argv.includes("--browser-probe"),
+    expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
+    teamVm: argv.includes("--team-vm"),
   });
   return report.passed ? 0 : 1;
 }

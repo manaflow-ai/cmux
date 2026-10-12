@@ -6,6 +6,7 @@ import Foundation
 public struct ListBookmarksRequest: DaemonRequest {
     public typealias Response = BookmarkList
     public static let command = "list-bookmarks"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.bookmarks
     public var browserProfileID: String
     public init(browserProfileID: String) { self.browserProfileID = browserProfileID }
     enum CodingKeys: String, CodingKey { case browserProfileID = "browser_profile_id" }
@@ -15,6 +16,7 @@ public struct ListBookmarksRequest: DaemonRequest {
 public struct CreateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
     public static let command = "create-bookmark"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.bookmarks
     public var bookmark: String?
     public var browserProfileID: String
     public var parent: String

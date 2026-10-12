@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -32,12 +33,12 @@ final class TabWatcher {
         // Commits, finishes and failures, keyed by navigation (LoadWaits).
         navigationObserver = tab.observeNavigationEvents { [weak session] event in session?.waits.navigationEvent(event) }
         // A load that never started a navigation ended: same-document (LoadWaits).
-        loadingObservation = tab.webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
-            MainActor.assumeIsolated { if !webView.isLoading { self?.session?.waits.loadingEnded() } }
+        loadingObservation = tab.webView.observe(\.isLoading, options: [.new]) { @Sendable [weak self] webView, _ in
+            MainDelivery().run { if !webView.isLoading { self?.session?.waits.loadingEnded() } }
         }
         // Same-document navigations change only the web view's URL.
-        urlObservation = tab.webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
-            MainActor.assumeIsolated { self?.urlChanged(webView.url, loading: webView.isLoading) }
+        urlObservation = tab.webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
+            MainDelivery().run { self?.urlChanged(webView.url, loading: webView.isLoading) }
         }
     }
 

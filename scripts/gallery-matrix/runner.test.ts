@@ -1,8 +1,20 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, shardCases, undeletedLedgerIds, writeLedger } from "./runner";
+import { deleteLedgerIds, diffPng, parseManifest, pauseLedgerIds, renderIndex, settleSummary, shardCases, undeletedLedgerIds, withTimeout, writeLedger } from "./runner";
+
+test("summarizes settled interaction latency and ignores missing samples", () => {
+  expect(settleSummary([30, 10, 20, null, "slow", Number.NaN])).toEqual({ count: 3, p50: 20, p95: 30, max: 30 });
+  expect(settleSummary([])).toEqual({ count: 0, p50: 0, p95: 0, max: 0 });
+});
+
+test("ordinary matrix cards include settled interaction latency", () => {
+  const html = renderIndex([{ id: "case", engine: "chromium", screenshot: "case.png", play: { steps: [{ settleMs: 10 }, { settleMs: 20 }, { settleMs: 30 }] } }]);
+  expect(html).toContain('"latency":{"count":3,"p50":20,"p95":30,"max":30}');
+  expect(html).toContain("latencyCell");
+  expect(html).toContain("playCells(r)");
+});
 
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
@@ -14,6 +26,10 @@ test("shards cases deterministically", () => {
   const cases = [0, 1, 2, 3, 4, 5].map((id) => ({ id: String(id), path_or_url: "x" }));
   expect(shardCases(cases, 2, 0).map((item) => item.id)).toEqual(["0", "2", "4"]);
   expect(shardCases(cases, 2, 1).map((item) => item.id)).toEqual(["1", "3", "5"]);
+});
+
+test("bounds a renderer operation that stops responding", async () => {
+  await expect(withTimeout(new Promise(() => {}), 5, "fixture chromium")).rejects.toThrow("fixture chromium timed out after 5ms");
 });
 
 test("computes a pixel diff and threshold percentage", () => {
@@ -61,4 +77,173 @@ test("a hash-route case keeps its route; params go only into a stage's query", a
   const { stageUrlForTest } = await import("./runner");
   expect(stageUrlForTest("frame.html", { entry: "a.b", width: 760 })).toBe("/frame.html?entry=a.b&width=760");
   expect(stageUrlForTest("index.html#/a.b/c?theme=Nord", { width: 1600 })).toBe("/index.html#/a.b/c?theme=Nord");
+});
+
+test("a matrix reuses its browser while isolating and closing every case context", async () => {
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-lifecycle-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "first", path_or_url: "https://example.test/" },
+    { id: "second", path_or_url: "https://example.test/" },
+  ]));
+  let launches = 0; let contexts = 0; let closedContexts = 0; let closedBrowsers = 0;
+  const navigationWaits: unknown[] = [];
+  const browserTypes = { chromium: { launch: async () => {
+    launches++;
+    return {
+      newContext: async () => {
+        contexts++;
+        return {
+          newPage: async () => ({
+            exposeFunction: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
+            evaluate: async () => null,
+            screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+          }),
+          close: async () => { closedContexts++; },
+        };
+      },
+      close: async () => { closedBrowsers++; },
+    };
+  } } };
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => r.id)).toEqual(["first", "second"]);
+    expect(launches).toBe(1);
+    expect(contexts).toBe(2);
+    expect(closedContexts).toBe(2);
+    expect(closedBrowsers).toBe(1);
+    expect(navigationWaits).toEqual([{ waitUntil: "domcontentloaded" }, { waitUntil: "domcontentloaded" }]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("recycles a crashed renderer and keeps the matrix moving", async () => {
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-recovery-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([{ id: "crash-once", path_or_url: "https://example.test/" }]));
+  let launches = 0;
+  let closedBrowsers = 0;
+  try {
+    const browserTypes = { chromium: { launch: async () => {
+      const attempt = ++launches;
+      return {
+        newContext: async () => ({
+          newPage: async () => ({
+            exposeFunction: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+            evaluate: async () => { if (attempt === 1) throw new Error("Target crashed"); return null; },
+            screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+          }),
+          close: async () => {},
+        }),
+        close: async () => { closedBrowsers++; },
+      };
+    } } };
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.ready).toBe(null);
+    expect(launches).toBe(2);
+    expect(closedBrowsers).toBe(2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("records a hung case after both bounded attempts and captures later cases", async () => {
+  const { runLocal } = await import("./runner");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-browser-timeout-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "hung", path_or_url: "https://example.test/hung" },
+    { id: "next", path_or_url: "https://example.test/next" },
+  ]));
+  let launches = 0; let closedBrowsers = 0;
+  const previousExitCode = process.exitCode;
+  try {
+    const browserTypes = { chromium: { launch: async () => {
+      launches++;
+      return {
+        newContext: async () => {
+          let target = "";
+          return {
+            newPage: async () => ({
+              exposeFunction: async () => {}, goto: async (url: string) => { target = url; }, waitForFunction: async () => {},
+              evaluate: async () => target.includes("hung") ? new Promise(() => {}) : null,
+              screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+            }),
+            close: async () => {},
+          };
+        },
+        close: async () => { closedBrowsers++; },
+      };
+    } } };
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0, caseTimeoutMs: 5 }, browserTypes as never);
+    expect(results.map((result) => result.id)).toEqual(["hung", "next"]);
+    expect(results[0]?.ready).toBe("error");
+    expect(results[0]?.error).toContain("timed out after 5ms");
+    expect(results[1]?.ready).toBe(null);
+    expect(launches).toBe(3);
+    expect(closedBrowsers).toBe(3);
+    expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toEqual(results);
+  } finally {
+    process.exitCode = previousExitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("records a navigation failure and continues the matrix", async () => {
+  const { runLocal } = await import("./runner");
+  const dir = mkdtempSync(join(process.cwd(), "gallery-navigation-failure-"));
+  const manifest = join(dir, "manifest.json");
+  writeFileSync(manifest, JSON.stringify([
+    { id: "stuck", path_or_url: "https://example.test/stuck" },
+    { id: "fine", path_or_url: "https://example.test/fine" },
+  ]));
+  const browserTypes = { chromium: { launch: async () => ({
+    newContext: async () => ({
+      newPage: async () => ({
+        exposeFunction: async () => {},
+        goto: async (url: string) => { if (url.includes("stuck")) throw new Error("goto: Timeout 30000ms exceeded."); },
+        waitForFunction: async () => {},
+        evaluate: async () => null,
+        screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
+      }),
+      close: async () => {},
+    }),
+    close: async () => {},
+  }) } };
+  const exitCode = process.exitCode;
+  try {
+    const results = await runLocal({ manifest, galleryDir: dir, outputDir: dir, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 }, browserTypes as never);
+    expect(results.map((r) => [r.id, r.ready])).toEqual([["stuck", "error"], ["fine", null]]);
+    expect(String(results[0]!.error)).toContain("Timeout");
+    expect(existsSync(join(dir, "fine-chromium.png"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, "results.json"), "utf8"))).toHaveLength(2);
+    expect(existsSync(join(dir, "index.html"))).toBe(true);
+  } finally {
+    process.exitCode = exitCode;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("allocation failure waits for late VM ids before finally cleanup", async () => {
+  const { createAllVms } = await import("./runner");
+  const late = Promise.withResolvers<void>();
+  const recorded: string[] = []; const paused: string[] = [];
+  const run = (async () => {
+    try {
+      await createAllVms(2, async (shard) => {
+        if (shard === 0) throw new Error("allocation refused");
+        await late.promise;
+        recorded.push("vm-late");
+      });
+    } catch { /* The allocation failure is expected; cleanup must still see the late success. */ }
+    finally { paused.push(...recorded); }
+  })();
+  // Let the rejected allocation settle while its sibling is still in flight.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  late.resolve();
+  await run;
+  expect(paused).toEqual(["vm-late"]);
 });

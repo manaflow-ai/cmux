@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 public import Darwin
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Records a "busy" entry in the `debug.hangs` ring buffer when the main
 /// thread, the whole process, or a helper process (Chromium) uses CPU above
@@ -158,13 +158,13 @@ public final class BusyWatchdog: Sendable {
             ["owner": .string(entry.owner), "reason": .string(entry.reason), "per_second": .number(entry.perSecond)]
         }
         var details: [String: JSONValue] = [
-            "scope": .string(scope), "pid": JSONValue(Int(pid)), "process": .string(name),
+            "scope": .string(scope), "pid": JSONValue(Int(clamping: pid)), "process": .string(name),
             "cpu_share": .number(share), "wakeups": .array(top),
         ]
         if let label { details["serves"] = .string(label) }
-        let duration = Duration.nanoseconds(Int64(wall))
-        let record = log.append(startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- UInt64(wall), duration: duration,
-                                cpu: .nanoseconds(Int64(share * wall)), addresses: addresses, kind: .busy, details: details)
+        let duration = Duration.nanoseconds(wall.saturatedInteger(Int64.self) ?? 0)
+        let record = log.append(startUptimeNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- (wall.saturatedInteger(UInt64.self) ?? 0), duration: duration,
+                                cpu: .nanoseconds((share * wall).saturatedInteger(Int64.self) ?? 0), addresses: addresses, kind: .busy, details: details)
         if configuration.logBusy {
             logger.error("busy \(scope, privacy: .public) \(name, privacy: .public) at \(share * 100, format: .fixed(precision: 0))% CPU for \(wall / 1e9, format: .fixed(precision: 1)) s with no input, animation or output (hang \(record.sequence); see debug.hangs)")
         }
@@ -175,11 +175,11 @@ public final class BusyWatchdog: Sendable {
         var info = thread_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(clamping: count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
         }
         guard result == KERN_SUCCESS else { return 0 }
-        let user = UInt64(info.user_time.seconds) * 1_000_000_000 + UInt64(info.user_time.microseconds) * 1_000
-        let system = UInt64(info.system_time.seconds) * 1_000_000_000 + UInt64(info.system_time.microseconds) * 1_000
+        let user = UInt64(clamping: info.user_time.seconds) * 1_000_000_000 + UInt64(clamping: info.user_time.microseconds) * 1_000
+        let system = UInt64(clamping: info.system_time.seconds) * 1_000_000_000 + UInt64(clamping: info.system_time.microseconds) * 1_000
         return user + system
     }
 }

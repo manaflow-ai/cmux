@@ -3,7 +3,7 @@ import AppKit
 /// Back/forward menus: right-click or long-press the Back or
 /// Forward button for the tab's entries, nearest first (plans/cmux-next/
 /// history.md 4.1). Only for tabs whose engine lists its entries
-/// (`BrowserBackForwardListing`).
+/// (`BrowserBackForwardListing`). Reload has its own menu (`BrowserReloadMenu`).
 extension BrowserChromeView {
     static let backForwardMenuLimit = 16
 
@@ -13,7 +13,7 @@ extension BrowserChromeView {
         backButton.target = self
         forwardButton.target = self
         backButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: false) }
-        forwardButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: true) }
+        forwardButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: true) }; reloadButton.menuProvider = { [weak self] in self.map { BrowserReloadMenu.make(for: $0.tab) } }
     }
 
     func backForwardMenu(forward: Bool) -> NSMenu? {

@@ -192,7 +192,8 @@ export const pairApprove = async (
   const rec = claimed.record
   const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
     op: "install.register_server",
-    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team, ...(rec.info.capabilities?.length ? { capabilities: rec.info.capabilities } : {}) },
+    // The approver's SSO team was resolved fresh for this approval (http.ts), so it counts as seen now.
+    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team, ...(rec.info.capabilities?.length ? { capabilities: rec.info.capabilities } : {}), ...(principal.sso_team ? { sso_seen_at: now } : {}) },
     idempotency_key: `pair:${code}:${rec.thumbprint}:install`,
     origin: "user"
   })

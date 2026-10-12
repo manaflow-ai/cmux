@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 
@@ -11,7 +12,7 @@ import CmuxNextRemote
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh!
+        let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         ssh.offerInstall = { [weak registry] session in
@@ -85,8 +86,20 @@ enum RemoteHandlers {
             }
             registry.track(work)
         }
+        // The raw SSH or install error of a machine whose connect failed
+        // (its sidebar header shows it as the tooltip, cx-zdh8).
+        CloudHandlers.bind("remote.copyError", registry, reason: hasMachine) { invocation in
+            let session = try machine(invocation, context)
+            guard let error = RemoteStrings.sshError(session) else { throw ActionFailure(message: RemoteStrings.noSSHError(session.host.label)) }
+            context.copy(error)
+        }
+        // No question (Lawrence 2026-10-07): a person's Forget hides the
+        // machine at once and its undo toast writes it when it ends.
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
+            if invocation.origin == .user, let window = CloudHandlers.window(context) {
+                return RemoteForgetUndo.forget(session, ssh: ssh, in: window)
+            }
             let work: ActionWork = Task {
                 await ssh.forget(session)
                 return nil
@@ -120,7 +133,7 @@ enum RemoteHandlers {
         let daemon = session.daemon
         // task-owner: ends when the tree loads or the machine stops connecting
         Task { @MainActor in
-            for await (loaded, status) in Observations({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
+            for await (loaded, status) in ObservationStream({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
                 if loaded {
                     let id: String?
                     if let first = daemon.store.workspaces.first { id = first.id } else { id = await context.services.windows.createWorkspace(on: daemon) }
@@ -128,7 +141,7 @@ enum RemoteHandlers {
                     return
                 }
                 switch status {
-                case .connecting, .connected, .installing, .needsInstall, .unreachable, .failed: continue
+                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
                 case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
                     if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
                                                                  RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }

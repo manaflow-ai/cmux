@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad, useWire } from "../lib/hooks"
-import { mutate, read, type OpResponse } from "../lib/server"
+import type { OpResponse } from "../lib/server"
+import { useTeamApi } from "../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../lib/session"
 
 export const Route = createFileRoute("/devices")({ component: Devices })
@@ -34,10 +35,11 @@ function Echo({ r }: { r: OpResponse | null }) {
 
 function Devices() {
   const signedIn = useSignedIn()
+  const { read, mutate, team } = useTeamApi()
   const [last, setLast] = useState<OpResponse | null>(null)
   const [ensured, setEnsured] = useState<OpResponse | null>(null)
 
-  const list = useLoad<Listing>(signedIn ? "devices" : null, async () => {
+  const list = useLoad<Listing>(signedIn ? `devices:${team ?? "personal"}` : null, async () => {
     // The user record and personal team exist before anything else (user.ensure is idempotent).
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)

@@ -1,16 +1,17 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
-/// (`closed-history-v1`, state-ownership.md 2). One shared path for Reopen
-/// Closed Tab, Reopen Closed Screen, and Recently Closed: read the newest
-/// item from the mirrored history (`DaemonStore.closedItems`), reopen it
-/// with `closed.reopen`, and show what came back. The history lists
-/// (Recently Closed…, `history.list`, the history page) show these items
-/// beside the app's own trackers (`ClosedTabTracker`, `ClosedScreenHistory`),
-/// which skip daemons that serve the history.
+/// (`closed-history-v2`, state-ownership.md 2, reopen-closed.md). The only
+/// closed history: the app keeps no copy. One shared path for Cmd-Shift-T,
+/// Reopen Closed Screen, Reopen Closed Workspace, the undo toasts, Search
+/// Tabs and every history list: read the item from the mirrored history
+/// (`DaemonStore.closedItems`), reopen it with `closed.reopen`, and show
+/// what came back. Every surface kind the daemon records (terminal, browser,
+/// agent, page and viewer tabs) comes back through the same op.
 @MainActor
 enum DaemonClosedHistory {
     struct Entry {
@@ -38,9 +39,78 @@ enum DaemonClosedHistory {
         services.machines.daemons.contains { $0.store.servesStateResources }
     }
 
+    /// Whose an entry is for Cmd-Shift-T (decision 1, reopen-closed.md 4).
+    enum Owner: Equatable {
+        /// Its tab or screen left a workspace that `window` lists.
+        case window
+        /// Its workspace is listed by no window (a closed workspace, a
+        /// deleted group, a workspace no window shows).
+        case none
+        /// Another window (open or closed) lists its workspace.
+        case otherWindow
+    }
+
+    /// Every kind of closed item: tabs, screens, workspaces and windows.
+    static let allKinds: Set<ClosedItem.Kind> = [.tab, .screen, .workspace, .window]
+
+    /// This install's window record id (`install/window`) of window
+    /// `windowID` (`window-records-v1`), nil without an install id.
+    static func recordID(window windowID: String, in services: AppServices) -> String? {
+        guard let install = try? services.cloud.localDeviceID() else { return nil }
+        return install + "/" + windowID
+    }
+
+    /// Who owns `entry` as seen from window `window` (a window id). The
+    /// daemon names the window record a group left (the app mirrors its
+    /// windows there, `WindowRecordSaver`): this window's record owns it;
+    /// another open window of this app, or another Mac's window, owns it
+    /// too; a window this app closed (also a `window` item itself) or no
+    /// longer has owns nothing. Without a recorded window (an older or a
+    /// remote daemon) the workspace's window decides.
+    static func owner(of entry: Entry, window: String?, in services: AppServices) -> Owner {
+        owner(of: entry, window: window, install: try? services.cloud.localDeviceID(), in: services)
+    }
+
+    /// Same, with this install's id read once (`newest` asks for every entry).
+    /// The recorded window decides only on this Mac's daemon, for a window of
+    /// this install the registry still has; anything else (a window that
+    /// merged into another, another Mac's daemon) falls back to the
+    /// workspace's window. A window item of a window the registry no longer
+    /// has cannot be reopened.
+    private static func owner(of entry: Entry, window: String?, install: String?, in services: AppServices) -> Owner {
+        if entry.daemon.isLocal, let install, let recorded = entry.item.window, recorded.hasPrefix(install + "/") {
+            let windowID = String(recorded.dropFirst(install.count + 1))
+            if let known = services.windows.registry.value.window(windowID) {
+                if windowID == window { return .window }
+                return known.isOpen ? .otherWindow : .none
+            }
+            if entry.item.kind == .window { return .otherWindow }
+        }
+        if entry.item.kind == .window { return .otherWindow }
+        guard let resource = entry.item.workspaceID, let workspace = entry.daemon.store.workspace(resourceID: resource),
+              let owner = services.windows.registry.value.owner(of: workspace.id) else { return .none }
+        return owner == window ? .window : .otherWindow
+    }
+
+    /// Cmd-Shift-T's item for window `window`: the newest group of any
+    /// level (tab, screen, workspace, window) that left this window, else
+    /// the newest one no live window owns (a closed window among them).
+    /// Never a group of another live window (decision 1).
+    static func newest(for window: String?, in services: AppServices) -> Entry? {
+        let all = entries(allKinds, in: services), install = try? services.cloud.localDeviceID()
+        return all.first { owner(of: $0, window: window, install: install, in: services) == .window }
+            ?? all.first { owner(of: $0, window: window, install: install, in: services) == .none }
+    }
+
     /// The entry with id `id` on any daemon.
     static func entry(_ id: String, in services: AppServices) -> Entry? {
-        entries([.tab, .screen, .workspace], in: services).first { $0.item.id == id }
+        entries(allKinds, in: services).first { $0.item.id == id }
+    }
+
+    /// The newest recorded delete of personal workspace group `id`, if a
+    /// daemon serves one (Ungroup and Delete Group record the group).
+    static func groupEntry(_ id: String, in services: AppServices) -> Entry? {
+        entries([.workspace], in: services).first { $0.item.group?.id == id }
     }
 
     /// Reopens `entry` on its daemon and shows it: a tab selected in its
@@ -52,6 +122,8 @@ enum DaemonClosedHistory {
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
         let clock = ContinuousClock(), start = clock.now
+        // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
+        if daemon.isLocal { services.cache.pageRequests.closedHistories.expect(item) }
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem
@@ -69,23 +141,90 @@ enum DaemonClosedHistory {
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
                     undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for await present in Observations({ inStore() }) where present {
+                    for await present in ObservationStream({ inStore() }) where present {
                         undo?.noteReopenTabsArrived(start.duration(to: clock.now))
                         return
                     }
                 }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
+                services.cache.pageRequests.closedHistories.drop(item)
+                if item.kind == .workspace, item.group == nil,
+                   case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
+                    services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
+                    return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
+                }
                 return "closed.reopen: \(error)"
+            }
+            // A reopened workspace group forms again in the sidebar; no window changes what it shows.
+            if item.group != nil { return nil }
+            // A closed window: the app shows it again with the workspaces it kept.
+            if item.kind == .window {
+                let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
+                if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
+                let reason = RefusalStrings.noWindow(windowID ?? item.id)
+                services.registry.refuse(reason)
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
             await daemon.store.applied(through: await connection.eventSequence())
+            if item.kind == .workspace {
+                if let id = reopened.workspaceID,
+                   let workspace = await workspaceAfterReopen(id, in: daemon.store, clock: daemon.reopenClock) {
+                    services.windows.reveal(workspaceID: workspace)
+                    return nil
+                } else {
+                    let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
+                    daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
+                    services.registry.refuse(reason)
+                    return ActionWorkFailure(reason, mayHaveApplied: true)
+                }
+            }
             show(reopened, kind: item.kind, daemon: daemon, services: services)
             return nil
         })
+    }
+
+    /// Deletes `entry` for good on its daemon (History's Remove, Search
+    /// Tabs' forget): it cannot be reopened any more.
+    static func delete(_ entry: Entry, services: AppServices) {
+        let daemon = entry.daemon, id = entry.item.id
+        services.registry.track(Task { @MainActor in
+            guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
+            do {
+                try await connection.state.deleteClosed(id)
+                return nil
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                // Already gone (a second Remove, or a reopen that ran first): the goal holds.
+                return nil
+            } catch {
+                daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
+                return "closed.delete: \(error)"
+            }
+        })
+    }
+
+    /// Clears every connected daemon's closed history: the groups closed at
+    /// or after `since`, every group for nil (Clear History). `since` is this
+    /// Mac's clock; a remote daemon with a skewed clock clears a range off by
+    /// that skew.
+    static func clear(since: Date?, services: AppServices) {
+        let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
+        for daemon in services.machines.daemons where daemon.store.servesStateResources {
+            services.registry.track(Task { @MainActor in
+                guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
+                do {
+                    try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                    return nil
+                } catch {
+                    daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")
+                    return "closed.delete: \(error)"
+                }
+            })
+        }
     }
 
     /// Shows a reopened item once the store has it.
@@ -104,7 +243,7 @@ enum DaemonClosedHistory {
                   let pane = workspace.screens.flatMap(\.panes).first(where: { $0.tabs.contains { $0.resourceID == tab } }),
                   let controller = services.paneController(for: pane) else { return }
             controller.selectWhenReported(tab: tab.rawValue)
-        case .workspace:
+        case .workspace, .window:
             break
         }
     }

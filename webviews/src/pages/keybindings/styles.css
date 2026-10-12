@@ -235,6 +235,15 @@
   cursor: default;
 }
 
+/* A system-wide key another app holds: a quiet mark beside the keys, its reason in the tooltip. */
+.keys-held-elsewhere {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+  color: var(--page-text-2);
+}
+
 .keys-conflict:hover {
   background: var(--page-hover);
   color: var(--page-text);
@@ -321,7 +330,8 @@
   opacity: 1;
 }
 
-.keys-page :focus-visible {
+/* Text fields draw no ring: their caret and their box show focus (desktop.css, cx-ncc.57). */
+.keys-page :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
   outline: 2px solid var(--page-text-3);
   outline-offset: 1px;
 }

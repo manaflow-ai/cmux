@@ -12,14 +12,6 @@ on:
       - scripts/cmux_agent_cursor_vendor.py
       - tests/test_vendored_cmux_agent_cursor.py
       - .github/workflows/vendored-agent-cursor.yml
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - Packages/Shared/CmuxAgentCursor/**
-      - scripts/build-cmux-cua.sh
-      - scripts/cmux_agent_cursor_vendor.py
-      - tests/test_vendored_cmux_agent_cursor.py
-      - .github/workflows/vendored-agent-cursor.yml
   workflow_dispatch:
 
 permissions:

@@ -2,7 +2,7 @@
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
 import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
-import { usePortalContainer } from "./UiProvider";
+import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 
@@ -14,11 +14,17 @@ export interface UiAnchorRect {
   bottom: number;
 }
 
-export type UiAnchor = Element | UiAnchorRect | null;
+/** A box read each time the popover is placed, so it follows layout changes (a Floating UI virtual element). */
+export interface UiVirtualAnchor {
+  getBoundingClientRect(): DOMRect;
+  contextElement?: Element;
+}
+
+export type UiAnchor = Element | UiAnchorRect | UiVirtualAnchor | null;
 
 /** The Floating UI virtual element of a rect anchor. */
 export function virtualAnchor(anchor: UiAnchor) {
-  if (!anchor || anchor instanceof Element) return anchor;
+  if (!anchor || anchor instanceof Element || "getBoundingClientRect" in anchor) return anchor;
   const rect = anchor;
   return {
     getBoundingClientRect: () => {
@@ -41,12 +47,17 @@ export function virtualAnchor(anchor: UiAnchor) {
 
 export interface PopoverProps {
   open: boolean;
-  onOpenChange(open: boolean): void;
+  /** `escape`: closed by Escape, which a dialog may read as "revert". */
+  onOpenChange(open: boolean, details?: { escape: boolean }): void;
   /** Where it opens; it opens below. */
   anchor: UiAnchor;
   /** The accessible name of the popover (role dialog). */
   label: string;
   className?: string;
+  /** Which side of the anchor receives the popover. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -60,18 +71,27 @@ export function Popover({
   anchor,
   label,
   className,
+  side = "bottom",
+  flip = true,
   initialFocus,
   finalFocus,
   children,
 }: PopoverProps) {
   const container = usePortalContainer();
+  const positionMethod = useOverlayPosition();
   return (
-    <BasePopover.Root open={open} onOpenChange={(next) => onOpenChange(next)} modal={false}>
+    <BasePopover.Root
+      open={open}
+      onOpenChange={(next, details) => onOpenChange(next, { escape: details.reason === "escape-key" })}
+      modal={false}
+    >
       <BasePopover.Portal container={container}>
         <BasePopover.Positioner
           className="ui-positioner"
+          positionMethod={positionMethod}
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
+          collisionAvoidance={flip ? undefined : { side: "none" }}
           align="start"
           sideOffset={UI_ANCHOR_GAP}
         >

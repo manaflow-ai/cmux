@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a'
+IR_SHA256 = 'a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd'
 
 
 @dataclass(frozen=True)
@@ -311,6 +311,18 @@ COMMANDS = {
             'y_px': CommandFieldMetadata(None, None),
         },
     ),
+    'chief-inspect': CommandMetadata(
+        'chief-inspect',
+        'local-admin',
+        12,
+        'chief-inspect-v1',
+        ('local-admin',),
+        None,
+        {
+            'path': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+        },
+    ),
     'clear-history': CommandMetadata(
         'clear-history',
         'control',
@@ -517,6 +529,20 @@ COMMANDS = {
             'conversation': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-conversation-thread': CommandMetadata(
+        'cloud-conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-conversation-unsubscribe': CommandMetadata(
         'cloud-conversation-unsubscribe',
         'local-admin',
@@ -552,6 +578,38 @@ COMMANDS = {
     ),
     'cloud-inbox-unsubscribe': CommandMetadata(
         'cloud-inbox-unsubscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-ack': CommandMetadata(
+        'cloud-mux-ack',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-mux-subscribe': CommandMetadata(
+        'cloud-mux-subscribe',
+        'local-admin',
+        12,
+        'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'cloud-mux-unsubscribe': CommandMetadata(
+        'cloud-mux-unsubscribe',
         'local-admin',
         12,
         'cloud-conversations-v1',
@@ -671,6 +729,26 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-draft': CommandMetadata(
+        'conversation-draft',
+        'local-admin',
+        12,
+        'conversation-draft-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'done': CommandFieldMetadata(None, None),
+            'fresh': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
+            'kind': CommandFieldMetadata(None, None),
+            'segment': CommandFieldMetadata(None, None),
+            'seq': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+            'truncated': CommandFieldMetadata(None, None),
+            'turn': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-history': CommandMetadata(
         'conversation-history',
         'local-admin',
@@ -743,6 +821,20 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-thread': CommandMetadata(
+        'conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-typing': CommandMetadata(
@@ -908,6 +1000,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'detached': CommandFieldMetadata(12, 'detached-terminals-v1'),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
@@ -1022,6 +1115,19 @@ COMMANDS = {
             'saved': CommandFieldMetadata(None, None),
         },
     ),
+    'delete-terminal-commands': CommandMetadata(
+        'delete-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'all': CommandFieldMetadata(None, None),
+            'ids': CommandFieldMetadata(None, None),
+            'started_since_ms': CommandFieldMetadata(None, None),
+        },
+    ),
     'delete-workspace-group': CommandMetadata(
         'delete-workspace-group',
         'control',
@@ -1070,6 +1176,64 @@ COMMANDS = {
             'screen': CommandFieldMetadata(None, None),
         },
     ),
+    'feed-local-handoff-abort': CommandMetadata(
+        'feed-local-handoff-abort',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-begin': CommandMetadata(
+        'feed-local-handoff-begin',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-done': CommandMetadata(
+        'feed-local-handoff-done',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'home': CommandFieldMetadata(None, None),
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-list': CommandMetadata(
+        'feed-local-list',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'state': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'unread': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-read': CommandMetadata(
+        'feed-local-read',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'items': CommandFieldMetadata(None, None),
+        },
+    ),
     'focus-direction': CommandMetadata(
         'focus-direction',
         'control',
@@ -1103,6 +1267,17 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-blob': CommandMetadata(
+        'get-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'blob': CommandFieldMetadata(None, None),
         },
     ),
     'get-browser-provider': CommandMetadata(
@@ -1158,6 +1333,19 @@ COMMANDS = {
         None,
         {
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'history-search': CommandMetadata(
+        'history-search',
+        'local-admin',
+        12,
+        'history-search-v1',
+        ('local-admin',),
+        None,
+        {
+            'kinds': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
         },
     ),
     'identify': CommandMetadata(
@@ -1305,6 +1493,18 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'list-terminal-commands': CommandMetadata(
+        'list-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_id': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
         },
     ),
     'list-terminals': CommandMetadata(
@@ -1700,6 +1900,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),
@@ -1740,8 +1941,10 @@ COMMANDS = {
             'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
         },
     ),
@@ -1759,11 +1962,30 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'width': CommandFieldMetadata(None, None),
+        },
+    ),
+    'new-remote-terminal-tab': CommandMetadata(
+        'new-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+            'session_name': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
         },
     ),
     'new-row': CommandMetadata(
@@ -1944,6 +2166,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'put-blob': CommandMetadata(
+        'put-blob',
+        'control',
+        12,
+        'icon-assets-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'media_type': CommandFieldMetadata(None, None),
+        },
+    ),
     'put-frontend-projection': CommandMetadata(
         'put-frontend-projection',
         'control',
@@ -2063,6 +2297,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'remote-terminal-snapshot': CommandMetadata(
+        'remote-terminal-snapshot',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'remove-screens-from-screen-group': CommandMetadata(
@@ -2247,6 +2492,17 @@ COMMANDS = {
             'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
+    'restart-tab': CommandMetadata(
+        'restart-tab',
+        'control',
+        12,
+        'tab-restart-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'run': CommandMetadata(
         'run',
         'control',
@@ -2371,6 +2627,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'include': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(
@@ -2429,6 +2686,8 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'mode': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'permanent': CommandFieldMetadata(None, None),
+            'role': CommandFieldMetadata(12, 'dock-column-role-v1'),
             'transaction': CommandFieldMetadata(None, None),
         },
     ),
@@ -2614,11 +2873,12 @@ COMMANDS = {
         'set-terminal-command-history',
         'local-admin',
         12,
-        'terminal-command-journal-v1',
+        'terminal-command-history-v1',
         ('local-admin',),
         None,
         {
             'enabled': CommandFieldMetadata(None, None),
+            'retention_days': CommandFieldMetadata(None, None),
         },
     ),
     'set-terminal-idle-policy': CommandMetadata(
@@ -2749,8 +3009,10 @@ COMMANDS = {
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
+            'tab_id': CommandFieldMetadata(12, 'split-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
         },
@@ -3023,6 +3285,20 @@ COMMANDS = {
             'theme': CommandFieldMetadata(None, None),
         },
     ),
+    'update-remote-terminal-tab': CommandMetadata(
+        'update-remote-terminal-tab',
+        'control',
+        12,
+        'remote-terminal-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'session_name': CommandFieldMetadata(None, None),
+            'snapshot': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
     'update-screen-group': CommandMetadata(
         'update-screen-group',
         'control',
@@ -3152,6 +3428,7 @@ COMMANDS = {
 EVENTS = {
     'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
+    'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
@@ -3163,11 +3440,14 @@ EVENTS = {
     'cloud-conversation-resynced': EventMetadata('cloud-conversation-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-changed': EventMetadata('cloud-inbox-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-inbox-reset': EventMetadata('cloud-inbox-reset', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-resynced': EventMetadata('cloud-mux-resynced', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
+    'cloud-mux-wake': EventMetadata('cloud-mux-wake', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-session-needed': EventMetadata('cloud-session-needed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-subscription-state': EventMetadata('cloud-subscription-state', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
@@ -3175,6 +3455,7 @@ EVENTS = {
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
+    'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
@@ -3193,6 +3474,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),

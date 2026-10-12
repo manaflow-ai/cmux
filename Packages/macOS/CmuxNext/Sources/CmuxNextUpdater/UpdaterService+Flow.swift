@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Network
 public import Foundation
@@ -7,9 +8,12 @@ public import Foundation
 /// (the relaunch keeps every session), and a quit honors
 /// `updates.installOnQuit`.
 extension UpdaterService {
-    /// The card above the footer (a check the user asked for), or nil.
+    /// The notice card's update status, or nil (``UpdateFlow/card``); a
+    /// found update the user dismissed stays hidden until a newer one.
     public var card: UpdateCard? {
-        flow.card
+        guard let card = flow.card else { return nil }
+        if case .available(let version) = card, dismissedAvailableVersion == (version ?? "") { return nil }
+        return card
     }
 
     /// The footer's update pill, or nil when it does not show.
@@ -17,18 +21,13 @@ extension UpdaterService {
         flow.footerPill(preferences: preferences)
     }
 
-    /// A click on the card: show a failed check's details.
-    public func cardClicked() {
-        switch card {
-        case .note(_, isError: true): presentUpdateUI?()
-        case .checking, .downloading, .note, nil: break
-        }
-    }
-
     /// One click installs (footer pill, palette, `cmux update install`): at
     /// once, or when the download finishes. Running agents never hold it:
     /// the relaunch keeps them (`willRelaunch` records keep sessions).
     public func installClicked() {
+        #if DEBUG
+        UpdateHarness.mark("install_clicked")
+        #endif
         syncFlowPhase()
         send(.installRequested)
     }
@@ -55,13 +54,26 @@ extension UpdaterService {
         for effect in flow.handle(event, preferences: preferences) {
             perform(effect)
         }
+        followCardExpiry()
     }
 
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
             log.append("gate: installing the staged update")
+            #if DEBUG
+            UpdateHarness.mark("install_started")
+            #endif
+            if let failure = installPreflightFailure() {
+                failInstall(failure)
+                return
+            }
+            recordBeforeInstall()
+            willInstallStaged?()
             installStaged()
+            #if DEBUG
+            UpdateHarness.mark("install_handed_to_sparkle")
+            #endif
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -74,15 +86,40 @@ extension UpdaterService {
     func syncFlowPhase() {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        #if DEBUG
+        if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
+        if case .note = phase, let controller,
+           let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: identity) {
+            UpdateHarness.mark("failure_content." + content.buttons.map { String(describing: $0).prefix { $0 != "(" } }.joined(separator: "_"))
+        }
+        #endif
+        let wasInstalling = flow.phase == .installing
+        let wasReady = if case .ready = flow.phase { true } else { false }
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        switch phase {
+        case .ready:
+            recordStagedUpdate()
+            keepRunningBuildForRollback()
+        case .note where wasInstalling || wasReady:
+            // The install failed: no relaunch comes. The windows come back and the failure's
+            // sheet opens with Retry and Download Manually, so the click never ends in silence.
+            log.append("install ended without a relaunch")
+            installAbandoned?()
+            presentUpdateUI?()
+            #if DEBUG
+            UpdateHarness.mark("failure_sheet_presented")
+            #endif
+        default:
+            break
+        }
     }
 
     /// Follows Sparkle's flow through observation (no polling).
     func observeFlowPhase() {
         guard phaseObservation == nil else { return }
         phaseObservation = Task { [weak self] in
-            for await _ in Observations({ [weak self] in self?.indicatorPhase }) {
+            for await _ in ObservationStream({ [weak self] in self?.indicatorPhase }) {
                 self?.syncFlowPhase()
             }
         }
@@ -103,13 +140,19 @@ extension UpdaterService {
         applyDownloadPolicy()
     }
 
-    /// Recomputes whether found updates download by themselves.
+    /// Recomputes whether found updates download by themselves: the user's
+    /// `updates.downloadAutomatically` (a managed configuration can force it)
+    /// on the user's metered-network choice, except that an update the
+    /// organization requires (`MinimumVersion`) always downloads, and an app
+    /// off the organization's `UpdateChannel` downloads none of its own.
     func applyDownloadPolicy() {
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: downloadSetting.enabled, mode: downloadSetting.metered,
+        let required = requiredMinimumVersion != nil
+        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
+        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
-        log.append("automatic downloads \(downloads ? "on" : "deferred") (constrained \(network.constrained), expensive \(network.expensive))")
+        log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).
@@ -128,3 +171,20 @@ extension UpdaterService {
         pathMonitor = monitor
     }
 }
+
+#if DEBUG
+extension UpdateIndicatorPhase {
+    /// The phase's case name for the update harness's timeline.
+    var harnessName: String {
+        switch self {
+        case .hidden: "hidden"
+        case .checking: "checking"
+        case .downloading: "downloading"
+        case .available: "available"
+        case .ready: "ready"
+        case .installing: "installing"
+        case .note: "note"
+        }
+    }
+}
+#endif

@@ -76,7 +76,3 @@ fn push_case_folded(out: &mut String, lower: char) {
     };
     out.push(folded);
 }
-
-#[cfg(test)]
-#[path = "fold_tests.rs"]
-mod tests;

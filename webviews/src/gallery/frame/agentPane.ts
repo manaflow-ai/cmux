@@ -7,6 +7,7 @@
 import type { AgentPaneVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
+import { installChipHost } from "./chips";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -25,6 +26,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   >;
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
+  installChipHost(state.chipHost);
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   const deliver = () => {
@@ -34,8 +36,15 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
     bridge.receive(structuredClone(snapshot));
   };
+  const next = (method: string | undefined) => {
+    const after =
+      method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
+    // In a task after the answer, as the app's transport sends a snapshot.
+    if (after) setTimeout(() => window.cmuxAcpmuxBridge?.receive(structuredClone(after)), 0);
+  };
   const handle = (message: Message) => {
     context.log(message.method ?? "?", message.params);
+    next(message.method);
     switch (message.method) {
       case "ready":
         // The snapshot follows the answer, as the app's transport sends it: in a task after the
@@ -44,13 +53,26 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
         return answer({ protocolVersion: 1, transport: "preview", machineName: "This Mac", ...state.ready });
       case "project.list":
       case "file.search":
-        return answer([]);
-      default:
-        return answer(null);
+        return answer(state.native?.[message.method] ?? []);
+      default: {
+        const value = state.native?.[message.method ?? ""] ?? null;
+        // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
+        if (value && typeof value === "object" && "nativeError" in value)
+          return { ok: false, error: (value as { nativeError: unknown }).nativeError };
+        return answer(value);
+      }
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {
-    messageHandlers: { agentSession: { postMessage: (message: Message) => Promise.resolve(handle(message)) } },
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: Message) => {
+          const reply = handle(message);
+          const delay = state.nativeDelayMs?.[message.method ?? ""];
+          return delay ? new Promise((resolve) => setTimeout(() => resolve(reply), delay)) : Promise.resolve(reply);
+        },
+      },
+    },
   };
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   await import("virtual:cmux-gallery/agent-pane.css");

@@ -3,43 +3,44 @@ import CoreText
 import CmuxNextDesign
 import CmuxNextPages
 
-/// SF Symbols for the icon picker's Symbols tab: the names this Mac draws,
-/// and each visible cell's image, drawn on request (the page never bundles
-/// symbol images). `cmux-page://cmux.icon-picker/__symbol/<name>.png` is a
-/// black template image; the page tints it with its theme color (CSS mask).
+/// SF Symbols for the icon picker's Symbols tab: each visible cell's image,
+/// drawn on request (the page never bundles symbol images; the names come from
+/// ``IconPickerSymbolCatalog``). `cmux-page://cmux.icon-picker/__symbol/<name>.png` and
+/// `__symbol/hierarchical/<name>.png` are black template images (hierarchical: layers at
+/// decreasing opacity); the page tints them with its theme color (CSS mask), so symbols take
+/// the Ghostty theme, never the system accent. `__symbol/multicolor/<name>.png` is a finished
+/// image in the symbol's own colors that the page shows as it is.
 @MainActor
 final class IconPickerSymbols: PageDynamicResourceSource {
     nonisolated static let prefix = "__symbol"
     /// Points of the drawn symbol; the page shows it at 24 px (2x for Retina).
     static let pointSize: CGFloat = 48
 
-    nonisolated static let systemCatalog =
-        URL(fileURLWithPath: "/System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/name_availability.plist")
-
-    /// The Symbols tab's names, sorted: the bundled snapshot (the symbols the deployment target
-    /// draws, scripts/cmux-next/gen-sf-symbol-names.py) plus the names a newer system's catalog
-    /// adds. A missing or unreadable system catalog leaves the snapshot, so the tab is never empty.
-    /// Both files are read off the main actor.
-    @concurrent nonisolated static func names(catalog: URL = systemCatalog) async -> [String] {
-        // concurrency-allow: @concurrent, so these file reads never run on the main actor
-        var names = Set(snapshot(Bundle.module.url(forResource: "IconPickerSymbols", withExtension: "txt")))
-        if let plist = NSDictionary(contentsOf: catalog), let symbols = plist["symbols"] as? [String: Any] {
-            names.formUnion(symbols.keys.filter(IconValue.isSymbolName))
-        }
-        return names.sorted()
+    /// How a symbol is drawn (the page's prefs.symbolMode).
+    nonisolated enum Mode: String, CaseIterable, Sendable {
+        /// Black template; the page tints it.
+        case monochrome
+        /// Black layers at decreasing opacity; the page tints them.
+        case hierarchical
+        /// The symbol's own colors (symbols without them draw monochrome).
+        case multicolor
     }
 
-    /// The bundled snapshot (Resources/IconPickerSymbols.txt), one name per line.
-    private nonisolated static func snapshot(_ url: URL?) -> [String] {
-        // concurrency-allow: called only from the @concurrent names(catalog:)
-        guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").map(String.init).filter(IconValue.isSymbolName)
+    /// The view whose theme and appearance the colored modes draw in (the picker page), so
+    /// multicolor's neutral layers match the page's light or dark theme.
+    weak var appearanceView: NSView?
+
+    /// The page's cache key for the drawn modes: light or dark (multicolor's neutral layers
+    /// follow the appearance). The page puts it in the image URL, so a changed appearance never
+    /// reuses a cached image.
+    static func style(dark: Bool) -> String {
+        dark ? "dark" : "light"
     }
 
     /// The newest Emoji version (times 10) the system emoji font draws, so the picker hides
     /// emoji that would show as empty boxes: one new single code point per version, newest first.
     static func maxEmojiVersion(font: CTFont = CTFontCreateWithName("AppleColorEmoji" as CFString, 16, nil)) -> Int {
-        let sentinels: [(Int, UInt32)] = [(170, 0x1FAEA), (160, 0x1FAE9), (150, 0x1FAE8), (140, 0x1FAE0), (130, 0x1F978)]
+        let sentinels: [(Int, UInt32)] = [(180, 0x1FAEB), (170, 0x1FAEA), (160, 0x1FAE9), (150, 0x1FAE8), (140, 0x1FAE0), (130, 0x1F978)]
         for (version, scalar) in sentinels where draws(scalar, font: font) { return version }
         return 120
     }
@@ -52,23 +53,38 @@ final class IconPickerSymbols: PageDynamicResourceSource {
         return CTFontGetGlyphsForCharacters(font, &units, &glyphs, units.count) && glyphs[0] != 0
     }
 
-    /// The symbol name a request names (`<name>.png`), or nil.
-    nonisolated static func name(for request: PageResourceRequest) -> String? {
-        guard request.prefix == prefix, request.path.count == 1, let file = request.path.first, file.hasSuffix(".png") else {
-            return nil
+    /// The symbol and mode a request names (`<name>.png` is monochrome, `<mode>/<name>.png`
+    /// another mode), or nil.
+    nonisolated static func symbol(for request: PageResourceRequest) -> (name: String, mode: Mode)? {
+        guard request.prefix == prefix, let file = request.path.last, file.hasSuffix(".png") else { return nil }
+        let mode: Mode
+        switch request.path.count {
+        case 1: mode = .monochrome
+        case 2:
+            guard let named = Mode(rawValue: request.path[0]) else { return nil }
+            mode = named
+        default: return nil
         }
         let name = String(file.dropLast(4)).removingPercentEncoding ?? ""
-        return IconValue.isSymbolName(name) ? name : nil
+        return IconValue.isSymbolName(name) ? (name, mode) : nil
     }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
-        guard let name = Self.name(for: request), let data = Self.png(name) else { return nil }
-        return PageResource(data: data, mimeType: "image/png")
+        guard let symbol = Self.symbol(for: request) else { return nil }
+        let draw = { Self.png(symbol.name, mode: symbol.mode) }
+        let data = appearanceView.map { view in view.performWithTheme(draw) } ?? draw()
+        return data.map { PageResource(data: $0, mimeType: "image/png") }
     }
 
-    /// The symbol drawn black on clear, as PNG; nil when the system has no such symbol.
-    static func png(_ name: String) -> Data? {
-        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+    /// The symbol drawn on clear in `mode`, as PNG; nil when the system has no such symbol.
+    /// Monochrome and hierarchical are black (templates the page tints).
+    static func png(_ name: String, mode: Mode = .monochrome) -> Data? {
+        var config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        switch mode {
+        case .monochrome: break
+        case .hierarchical: config = config.applying(NSImage.SymbolConfiguration(hierarchicalColor: .black))
+        case .multicolor: config = config.applying(.preferringMulticolor())
+        }
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
             return nil
         }

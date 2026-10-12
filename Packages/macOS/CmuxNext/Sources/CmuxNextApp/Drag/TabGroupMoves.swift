@@ -12,7 +12,8 @@ enum TabGroupMoves {
     static func move(_ group: TabGroupID, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
-              !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
+              !refusesIncognitoCrossing(group, to: pane, services: services),
+              !ChatDockRules.refusesGroupMove(to: pane, services: services) else { return completion(false) }
         let target = pane.handle
         run("move-tab-group", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
@@ -24,7 +25,10 @@ enum TabGroupMoves {
                            transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
-        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge) {
+        let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
+            services.splitRoom(for: pane, edge: edge)
+        }
+        switch decision {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -102,7 +106,7 @@ enum TabGroupMoves {
     }
 
     private static func run(_ label: String, daemon: DaemonService,
-                            completion: @escaping Completion, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+                            completion: @escaping Completion, _ body: @escaping DaemonCommandBody) {
         Task {
             let ok = await daemon.request(label, body) != nil
             completion(ok)

@@ -15,6 +15,7 @@ public nonisolated enum AgentApp: String, CaseIterable, Sendable, Comparable {
     }
 
     public static func < (lhs: AgentApp, rhs: AgentApp) -> Bool {
-        allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
+        // Every case is in allCases; the declaration order is the order.
+        (allCases.firstIndex(of: lhs) ?? 0) < (allCases.firstIndex(of: rhs) ?? 0)
     }
 }

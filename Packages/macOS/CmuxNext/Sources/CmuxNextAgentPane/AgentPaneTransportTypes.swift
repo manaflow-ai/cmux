@@ -21,6 +21,9 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     /// A mode, or a config option that is not free, which the daemon does not say keeps the
     /// session asking, without the user's confirmation (R2, P2).
     case modeNotConfirmed = "transport.mode_not_confirmed"
+    /// `_acpmux/harness_enable` without the user's Enable on the native sheet: Cancel, no sheet
+    /// to show, another confirmation open, or no prompt from acpmux to show.
+    case harnessNotConfirmed = "transport.harness_not_confirmed"
     /// A page request whose id (JSON value and type) is still waiting for its reply.
     case requestIdInFlight = "transport.request_id_in_flight"
     /// One object of the frame holds two keys that decode to the same string (ad349, round 7).

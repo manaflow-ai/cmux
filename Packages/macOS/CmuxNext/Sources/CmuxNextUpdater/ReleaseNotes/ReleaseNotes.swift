@@ -19,9 +19,28 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     /// and pull request. Optional: older notes have only `changes`, and
     /// ``changeItems`` then reads the PR number from each subject.
     public var items: [ChangeItem]?
+    /// The build's What's New digest (WHATS-NEW-AFTER-UPDATE W3), when
+    /// release-notes.py embedded one; older notes have none.
+    public var whatsNew: WhatsNewDocument?
+    /// The short user-facing changelog (at most 8 lines, New / Fixed /
+    /// Changed) the update cards show; older notes have none (cx-lntk).
+    public var summary: [SummaryLine]?
+
+    /// One changelog line: its group (`new`, `fixed`, `changed`) and text.
+    public struct SummaryLine: Codable, Equatable, Sendable {
+        public var group: String
+        public var title: String
+
+        public init(group: String, title: String) {
+            self.group = group
+            self.title = title
+        }
+    }
 
     public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String],
-                items: [ChangeItem]? = nil) {
+                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil) {
+        self.whatsNew = whatsNew
+        self.summary = summary
         self.version = version
         self.build = build
         self.shortVersion = shortVersion
@@ -29,6 +48,24 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         self.highlights = highlights
         self.changes = changes
         self.items = items
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary
+    }
+
+    /// A digest the app cannot read is dropped; the notes stay readable.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        build = try c.decode(String.self, forKey: .build)
+        shortVersion = try c.decode(String.self, forKey: .shortVersion)
+        date = try c.decode(String.self, forKey: .date)
+        highlights = try c.decode([Highlight].self, forKey: .highlights)
+        changes = try c.decode([String].self, forKey: .changes)
+        items = try c.decodeIfPresent([ChangeItem].self, forKey: .items)
+        whatsNew = (try? c.decodeIfPresent(WhatsNewDocument.self, forKey: .whatsNew)) ?? nil
+        summary = (try? c.decodeIfPresent([SummaryLine].self, forKey: .summary)) ?? nil
     }
 
     public struct Highlight: Codable, Equatable, Sendable {
@@ -85,16 +122,5 @@ nonisolated public struct ContentSignature {
         guard let signatureBytes = Data(base64Encoded: signature), let keyBytes = Data(base64Encoded: publicKey),
               let key = try? Curve25519.Signing.PublicKey(rawRepresentation: keyBytes) else { return false }
         return key.isValidSignature(signatureBytes, for: data)
-    }
-}
-
-/// When the what's-new card shows (pure).
-nonisolated public struct WhatsNew {
-    public init() {}
-    /// Once per build, after an update to it (`lastSeenBuild` older), and
-    /// only when the build has human-written highlights.
-    public static func shows(currentBuild: String, lastSeenBuild: String?, notes: ReleaseNotes?) -> Bool {
-        guard let lastSeenBuild, let notes, notes.build == currentBuild, !notes.highlights.isEmpty else { return false }
-        return currentBuild.compare(lastSeenBuild, options: .numeric) == .orderedDescending
     }
 }

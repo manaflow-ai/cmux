@@ -35,7 +35,7 @@ public struct CodeSigningTeam {
         guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
         var information: CFDictionary?
         guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
-              let dictionary = information as? [String: Any] else { return nil }
+              let dictionary: [String: Any] = information as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
     }
 }

@@ -8,78 +8,6 @@ use super::resolve::{Draft, Resolved, draft_meta};
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
-    /// Refresh the configured catalog while keeping all session processes alive.
-    pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
-        let path =
-            self.config.read().await.path.clone().ok_or_else(|| {
-                RpcError::invalid_params("this daemon has no config file to reload")
-            })?;
-        // Disk reads and PATH discovery run outside the async executor. An
-        // invalid/missing file never replaces the last accepted configuration.
-        let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
-            crate::config::Config::load_from(&path)
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
-        let (harnesses, default_harness, retained) = {
-            let mut current = self.config.write().await;
-            let mut retained = Vec::new();
-            for session in self.sessions.lock().unwrap().values() {
-                let name = session.meta().harness;
-                if !next.harnesses.contains_key(&name)
-                    && let Some(old) = current.harnesses.get(&name)
-                {
-                    next.harnesses.insert(name.clone(), old.clone());
-                    // Do not resurrect a deleted profile in config.json on
-                    // the next preset/default save.
-                    next.discovered.insert(name.clone());
-                    retained.push(name);
-                }
-            }
-            // Only unchanged launchers inherit a startup validation failure.
-            next.unavailable = current
-                .unavailable
-                .iter()
-                .filter(|(n, _)| current.harnesses.get(*n) == next.harnesses.get(*n))
-                .map(|(n, reason)| (n.clone(), reason.clone()))
-                .collect();
-            // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
-                .lock()
-                .unwrap()
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
-            current.harnesses = next.harnesses;
-            current.default_harness = next.default_harness;
-            current.defaults = next.defaults;
-            current.presets = next.presets;
-            current.discovered = next.discovered;
-            current.auto_fallback = next.auto_fallback;
-            current.auto_default = next.auto_default;
-            current.auto_prefer = next.auto_prefer;
-            current.unavailable = next.unavailable;
-            current.profile_meta = next.profile_meta;
-            current.profile_diagnostics = next.profile_diagnostics;
-            current.shadowed_config = next.shadowed_config;
-            current.pool = next.pool;
-            current.web_roots = next.web_roots;
-            current.web_asking_modes = next.web_asking_modes;
-            self.refresh_web_modes(&current);
-            (
-                current.harnesses.keys().cloned().collect::<Vec<_>>(),
-                current.default_harness.clone(),
-                retained,
-            )
-        };
-        // Pooled sessions started under the old catalog are never served.
-        self.drain_pool();
-        self.probe_models_with(true, false).await;
-        Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
-            "retainedProfiles": retained, "modelProbePending": true}))
-    }
-
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
@@ -118,10 +46,14 @@ impl Hub {
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
-        let recorded = match self.adoption(adopt.as_ref(), agent, &family, &env).await? {
-            Adoption::Existing(existing) => return Ok(existing),
-            Adoption::Found(recorded) => recorded,
-        };
+        let (recorded, fork, adopted_file, chat_store) =
+            match self.adoption(adopt.as_ref(), agent, &family, &env, remote).await? {
+                Adoption::Existing(existing) => return Ok(existing),
+                Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
+            };
+        // A fork resumes nothing as itself: its process forks the adopted id
+        // into a new conversation, so the adopted id is not this session's.
+        let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         let cwd = session_cwd(cwd, recorded, &family)?;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
@@ -141,11 +73,14 @@ impl Hub {
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
             // Set before the first spawn, so the harness resumes it.
-            agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
+            agent_session_id: adopt
+                .as_ref()
+                .filter(|_| fork_from.is_none())
+                .map(|a| a.agent_session_id.clone()),
             policy,
             remote,
         });
-        meta.session_env = session_env;
+        (meta.session_env, meta.chat_store) = (session_env, chat_store);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
@@ -171,7 +106,7 @@ impl Hub {
             }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
-            if let Some(a) = &adopt
+            if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none())
                 && let Some(existing) = adopted_in(&sessions, &family, &a.agent_session_id)
             {
                 return Ok(existing);
@@ -195,6 +130,8 @@ impl Hub {
                 },
             };
             let session = self.make_session(meta);
+            *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                fork_from.clone();
             sessions.insert(id.clone(), session.clone());
             session
         };
@@ -204,7 +141,12 @@ impl Hub {
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
-            self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
+            let adopted = if fork_from.is_some() {
+                json!({"agentSessionId": a.agent_session_id, "fork": true})
+            } else {
+                json!({"agentSessionId": a.agent_session_id})
+            };
+            self.append(&session, "mux", "adopted", adopted);
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
@@ -217,8 +159,16 @@ impl Hub {
             return Err(e);
         }
         // An agent that started fresh instead of resuming fails creation.
-        if let Some(a) = &adopt {
+        if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
+            // The adopted chat shows its past at once: Claude Code's resume replays nothing, and a
+            // Codex session/load's history is logged as `.replay` records no client shows, so both
+            // replay their own transcript (OpenCode's store is a database: not replayed).
+            if matches!(family.as_str(), "claude" | "codex")
+                && let Some(file) = adopted_file.clone()
+            {
+                self.replay_adopted(&session, &family, file).await;
+            }
         }
         // Defaults and explicit values, applied once the harness is up. A bad
         // value fails creation loudly rather than starting a session that
@@ -258,46 +208,6 @@ impl Hub {
         Ok(session)
     }
 
-    /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a
-    /// bare model id, or `HEAD/MODEL` may be a full id such as
-    /// `opencode-go/deepseek-v4-flash`.
-    pub(super) fn with_model_hint(
-        &self,
-        cfg: &crate::config::Config,
-        head: &str,
-        model: Option<&str>,
-        err: String,
-    ) -> String {
-        let spec = match model {
-            Some(m) => format!("{head}/{m}"),
-            None => head.to_owned(),
-        };
-        let known = self.known_models.lock().unwrap();
-        let mut hits: Vec<String> = Vec::new();
-        for (name, p) in &cfg.harnesses {
-            let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
-            match p.kind {
-                crate::config::HarnessKind::ClaudeStdio => {
-                    ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
-                }
-                crate::config::HarnessKind::Acp => {
-                    ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
-                }
-                crate::config::HarnessKind::Terminal => {}
-            }
-            if ids.contains(&spec)
-                || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude"))
-            {
-                hits.push(format!("{name}/{spec}"));
-            }
-        }
-        if hits.is_empty() {
-            err
-        } else {
-            format!("{err}. {spec:?} is a model id: write {}", hits.join(" or "))
-        }
-    }
-
     /// Every model id a profile can run: declared in config, then reported
     /// (Claude's static list for the stdio backend).
     pub async fn catalog_ids(&self, profile: &str) -> Vec<String> {
@@ -319,6 +229,7 @@ impl Hub {
             ),
             crate::config::HarnessKind::Terminal => {}
         }
+        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
         ids.dedup();
         ids
     }
@@ -375,6 +286,56 @@ impl Hub {
             }
         }
 
+        // A cold start is bounded (cx-m5up): an agent that stays alive but
+        // never answers `initialize`, `session/load` or `session/new` would
+        // otherwise hold `spawn_lock`, and every later request of this
+        // session, forever. Re-adoption and pool adoption above keep their
+        // own bounds: they serve agents that may be mid-turn.
+        let budget = self.config.read().await.agent_start_timeout();
+        match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
+            Ok(result) => result,
+            Err(_) => {
+                self.abandon_cold_start(session, budget).await;
+                Err(RpcError::deadline_exceeded("agent_start", budget))
+            }
+        }
+    }
+
+    /// End what a cold start that missed its budget left: the agent it
+    /// spawned (in `session.child` or only as a live host record) and its
+    /// half-way flags. The session stays open and idle; a later request
+    /// starts the agent again.
+    async fn abandon_cold_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        budget: std::time::Duration,
+    ) {
+        let started = session.child.lock().await.take();
+        if let Some(child) = &started {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        session.loading.store(false, Ordering::SeqCst);
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Idle);
+        }
+        self.append(
+            session,
+            "mux",
+            "agent_start_timed_out",
+            json!({"timeoutMs": u64::try_from(budget.as_millis()).unwrap_or(u64::MAX)}),
+        );
+    }
+
+    /// The cold-start half of `ensure_child`, under `spawn_lock`: spawn the
+    /// agent, initialize it, load or create its session, replay its config.
+    async fn cold_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &HarnessProfile,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
@@ -383,9 +344,34 @@ impl Hub {
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
-        let existing_sid = session.meta().agent_session_id.clone();
+        let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
+        // Resume a Claude conversation only from a store that has it: one
+        // that never finished a turn may not be stored at all, and one that
+        // another profile ran lives in that profile's store (a failover onto
+        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // with the restored transcript, never a turn failed on `--resume`.
+        if is_claude
+            && fork_from.is_none()
+            && let Some(why) =
+                existing_sid.as_deref().and_then(|sid| claude_resume_refusal(&meta, profile, sid))
+            && let Some(sid) = existing_sid.take()
+        {
+            tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
+            self.append(
+                session,
+                "mux",
+                "resume_failed",
+                json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
+            );
+            {
+                let mut m = session.meta.lock().unwrap();
+                m.agent_session_id = None;
+                m.claude_unstored = false;
+            }
+            session.rehydrate.store(true, Ordering::SeqCst);
+        }
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -397,6 +383,7 @@ impl Hub {
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
                 .as_ref()
@@ -414,6 +401,7 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
             if self.agent_hosts_enabled() {
@@ -422,11 +410,12 @@ impl Hub {
                     mode: mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
+                    fast,
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
                     session,
-                    profile,
+                    &profile,
                     &meta,
                     Some((plan.program.clone(), plan.args.clone())),
                     Some(translator),
@@ -440,12 +429,13 @@ impl Hub {
                     &model,
                     &effort,
                 );
+                *tr.fast.lock().await = fast;
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }
                 ChildAgent::spawn_with(
                     &meta.harness,
-                    profile,
+                    &profile,
                     &meta.cwd,
                     session.inbound_tx.clone(),
                     tap,
@@ -506,6 +496,9 @@ impl Hub {
                         // permission policy and rules gate every harness's
                         // edits, not only the ones it chooses to ask about.
                         "fs": {"readTextFile": true, "writeTextFile": true},
+                        // Subagents arrive as their own sessions (ACP draft #1992),
+                        // attributed by `crate::subagents`.
+                        "subagents": {},
                         "terminal": false
                     },
                     "clientInfo": {"name": "acpmux", "version": VERSION}
@@ -556,6 +549,10 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
+                m.claude_unstored = level == "new";
+                if level != "exact" {
+                    m.claude_profile = Some(m.harness.clone());
+                }
                 drop(m);
                 self.write_mode_state(
                     session,
@@ -583,7 +580,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        json!({"sessionId": sid, "cwd": meta.cwd, "mcpServers": []}),
+                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -595,7 +592,7 @@ impl Hub {
                     }
                     Err(e) => {
                         tracing::warn!(session = %session.id, "session/load failed: {e}");
-                        self.append(session, "mux", "resume_failed", json!({"error": e.message}));
+                        self.note_load_failed(session, &e);
                         false
                     }
                 }
@@ -606,7 +603,7 @@ impl Hub {
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = child
-                .request(method::SESSION_NEW, json!({"cwd": meta.cwd, "mcpServers": []}))
+                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
                 .await?;
             let sid = res
                 .get("sessionId")
@@ -748,29 +745,46 @@ impl Hub {
     /// the background at daemon start so the picker is full before the first
     /// session exists.
     pub async fn probe_models(self: &Arc<Self>) {
-        self.probe_models_with(false, false).await;
+        self.probe_models_with(false, false, None).await;
     }
 
     /// `daemon models --refresh`: forget every reported catalog, probe every
     /// ACP harness again, and wait for the answers (bounded).
     pub async fn refresh_models(self: &Arc<Self>) {
         self.known_models.lock().unwrap().clear();
-        self.probe_models_with(true, true).await;
+        self.probe_models_with(true, true, None).await;
     }
 
-    async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
+    /// `only`: probe these harnesses alone (`allow_probes`); None: every
+    /// harness the probe list allows.
+    pub(super) async fn probe_models_with(
+        self: &Arc<Self>,
+        force: bool,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
+        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
             cfg.harnesses
                 .iter()
                 .filter(|(n, p)| {
-                    p.kind == crate::config::HarnessKind::Acp && (force || !known.contains_key(*n))
+                    p.kind == crate::config::HarnessKind::Acp
+                        && (force || !known.contains_key(*n))
+                        && self.probes(n)
+                        && picked(n)
                 })
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
         };
-        let mut handles = Vec::new();
+        // Claude Code's and Codex's own lists, beside the ACP probes.
+        let live = {
+            let hub = self.clone();
+            let only = only.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
+        };
+        let mut handles = vec![live];
         for (name, profile) in agents {
             let hub = self.clone();
             handles.push(tokio::spawn(async move {
@@ -817,7 +831,10 @@ impl Hub {
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
-        let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
@@ -840,55 +857,13 @@ impl Hub {
         }).await;
         child.kill().await;
         drain.abort();
+        // The probe's session leaves no transcript behind (it listed as an empty chat).
+        let folder = cwd.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::probe_cleanup::remove_probe_transcripts(&folder)
+        })
+        .await;
         result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
-    }
-
-    /// Every configured harness with the models known for it.
-    pub async fn models_catalog(&self) -> Value {
-        let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap().clone();
-        let mut out = Vec::new();
-        for (name, profile) in &cfg.harnesses {
-            // A terminal harness has no models and no ACP session.
-            if profile.kind == crate::config::HarnessKind::Terminal {
-                continue;
-            }
-            let mut models: Vec<Value> = profile
-                .models
-                .iter()
-                .map(|m| declared_model_json(m, cfg.profile_meta.get(name)))
-                .collect();
-            let reported: Vec<Value> = match profile.kind {
-                crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models()
-                    .iter()
-                    .map(|(v, n)| json!({"id": v, "name": n}))
-                    .collect(),
-                crate::config::HarnessKind::Acp => known
-                    .get(name)
-                    .map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect())
-                    .unwrap_or_default(),
-                crate::config::HarnessKind::Terminal => Vec::new(),
-            };
-            for r in reported {
-                if !models.iter().any(|m| m["id"] == r["id"]) {
-                    models.push(r);
-                }
-            }
-            if models.is_empty() {
-                models.push(json!({"id": "default", "name": "default (agent's choice)"}));
-            }
-            super::model_availability::mark_unavailable(
-                &mut models,
-                name,
-                &self.refused_models.lock().unwrap(),
-            );
-            let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
-            if let Some(reason) = self.probe_errors.lock().unwrap().get(name) {
-                entry["probeError"] = json!(reason);
-            }
-            out.push(entry);
-        }
-        json!({"harnesses": out})
     }
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
@@ -973,7 +948,15 @@ pub fn terminal_harness_refusal(name: &str) -> RpcError {
 }
 
 pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
-    profile.argv.iter().any(|a| a.contains("${model}"))
+    // Claude Code takes `--model` at spawn (`claude_stdio::spawn_plan`).
+    // Switching it after start with session/set_model makes Claude Code
+    // check the model with the API first: with 16 sessions starting at
+    // once that check took about 6 s per session (session/new p50 7.9 s,
+    // 0.9-1.6 s without it) and sometimes failed ("Couldn't confirm
+    // model"), so a new session never switches. A running session still
+    // switches with session/set_model.
+    profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || profile.argv.iter().any(|a| a.contains("${model}"))
         || profile.env.values().any(|v| v.contains("${model}"))
 }
 
@@ -996,4 +979,25 @@ pub struct NewRequest {
     pub adopt: Option<crate::adopt::AdoptRequest>,
     /// Per-session env (`session_env.rs`), already checked by the caller.
     pub env: std::collections::BTreeMap<String, String>,
+}
+
+/// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
+/// it can): it never finished a turn, or another profile ran it and this
+/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
+fn claude_resume_refusal(
+    meta: &SessionMeta,
+    profile: &HarnessProfile,
+    sid: &str,
+) -> Option<&'static str> {
+    if meta.claude_unstored {
+        return Some("never finished a turn");
+    }
+    let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
+    if ran_elsewhere {
+        let store = meta.claude_store(&profile.env);
+        if !crate::adopt::claude_session_exists(&store, sid) {
+            return Some("is not in this profile's Claude store");
+        }
+    }
+    None
 }

@@ -29,7 +29,7 @@ impl Mux {
             "nonce": crate::workspace_registry::new_uuid_v4(),
         });
         self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-keep-layout"),
+            &WorkspaceMutation::daemon_local("cmux-tui-keep-layout"),
             "tab.kept_layout.record",
             &fingerprint,
             None,
@@ -86,7 +86,7 @@ impl Mux {
             "nonce": crate::workspace_registry::new_uuid_v4(),
         });
         self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-keep-layout"),
+            &WorkspaceMutation::daemon_local("cmux-tui-keep-layout"),
             "tab.kept_layout.forget",
             &fingerprint,
             None,

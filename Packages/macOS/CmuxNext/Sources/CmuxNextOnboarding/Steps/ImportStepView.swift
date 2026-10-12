@@ -18,6 +18,13 @@ final class ImportStepView: NSView {
     private var kindSlots: [NSButton] = []
     private var shownKinds: [ImportDataKind] = []
     private let consent: ImportConsentView
+    /// Import from Another Browser… (cx-d0d.65): the files a browser exports, for a browser not
+    /// listed (or a build that reads no browser's data).
+    private lazy var fromFiles: NSButton = {
+        let button = OnboardingControl.plainButton(OnboardingStrings.importFromFiles, target: self, action: #selector(importFromFiles))
+        button.setAccessibilityIdentifier("cmux.onboarding.import.fromFiles")
+        return button
+    }()
     private var listViews: [NSView] = []
     private var shownProfiles: [BrowserSourceProfile]?
     private var loop: RenderLoop?
@@ -60,9 +67,9 @@ final class ImportStepView: NSView {
         kinds.spacing = 20
         let separator = ThemedView()
         separator.fill = { Palette.separator }
-        listViews = [scroll, separator, kinds]
+        listViews = [scroll, separator, kinds, fromFiles]
         consent.isHidden = true
-        let stack = NSStackView(views: [scroll, separator, kinds, consent, status])
+        let stack = NSStackView(views: [scroll, separator, kinds, consent, status, fromFiles])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -87,6 +94,7 @@ final class ImportStepView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func kindToggled(_ sender: NSButton) { model.toggle(shownKinds[sender.tag]) }
+    @objc private func importFromFiles() { model.importFromFiles() }
     private func render() {
         let confirming = model.isConfirmingPasswords
         listViews.forEach { $0.isHidden = confirming }
@@ -158,8 +166,8 @@ final class ImportStepView: NSView {
             let counts = ImportCountsText.line(summary.counts)
             var line = counts.isEmpty ? OnboardingStrings.importedNothing : OnboardingStrings.imported(counts)
             // "412 imported, 9 skipped": counts only, never which sites.
-            let skipped = summary.batches.reduce(0) { $0 + ($1.passwords?.notImported ?? 0) }
-            if skipped > 0 { line += " " + OnboardingStrings.passwordsSkipped(skipped.formatted(.number)) }
+            let passwords = OnboardingStrings.passwordsSummary(summary.batches.compactMap(\.passwords))
+            if !passwords.isEmpty { line += " " + passwords }
             if summary.batches.contains(where: { $0.passwordError != nil }) { line += " " + OnboardingStrings.passwordsNotRead }
             return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
         case .failed(let message): return message

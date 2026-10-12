@@ -28,7 +28,7 @@ extension DaemonStore {
         }
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
-        intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1)
+        if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
         recordMirror()
         workspaceListMayHaveChanged()
@@ -67,7 +67,6 @@ extension DaemonStore {
 
     /// The pending intents in order.
     public var pendingIntents: [Intent] { intentLog.entries.map(\.kind) }
-    public var hasPendingIntents: Bool { !intentLog.isEmpty }
 
     /// The daemon echoed `transaction`. An echo carried by an event the
     /// store could not apply exactly (it resyncs) settles only once the
@@ -104,7 +103,7 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
             intentSettlements.append((intent.transaction, .applied))
         }
         let confirmedTabs = debugTabCensus()
@@ -121,6 +120,14 @@ extension DaemonStore {
         return result
     }
 
+    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
+    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
+    /// the split before them showed the pane unsplit for one turn.
+    private func awaitsRecords(_ intent: PendingIntent) -> Bool {
+        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        return !ProvisionalSplit.daemonPlaces(provisional, in: self)
+    }
+
     /// A new connection replaces the last one (`run(connection:)`): its
     /// event sequences restart from its own serial, so the store's
     /// sequences reset, and intents whose reply came settle with its first
@@ -134,15 +141,15 @@ extension DaemonStore {
     /// Undoes every overlay apply, newest first.
     private func liftOverlay() {
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[index].undo { IntentOverlay.undo(undo, in: self) }
-            intentLog.setUndo(nil, at: index)
+            if let undo = intentLog.entries[checked: index]?.undo { IntentOverlay.undo(undo, in: self) }
+            if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
-        for index in intentLog.entries.indices {
-            intentLog.setUndo(IntentOverlay.restore(intentLog.entries[index], to: self), at: index)
+        for (index, entry) in intentLog.entries.enumerated() { // IntentOverlay never writes the log
+            if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
 }

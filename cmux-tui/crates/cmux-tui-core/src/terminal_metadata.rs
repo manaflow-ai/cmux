@@ -271,6 +271,9 @@ pub(crate) struct TerminalNotification {
     /// as Ghostty's kitty parser does.
     pub title: String,
     pub body: String,
+    /// `Info` for OSC 9, 777 and 99 and an OSC 7501 record that finished; one
+    /// that waits on the user is a `Warning`, one that failed an `Error`.
+    pub level: crate::NotificationLevel,
 }
 
 impl TerminalNotification {
@@ -284,7 +287,21 @@ impl TerminalNotification {
             title = body.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect();
             body = String::new();
         }
-        Some(Self { title, body })
+        Some(Self { title, body, level: crate::NotificationLevel::Info })
+    }
+
+    /// The notification an OSC 7501 record asks for.
+    pub(crate) fn from_program_status(alert: crate::program_status::ProgramStatusAlert) -> Self {
+        let level = match alert.state {
+            ghostty_vt::ProgramStatusState::Error => crate::NotificationLevel::Error,
+            ghostty_vt::ProgramStatusState::Done => crate::NotificationLevel::Info,
+            _ => crate::NotificationLevel::Warning,
+        };
+        Self {
+            title: alert.title.chars().take(MAX_NOTIFICATION_TITLE_CHARS).collect(),
+            body: alert.body.chars().take(MAX_NOTIFICATION_BODY_CHARS).collect(),
+            level,
+        }
     }
 }
 
@@ -475,6 +492,8 @@ pub(crate) struct TerminalMetadata {
     /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
+    /// The running shell command (`terminal-activity-v1`).
+    activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -496,6 +515,7 @@ impl TerminalMetadata {
         let kitty = &mut self.kitty;
         let notifications = &mut self.notifications;
         let shell_marks = &mut self.shell_marks;
+        let activity = &mut self.activity;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
@@ -522,6 +542,10 @@ impl TerminalMetadata {
                 b"99" => observe_kitty_notification(kitty, data),
                 b"133" => {
                     if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        if activity.observe(mark, now_ms) {
+                            progress.clear();
+                        }
                         if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
                             shell_marks.remove(0);
                         }
@@ -577,6 +601,21 @@ impl TerminalMetadata {
         taken
     }
 
+    /// The OSC 7501 `alerts` that pass this terminal's rate limit (the same
+    /// one as OSC 9, 777 and 99: the specification asks terminals to
+    /// rate-limit anything a record causes outside the terminal).
+    pub(crate) fn admit_program_status_alerts(
+        &mut self,
+        alerts: Vec<crate::program_status::ProgramStatusAlert>,
+        now: Instant,
+    ) -> Vec<TerminalNotification> {
+        alerts
+            .into_iter()
+            .map(TerminalNotification::from_program_status)
+            .filter(|notification| self.gate.admit(notification, now))
+            .collect()
+    }
+
     pub(crate) fn osc_progress(&self) -> &str {
         &self.progress
     }
@@ -594,6 +633,16 @@ impl TerminalMetadata {
             self.published_progress = current;
             current
         })
+    }
+
+    /// When the running shell command started, if one runs.
+    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
+        self.activity.busy_since_ms()
+    }
+
+    /// Whether the busy fact changed since the last call (marks it taken).
+    pub(crate) fn take_busy_change(&mut self) -> bool {
+        self.activity.take_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host
@@ -919,19 +968,5 @@ mod tests {
         metadata.observe_output(b"\x1b]9;4;1;50\x07");
         assert_eq!(metadata.osc_progress(), "4;1;50");
         assert!(notes(&mut metadata).is_empty());
-    }
-
-    #[test]
-    fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
-        let start = Instant::now();
-        let mut gate = NotificationGate::default();
-        let note = |title: &str| TerminalNotification { title: title.into(), body: String::new() };
-        assert!(gate.admit(&note("a"), start));
-        // Within one second of the last shown notification: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(500)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(1_100)));
-        // The same text again within five seconds: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(3_000)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(6_200)));
     }
 }

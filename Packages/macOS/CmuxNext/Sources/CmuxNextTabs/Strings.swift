@@ -16,10 +16,13 @@ enum Strings {
     static func axTheme(_ name: String) -> String {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
+    static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
+    static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
     static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }
     static var axBusy: String { String(localized: "tabs.ax.busy", defaultValue: "Running", bundle: .module) }
+    static var axWorking: String { String(localized: "tabs.ax.working", defaultValue: "Agent working", bundle: .module) }
     static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }

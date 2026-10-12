@@ -2,11 +2,17 @@
 //! navigations may reach by address range, for fetch and navigation alike.
 //!
 //! - Link-local and cloud metadata (169.254.0.0/16 with 169.254.169.254,
-//!   fe80::/10, metadata names) are refused in every session.
-//! - Loopback and private ranges (127/8, 10/8, 172.16/12, 192.168/16,
-//!   100.64/10, 0/8, ::1, fc00::/7, `localhost` names) are allowed when the
-//!   session's origin is local to the machine the browser runs on, and
-//!   refused for remote (relay) sessions.
+//!   fe80::/10, the AWS IPv6 endpoint fd00:ec2::254, the provider metadata
+//!   and host addresses below, metadata names) are refused in every session.
+//! - Loopback, private and local-use ranges (127/8, 10/8, 172.16/12,
+//!   192.168/16, 100.64/10, 0/8, 192.0.0/24, 198.18/15, multicast and
+//!   reserved, ::, ::1, fc00::/7, fec0::/10, ff00::/8, `localhost` names) are
+//!   allowed when the session's origin is local to the machine the browser
+//!   runs on, and refused for remote (relay) sessions. On a Cloud machine
+//!   every caller is refused them (crate::egress_scope).
+//! - IPv6 forms that carry an IPv4 address (IPv4-mapped ::ffff:a.b.c.d,
+//!   IPv4-compatible ::a.b.c.d, NAT64 64:ff9b::/96, 6to4 2002::/16) take the
+//!   class of the IPv4 address they carry.
 //! - Only the machine owner's policy (the base layer's allow list naming
 //!   the host) allows a refused host.
 
@@ -18,6 +24,19 @@ use url::{Host, Url};
 const METADATA_NAMES: &[&str] =
     &["metadata.google.internal", "metadata.goog", "instance-data", "instance-data.ec2.internal"];
 
+/// Provider metadata and host-agent addresses outside 169.254/16: Alibaba
+/// (100.100.100.200) and Azure's host endpoint (168.63.129.16).
+const METADATA_V4: &[Ipv4Addr] =
+    &[Ipv4Addr::new(100, 100, 100, 200), Ipv4Addr::new(168, 63, 129, 16)];
+
+/// AWS's IPv6 instance metadata endpoint (fd00:ec2::254).
+const METADATA_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254);
+
+/// Whether `name` (any case, trailing dot or not) is a cloud metadata name.
+pub fn is_metadata_name(name: &str) -> bool {
+    METADATA_NAMES.contains(&name.trim_end_matches('.').to_ascii_lowercase().as_str())
+}
+
 /// The class of an address that the range rule limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Range {
@@ -26,8 +45,8 @@ pub enum Range {
 }
 
 fn v4_range(ip: Ipv4Addr) -> Option<Range> {
-    let [a, b, ..] = ip.octets();
-    if a == 169 && b == 254 {
+    let [a, b, c, _] = ip.octets();
+    if (a == 169 && b == 254) || METADATA_V4.contains(&ip) {
         return Some(Range::LinkLocal);
     }
     let private = a == 127
@@ -35,19 +54,50 @@ fn v4_range(ip: Ipv4Addr) -> Option<Range> {
         || a == 0
         || (a == 172 && (16..=31).contains(&b))
         || (a == 192 && b == 168)
-        || (a == 100 && (64..=127).contains(&b));
+        || (a == 100 && (64..=127).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 198 && (18..=19).contains(&b))
+        // Multicast, reserved and broadcast.
+        || a >= 224;
     private.then_some(Range::Private)
 }
 
-fn v6_range(ip: Ipv6Addr) -> Option<Range> {
+/// The IPv4 address an IPv6 address carries: IPv4-mapped, IPv4-compatible
+/// (deprecated, but a socket still reaches the IPv4 host on some stacks),
+/// NAT64 well-known prefix, 6to4.
+fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if let Some(v4) = ip.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    let s = ip.segments();
+    let low = |hi: u16, lo: u16| Ipv4Addr::from(((hi as u32) << 16) | lo as u32);
+    if s[..6] == [0; 6] && !(s[6] == 0 && s[7] <= 1) {
+        return Some(low(s[6], s[7]));
+    }
+    if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        return Some(low(s[6], s[7]));
+    }
+    (s[0] == 0x2002).then(|| low(s[1], s[2]))
+}
+
+fn v6_range(ip: Ipv6Addr) -> Option<Range> {
+    if let Some(v4) = embedded_v4(ip) {
         return v4_range(v4);
     }
-    let first = ip.segments()[0];
-    if first & 0xffc0 == 0xfe80 {
+    let s = ip.segments();
+    if s[0] & 0xffc0 == 0xfe80 || ip == METADATA_V6 {
         return Some(Range::LinkLocal);
     }
-    (ip.is_loopback() || ip.is_unspecified() || first & 0xfe00 == 0xfc00).then_some(Range::Private)
+    let private = ip.is_loopback()
+        || ip.is_unspecified()
+        // Unique local (fc00::/7), site-local (fec0::/10), multicast.
+        || s[0] & 0xfe00 == 0xfc00
+        || s[0] & 0xffc0 == 0xfec0
+        || s[0] & 0xff00 == 0xff00
+        // Local-use NAT64 (64:ff9b:1::/48) and discard-only (100::/64).
+        || (s[0] == 0x64 && s[1] == 0xff9b && s[2] == 1)
+        || s[..4] == [0x100, 0, 0, 0];
+    private.then_some(Range::Private)
 }
 
 /// The range of an IP address, if the rule limits it.
@@ -65,7 +115,7 @@ pub fn host_range(url: &Url) -> Option<Range> {
         Host::Ipv6(ip) => v6_range(ip),
         Host::Domain(name) => {
             let name = name.trim_end_matches('.').to_ascii_lowercase();
-            if METADATA_NAMES.contains(&name.as_str()) {
+            if is_metadata_name(&name) {
                 Some(Range::LinkLocal)
             } else if name == "localhost" || name.ends_with(".localhost") {
                 Some(Range::Private)
@@ -125,8 +175,71 @@ mod tests {
             "http://[fe80::1]/",
             "http://metadata.google.internal/computeMetadata/v1/",
             "http://[::ffff:169.254.169.254]/",
+            "http://[fd00:ec2::254]/latest/meta-data/",
+            "http://100.100.100.200/latest/meta-data/",
+            "http://168.63.129.16/machine",
+            "http://METADATA.google.internal./",
+            "http://metadata.goog/",
+            "http://instance-data.ec2.internal/",
+            // IPv6 forms that carry 169.254.169.254.
+            "http://[::a9fe:a9fe]/",
+            "http://[64:ff9b::a9fe:a9fe]/",
+            "http://[2002:a9fe:a9fe::1]/",
         ] {
             assert!(policy.egress_refusal(&url(text), false).is_some(), "{text}");
+        }
+    }
+
+    #[test]
+    fn every_address_class_has_its_range() {
+        let range = |text: &str| ip_range(text.parse().unwrap());
+        for text in
+            ["169.254.169.254", "169.254.0.1", "fe80::1", "fd00:ec2::254", "::ffff:169.254.169.254"]
+        {
+            assert_eq!(range(text), Some(Range::LinkLocal), "{text}");
+        }
+        for text in [
+            "127.0.0.1",
+            "127.255.255.254",
+            "10.0.0.1",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.0.1",
+            "100.64.0.1",
+            "100.127.255.255",
+            "0.0.0.0",
+            "192.0.0.8",
+            "198.18.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "fec0::1",
+            "ff02::1",
+            "::ffff:10.0.0.1",
+            "::ffff:127.0.0.1",
+            "::ffff:100.64.0.1",
+            "::10.0.0.1",
+            "64:ff9b::7f00:1",
+            "64:ff9b:1::1",
+            "2002:c0a8:0101::1",
+            "100::1",
+        ] {
+            assert_eq!(range(text), Some(Range::Private), "{text}");
+        }
+        for text in [
+            "8.8.8.8",
+            "172.32.0.1",
+            "100.128.0.1",
+            "198.20.0.1",
+            "2606:4700::1111",
+            "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+            "2002:0808:0808::1",
+        ] {
+            assert_eq!(range(text), None, "{text}");
         }
     }
 

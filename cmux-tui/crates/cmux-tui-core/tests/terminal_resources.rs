@@ -1,6 +1,7 @@
 //! `terminal-resources` for a PTY the daemon owns itself (no terminal host).
 #![cfg(unix)]
 
+use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -20,7 +21,7 @@ fn cmux_next_terminal_resources_in_daemon_pty_has_no_host() {
         ..Default::default()
     };
     let mux = Mux::new(unique_session("test-terminal-resources"), options);
-    let surface = mux.new_workspace(None, None).unwrap();
+    let surface = mux.new_workspace_as(&Actor::Daemon, None, None).unwrap();
     let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
     let stream = transport::connect(&sock_path).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
@@ -62,6 +63,6 @@ fn cmux_next_terminal_resources_in_daemon_pty_has_no_host() {
     assert_eq!(terminal["processes"][0]["pid"], terminal["pid"], "{terminal}");
     assert_eq!(terminal["processes"][0]["ppid"], std::process::id(), "{terminal}");
 
-    mux.close_surface(surface.id).unwrap();
+    mux.close_surface_as(&Actor::Daemon, surface.id).unwrap();
     cmux_tui_core::server::cleanup(&sock_path);
 }

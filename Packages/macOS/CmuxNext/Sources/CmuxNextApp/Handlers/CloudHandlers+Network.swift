@@ -4,7 +4,7 @@ import CmuxNextCloud
 
 extension CloudHandlers {
     static func bindNetworkActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud!
+        let cloud = context.services.cloud
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
             let networkID = try networkArgument(invocation)
             runTracked("attach Cloud tunnel network", context) { try await cloud.api.attachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }

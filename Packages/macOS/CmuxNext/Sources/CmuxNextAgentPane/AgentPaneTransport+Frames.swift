@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -36,10 +36,13 @@ extension AgentPaneTransport {
         /// credit), and the handoff it names, if any.
         var foreignSource = false
         var handoffId: String?
+        /// `_acpmux/harness_enable`: the native sheet decides it (``confirmHarnessEnable(_:)``).
+        var harnessEnable = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
+                && !harnessEnable
         }
     }
 
@@ -78,6 +81,34 @@ extension AgentPaneTransport {
 
         /// Frees a large frame here, off the main thread.
         func free() { frame.withLock { $0 = [:] } }
+
+        /// A string param of the frame (after the folder check made folders canonical).
+        func param(_ key: String) -> String? {
+            frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
+        }
+
+        /// Adds the person's decision proof (`_meta.acpmux`) of a relayed allow.
+        func setDecision(nonce: String, proof: String) {
+            frame.withLock { object in
+                var params = object["params"] as? [String: Any] ?? [:]
+                var meta = params["_meta"] as? [String: Any] ?? [:]
+                var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
+                acpmux["decisionNonce"] = nonce
+                acpmux["personDecision"] = proof
+                meta["acpmux"] = acpmux
+                params["_meta"] = meta
+                object["params"] = params
+            }
+        }
+
+        /// Sets a string param of the frame.
+        func setParam(_ key: String, _ value: String) {
+            frame.withLock { object in
+                var params = object["params"] as? [String: Any] ?? [:]
+                params[key] = value
+                object["params"] = params
+            }
+        }
     }
 
     /// What one off-main pass over the line's frames did: the results of the frames it finished,
@@ -124,6 +155,9 @@ extension AgentPaneTransport {
                 guard waiting.connection == entry.connection, texts.count < Self.framesPerPass else { break }
                 texts += waiting.frames.prefix(Self.framesPerPass - texts.count)
             }
+            // The page's first frame goes alone: the person proof is the connection's second request.
+            let wasFirst = !sentFirst
+            if wasFirst { texts = Array(texts.prefix(1)) }
             let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
@@ -142,8 +176,31 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 complete(await decide(facts, box, connection: entry.connection, socket: socket, ids: ids))
             }
+            if wasFirst, sentFirst { await provePerson(socket: socket, ids: ids) }
         }
         draining = false
+    }
+
+    /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
+    /// and before any other: the HMAC of the daemon's challenge from the `initialize` reply under
+    /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
+    /// socket. No challenge (a remote wire, an older daemon) or no key: no proof, so the pane is
+    /// not the person and the daemon refuses its allows.
+    private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+        guard let socketPath else { return }
+        guard let challenge = await socket.personChallenge() else { return }
+        guard self.socket === socket else { return }
+        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
+                                                connection: challenge.connection) else {
+            Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
+            return
+        }
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": ids.hostID(), "method": "_acpmux/person_prove",
+                                    "params": ["proof": proof]]
+        guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
+        if let error = socket.send(text) {
+            Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        }
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).
@@ -168,14 +225,37 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// The first prompt after a remote start, on the same connection and in time: uses the start's credit.
+    private func takeRemoteStartCredit(_ facts: Facts, connection id: Int) -> Bool {
+        guard remoteWire, facts.method == "session/prompt", let credit = remoteStartCredit, credit.connection == id,
+              ProcessInfo.processInfo.systemUptime - credit.at <= Self.remoteStartCreditLifetime else { return false }
+        remoteStartCredit = nil
+        return true
+    }
+
+    /// The frame's paths against the pane's roots and the folders the user added.
+    private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
+        let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+        return await Self.checkPaths(box, scope: scope)
+    }
+
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
-        var rootRequested = false
-        if facts.needsPathCheck {
-            let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                               agentHome: agentHome(), home: homeFolder, granted: addedRoots)
-            let result = await Self.checkPaths(box, scope: scope)
+        if facts.needsPathCheck, !remoteWire {
+            var result = await checkPathsInScope(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A folder outside every root that the user typed: their gesture adds it as a root, at
+            // once and without a sheet (Lawrence 2026-10-07, "Remove dialogues."). A folder harness
+            // never: its program comes from that folder, so outside the roots it stays refused. The
+            // home folder (or above it) never by a plain click either: the pane asks about it first
+            // (`workspace.useFolder`, cx-nn3e), and only that answer makes it a root.
+            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+               !facts.harnessEnable, !refusal.outsideIsHomeOrAbove, gestures.consume() {
+                grant(folder)
+                result = await checkPathsInScope(box)
+                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            }
             switch result {
             case .success(let gestureRootsUsed):
                 // A folder of the new tab page's scan counts only when the user picked it.
@@ -186,12 +266,11 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
-                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket,
-                                   rootRequested: rootRequested)
+                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket)
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
+        var ticketPick = false
         if !facts.isFirst {
             let granted: Bool
             if let ticket = facts.ticket {
@@ -199,22 +278,39 @@ extension AgentPaneTransport {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
                     return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
                 }
-                // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
-                // a session of this pane. A ticket is spent even when it does not match.
+                // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
+                // promptId) and a permission answer (its session, prompt and option) redeem a
+                // ticket, for their exact pick, into a session of this pane. A ticket is spent even
+                // when it does not match.
                 let redeemed = gestures.redeem(ticket, connection: id, pick: facts.pick)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
+                ticketPick = granted
+            } else if remoteWire, facts.method == "session/new" {
+                // A new chat on another machine starts only from the person's own send (cx-k21v);
+                // its first prompt goes with the same gesture, after the start. A prompt a
+                // person's action seeded starts it once through its seed ticket, and goes out
+                // with that ticket (gap 4); a CLI, MCP or script seed has none and is refused.
+                if gestures.consume() {
+                    granted = true
+                    remoteStartCredit = (id, ProcessInfo.processInfo.systemUptime)
+                } else {
+                    granted = gestures.takeSeedStart()
+                }
             } else {
-                granted = !facts.needsGesture || gestures.consume()
+                // The start's credit is spent by the first prompt, whatever grants it.
+                let credit = takeRemoteStartCredit(facts, connection: id)
+                granted = !facts.needsGesture || gestures.consume() || credit
             }
             if !granted {
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
         }
-        // R2 and P2: a mode, or a config option that is not free, needs the user's native
-        // confirmation unless the daemon says that the value keeps the session asking.
-        if let setting = facts.setting {
+        // P2: a config option that is not free needs the user's native confirmation unless the
+        // daemon says that the value keeps the session asking. A mode needs only the gesture rule
+        // (Lawrence 2026-10-07: no sheet for full access).
+        if let setting = facts.setting, setting.asked.needsSheet {
             let answer = await webModes(setting.sessionId, setting.configId, setting.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             let asks = answer?.freeConfigIds.contains(setting.configId) == true || answer?.asks == true
@@ -223,6 +319,19 @@ extension AgentPaneTransport {
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
                 if !confirmed { return Self.refuse(.refuse(.modeNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
             }
+        }
+        // A folder harness: the user's Enable on the native sheet, then the prompt's sha256.
+        if facts.harnessEnable {
+            let confirmed = await confirmHarnessEnable(box)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            if !confirmed { return Self.refuse(.refuse(.harnessNotConfirmed, method: facts.method, requestID: facts.pageID), socket: socket) }
+        }
+        // cx-0q7o: an allow for a prompt of another daemon run carries the person's decision
+        // proof, made here (the key never reaches the page), when this app holds that run's key.
+        // Only an allow that redeemed a ticket for this very prompt and option is signed.
+        if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
+            // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
+            signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
@@ -243,7 +352,8 @@ extension AgentPaneTransport {
         } else {
             noteSent(facts, relayID: relayID)
             // The switch's queued prompt goes out: the switch has ended, its tickets with it.
-            if facts.method == "session/prompt" { gestures.clearTickets() }
+            // A prompt went out: a seeded prompt's ticket that it did not redeem ends too.
+            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket() }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             if let relayID { ids.cancel(relayID) }
@@ -251,6 +361,34 @@ extension AgentPaneTransport {
             return .stop(error)
         }
         return .sent
+    }
+
+    /// The decision proof of an allow for a prompt of another daemon run, from the newest
+    /// `permission_pending` of that prompt. The daemon's own prompts need none (this connection
+    /// is the person). Signed only in a chat on another machine, only with the key bound to that
+    /// chat's own machine and to the run that asks, and only for the prompt and option the person
+    /// picked (`ticketPick`). A peer of this Mac's daemon has no key of this app (the app has no
+    /// exec channel of its own there). Otherwise the allow goes unproved (that daemon refuses
+    /// it), and the pane says so.
+    private func signRelayedAllow(_ box: FrameBox, sessionId: String?, ticketPick: Bool) {
+        guard let session = sessionId, let permission = box.param("permissionId"), let option = box.param("optionId"),
+              let context = decisions.context(session: session, permission: permission),
+              context.instance != decisions.localInstance else { return }
+        // No key bound for the chat's machine and the run that asks: approvals are off there.
+        guard let machine = remoteApprovals?.machineID,
+              let key = AcpmuxRemotePersonKeys.shared.key(machine: machine, instance: context.instance) else {
+            onRemoteApprovalsOff?(remoteApprovals)
+            return
+        }
+        // A bound key, but no ticket for this pick: the allow goes unproved and that daemon
+        // refuses it. Approvals are on there, so the pane shows no notice.
+        guard ticketPick else {
+            Self.logger.info("agent pane transport relayed allow without the person's ticket: sent without a proof")
+            return
+        }
+        let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,
+                                      nonce: context.nonce)
+        box.setDecision(nonce: context.nonce, proof: proof)
     }
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.

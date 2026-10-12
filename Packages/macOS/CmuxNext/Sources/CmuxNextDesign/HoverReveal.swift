@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 
 /// What decides whether a hover-revealed region shows its views.
 public nonisolated struct HoverRevealState: Hashable, Sendable {
@@ -52,7 +53,13 @@ public final class HoverReveal {
             owner?.endHold(generation: generation)
         }
 
-        isolated deinit { release() }
+        // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+        nonisolated deinit {
+            guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+            MainActor.assumeIsolated {
+                release()
+            }
+        }
     }
 
     /// Debug builds assert when a view or region is claimed twice. Tests
@@ -68,6 +75,11 @@ public final class HoverReveal {
     }
     /// Called after the reveal changes (for work beyond the alpha fade).
     public var onChange: ((Bool) -> Void)?
+    /// Called after any input changes (pointer, focus, holds, enabled),
+    /// also when the reveal itself does not: a consumer that needs the
+    /// inputs rather than the result (the collapsed toolbar band opens on
+    /// the pointer even while `window.titlebarButtons` = always).
+    public var onStateChange: ((HoverRevealState) -> Void)?
 
     public private(set) weak var region: NSView?
     private var views: [ObjectIdentifier: Weak] = [:]
@@ -101,11 +113,15 @@ public final class HoverReveal {
         region.addSubview(probe, positioned: .below, relativeTo: nil)
     }
 
-    isolated deinit {
-        probe.removeFromSuperview()
-        for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
-        if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
-            Self.regionOwners[ObjectIdentifier(region)] = nil
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            probe.removeFromSuperview()
+            for key in views.keys where Self.viewOwners[key]?.value === self { Self.viewOwners[key] = nil }
+            if let region, Self.regionOwners[ObjectIdentifier(region)]?.value === self {
+                Self.regionOwners[ObjectIdentifier(region)] = nil
+            }
         }
     }
 
@@ -183,9 +199,10 @@ public final class HoverReveal {
     }
 
     private func update(_ change: (inout HoverRevealState) -> Void) {
-        let wasRevealed = state.isRevealed
+        let old = state
         change(&state)
-        guard state.isRevealed != wasRevealed else { return }
+        if state != old { onStateChange?(state) }
+        guard state.isRevealed != old.isRevealed else { return }
         let alpha: CGFloat = state.isRevealed ? 1 : 0
         let targets = views.values.compactMap(\.value)
         Motion.animate(.hover, in: region) {
@@ -229,8 +246,12 @@ private final class HoverRevealProbe: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    isolated deinit {
-        closeObserver?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            closeObserver?.cancel()
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -285,9 +306,9 @@ private final class HoverRevealProbe: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
-        focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] window, _ in
-            // crash-allow: AppKit changes firstResponder only on the main thread, and KVO calls back synchronously on the changing thread; a hop would reveal a focused button a turn late.
-            MainActor.assumeIsolated { self?.owner?.focusDidChange(window.firstResponder) }
+        focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { @Sendable [weak self] window, _ in
+            // KVO calls back synchronously on the changing thread: inline on main (a hop would reveal a focused button a turn late), a hop from anywhere else.
+            MainDelivery().run { self?.owner?.focusDidChange(window.firstResponder) }
         }
         // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
         closeObserver = Task { @MainActor [weak self, weak window] in

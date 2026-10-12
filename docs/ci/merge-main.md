@@ -23,7 +23,16 @@ What it does, in order:
    (`failure`, `pending`, `missing`).
 3. Merges through the trusted local resolver: `project.pbxproj`, the embedded
    config schema and `.xcstrings` conflicts resolve with their generators; any
-   other conflict aborts the merge and names the paths.
+   other conflict aborts the merge and names the paths. On a branch whose tree
+   builds the cmux-next web bundles instead of committing them (feat-cmux-next
+   since cx-vn5: `Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md`
+   is committed), the bundles that main still commits stay out of the index:
+   a modify/delete conflict on `Resources/markdown-viewer/webviews-app` (or
+   another former bundle path) resolves to the deletion, and files main added
+   there are removed from the merge (`git rm --cached`). The app build
+   regenerates them from the merged sources. A raw `git merge origin/main`
+   resolves the same way: `git rm -r --cached Resources/markdown-viewer/webviews-app`
+   for the conflicted and added files, or `scripts/cmux-next/regenerate-web-bundles.sh`.
 4. With `--guards` (off by default; pushing runs them in CI), runs
    `scripts/ci/guards-local.sh` (the `ci` group, or every group with
    `--all-guards`) on the merge and labels each failed step. A local pass

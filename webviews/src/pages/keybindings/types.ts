@@ -29,6 +29,8 @@ export interface Binding {
   removed?: boolean;
   /** Set on a removed default when the user's Ghostty config claims its key (read-only; no Reset). */
   removedBy?: "ghostty";
+  /** Set on a system-wide key (Start Agent from Any App) cmux could not register: another app holds it. */
+  heldElsewhere?: boolean;
 }
 
 export interface BindingListResult {

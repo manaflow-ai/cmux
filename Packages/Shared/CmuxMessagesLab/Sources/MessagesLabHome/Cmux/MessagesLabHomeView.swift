@@ -18,6 +18,7 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
+        HomeMarkdownPolicy.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -66,10 +67,22 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// H17: offline the user can type, but Send and tapbacks are off.
+    /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
+    }
+
+    /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
+    public var isWorking: Bool {
+        get { controller.isWorking }
+        set { controller.isWorking = newValue }
+    }
+
+    /// The host's shared stop action.
+    public var onStop: (() -> Void)? {
+        get { controller.onStop }
+        set { controller.onStop = newValue }
     }
 
     /// The window is key and visible (read cursor).
@@ -87,6 +100,9 @@ public final class MessagesLabHomeView: NSView {
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
+            // cmux: the window background is per view too; a view made after the
+            // process-wide theme was set would keep the one it was made with.
+            controller.demo?.backgroundColor = Fixture.background
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
             controller.host.paneHeader.light = theme.active.isLight
         }
@@ -105,6 +121,13 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// opens it in the app (`link.open`). Nil: the link opens nothing.
+    public var onAppLink: ((URL) -> Void)? {
+        get { controller.onAppLink }
+        set { controller.onAppLink = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings sidebar there.
     public var onNamePill: () -> Void {
@@ -117,6 +140,13 @@ public final class MessagesLabHomeView: NSView {
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
+    }
+
+    /// The header avatar's picture, drawn over `avatarText` and the
+    /// initials; nil shows those.
+    public var avatarPicture: NSImage? {
+        get { projection.pictureOverride }
+        set { projection.pictureOverride = newValue }
     }
 
     /// The name pill's VoiceOver help (what a click on it does).
@@ -208,12 +238,14 @@ public final class MessagesLabHomeView: NSView {
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
 
     /// Return in the field: sends the text and the attachments as one message.
-    public func sendDraft() { projection.send() }
+    /// Nil when it went (or waits for the owner as "sending"), else why not.
+    @discardableResult
+    public func sendDraft() -> String? { projection.send() }
 
-    /// Automation (DEBUG socket): a love tapback on the newest incoming
-    /// message through the picker's path (`ChatIntents.react`).
-    public func debugTapbackNewestIncoming() -> Bool {
-        guard let hit = controller.demo?.lastTextRow(mine: false) else { return false }
+    /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
+    /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
+    public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
+        guard let hit = controller.demo?.lastTextRow(mine: mine) else { return false }
         projection.react(hit.row.ref, .tapback("love"))
         return true
     }
@@ -225,23 +257,49 @@ public final class MessagesLabHomeView: NSView {
     public func debugMenuTitles(mine: Bool) -> [String]? {
         guard let hit = controller.demo?.lastTextRow(mine: mine),
               let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
-        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : $0.title }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : ($0 as? MenuAction)?.label ?? $0.title }
     }
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: 31 pt and 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
         let rows = demo.model.rows
-        for i in stride(from: rows.count - 2, through: 0, by: -1) where !rows[i].ghost {
-            guard case .receipt = rows[i].spec.kind, let next = (i + 1..<rows.count).first(where: { !rows[$0].ghost }) else { continue }
+        // crash program: no index math.
+        for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
+            guard case .receipt = row.spec.kind, let next = rows.enumerated().dropFirst(i + 1).first(where: { !$0.element.ghost })?.offset else { continue }
             out["receiptToNextBody"] = Double(demo.layout.contentTop(next) - demo.layout.contentTop(i))
-            out["receiptHeight"] = Double(rows[i].spec.height)
+            out["receiptHeight"] = Double(row.spec.height)
             break
         }
         return out
+    }
+
+    /// Automation (DEBUG socket): the typing bubble's body (RowCell.typingBody) in window
+    /// coordinates (AppKit: origin at the bottom left), nil when no typing row shows.
+    public func debugTypingBubbleFrame() -> CGRect? {
+        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return nil }
+        for case let cell as RowCell in demo.collection.visibleCells {
+            guard case .typing? = cell.spec?.kind, !cell.isHidden else { continue }
+            let inHost = cell.typingBody.convert(cell.typingBody.bounds, to: hostLayer)
+            return controller.host.convert(inHost, to: nil)
+        }
+        return nil
+    }
+
+    /// Automation (DEBUG socket): the text of the newest `limit` messages
+    /// this view holds (its own store), oldest first.
+    public func debugMessageTexts(limit: Int = 10) -> [String] {
+        guard let store = controller.store else { return [] }
+        return store.state.conversation.messages.suffix(limit).map { message in
+            message.parts.compactMap { part in
+                if case let .text(text, _) = part { return text }
+                return nil
+            }.joined(separator: "\n")
+        }
     }
 
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
@@ -257,6 +315,75 @@ public final class MessagesLabHomeView: NSView {
             }
         }
         return false
+    }
+
+    /// Automation (DEBUG socket): clicks the first shown link whose URL starts with `prefix`,
+    /// through the click's path (`ChatController.openLink`, so an app link goes to
+    /// `onAppLink`); the clicked URL, or nil when no shown link matches.
+    public func debugClickLink(prefix: String) -> String? {
+        guard let demo = controller.demo else { return nil }
+        let b = controller.host.bounds
+        for y in stride(from: b.minY, to: b.maxY, by: 3) {
+            for x in stride(from: b.minX, to: b.maxX, by: 3) {
+                let p = CGPoint(x: x, y: y)
+                guard let url = controller.linkURL(at: p), url.absoluteString.hasPrefix(prefix), let hit = demo.hit(p) else { continue }
+                return controller.openLink(hit, at: p) ? url.absoluteString : nil
+            }
+        }
+        return nil
+    }
+
+    /// Automation (DEBUG socket): a click on the newest thread's "N Replies" or
+    /// thread preview through the click's path (`ChatController.clicked`). The
+    /// open thread's root (its transcript id) after the click, nil when none opened.
+    public func debugOpenNewestThread() -> String? {
+        guard let demo = controller.demo else { return nil }
+        let cells = demo.collection.visibleCells.compactMap { $0 as? RowCell }
+            .map { $0.convert($0.bounds, to: demo) }.sorted { $0.maxY > $1.maxY }
+        for r in cells {
+            for y in stride(from: r.maxY, to: r.minY, by: -3) {
+                for x in stride(from: r.minX, to: r.maxX, by: 3) {
+                    let p = CGPoint(x: x, y: y)
+                    guard demo.repliesHit(p) != nil else { continue }
+                    controller.clicked(p)
+                    return debugOpenThread
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Automation (DEBUG socket): the open thread's root (its transcript id), nil when none is open.
+    public var debugOpenThread: String? { controller.store?.state.ui.openThread?.messageId }
+
+    /// Automation (DEBUG socket): Esc through the field's path (`ChatController.escape`).
+    public func debugEscape() { controller.escape() }
+
+    /// Automation (DEBUG socket): Reply… in the context menu at the newest text bubble (mine or
+    /// incoming), built and chosen by the right-click's path. The open thread's root after it.
+    public func debugReplyNewest(mine: Bool) -> String? {
+        guard let hit = controller.demo?.lastTextRow(mine: mine),
+              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == Strings.menuReplyEllipsis }),
+              let action = item.action else { return nil }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return debugOpenThread
+    }
+
+    /// Automation (DEBUG socket): a real Esc key press posted to the app's event queue (local
+    /// monitors see it), with the key focus on the window itself (`outside`, as when a terminal
+    /// or the sidebar has it) or where it is.
+    public func debugPostEscape(outside: Bool) {
+        guard let window else { return }
+        if outside { window.makeFirstResponder(nil) }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+                                        charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                NSApp.postEvent(e, atStart: false)
+            }
+        }
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points

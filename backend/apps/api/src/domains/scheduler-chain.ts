@@ -1,5 +1,6 @@
-import type { Principal, Reject } from "@cmux/ownership"
+import type { Principal, Reject, RowReader } from "@cmux/ownership"
 import type { Automation, Run } from "@cmux/protocol"
+import { keptRuns, runRowOf } from "./scheduler-rows.ts"
 import type { SchedulerState } from "./scheduler.ts"
 
 /**
@@ -23,12 +24,13 @@ export const MAX_TREE_RUNS = 25
  * any run reached that way still belongs to a tree, and every tree is capped.
  */
 export const automationTrigger = (
-  state: SchedulerState,
+  state: Pick<SchedulerState, "automation_trees">,
+  rows: RowReader | undefined,
   p: Principal,
   target: Automation
 ): { trigger: Run["trigger"]; trees: Record<string, number> } | ({ ok: false } & Reject) => {
   if (target.body.type === "agent_prompt") return { ok: false, code: "auth.forbidden", message: "an automation cannot start an agent_prompt automation" }
-  const parent = state.runs[p.run!]
+  const parent = runRowOf(rows, p.run!)
   // The caller is running, so its record exists; an unknown caller is refused (fail closed).
   if (!parent || parent.automation !== p.agent) return { ok: false, code: "auth.forbidden", message: "the calling run is unknown" }
   if (FINISHED.has(parent.state)) return { ok: false, code: "auth.forbidden", message: "the calling run has finished" }
@@ -39,7 +41,7 @@ export const automationTrigger = (
   if (!root) return { ok: false, code: "automation.fanout", message: "the calling run's chain predates run trees; it may not start runs" }
   // Keep counters only for trees that still have a run in state (bounded by the runs kept).
   const live = new Set<string>()
-  for (const r of Object.values(state.runs)) {
+  for (const r of keptRuns(rows)) {
     live.add(r.id)
     if (r.trigger.root_run) live.add(r.trigger.root_run)
   }

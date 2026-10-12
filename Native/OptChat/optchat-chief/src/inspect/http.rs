@@ -27,8 +27,12 @@ use serde_json::json;
 
 use super::Inspector;
 
-/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh).
-pub const PAGE: &str = include_str!("../../inspector/index.html");
+/// The React page, one self-contained file (scripts/cmux-next/build-optchat-inspector-web.sh),
+/// copied into OUT_DIR by build.rs; a placeholder when the bundle was not built.
+pub const PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));
+/// Whether this binary carries the placeholder page instead of the inspector
+/// (build.rs set `optchat_inspector_placeholder`: nothing built the bundle).
+pub const PAGE_IS_PLACEHOLDER: bool = cfg!(optchat_inspector_placeholder);
 
 /// The session cookie's name, with the port in it: a browser sends a
 /// 127.0.0.1 cookie to every port, so two Chiefs (two tags) must not share it.
@@ -37,6 +41,15 @@ fn cookie_name(port: u16) -> String {
 }
 /// How long a session cookie stays valid.
 const SESSION_LIFE: Duration = Duration::from_secs(12 * 3600);
+struct Ticket {
+    minted: Instant,
+    spent: Option<(String, Instant)>,
+}
+
+/// How long a spent ticket still answers with the session it bought: the
+/// app's browser loads the ticket URL again when it moves the new tab into
+/// its column, before the first load's redirect lands.
+const RESPEND: Duration = Duration::from_secs(10);
 /// How long a ticket from `/api/ticket` can be spent.
 const TICKET_LIFE: Duration = Duration::from_secs(60);
 /// Connections served at once; more are answered 503.
@@ -63,7 +76,8 @@ struct Shared {
     inspector: Arc<Inspector>,
     token: String,
     port: u16,
-    tickets: Mutex<HashMap<String, Instant>>,
+    /// Each ticket: when it was minted, and the session it bought once spent.
+    tickets: Mutex<HashMap<String, Ticket>>,
     sessions: Mutex<Vec<(String, Instant)>>,
     live: AtomicUsize,
 }
@@ -308,11 +322,56 @@ impl Shared {
 
     fn host_ok(&self, req: &Request) -> bool {
         let port = self.port;
-        req.header("host").is_some_and(|h| {
-            h == format!("127.0.0.1:{port}")
-                || h == format!("localhost:{port}")
-                || h == format!("[::1]:{port}")
-        })
+        req.header("host")
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|h| {
+                h == format!("127.0.0.1:{port}")
+                    || h == format!("localhost:{port}")
+                    || h == format!("[::1]:{port}")
+            })
+    }
+
+    /// No `Origin` (a navigation or a same-origin GET) or exactly this
+    /// server's own loopback origin. A foreign or `null` Origin is another web
+    /// page reading the inspector (including a page on another loopback port,
+    /// which gets the SameSite cookie); it is refused even with the token or
+    /// a session. DNS rebinding is stopped earlier, by [`Shared::host_ok`].
+    fn origin_ok(&self, req: &Request) -> bool {
+        let port = self.port;
+        let mut origins = req
+            .headers
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case("origin"));
+        match (origins.next(), origins.next()) {
+            (None, _) => true,
+            (Some((_, origin)), None) => {
+                let origin = origin.trim().to_ascii_lowercase();
+                let origin = origin.strip_suffix('/').unwrap_or(&origin);
+                origin == format!("http://127.0.0.1:{port}")
+                    || origin == format!("http://localhost:{port}")
+                    || origin == format!("http://[::1]:{port}")
+            }
+            (Some(_), Some(_)) => false,
+        }
+    }
+
+    /// Fetch Metadata: a request a browser marks `same-site` or `cross-site`
+    /// comes from another page (a no-cors `<script>` or `<img>` on another
+    /// loopback port sends no Origin but does send the SameSite cookie), so
+    /// it is refused, except a top-level navigation to the page itself.
+    /// A missing header (URLSession, curl, old engines) is allowed.
+    fn fetch_site_ok(&self, req: &Request) -> bool {
+        let site = req
+            .header("sec-fetch-site")
+            .map(|v| v.trim().to_ascii_lowercase());
+        match site.as_deref() {
+            None | Some("same-origin" | "none") => true,
+            Some(_) => {
+                req.header("sec-fetch-mode")
+                    .is_some_and(|mode| mode.trim().eq_ignore_ascii_case("navigate"))
+                    && matches!(req.path.as_str(), "/" | "/index.html")
+            }
+        }
     }
 
     fn mint_ticket(&self) -> io::Result<String> {
@@ -321,24 +380,34 @@ impl Shared {
             .tickets
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        tickets.retain(|_, at| at.elapsed() < TICKET_LIFE);
-        tickets.insert(ticket.clone(), Instant::now());
+        tickets.retain(|_, t| t.minted.elapsed() < TICKET_LIFE);
+        tickets.insert(
+            ticket.clone(),
+            Ticket {
+                minted: Instant::now(),
+                spent: None,
+            },
+        );
         Ok(ticket)
     }
 
-    /// Spends `ticket` (once, within its life) for a new session id.
+    /// Spends `ticket` (within its life) for a new session id. A ticket
+    /// works once; the same ticket again within `RESPEND` of its first use
+    /// (a reload of the same URL) gets the same session, never a new one.
     fn spend_ticket(&self, ticket: &str) -> Option<String> {
-        let fresh = {
-            let mut tickets = self
-                .tickets
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            tickets.retain(|_, at| at.elapsed() < TICKET_LIFE);
-            let found = tickets.keys().find(|k| same(k, ticket)).cloned();
-            found.and_then(|k| tickets.remove(&k))
-        };
-        fresh?;
+        let mut tickets = self
+            .tickets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tickets.retain(|_, t| t.minted.elapsed() < TICKET_LIFE);
+        let key = tickets.keys().find(|k| same(k, ticket)).cloned()?;
+        let entry = tickets.get_mut(&key)?;
+        if let Some((session, at)) = &entry.spent {
+            return (at.elapsed() < RESPEND).then(|| session.clone());
+        }
         let session = new_secret().ok()?;
+        entry.spent = Some((session.clone(), Instant::now()));
+        drop(tickets);
         let mut sessions = self
             .sessions
             .lock()
@@ -381,6 +450,12 @@ const LOCKED: &str = "<!doctype html><meta charset=utf-8><title>Memory Inspector
 fn route(shared: &Shared, req: &Request) -> Reply {
     if !shared.host_ok(req) {
         return text(403, "the Host header is not this loopback server");
+    }
+    if !shared.origin_ok(req) {
+        return text(403, "the Origin is not this loopback server");
+    }
+    if !shared.fetch_site_ok(req) {
+        return text(403, "the request comes from another site");
     }
     if req.method != "GET" && req.method != "HEAD" {
         let mut r = text(405, "the inspector is read-only: GET only");

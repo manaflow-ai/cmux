@@ -9,6 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+FOCUSED_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-focused-test.sh"
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
@@ -34,10 +35,64 @@ def test_ignored_only_listing_has_no_runnable_test_names() -> None:
 
 
 def test_workflow_rejects_ignored_only_filter_from_name_difference() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+    script = FOCUSED_SCRIPT.read_text(encoding="utf-8")
 
-    assert 'comm -23 "$normal_names" "$ignored_names"' in workflow
-    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in workflow
+    assert 'comm -23 "$normal_names" "$ignored_names"' in script
+    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in script
+
+
+def test_macos_job_runs_the_focused_filter() -> None:
+    """cx-jcfoz: a filtered dispatch ran the filter on Linux only and reported macOS green."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for job_name in ("test", "macos"):
+        steps = workflow["jobs"][job_name]["steps"]
+        runs = [step for step in steps if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
+        assert len(runs) == 1, job_name
+        step = runs[0]
+        assert step["working-directory"] == "cmux-tui"
+        assert '"$TEST_FILTER"' in step["run"]
+        assert step["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
+    macos_step = next(step for step in workflow["jobs"]["macos"]["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", "")))
+    assert macos_step["if"] == "inputs.mode == 'focused'"
+
+
+def _run_focused(listing: str, ignored: str) -> tuple[int, str]:
+    """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$*" >> "{log}"\n'
+            'case "$*" in\n'
+            f'  *"--list --ignored"*) printf "%b" "{ignored}" ;;\n'
+            f'  *"--list"*) printf "%b" "{listing}" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter", "--test-threads=2"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root)},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls
+
+
+def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
+    code, calls = _run_focused("", "")
+    assert code == 1
+    assert "some_filter -- --test-threads=2" not in calls
+
+
+def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
+    code, calls = _run_focused("tui::a_test: test\\n", "")
+    assert code == 0
+    assert "test --workspace --locked some_filter -- --test-threads=2" in calls
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -90,7 +145,8 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
         assert "full" not in condition
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    # fc36c16ddea8: hand-picked selections go through cargo-test-selected.sh (fails on zero tests).
+    assert "cargo-test-selected.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
@@ -135,11 +191,12 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"
-    assert "cargo fmt --check" in macos_commands
+    # Formatting is host-independent and runs once, on Linux (#17095).
+    assert "cargo fmt --check" not in macos_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
-    assert "mac_process_scope" in macos_commands
-    assert "macos_pty_" in macos_commands
+    # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
+    assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
     assert "lint" in gate["needs"]
     assert "macos" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
@@ -172,3 +229,75 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+
+
+MACOS_RELAY_RUNNER = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    "vars.CI_PR_POOL_OWNED == '1' && "
+    "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+    "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
+    "vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"
+)
+
+
+def test_macos_runs_the_chatmux_relay_tests() -> None:
+    """The relay crate's tests run on macOS again.
+
+    9f4acf5b2787 (#17051) dropped the `test (macos)` matrix entry, and with it
+    the only macOS run of `cargo test -p chatmux-relay` (full mode, and focused
+    mode with the chatmux_relay selector). The relay job takes the owned minis
+    through CI_SIDE_LANE_RUNNER on attempt 1, and a rerun returns to the
+    background lane.
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["macos-relay"]
+    gate = workflow["jobs"]["hosted-verification"]
+
+    assert job["name"] == "chatmux-relay tests (macOS)"
+    assert job["needs"] == "validate-inputs"
+    assert job["runs-on"] == MACOS_RELAY_RUNNER
+    condition = str(job["if"])
+    assert "inputs.mode == 'full'" in condition
+    assert "inputs.test_filter == 'chatmux_relay'" in condition
+    assert "inputs.test_filter == 'chatmux-relay'" in condition
+
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert steps["Require exact checkout"]["run"] == 'test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"'
+    relay = steps["cargo test -p chatmux-relay"]
+    assert relay["working-directory"] == "cmux-tui"
+    assert "cargo test -p chatmux-relay --locked" in relay["run"]
+
+    gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
+    assert "macos-relay" in gate["needs"]
+    assert gate["env"]["MACOS_RELAY_RESULT"] == "${{ needs.macos-relay.result }}"
+    assert gate["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
+    assert 'require_success "macOS chatmux-relay tests" "$MACOS_RELAY_RESULT"' in gate_commands
+
+
+ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+
+
+def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
+    """Attempt 1 takes the owned minis' side lane; a rerun goes back to the PR pool.
+
+    The legs are on the PR critical path, so both fall back to MACOS_RUNNER_PR,
+    never the background lane, and neither names the retired glaeda-aws pools.
+    """
+    workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
+    builds = [
+        job for job in workflow["jobs"].values()
+        if isinstance(job, dict) and "macos_runner" in (job.get("with") or {})
+    ]
+    assert builds
+    for job in builds:
+        assert job["with"]["macos_runner"] == (
+            "${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "vars.CI_PR_POOL_OWNED == '1' && "
+            "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
+            "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
+            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+        )
+        assert job["with"]["macos_retry_runner"] == (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+        )

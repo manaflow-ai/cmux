@@ -2,11 +2,12 @@
 // boot (pageBoot.ts on the page host, diff/dev.ts in dev) awaits the config it resolves with and
 // renders the viewer into the same root.
 import { createRoot } from "react-dom/client";
-import { createDiffViewerLabelResolver, diffViewerLanguage } from "../labels";
+import { createDiffViewerLabelResolver, diffViewerLanguage, loadDiffViewerLabels } from "../labels";
 import type { PageClient } from "../pages/shared/pageClient";
 import { UiProvider, languageDirection } from "../ui/UiProvider";
 import { DiffEmptyState } from "./DiffEmptyState";
 import { viewerEmptyStrings } from "./strings";
+import { appPopupHost } from "../pages/shared/pagePopupHost";
 
 export interface PickDiffOptions {
   /** `payload.labels` of the empty config, for the source names. */
@@ -14,19 +15,20 @@ export interface PickDiffOptions {
 }
 
 /** Shows the diff empty state in `root`; resolves with the config `cmux.diff.open` answered. */
-export function pickDiffConfig(
+export async function pickDiffConfig(
   rootElement: HTMLElement,
   client: PageClient,
   options: PickDiffOptions = {},
 ): Promise<unknown> {
-  // The viewer speaks English and Japanese; the empty state follows it so the page is one language.
+  await loadDiffViewerLabels();
+  // The empty state follows the same app locale as the viewer.
   const strings = viewerEmptyStrings([diffViewerLanguage()]);
   const label = createDiffViewerLabelResolver(options.labels);
   document.documentElement.dataset.cmuxDiffEmpty = "true";
   return new Promise((resolve) => {
     const root = createRoot(rootElement);
     root.render(
-      <UiProvider container={rootElement} dir={languageDirection(strings.language)}>
+      <UiProvider container={rootElement} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
         <DiffEmptyState
           client={client}
           strings={strings}

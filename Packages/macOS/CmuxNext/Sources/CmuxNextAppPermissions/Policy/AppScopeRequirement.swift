@@ -47,42 +47,4 @@ public nonisolated enum AppScopeRequirement: Sendable, Hashable {
 }
 
 public nonisolated extension AppScopeTable {
-    /// The bundled table plus the operations section 3.3 proposes (file
-    /// roots, usage, CodeRouter, history, documents). Demos and tests use
-    /// it until the catalog generator emits these entries; an owner still
-    /// answers `operation.unsupported` until it implements the op.
-    func addingProposedOperations() -> AppScopeTable {
-        var entries = ops.mapValues { ($0.scope, $0.opClass) }
-        for (op, scope, opClass) in Self.proposedOperations where entries[op] == nil {
-            entries[op] = (scope, opClass)
-        }
-        return Self.permissionsTable(apiVersion: apiVersion, ops: entries, never: never) ?? self
-    }
-
-    /// A table from `(scope, class)` pairs. `Entry` has no public
-    /// initializer, so the table round-trips through its JSON form.
-    static func permissionsTable(apiVersion: String = "1.0.0", ops: [String: (scope: String, opClass: String)],
-                                 never: Set<String>) -> AppScopeTable? {
-        let document: AppJSON = .object([
-            "apiVersion": .string(apiVersion),
-            "ops": .object(ops.mapValues { .object(["scope": .string($0.scope), "class": .string($0.opClass)]) }),
-            "never": .array(never.sorted().map(AppJSON.string)),
-        ])
-        return try? AppScopeTable(data: Data(document.jsonText.utf8))
-    }
-
-    /// `(op, scope, class)` for the proposed operations.
-    static let proposedOperations: [(String, String, String)] = [
-        ("fs.search", "fs:read", "read"), ("fs.read", "fs:read", "read"), ("fs.write", "fs:write", "mutation"),
-        ("usage.list", "usage:read", "read"), ("usage.refresh", "usage:read", "mutation"),
-        ("coderouter.status", "coderouter:read", "read"), ("coderouter.accounts.list", "coderouter:read", "read"),
-        ("coderouter.usage.get", "coderouter:read", "read"), ("coderouter.route.test", "coderouter:write", "mutation"),
-        ("coderouter.accounts.share", "coderouter:write", "mutation"),
-        ("coderouter.keys.list", "coderouter:keys", "read"), ("coderouter.keys.create", "coderouter:keys", "mutation"),
-        ("coderouter.keys.revoke", "coderouter:keys", "mutation"),
-        ("browser.history.search", "history:read", "read"), ("terminal.search", "terminal:read", "read"),
-        ("app.documents.list", "storage:local", "read"), ("app.documents.get", "storage:local", "read"),
-        ("app.documents.put", "storage:local", "mutation"), ("app.documents.delete", "storage:local", "mutation"),
-        ("clipboard.write", "clipboard:write", "mutation"),
-    ]
 }

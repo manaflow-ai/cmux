@@ -1,4 +1,4 @@
-import { harnessRefusal, normalizeCatalog } from "./direct";
+import { catalogModel, harnessRefusal, normalizeCatalog } from "./direct";
 import type { AcpmuxSnapshot } from "./model";
 
 // The composer's model catalog. acpmux keeps its harness list (`_acpmux/harnesses`: names,
@@ -25,16 +25,13 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
     byHarness.set(
       entry.harness,
-      (entry.models as { id?: unknown; modelId?: unknown; name?: unknown; unavailable?: unknown }[]).map((model) => ({
-        id: String(model.id ?? model.modelId),
-        name: typeof model.name === "string" ? model.name : undefined,
-        ...(typeof model.unavailable === "string" ? { unavailable: model.unavailable } : {}),
-      })),
+      (entry.models as unknown[]).map((model) => catalogModel(model)),
     );
   }
   const withReason = (harness: Catalog[number]): Catalog[number] => {
-    const reason = harness.unavailable ?? refused.get(harness.id);
-    return reason ? { ...harness, unavailable: reason } : harness;
+    if (harness.unavailable) return harness;
+    const reason = refused.get(harness.id);
+    return reason ? { ...harness, unavailable: reason, probeFailed: true } : harness;
   };
   const merged = catalog.map((harness) =>
     withReason(harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] }),

@@ -36,7 +36,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newPaneAutoLayout",
                 title: String(localized: "action.newPaneAutoLayout", defaultValue: "New Pane (Auto Layout)", bundle: .module),
-                keywords: ["split", "pane"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
+                // Zellij's new pane: the largest scrolling pane splits along its longer side.
+                keywords: ["split", "pane", "smart arrange", "auto arrange", "tile", "zellij"], defaultShortcut: Shortcut("n", modifiers: [.control, .command]),
                 category: .pane, symbol: "rectangle.badge.plus", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "pane new-auto-layout", mainMenu: .view, startsTerminal: true
             ),
@@ -47,6 +48,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command, .shift]), category: .pane,
                 symbol: "arrow.up.left.and.down.right.magnifyingglass", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "pane toggle-zoom"
+            ),
+            // Show Tab Bar (cx-soza): the pane's own choice over `tabs.tabBar.<kind>`; checked while shown.
+            ActionDescriptor(
+                id: "pane.toggleTabBar",
+                title: String(localized: "action.pane.toggleTabBar", defaultValue: "Show Tab Bar", bundle: .module),
+                keywords: ["tab bar", "tabs", "strip", "horizontal", "hide", "show", "pane"],
+                category: .pane, symbol: "menubar.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.pane], cliName: "pane toggle-tab-bar"
             ),
             ActionDescriptor(
                 id: "equalizeSplits",
@@ -88,7 +97,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
+                // Ctrl-Cmd-H: Cmd-Opt-Left is a Chrome tab key (KeyBindingDefaults.tabSwitching).
+                defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
             ),
@@ -96,7 +106,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
+                // Ctrl-Cmd-L: Cmd-Opt-Right is a Chrome tab key (KeyBindingDefaults.tabSwitching).
+                defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
             ),
@@ -126,6 +137,15 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.focusNextPane", defaultValue: "Focus Next Pane", bundle: .module),
                 keywords: ["navigate"], category: .pane, symbol: "arrow.forward.square",
                 surfaces: [.palette, .keyboard], targets: [.pane], cliName: "pane focus-next"
+            ),
+            // Ctrl-Cmd-1..9 (cx-zjtn.2): the screen's panes in Focus Next
+            // Pane order; 9 is the last pane.
+            ActionDescriptor(
+                id: "focusPaneByNumber",
+                title: String(localized: "action.focusPaneByNumber", defaultValue: "Focus Pane 1…9", bundle: .module),
+                keywords: ["pane", "jump", "number", "index", "navigate"], defaultShortcut: Shortcut("1", modifiers: [.control, .command]),
+                shortcutFamily: .digits, category: .pane, symbol: "number.square", surfaces: [.keyboard],
+                arguments: [CatalogArgument.indexNumber], targets: [.pane], cliName: "pane focus-1-9"
             ),
             ActionDescriptor(
                 id: "triggerFlash",

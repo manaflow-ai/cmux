@@ -16,13 +16,14 @@ enum TopPages {
         guard ActionRunScope.viewChangeAllowed(),
               let controller = state.flatMap({ services.windows.controller(for: $0.id) }) ?? services.windows.active else { return nil }
         guard controller.topPages.view(for: route, in: controller) != nil else { return nil }
+        let origin = controller.trailOrigin
         if controller.state.page != route {
             controller.state.page = route
             services.windows.recordSaver.stateDidChange(controller.state)
         }
         controller.showTopPage(route)
         controller.topPages.focus(route, in: controller.window)
-        services.locationTrail.pageDidShow(route, title: controller.topPages.title(for: route), in: controller)
+        services.locationTrail.pageDidShow(route, title: controller.topPages.title(for: route), origin: origin, in: controller)
         if case .home = route { return "" }
         return controller.topPages.key(for: route)
     }
@@ -48,11 +49,7 @@ enum TopPages {
     /// History or Bookmarks row opens there). True when a page was left.
     @discardableResult
     static func leave(_ services: AppServices) -> Bool {
-        guard let controller = services.windows.active, controller.state.page != nil else { return false }
-        controller.state.page = nil
-        services.windows.recordSaver.stateDidChange(controller.state)
-        controller.showWorkspace(requested: controller.state.workspaceID)
-        return true
+        services.windows.active?.leaveTopPage() ?? false
     }
 
     /// The pages History and Bookmarks show on top (Q3).

@@ -72,6 +72,12 @@ export interface Principal {
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */
   readonly expires_at?: number
+  /**
+   * G8 (cx-wb5.65): the approval request this call executes. Set only inside the owner object
+   * that runs a request the person approved in the feed (CloudDO), never by the Worker, a token,
+   * a frame or params; that owner strips it from every principal it receives by RPC.
+   */
+  readonly approval?: string
 }
 
 export type Origin = "user" | "cli" | "mcp" | "script" | "remote"

@@ -1,10 +1,26 @@
+import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
+import type { AgentQuestion } from "./question/model";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
+import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import type { ComposerAttachment } from "./attachments";
+
+/** One item of an agent's todo list (an ACP `plan` entry). */
+export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
+
+/** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
+export type AcpmuxBackgroundTask = {
+  toolCallId: string;
+  command: string;
+  state: "completed" | "failed" | "stopped";
+  reason?: string;
+};
 
 export type AcpmuxRow = {
   id: string;
@@ -18,10 +34,17 @@ export type AcpmuxRow = {
   pending?: boolean;
   failed?: boolean;
   items?: AcpmuxActivity[];
+  /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
+  plan?: AcpmuxPlanEntry[];
+  /// A background task row's shell, which ended where the row sits (cx-ncc.84).
+  backgroundTask?: AcpmuxBackgroundTask;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// The originating prompt row, so Retry can restore image/PDF attachments.
+  retryRowId?: string;
+  retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
@@ -39,8 +62,12 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
+  merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
+  /// A subagent group's subagents (subagents/subagentFold.ts).
+  subagents?: Subagent[];
 };
 
 export type AcpmuxActivity = {
@@ -64,6 +91,8 @@ export type AcpmuxActivity = {
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
+    /// Images the call returned (ACP `image` content blocks), as data URLs.
+    images?: string[];
   };
 };
 
@@ -79,15 +108,48 @@ export type AcpmuxPermission = {
   kind?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
+  /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
+  /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
+  question?: AgentQuestion;
 };
+
+/** A model acpmux probed or a profile declared (`_acpmux/models`); declared entries may carry
+ *  catalog metadata, which ranks between the cmux catalog and the user's overrides. */
+export type AcpmuxCatalogModel = {
+  id: string;
+  name?: string;
+  unavailable?: string;
+  shortName?: string;
+  family?: string;
+  efforts?: string[];
+  defaultEffort?: string;
+  fast?: boolean;
+  contextWindow?: number;
+  /** The catalog release an alias stands for (the picker catalog's alias rows). */
+  release?: string;
+};
+
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
+/// send it now.
+export type QueueEdit =
+  | { op: "update"; text: string }
+  | { op: "move"; index: number }
+  | { op: "send_now" }
+  /** Runs a queue a failed turn paused; any of its prompts names it. */
+  | { op: "resume" };
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// Each subagent's own view by subagent id: its rows, opened from its line in a group
+  /// (subagents/childRows.ts).
+  subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
+  forkedAtSeq?: number;
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -110,6 +172,10 @@ export type AcpmuxSnapshot = {
     confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
+    /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
+    steering?: boolean;
+    /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
+    queuePaused?: boolean;
     status?: string;
     enforcement?: Enforcement;
     modes?: {
@@ -121,7 +187,7 @@ export type AcpmuxSnapshot = {
       name?: string;
       category?: string;
       currentValue?: string;
-      options: { value: string; name?: string }[];
+      options: { value: string; name?: string; description?: string }[];
     }[];
   };
   connection: string;
@@ -131,6 +197,9 @@ export type AcpmuxSnapshot = {
   origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
+  /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
+  /// events carry the peer's clock; unset when they share a clock or it is not known yet.
+  clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
   canHandoff?: boolean;
@@ -143,8 +212,26 @@ export type AcpmuxSnapshot = {
   catalog: {
     id: string;
     name: string;
-    models: { id: string; name?: string; unavailable?: string }[];
+    models: AcpmuxCatalogModel[];
+    /** The configured harness login command, when its profile declares one. */
+    auth?: { login?: string };
     unavailable?: string;
+    /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
+    probeFailed?: boolean;
+    pickable?: boolean;
+    /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
+    family?: string;
+    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    icon?: string;
+    /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
+     * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
+     * (`diagnostic`: its first problem). Global harnesses have none. */
+    folder?: {
+      folder: string;
+      path?: string;
+      state: "enabled" | "needs-enable" | "needs-trust" | "error";
+      diagnostic?: string;
+    };
   }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
@@ -155,9 +242,11 @@ export type AcpmuxSnapshot = {
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
+  /** The outside chat this pane adopts is still open in another process (acpmux refused with
+   * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
+   * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
+  liveChat?: { canFork: boolean; command?: string };
 };
-
-export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
 
 export type PreparedRow = {
   text: string;
@@ -221,19 +310,6 @@ export function markdownBlocks(source: string): Token[] {
   }
 }
 
-export function diffRows(previous: Map<string, AcpmuxRow>, next: AcpmuxRow[]): RowChange {
-  const nextById = new Map(next.map((row) => [row.id, row]));
-  const added: AcpmuxRow[] = [];
-  const updated: AcpmuxRow[] = [];
-  for (const row of next) {
-    const before = previous.get(row.id);
-    if (!before) added.push(row);
-    else if (before.version !== row.version) updated.push(row);
-  }
-  const removed = [...previous.keys()].filter((id) => !nextById.has(id));
-  return { added, updated, removed };
-}
-
 export function visibleRowRange(
   rowCount: number,
   scrollTop: number,
@@ -254,11 +330,23 @@ export function editedCardHeight(files: number, plain = 0): number {
   return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
 }
 
-/// What an edit without a diff lists as in the edited-files card, deduped.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
-  return [
-    ...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text)),
-  ];
+/// What edits without a diff list as in the edited-files card: each path they name, once
+/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file").
+/// Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
+  const out: { key: string; path?: string }[] = [];
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (!item.tool || item.tool.diffs?.length) return;
+    const paths = editedPaths(item.tool);
+    if (!paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
+    for (const path of paths)
+      if (!seen.has(path)) {
+        seen.add(path);
+        out.push({ key: `path-${path}`, path });
+      }
+  });
+  return out;
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
@@ -278,15 +366,32 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     if (row.settled && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
+  // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
+  // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
+  if (row.kind === SUBAGENTS) return 56;
+  if (row.kind === SUBAGENT_ROW) return row.status === "last" || row.status === "only" ? 56 : 48;
+  // The child view's 28px "Subagent of" pill with 8px above and below it.
+  if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
   if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // The render card: its 36px head over the frame before it reports a height, and 6px below.
+  if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
-  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
+  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
+  if (
+    row.kind === "turnSummary" ||
+    row.kind === "notice" ||
+    row.kind === "backgroundTask" ||
+    row.kind === "plan" ||
+    row.kind === "typing"
+  )
+    return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
@@ -420,23 +525,45 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   return Math.max(34, 16 + chromeHeight(row) + contentHeight);
 }
 
+/// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a
+/// new object), so a long chat's layout measures only the rows that changed since the last one.
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number }>;
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
+  known?: RowHeights,
+  /// The last layout at this width, whose rows (by object) the new rows may start with: those
+  /// keep their places, and only the rows after the first change are placed again.
+  previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
-  let top = 0;
-  for (let index = 0; index < rows.length; index += 1) {
+  let start = 0;
+  if (previous) {
+    const limit = Math.min(rows.length, previous.rows.length);
+    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    tops.set(previous.layout.tops.subarray(0, start));
+    heights.set(previous.layout.heights.subarray(0, start));
+  }
+  let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
-    const customHeight = measureOverride?.(rows[index], width);
-    const height =
-      customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-        ? customHeight
-        : measuredRowHeight(rows[index], width, cache);
+    const row = rows[index]!;
+    const kept = known?.get(row);
+    let height: number;
+    if (kept && kept.width === width) height = kept.height;
+    else {
+      const customHeight = measureOverride?.(row, width);
+      height =
+        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
+          ? customHeight
+          : measuredRowHeight(row, width, cache);
+      known?.set(row, { width, height });
+    }
     heights[index] = height;
     top += height;
   }
@@ -445,14 +572,22 @@ export function layoutConversation(
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
+/// `kept` rows at the start keep their places from `previous` (the last placement, which they
+/// had the same heights in).
 export function placeRows(
   estimate: ConversationLayout,
   heightAt: (index: number) => number | undefined,
+  previous?: { layout: ConversationLayout; kept: number },
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  let top = 0;
-  for (let index = 0; index < heights.length; index += 1) {
+  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  if (kept > 0) {
+    tops.set(previous!.layout.tops.subarray(0, kept));
+    heights.set(previous!.layout.heights.subarray(0, kept));
+  }
+  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
     const known = heightAt(index);
     const height = known !== undefined && known > 0 ? known : estimate.heights[index];
@@ -488,7 +623,8 @@ import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
-import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
+import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

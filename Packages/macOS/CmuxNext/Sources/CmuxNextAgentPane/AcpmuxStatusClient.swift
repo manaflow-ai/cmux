@@ -26,6 +26,24 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
+    /// (nil when the answer is not a plan this build reads).
+    @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
+                                     deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
+        var params: [String: any Sendable] = ["key": key]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
+        return AcpmuxChatOpenPlan(result: result)
+    }
+
+    /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
+    /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
+    @concurrent static func chatTranscript(socketPath: String, key: String,
+                                           deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
+        return AgentPanePastTurn.turns(result: result)
+    }
+
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
     /// running for the next daemon. With `endAgents` (Quit Everything) they
     /// end, except the agents of `keepSessions`.
@@ -38,6 +56,18 @@ nonisolated enum AcpmuxStatusClient {
     /// `_acpmux/sessions`: every session's summary.
     @concurrent static func sessions(socketPath: String, deadline: Duration) async throws -> ResultBox {
         ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
+    }
+
+    /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
+    @concurrent static func tag(socketPath: String, sessionId: String, set: [String: String], remove: [String],
+                                deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/tag",
+                           params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
+    }
+
+    /// `_acpmux/markUnread {sessionId}`: marks a session unread until it is shown again.
+    @concurrent static func markUnread(socketPath: String, sessionId: String, deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/markUnread", params: ["sessionId": sessionId], deadline: deadline)
     }
 
     /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
@@ -56,18 +86,43 @@ nonisolated enum AcpmuxStatusClient {
                               asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
     }
 
-    private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                             deadline: Duration) async throws -> [String: Any] {
+    /// `_acpmux/harness_enable {folder, id}` without sha256 (unix socket): the Enable harness
+    /// prompt. Writes nothing. Nil when the daemon refuses (no trusted answer, an invalid file, no
+    /// such profile) or cannot answer.
+    @concurrent static func harnessEnablePrompt(socketPath: String, folder: String, id: String,
+                                                deadline: Duration = .seconds(5)) async -> AgentPaneHarnessEnablePrompt? {
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/harness_enable",
+                                           params: ["folder": folder, "id": id], deadline: deadline) else { return nil }
+        return AgentPaneHarnessEnablePrompt(result: result)
+    }
+
+    /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
+    /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
+    static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
+                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection))
+            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed, limit: limit))
         }
         return box.value
     }
 
+    /// The folder of the daemon's session `sessionId` from its session list
+    /// (`_acpmux/watch`, whose reply carries `sessions` with `hostKind` and
+    /// `peer`; the subscription ends with this one-shot connection), nil when the daemon has no such session or names
+    /// no folder. The agent pane's commits and pushes run here, never in a
+    /// folder the page names.
+    @concurrent static func sessionFolder(socketPath: String, sessionId: String,
+                                          deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/watch", params: ["enabled": true],
+                                    deadline: deadline, limit: 16 << 20)
+        return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
+    }
+
     /// `initialize`, then `method`; returns its result.
-    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection) async throws -> [String: Any] {
+    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
+                                 detailed: Bool, limit: Int) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -88,9 +143,10 @@ nonisolated enum AcpmuxStatusClient {
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let reply = try reply(to: 2, in: Data(line)) { return reply }
+                let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
+                if let parsed { return parsed }
             }
-            if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
+            if buffer.count > limit { throw Failure.rpc("\(method) reply too large") }
         }
     }
 
@@ -104,7 +160,15 @@ nonisolated enum AcpmuxStatusClient {
         return object["result"] as? [String: Any] ?? [:]
     }
 
-    private static func start(_ connection: NWConnection) async throws {
+    /// `reply(to:in:)` that keeps the error's JSON-RPC code and data (``AcpmuxRPCError``).
+    static func detailedReply(to id: Int, in line: Data) throws -> [String: Any]? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              (object["id"] as? NSNumber)?.intValue == id else { return nil }
+        if let error = object["error"] as? [String: Any] { throw AcpmuxRPCError(error) }
+        return object["result"] as? [String: Any] ?? [:]
+    }
+
+    static func start(_ connection: NWConnection) async throws {
         let gate = AgentPaneResumeOnce()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.stateUpdateHandler = { state in
@@ -123,7 +187,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func send(_ data: Data, on connection: NWConnection) async throws {
+    static func send(_ data: Data, on connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
@@ -131,7 +195,7 @@ nonisolated enum AcpmuxStatusClient {
         }
     }
 
-    private static func receive(on connection: NWConnection) async throws -> Data? {
+    static func receive(on connection: NWConnection) async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
                 if let data, !data.isEmpty {
@@ -159,12 +223,17 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
     var pid: Int32?
     /// The daemon runs agents under agent hosts: a restart keeps them.
     var agentHosts: Bool
+    /// `ACPMUX_CHIEF_MUX_HOME` of the daemon's own environment (acpmux
+    /// `config/chief_builtins.rs`); nil when unset or from an older daemon.
+    var chiefMuxHome: String?
 
-    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false) {
+    init(webURL: String? = nil, build: String? = nil, pid: Int32? = nil, agentHosts: Bool = false,
+         chiefMuxHome: String? = nil) {
         self.webURL = webURL
         self.build = build
         self.pid = pid
         self.agentHosts = agentHosts
+        self.chiefMuxHome = chiefMuxHome
     }
 
     init(_ result: [String: Any]) {
@@ -172,6 +241,7 @@ nonisolated struct AcpmuxStatus: Sendable, Equatable {
         build = result["build"] as? String
         pid = (result["pid"] as? NSNumber).map { Int32(truncating: $0) }
         agentHosts = (result["agentHosts"] as? Bool) ?? false
+        chiefMuxHome = result["chiefMuxHome"] as? String
     }
 
     /// The WebSocket endpoint; `.noWebSocket` when the listener failed to bind.

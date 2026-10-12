@@ -186,7 +186,8 @@ fn a_missing_socket_names_the_command_that_starts_a_session() {
     assert_eq!(output.status.code(), Some(3));
     let stderr = text(&output.stderr);
     assert!(stderr.contains("no cmux session is running"), "{stderr}");
-    assert!(stderr.contains("cmux server ensure"), "{stderr}");
+    // On `cmux`, `server` is the machine server; the lifecycle is `daemon`.
+    assert!(stderr.contains("cmux daemon ensure"), "{stderr}");
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -199,7 +200,7 @@ fn a_stale_socket_is_reported_as_stale_with_the_fix() {
     assert_eq!(output.status.code(), Some(3));
     let stderr = text(&output.stderr);
     assert!(stderr.contains("stale"), "{stderr}");
-    assert!(stderr.contains("cmux server ensure"), "{stderr}");
+    assert!(stderr.contains("cmux daemon ensure"), "{stderr}");
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -333,5 +334,43 @@ fn attach_help_shows_only_attach_usage() {
     assert!(help.contains("--terminal <id>"), "{help}");
     assert!(!help.contains("--ws-insecure-bind"), "attach help lists start options: {help}");
     assert!(!help.contains("--relay"), "attach help lists start options: {help}");
+    let _ = fs::remove_dir_all(dir);
+}
+
+/// Scripts written before decision D1 (`cmux server stop|ensure|status
+/// --session NAME`) keep working on `cmux`: the old lifecycle spelling runs
+/// `cmux daemon …` and says so on stderr in human output. JSON output stays
+/// machine readable (stdout and the stderr error object are unchanged).
+#[test]
+fn old_cmux_server_lifecycle_spellings_still_run_the_daemon_lifecycle() {
+    let dir = temp_dir("srv-compat");
+    let socket = dir.join("absent.sock");
+    let socket = socket.to_str().unwrap();
+
+    let stop = cmux(&dir, &["server", "stop", "--session", "absent", "--socket", socket]);
+    assert_eq!(stop.status.code(), Some(0), "{}", text(&stop.stderr));
+    assert!(text(&stop.stdout).contains("not running"), "{}", text(&stop.stdout));
+    let hint = text(&stop.stderr);
+    assert!(hint.contains("deprecated") && hint.contains("cmux daemon stop"), "{hint}");
+
+    let json = cmux(&dir, &["--json", "server", "stop", "--session", "absent", "--socket", socket]);
+    assert_eq!(json.status.code(), Some(0), "{}", text(&json.stderr));
+    let value: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(value["status"], "not_running");
+    assert!(json.stderr.is_empty(), "{}", text(&json.stderr));
+
+    // `server start` reaches the headless startup like `daemon start`: an
+    // unknown startup option is the startup's usage error, not the mount's.
+    let start = cmux(&dir, &["server", "start", "--no-such-startup-option"]);
+    let stderr = text(&start.stderr);
+    assert!(stderr.contains("cmux daemon start"), "{stderr}");
+    assert!(stderr.contains("--no-such-startup-option"), "{stderr}");
+
+    // `status` with --session or --socket is the daemon's status.
+    let status =
+        cmux(&dir, &["--json", "server", "status", "--session", "absent", "--socket", socket]);
+    assert_eq!(status.status.code(), Some(3), "{}", text(&status.stderr));
+    let error: Value = serde_json::from_slice(&status.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
     let _ = fs::remove_dir_all(dir);
 }

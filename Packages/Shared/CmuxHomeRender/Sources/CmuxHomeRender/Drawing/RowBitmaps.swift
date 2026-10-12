@@ -126,7 +126,7 @@ final class RowBitmaps {
         guard order.count > Self.capacity + 100 || bytes > Self.maxBytes else { return }
         var n = 0
         while n < order.count - 1, order.count - n > Self.capacity || bytes > Self.maxBytes * 3 / 4 {
-            if let old = cache.removeValue(forKey: order[n]) { bytes -= old.bytesPerRow * old.height }
+            if let key = order[checked: n], let old = cache.removeValue(forKey: key) { bytes -= old.bytesPerRow * old.height }
             n += 1
         }
         order.removeFirst(n)

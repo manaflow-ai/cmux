@@ -17,7 +17,7 @@ use super::error::FsError;
 use super::listing::{Filter, Listings, MAX_BATCH, Sort, sort_entries};
 use super::resolve::{Resolved, Roots};
 use super::sys;
-use super::write::{PendingWrite, WriteMode, remove_tree};
+use super::write::{PendingWrite, WriteMode, append, remove_tree};
 
 /// Largest `fs.read` answer (decision D2): `max_bytes` above this is cut
 /// and answered with `truncated: true`.
@@ -73,6 +73,10 @@ struct WriteParams {
     mode: String,
     #[serde(default)]
     expected: Option<String>,
+    /// The written file's bits, 0644, 0755, 0600 or 0700 (decimal on the
+    /// wire); absent keeps a replaced file's bits and gives a new file 0644.
+    #[serde(default)]
+    permissions: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -269,9 +273,21 @@ impl FsService {
         if data.len() > MAX_WRITE_BYTES {
             return Err(FsError::TooLarge { total: Some(data.len() as u64) });
         }
+        if params.mode == "append" {
+            let Some(expected) = params.expected else {
+                return Err(FsError::ParamsInvalid("append needs expected".into()));
+            };
+            if params.permissions.is_some() {
+                return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
+            }
+            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data)? }));
+        }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
         let mut pending =
             PendingWrite::begin(&self.roots, &params.path, mode, Some(data.len() as u64))?;
+        if let Some(permissions) = params.permissions {
+            pending.set_permissions(permissions)?;
+        }
         pending.write(&data)?;
         Ok(json!({ "entry": pending.commit()? }))
     }

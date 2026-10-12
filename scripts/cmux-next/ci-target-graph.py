@@ -15,7 +15,7 @@ Package.swift by eye:
 
 `dump-package` needs the Swift 6.2 tools, so this runs on a Mac (the
 `cmux-next generated files` job); `--check` fails when the committed file is
-stale, and that job's autofix commits the regenerated file to the pull request.
+stale, and that job uploads the regenerated file as an artifact.
 
 Usage: scripts/cmux-next/ci-target-graph.py [--check] [--dump FILE]
   --dump FILE  read dump-package JSON from FILE instead of running swift

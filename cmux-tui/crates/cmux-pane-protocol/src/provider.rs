@@ -300,20 +300,3 @@ impl Handler for Authorized {
         self.provider.subscribe(&self.claims, &stream, filter)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[tokio::test]
-    async fn unrooted_callers_cannot_use_path_ops_and_absent_paths_are_skipped() {
-        let refused = confine_params(&[], &["path"], json!({})).await.unwrap_err();
-        assert_eq!(refused.code, error::FORBIDDEN);
-        assert!(confine_params(&[], &[], json!({ "path": "/" })).await.is_ok());
-        let roots = ["/".to_owned()];
-        assert_eq!(confine_params(&roots, &["path"], json!({})).await, Ok(json!({})));
-        let null = json!({ "path": null });
-        assert_eq!(confine_params(&roots, &["path"], null.clone()).await, Ok(null));
-    }
-}

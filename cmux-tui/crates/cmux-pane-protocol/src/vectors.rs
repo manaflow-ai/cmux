@@ -222,7 +222,7 @@ fn test_claims() -> Claims {
 }
 
 /// A data-plane token for the example provider, used by the session vectors.
-pub fn example_token() -> String {
+pub fn example_token() -> anyhow::Result<String> {
     let claims = Claims {
         sub: "session-vectors".into(),
         page: None,
@@ -235,16 +235,16 @@ pub fn example_token() -> String {
         exp: TEST_EXP,
         iat: TEST_NOW,
     };
-    SigningKey::from_seed(&TEST_SEED).sign(&claims)
+    Ok(SigningKey::from_seed(&TEST_SEED)?.sign(&claims))
 }
 
-fn token_case() -> Value {
+fn token_case() -> anyhow::Result<Value> {
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let key = SigningKey::from_seed(&TEST_SEED);
+    let key = SigningKey::from_seed(&TEST_SEED)?;
     let claims = test_claims();
     let token = key.sign(&claims);
-    let other = SigningKey::from_seed(&[0xff; 32]).sign(&claims);
+    let other = SigningKey::from_seed(&[0xff; 32])?.sign(&claims);
     let native = key.sign(&Claims { origin: None, ..claims.clone() });
     let page_origin = "cmux-page://cmux.settings";
     let page = key.sign(&Claims {
@@ -272,7 +272,7 @@ fn token_case() -> Value {
         }
         case
     };
-    json!({
+    Ok(json!({
         "decision": 10,
         "format": "compact JWS: base64url(header).base64url(claims).base64url(ed25519 over 'header.claims'), no padding",
         "header": { "alg": crate::token::TOKEN_ALG, "typ": crate::token::TOKEN_TYPE },
@@ -303,7 +303,7 @@ fn token_case() -> Value {
             { "op": "cmux.gitx.status", "scope": "git:read", "allowed": false },
             { "op": "com.example.hello.greet.say", "scope": "git:read", "allowed": false }
         ]
-    })
+    }))
 }
 
 /// Flip one character inside the claims part, keeping it base64url.
@@ -451,10 +451,10 @@ fn validation_cases() -> Vec<Value> {
     cases
 }
 
-fn session_cases() -> Value {
-    let auth = format!(r#"{{"t":"auth","token":"{}"}}"#, example_token());
+fn session_cases() -> anyhow::Result<Value> {
+    let auth = format!(r#"{{"t":"auth","token":"{}"}}"#, example_token()?);
     let ok_auth = json!({ "t": "ok", "id": 0 });
-    json!([
+    Ok(json!([
         {
             "name": "call before auth is refused with err id 0", "decision": 5,
             "send": [r#"{"t":"call","id":1,"op":"com.example.hello.greet.say","params":{"name":"x"}}"#],
@@ -505,7 +505,7 @@ fn session_cases() -> Value {
             "send": [auth, r#"{"t":"call","id":9007199254740992,"op":"com.example.hello.greet.say","params":{"name":"x"}}"#],
             "expect": [ok_auth, { "t": "err", "id": 0, "code": "cmux.protocol.bad_message" }]
         }
-    ])
+    ]))
 }
 
 fn fragment_cases() -> Value {
@@ -714,11 +714,11 @@ fn admission_cases() -> Value {
 }
 
 /// The vectors document.
-pub fn vectors() -> Value {
+pub fn vectors() -> anyhow::Result<Value> {
     let mut list = envelope_cases();
     list.extend(data_frame_cases());
     list.extend(validation_cases());
-    crate::ir::canonical(&json!({
+    Ok(crate::ir::canonical(&json!({
         "version": crate::ir::IR_VERSION,
         "vectors": list,
         "transport_envelopes": [
@@ -726,8 +726,8 @@ pub fn vectors() -> Value {
             { "name": "bye (MessagePort only)", "decision": 8, "text": r#"{"t":"bye"}"#, "valid": true }
         ],
         "unix_framing": unix_framing_cases(),
-        "token": token_case(),
-        "session": session_cases(),
+        "token": token_case()?,
+        "session": session_cases()?,
         "fragments": fragment_cases(),
         "roots": roots_cases(),
         "admission": admission_cases(),
@@ -736,12 +736,12 @@ pub fn vectors() -> Value {
             "supported": crate::ir::SUPPORTED_KEYWORDS,
             "annotations": crate::ir::ANNOTATION_KEYWORDS,
         },
-    }))
+    })))
 }
 
 /// The committed file's exact text.
-pub fn vectors_text() -> String {
-    let mut text = serde_json::to_string_pretty(&vectors()).unwrap_or_default();
+pub fn vectors_text() -> anyhow::Result<String> {
+    let mut text = serde_json::to_string_pretty(&vectors()?).unwrap_or_default();
     text.push('\n');
-    text
+    Ok(text)
 }

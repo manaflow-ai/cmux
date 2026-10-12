@@ -48,11 +48,6 @@ public final class MockTasksSource: TasksSource {
         for intent in intents { commit(intent) }
     }
 
-    /// Forget held intents (they were lost with the connection).
-    public func dropHeld() {
-        held.removeAll()
-    }
-
     public func disconnect() {
         connected = false
         held.removeAll()
@@ -106,7 +101,7 @@ public final class MockTasksSource: TasksSource {
             snapshot.tasks[i].status = status
             snapshot.tasks[i].category = target.category
             changed.append(snapshot.tasks[i])
-        case let .move(task, after, before, _):
+        case let .move(task, after, before):
             var order = snapshot.tasks.filter { !$0.archived }.sorted { $0.sortKey < $1.sortKey }.map(\.id)
             guard order.contains(task) else { return "unknown task" }
             order.removeAll { $0 == task }

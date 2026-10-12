@@ -17,7 +17,7 @@ import { createHighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
-import type { DiffViewerAppearance } from "../../appearance";
+import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
 import { editorAction, isEditorAction, type EditorCommand } from "./keys";
 import type { CodeView, EditorDocument } from "./store";
@@ -280,7 +280,7 @@ export class MonacoView implements CodeView {
       },
       editorThemes({ bundledThemes: bundledThemes as never }, look.syntaxTheme, look.appearance),
     );
-    this.themesKey = JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null]);
+    this.themesKey = editorThemesKey(look);
     this.syntax.installLanguages(look.languages);
     this.defineChromeThemes();
     this.editor = monaco.editor.create(container, {
@@ -450,7 +450,7 @@ export class MonacoView implements CodeView {
 
   /** The look changed: options, theme, languages. */
   setLook(look: ViewLook): void {
-    const themesKey = JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null]);
+    const themesKey = editorThemesKey(look);
     const languagesChanged = JSON.stringify(look.languages ?? null) !== JSON.stringify(this.look.languages ?? null);
     this.look = look;
     if (languagesChanged) this.syntax.installLanguages(look.languages);
@@ -553,4 +553,10 @@ export class MonacoView implements CodeView {
     this.model?.dispose();
     this.editor.dispose();
   }
+}
+
+/// What the editor's Shiki themes are built from: the syntax theme setting, the page's appearance
+/// and the host's terminal theme (literal colors in Monaco, so a palette change rebuilds them).
+function editorThemesKey(look: ViewLook): string {
+  return JSON.stringify([look.syntaxTheme ?? null, look.appearance ?? null, hostTerminalTheme()]);
 }

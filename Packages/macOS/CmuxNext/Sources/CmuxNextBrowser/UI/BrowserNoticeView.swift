@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// A small glass pill at the bottom of the page with one line of text and a
 /// close button: a subtle, dismissible notice (the WebKit fallback when
@@ -29,8 +30,9 @@ final class BrowserNoticeView: NSView {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
-        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
+        // The pill fits its text; only a narrow page truncates it (cx-whr7).
+        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
+        let close = ChromeIconButton(icon: .actionClose, label: Strings.dismissNotice, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -85,6 +87,19 @@ final class BrowserNoticeView: NSView {
             label.stringValue = newValue
             setAccessibilityLabel(newValue)
         }
+    }
+
+    /// This view's tree with each frame and any label text (diagnostics:
+    /// a pill drawn without its text, cx-whr7).
+    var layoutReport: [String] {
+        var rows: [String] = []
+        func visit(_ view: NSView, _ depth: Int) {
+            let text = (view as? NSTextField).map { " \"\($0.stringValue)\" intrinsic=\($0.intrinsicContentSize.width)" } ?? ""
+            rows.append(String(repeating: " ", count: depth) + "\(type(of: view)) \(view.frame)\(view.isHidden ? " hidden" : "")\(text)")
+            view.subviews.forEach { visit($0, depth + 1) }
+        }
+        visit(self, 0)
+        return rows
     }
 
     @objc private func close() { onClose?() }

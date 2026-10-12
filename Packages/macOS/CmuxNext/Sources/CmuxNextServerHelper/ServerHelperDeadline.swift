@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A helper call or a `pmset` run took longer than its limit.
 public nonisolated struct ServerHelperTimedOut: Error, Equatable {

@@ -17,6 +17,7 @@ public struct BrowserProfileResult: Decodable, Sendable, Equatable {
 public struct CreateBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
     public static let command = "create-browser-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.browserProfiles
     public var id: String?
     public var name: String
     public var color: String?
@@ -54,6 +55,7 @@ public struct CreateBrowserProfileRequest: DaemonRequest {
 public struct UpdateBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
     public static let command = "update-browser-profile"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.browserProfiles
     public var id: String
     public var name: String?
     public var color: FieldUpdate<String>

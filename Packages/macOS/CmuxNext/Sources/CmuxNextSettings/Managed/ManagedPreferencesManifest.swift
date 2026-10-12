@@ -25,11 +25,11 @@ public nonisolated enum ManagedPreferencesManifest {
     }
 
     public static let title = "cmux"
-    public static let summary = "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default."
+    public static let summary = "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off."
     /// Bump with any change to the generated schema (ProfileManifests `pfm_version`).
-    public static let version = 1
+    public static let version = 2
     /// Fixed so the output is reproducible; update with `version`.
-    public static let lastModified = Date(timeIntervalSince1970: 1_791_000_000)
+    public static let lastModified = Date(timeIntervalSince1970: 1_791_244_800)
 
     public static var entries: [Entry] {
         SettingsSchema.all.filter(\.isShownInCmuxNext).map(entry(for:)) + ManagedPreferences.policyKeys.map(entry(for:))
@@ -53,6 +53,8 @@ public nonisolated enum ManagedPreferencesManifest {
             return Entry(name: d.id, title: d.title, help: help, type: .string, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         case .hostList, .folderList, .numberList, .stringList:
             return Entry(name: d.id, title: d.title, help: help, type: .array, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
+        case .orderedChoices(let choices):
+            return Entry(name: d.id, title: d.title, help: help, type: .array, choices: choices.map(\.value), range: nil, defaultValue: d.defaultValue, members: [])
         case .timeRange:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: ["start", "end"])
         case .stringMap:

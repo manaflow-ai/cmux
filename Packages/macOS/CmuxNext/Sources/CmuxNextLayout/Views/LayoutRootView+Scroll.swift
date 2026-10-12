@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the
 /// pointer; horizontal scroll gestures over a columns screen are claimed by
@@ -28,7 +28,7 @@ extension LayoutRootView {
             }
             return event
         case .scrollWheel:
-            return handleScroll(event)
+            return handleScroll(event, locationInWindow: event.locationInWindow) ? nil : event
         default:
             return event
         }
@@ -42,15 +42,24 @@ extension LayoutRootView {
     }
 
     /// The active screen's row column a vertical scroll here would move.
-    private func rowScrollTarget(_ event: NSEvent) -> (ScreenContentView, ColumnID)? {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)), let active = model.activeScreenID,
+    private func rowScrollTarget(_ event: NSEvent, at locationInWindow: NSPoint) -> (ScreenContentView, ColumnID)? {
+        guard bounds.contains(convert(locationInWindow, from: nil)), let active = model.activeScreenID,
               let view = screenViews[active],
-              let column = view.rowScrollColumn(at: view.convert(event.locationInWindow, from: nil),
+              let column = view.rowScrollColumn(at: view.convert(locationInWindow, from: nil),
                                                 modifierHeld: event.modifierFlags.contains(.command)) else { return nil }
         return (view, column)
     }
 
-    private func handleScroll(_ event: NSEvent) -> NSEvent? {
+    /// Routes one scroll event at `locationInWindow` (the event's own point,
+    /// passed apart because a synthesized event can carry no window, and then
+    /// its `locationInWindow` is a screen point: `debug.mouse`). Returns true
+    /// when the layout consumed it (a strip or row scroll, or momentum the
+    /// strip's spring owns).
+    public func handleScroll(_ event: NSEvent, locationInWindow: NSPoint) -> Bool {
+        handleScrollEvent(event, at: locationInWindow) == nil
+    }
+
+    private func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint) -> NSEvent? {
         // Momentum after a horizontal gesture we consumed: our spring owns the coast.
         if !event.momentumPhase.isEmpty {
             guard consumeMomentum else { return event }
@@ -61,12 +70,12 @@ extension LayoutRootView {
         let phase = event.phase
         if phase.isEmpty {
             // Discrete mouse wheel. Shift+wheel arrives as deltaX.
-            if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let (view, column) = rowScrollTarget(event) {
+            if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let (view, column) = rowScrollTarget(event, at: locationInWindow) {
                 view.discreteRowScroll(column, direction: event.scrollingDeltaY < 0 ? 1 : -1)
                 driver.start()
                 return nil
             }
-            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: event.locationInWindow) else { return event }
+            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: locationInWindow) else { return event }
             view.discreteScroll(direction: event.scrollingDeltaX < 0 ? 1 : -1)
             driver.start()
             return nil
@@ -74,8 +83,8 @@ extension LayoutRootView {
 
         if phase.contains(.mayBegin) || phase.contains(.began) {
             consumeMomentum = false
-            let columns = activeColumnsView(at: event.locationInWindow)
-            let rows = rowScrollTarget(event)
+            let columns = activeColumnsView(at: locationInWindow)
+            let rows = rowScrollTarget(event, at: locationInWindow)
             scrollLock = columns == nil && rows == nil ? .passthrough : .undecided(columns, rows: rows)
         }
 

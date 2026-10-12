@@ -37,10 +37,11 @@ public final class AddressBarView: NSView {
     let starButton = BookmarkStarButton()
     /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
     private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
-    private var fieldToEdge: NSLayoutConstraint!
-    private var fieldToBadge: NSLayoutConstraint!
+    // Built on first use in init (no IUO).
+    private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
+    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
     let panel = OmniboxSuggestionPanel()
-    private let density = DensityBinding()
+    let density = DensityBinding()
 
     private var reportedURL: URL?
     /// The page's URL changed (the host refreshes the bookmark star).
@@ -48,7 +49,21 @@ public final class AddressBarView: NSView {
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
     private var security: BrowserSecurityState = .none
-    private(set) var controller: OmnibarController!
+    /// Built in init, where `onEffect` is set (no IUO; lazy because its closures capture self).
+    private(set) lazy var controller = OmnibarController(
+        field: field,
+        popup: self,
+        // Once the view is gone (a controller that outlives it): the engine's plain
+        // resolver, as `suggest` answers `finished`.
+        resolver: { [weak self, suggestionEngine] in self?.resolver ?? suggestionEngine.resolver },
+        suggest: { [weak self] request in
+            guard let self else { return OmniboxDelivery.finished }
+            var request = request
+            request.tabKey = tabKey
+            request.allowsChromiumSchemes = allowsChromiumSchemes
+            return suggestionEngine.deliveries(for: request)
+        }
+    )
 
     /// Chromium tabs also load `chrome://` and `chrome-extension://` pages
     /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
@@ -82,17 +97,6 @@ public final class AddressBarView: NSView {
         self.suggestionEngine = suggestionEngine
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        controller = OmnibarController(
-            field: field,
-            popup: self,
-            resolver: { [unowned self] in resolver },
-            suggest: { [weak self] request in
-                guard let self else { return OmniboxDelivery.finished }
-                var request = request
-                request.tabKey = tabKey
-                return suggestionEngine.deliveries(for: request)
-            }
-        )
         controller.onEffect = { [weak self] effect in self?.perform(effect) }
         controller.onStep = { [weak self] in self?.updateChrome() }
 
@@ -123,8 +127,6 @@ public final class AddressBarView: NSView {
         badges.spacing = 4
         badges.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badges)
-        fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-        fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
         NSLayoutConstraint.activate([
             density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -153,10 +155,11 @@ public final class AddressBarView: NSView {
             self?.controller.send(.rowClick(row: row, .init(flags)))
         }
         panel.onHover = { [weak self] row, pointer in self?.controller.send(.rowHover(row: row, pointer: pointer)) }
-        density.update { [unowned self] in
+        density.update { [weak self] in
+            guard let self else { return }
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
         density.start()
@@ -193,6 +196,12 @@ public final class AddressBarView: NSView {
         updateBadgeSpace()
     }
 
+    /// The machine chip's menu (the host's machine actions, cx-2cob).
+    public var machineBadgeMenu: (() -> NSMenu?)? {
+        get { machineBadgeView.makeMenu }
+        set { machineBadgeView.makeMenu = newValue }
+    }
+
     /// The browser profile badge's menu (the host's profile actions).
     public var profileBadgeMenu: (() -> NSMenu?)? {
         get { profileBadgeView.makeMenu }
@@ -200,7 +209,7 @@ public final class AddressBarView: NSView {
     }
 
     /// The badge shown now, for diagnostics (`debug.browser`).
-    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.toolTip }
+    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
     func updateBadgeSpace() {
         let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden
@@ -208,6 +217,10 @@ public final class AddressBarView: NSView {
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
     }
+
+    /// Shows the page's URL again after a commit that loaded nothing in
+    /// this tab (`chrome://settings` opened Settings instead).
+    public func showPageURL() { controller.send(.pageURLChanged(reportedURL)) }
 
     /// Shows the page's URL. While editing, typed text never changes.
     public func update(url: URL?, security: BrowserSecurityState) {
@@ -246,11 +259,6 @@ public final class AddressBarView: NSView {
         controller.send(.key(.enter(disposition)))
     }
 
-    /// The search engine inside `suggestionEngine` changed.
-    public func searchEngineDidChange() {
-        controller.send(.searchEngineChanged)
-    }
-
     /// Verification hook (`BrowserDebugWindow`, tests): focuses the field
     /// and types `text` one character at a time through the field editor,
     /// as keystrokes do.
@@ -262,8 +270,27 @@ public final class AddressBarView: NSView {
         }
     }
 
+    /// Verification hook (`debug.omnibar_type`): types `text` as `debugType`
+    /// does, then (with `commit`) gives the field editor a Return key-down,
+    /// so the commit takes the path a real Return takes once the key reaches
+    /// the field (`OmnibarFieldEditor.keyDown`, then the omnibar reducer).
+    /// The window need not be key. Returns false when the field did not
+    /// start editing.
+    @discardableResult
+    public func debugTypeAndCommit(_ text: String, commit: Bool = true) -> Bool {
+        debugType(text)
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        guard commit else { return true }
+        guard let enter = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window?.windowNumber ?? 0, context: nil, characters: "\r",
+            charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ) else { return false }
+        editor.keyDown(with: enter)
+        return true
+    }
+
     var fieldEditor: OmnibarFieldEditor? { field.editor }
-    var suggestionPanel: OmniboxSuggestionPanel { panel }
 
     // MARK: Events in
 
@@ -303,6 +330,7 @@ public final class AddressBarView: NSView {
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
         case .typedNavigation(let url): suggestionEngine.noteTyped(url)
+        case .hostTypoFixed(let host): suggestionEngine.resolver.hostTypoMemory.recordFix(of: host)
         case .copyAnswer(let answer):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(answer, forType: .string)

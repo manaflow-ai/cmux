@@ -29,11 +29,12 @@ enum SettingsHandlers {
         registry.bind("palette.toggleSetting", run: { invocation in try toggleSetting(invocation, context) })
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
-        registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
+        registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
+        registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
-                            openChangelog: { [weak services = context.services] in services.map { ChangelogPageTab.open($0) } ?? false })
+                            openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
@@ -116,7 +117,7 @@ enum SettingsHandlers {
     /// then writes cmux-next.json; the watcher reapplies the same value.
     private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) throws {
         try AppearanceHandlers.requireUnmanaged(BrowserDefaultEngine.configPath, context)
-        context.services.cache.browserTabs?.preference.defaultEngine = engine
+        context.services.cache.browserTabs.preference.defaultEngine = engine
         if engine == .chromium { context.services.chromiumWarmup.chromiumLikely(.defaultEngine) }
         guard let settings = context.services.settings else { return }
         Task {
@@ -127,7 +128,7 @@ enum SettingsHandlers {
     }
 
     static func documentationURL(topic: String?) -> URL {
-        var url = URL(string: "https://cmux.com/docs")!
+        var url = StaticURL.documentation.url
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_/"))
         if let topic = topic?.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")), !topic.isEmpty,
            topic.unicodeScalars.allSatisfy(allowed.contains) {

@@ -10,6 +10,8 @@ ITEMS = {
     "tmp": ["/tmp/*", "/tmp/.[!.]*", "/var/tmp/*"],
     "shell-history": ["/root/.bash_history", "/home/cmux/.bash_history", "/root/.python_history", "/root/.lesshst"],
     "claude-json-seed": ["/root/.claude.json", "/home/cmux/.claude.json"],
+    # A clone gets its own kind at its bind or team enroll (cmux-host VM_KIND_FILE).
+    "vm-kind": ["/etc/cmux/vm-kind"],
 }
 KEEP = {"/var/lib/apt/lists/partial", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/partial", "/var/cache/apt/archives/lock"}
 

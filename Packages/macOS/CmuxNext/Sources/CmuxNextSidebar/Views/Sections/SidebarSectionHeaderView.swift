@@ -11,16 +11,20 @@ final class SidebarSectionHeaderView: NSView {
     private let name = NSTextField(labelWithString: "")
     let chevron = NSImageView()
     private var collapsed = false
-    var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
+    /// Set by the hover owner (`PointerHover`, cx-3wu5).
+    var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
+    private var pointerHover: PointerHover?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         name.lineBreakMode = .byTruncatingTail
         name.maximumNumberOfLines = 1
         chevron.alphaValue = 0
         [name, chevron].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
+        pointerHover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
     }
 
     @available(*, unavailable)
@@ -59,6 +63,11 @@ final class SidebarSectionHeaderView: NSView {
         performWithTheme {
             name.textColor = Palette.textTertiary
             chevron.contentTintColor = Palette.textTertiary
+            // A click folds the section: hover shows the row hover fill (cx-qno.17).
+            if let layer {
+                layer.cornerRadius = SidebarStyle.rowCornerRadius
+                ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: window != nil)
+            }
         }
     }
 
@@ -78,14 +87,6 @@ final class SidebarSectionHeaderView: NSView {
         needsDisplay = true
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
     /// A click toggles on release; a drag moves the section (R77).
     override func mouseDown(with event: NSEvent) {
         pressLocation = event.locationInWindow

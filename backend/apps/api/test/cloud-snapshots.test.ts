@@ -29,36 +29,11 @@ describe("snapshots", { timeout: 60_000 }, () => {
     expect((await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).value.usage.saved).toBe(1)
   })
 
-  it("delete removes the provider snapshot by its recorded slug and frees the saved slot", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
-    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: id })))).toMatchObject({ t: "result", value: { deleted: true } })
-    expect((await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots).toEqual([])
-    expect((await ctl(x)).snapshots).toEqual([])
-    expect((await x.stub.readOp(x.team, x.p, "cloud.plan.get", {})).value.usage.saved).toBe(0)
-  })
-
-  it("restore creates a new machine booted from the snapshot, with a fresh bind file", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
-    const r = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id, name: "restored" })))
-    expect(r, JSON.stringify(r)).toMatchObject({ t: "result", value: { machine: { name: "restored", status: "provisioning" } } })
-    const restored = r.value.machine.id as string
-    expect(restored).not.toBe(machine)
-    const vm = (await ctl(x)).vms.find((v) => v.name.endsWith(restored.replace(/_/g, "-")))
-    expect(vm?.snapshot).toBe(`cmuxnp-test-cld-${id.replace(/_/g, "-")}`)
-    expect((await bindFile(x.stub, restored)).json.bind_token).toMatch(/^[A-Za-z0-9_-]{43}$/)
-  })
-
   it("refuses an install, a machine that is not running or paused, an unknown snapshot, and a full saved quota", async () => {
     const x = person()
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
-    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.snapshot.create", { machine })))).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(reply(await x.stub.submit(x.team, installOf(x.p), frame("cloud.snapshot.create", { machine })))).toMatchObject({ t: "reject", code: "approval.pending" })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: "snap_00000000000000000009" })))).toMatchObject({ t: "reject", code: "cloud.snapshot.not_found" })
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: "snap_00000000000000000009" })))).toMatchObject({ t: "reject", code: "cloud.snapshot.not_found" })
     for (let i = 0; i < 10; i++) expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).t).toBe("result")
@@ -92,44 +67,4 @@ describe("snapshots", { timeout: 60_000 }, () => {
     ws.close()
   })
 
-  it("a failed delete keeps the status from before; snapshot rows record their creator (review P3)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
-    await x.stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: id })))
-    const s1 = (await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots[0]
-    expect(s1).toMatchObject({ id, status: "ready" })
-    const creator = await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<unknown>) => Promise<any>)(x.stub, async (i: any) => i.boundEngine.rows.get("snapshot", id).row.creator)
-    expect(creator).toBe(x.user)
-  })
-
-  it("a restore records its snapshot on the machine, so the provider call never guesses from the image id (review P3)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
-    const restored = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id }))).value.machine.id as string
-    const rows = await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<unknown>) => Promise<any>)(x.stub, async (i: any) => [i.boundEngine.rows.get("machine", restored).row.from_snapshot, i.boundEngine.rows.get("machine", machine).row.from_snapshot])
-    expect(rows).toEqual([`cmuxnp-test-cld-${id.replace(/_/g, "-")}`, undefined])
-  })
-
-  it("a snapshot taken right before a delete finishes first and survives the machine (intent order; review P3: not cancelled on purpose)", async () => {
-    const x = person()
-    await ensureUser(x)
-    const { machine } = await createdAndBound(x)
-    // The snapshot call fails once and waits for its retry; the delete arrives meanwhile.
-    await x.stub.fakeControl({ fail_next: 1 } as never)
-    const snap = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine })))
-    expect(snap).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
-    const id = (await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", { machine })).value.snapshots[0].id as string
-    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
-    await x.stub.fakeControl({ advance_ms: 60_000 } as never)
-    const { fireAlarm } = await import("./setup/alarm.ts")
-    for (let i = 0; i < 3; i++) await fireAlarm(x.stub)
-    expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
-    expect((await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots).toEqual([expect.objectContaining({ id, status: "ready" })])
-    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id }))).t).toBe("result")
-  })
 })

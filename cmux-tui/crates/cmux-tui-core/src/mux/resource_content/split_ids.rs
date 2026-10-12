@@ -10,13 +10,29 @@ pub(super) fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
     let mut splits = HashSet::new();
     for workspace in &state.workspaces {
         for screen in &workspace.screens {
-            collect_node_split_ids(&screen.root, &mut splits);
-            for column in &screen.layout_columns {
-                splits.extend(std::iter::once(column.id).chain(column.row_ids()));
-                collect_node_split_ids(&column.root, &mut splits);
-            }
+            collect_screen_split_ids(screen, &mut splits);
         }
     }
+    mint_split_public_ids(state, splits)
+}
+
+/// Every split of one screen: its layout splits, viewport columns and rows.
+pub(super) fn collect_screen_split_ids(
+    screen: &crate::model::Screen,
+    splits: &mut HashSet<crate::SplitId>,
+) {
+    collect_node_split_ids(&screen.root, splits);
+    for column in &screen.layout_columns {
+        splits.extend(std::iter::once(column.id).chain(column.row_ids()));
+        collect_node_split_ids(&column.root, splits);
+    }
+}
+
+/// Mint a public id for each split in `splits` that has none.
+pub(super) fn mint_split_public_ids(
+    state: &mut State,
+    splits: HashSet<crate::SplitId>,
+) -> anyhow::Result<()> {
     for split in splits {
         if state.resource_indexes.split_ids.contains_key(&split) {
             continue;

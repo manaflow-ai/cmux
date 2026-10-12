@@ -10,6 +10,8 @@ import AppKit
 enum NativeStrings {
     static var attach: String { String(localized: "compose.attach", defaultValue: "Add Attachment", table: "AppKitNative", bundle: .module) }
     static var emoji: String { String(localized: "compose.emoji", defaultValue: "Emoji", table: "AppKitNative", bundle: .module) }
+    /// cmux: the round button while the Chief works (Esc and Cmd-. do the same).
+    static var stop: String { String(localized: "compose.stop", defaultValue: "Stop", table: "AppKitNative", bundle: .module) }
     static var video: String { String(localized: "header.video", defaultValue: "FaceTime Video", table: "AppKitNative", bundle: .module) }
     /// The name pill: "Contact details for %@".
     static var contactFormat: String { String(localized: "header.contact", defaultValue: "Contact details for %@", table: "AppKitNative", bundle: .module) }
@@ -47,4 +49,12 @@ enum ResolutionAudit {
 /// hook (catalyst/Sources/Bench.swift; the shared window view reads it).
 enum MallocCounter {
     static var mainAllocations = 0
+}
+
+/// MessagesLab's rig frame-pacing log (appkit-native PacingLog.swift, a rig tool, not vendored):
+/// NativeScroll (3508ff9) notes its after-lift pacing in it when it is on. cmux: always off.
+final class PacingLog {
+    static let shared = PacingLog()
+    let isOn = false
+    func note(_ line: String) {}
 }

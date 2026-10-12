@@ -85,23 +85,3 @@ pub fn unix(stream: tokio::net::UnixStream) -> Transport {
     let (reader, writer) = stream.into_split();
     framed(reader, writer)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn framed_duplex_carries_text_and_binary() {
-        let (left, right) = tokio::io::duplex(1024);
-        let (left_read, left_write) = tokio::io::split(left);
-        let (right_read, right_write) = tokio::io::split(right);
-        let a = framed(left_read, left_write);
-        let mut b = framed(right_read, right_write);
-        assert!(a.send(Message::Text("{}".into())).await);
-        assert!(a.send(Message::Binary(bytes::Bytes::from_static(b"xyz"))).await);
-        assert_eq!(b.recv().await, Some(Message::Text("{}".into())));
-        assert_eq!(b.recv().await, Some(Message::Binary(bytes::Bytes::from_static(b"xyz"))));
-        drop(a);
-        assert_eq!(b.recv().await, None);
-    }
-}

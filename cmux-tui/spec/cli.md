@@ -12,13 +12,16 @@ request:
 
 ```text
 cmux [START OPTIONS]
-cmux server start [START OPTIONS]
+cmux daemon start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
+cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
+cmux script repl [--timeout MS]
+cmux script types
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -66,6 +69,25 @@ then cancels the op) and prints "cancelled (no confirmation)", exit 130. A
 second Ctrl-C exits 130 at once. A cancelled mutation may or may not have
 taken effect; retry it with the same `--idempotency-key`.
 
+`script run` runs JavaScript in a sandboxed script session of the session
+daemon (`script-run`; plans/cmux-next/scripting-runtime.md) and prints the
+value of its last expression statement: nothing for null, a string as is,
+other values as JSON (compact JSON for every value with `--json`). `KEY=VALUE`
+words and `--args JSON` become `cmux.args`. Console output arrives as
+`script-log` events before the answer and is printed as it comes (info and
+debug on stdout, warn and error on stderr; all on stderr with `--json`). A
+script calls ops through the global `cmux` with the rights of the calling
+connection, only ops the daemon owns, and has no network, filesystem or
+process access. An error exits 1 with its `error_code` (an op's own code, or
+`script.error`, `script.timeout`, `script.memory`, `script.cpu`,
+`script.host`); a usage error or a TypeScript file exits 2; Ctrl-C sends
+`cancel-request` for the running cell and exits 130. `script repl` keeps one
+session across lines (one line per cell; a line that ends with `\`
+continues), prints each value, and opens a new session when a cell ended its
+session. `script types` prints the TypeScript declarations of the `cmux`
+global. Connections bound to an agent, and remote connections, answer
+`script.forbidden`.
+
 `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
@@ -77,7 +99,7 @@ Interactive and headless ownership are intentionally separate:
 | Form | Contract |
 | --- | --- |
 | `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
-| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux daemon start --session NAME` | Start a headless owner. |
 | `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
 
 The explicit split prevents two clients from silently creating competing
@@ -88,7 +110,7 @@ Migration from tmux or Zellij keeps the owner and client steps visible. Run the
 owner in one terminal:
 
 ```bash
-cmux server start --session agents
+cmux daemon start --session agents
 ```
 
 Then attach from another terminal:
@@ -100,29 +122,36 @@ cmux attach --session agents
 Callers supervise the owner. A blind attach retry cannot distinguish a missing
 owner from an owner still starting.
 
-`server` is the local durable mux owner for exactly one named session:
+`daemon` is the local durable mux owner for exactly one named session
+(`cmux-tui server …` is the same scope; on `cmux`, `server` is the machine
+server, see `cmux help server`):
 
 ```text
-cmux server start [START OPTIONS]
-cmux server status [--session <name>] [--socket <path>]
-cmux server stats [--session <name>] [--socket <path>] [--json]
-cmux server stop [--session <name>] [--socket <path>] [--force]
-cmux server reload-config [--session <name>] [--socket <path>]
+cmux daemon start [START OPTIONS]
+cmux daemon status [--session <name>] [--socket <path>]
+cmux daemon stats [--session <name>] [--socket <path>] [--json]
+cmux daemon stop [--session <name>] [--socket <path>] [--force]
+cmux daemon reload-config [--session <name>] [--socket <path>]
 ```
 
-`server stats` prints the `server-stats` diagnostics (registry lock contention
+`daemon stats` prints the `server-stats` diagnostics (registry lock contention
 with holder sites, journal writer batches and commit latency, connection
 admission); see `docs/journal-operations.md` for how to read it.
 
-`server start` is the canonical foreground spelling of `--headless`.
+`daemon start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
-scope, for example `cmux --session agents server start --socket /path/to.sock`.
+scope, for example `cmux --session agents daemon start --socket /path/to.sock`.
 Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
-The local socket accepts ordinary protocol clients while the owner finishes
-startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
-fail fast while this field is `false` and can be retried after the owner is ready.
-`server stop` first reads the process identity, then sends the existing PID and
+The owner binds its local socket before it restores its session (registry,
+terminal host adoption). While it restores, the socket accepts connections
+and holds them unanswered; when the restore ends, every held connection is
+served by the normal protocol handler. `identify` then reports
+`lifecycle_ready: false` until the owner finishes startup. Lifecycle commands fail
+fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
+owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
+another.
+`daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`
 is an alias for the same local operation. Opaque session IDs are not accepted
@@ -130,7 +159,7 @@ because local socket resolution uses a session name. `--all` is intentionally
 deferred until a multi-session registry can identify every target without
 introducing a second command registry.
 
-`server status` fails when no server is listening. In contrast, `server stop`
+`daemon status` fails when no server is listening. In contrast, `daemon stop`
 is idempotent and reports `not_running` as success for an absent socket. JSON
 errors use stable lifecycle codes and do not include raw transport, server, or
 filesystem error text.
@@ -142,8 +171,8 @@ authentication and no enrollment; only a daemon started with
 `--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
 listener is reachable solely from a private network of authorized members,
 accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
-embedded by `server start` stops only through `server stop`, which also stops
-the local owner and its workspaces. `server start` accepts the explicit
+embedded by `daemon start` stops only through `daemon stop`, which also stops
+the local owner and its workspaces. `daemon start` accepts the explicit
 remote-listener flags when the owning process also serves authenticated
 clients. Top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle.
@@ -161,6 +190,10 @@ server   machine  session  client  workspace  screen  pane  tab
 terminal browser  notification  agent  sidebar  git
 pairing  projection  provider  raw
 ```
+
+Run as `cmux`, the CLI spells the lifecycle root `daemon`, and `server` is
+the machine server (`cmux help server`); `srv` is a shorthand on `cmux-tui`
+only.
 
 Structural resources may be addressed directly by opaque ID or through their
 parents:
@@ -221,7 +254,7 @@ for text, and `--help` for help (`splitw -h` means horizontal).
 
 There is no `new-session` alias because a cmux session owns a separate process.
 Use `cmux --session NAME` for interactive create/attach or
-`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
+`cmux daemon ensure --session NAME` to ensure a detached owner. `neww` creates a
 screen inside the selected session's workspace.
 
 ## Selectors
@@ -311,6 +344,15 @@ cmux workspace current run shell 'cargo test && printf ready'
 
 The client never reads or expands `$SHELL`.
 
+`workspace create` starts the new workspace's first terminal the same way:
+`--cwd <path>` sets its folder, and exact argv after `--` or `--shell <script>`
+replaces the login shell. Apps need the `workspace:execute` scope for a command.
+
+```bash
+cmux workspace create --name build --cwd ~/src/app -- make watch
+cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
+```
+
 Both run forms accept `--on-exit <close|keep>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
@@ -358,6 +400,9 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list
+agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
+agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
@@ -414,8 +459,9 @@ notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
+git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
   [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
@@ -423,12 +469,25 @@ git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
-git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
+git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
+git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+git worktree create [TARGET] [--name <name>] [--base <revision>]
+git worktree apply [TARGET]
+git worktree remove [TARGET] [--discard]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
-agent list|report
+conversation list                                             (cmux-tui only)
+conversation <conv_id> get [--tail <0..500>]
+conversation <conv_id> history --before-seq <n> --limit <1..500>
+conversation search <words>... [--limit <1..100>]
+conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg_id> [--reply-part <n>]]
+conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
+chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
+agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
-pairing request <selector> respond <accept|reject>
+pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)
 projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
@@ -441,15 +500,19 @@ provider authority install
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most
 512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
-`--clear`, `--surface`, `--workspace`, `--json`; `--window`, `--id-format`, and
-`--desktop` (validated as `true|false`) are accepted and ignored. The target defaults to the caller's own terminal
+`--clear`, `--surface`, `--workspace`, `--json`, `--desktop true|false`
+(`false`: the app shows no banner; the sidebar marker still shows), and
+`--reply` (the banner takes a typed reply, which the app pastes into the
+target terminal and submits with Return); `--window`
+and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.
 A machine can only address its own session. `--clear` removes the retained
 rows for that target on the machine (`notification.clear`), so every attached
-client drops them. `--reply` is refused: a reply would type into a terminal,
-and that channel does not cross the link. Every row is bounded because each
+client drops them. A reply goes only to the notification's target
+terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
+app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.
 
 `notification ack --client <id> <notification-id>...` records that one client
@@ -505,17 +568,57 @@ a target the CLI sends the current directory. The session host runs git with
 no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
 literal pathspecs, a deadline and bounded output. `git diff` lists each file's
 status and line counts, adds patches only with `--patch` (each cut at
-`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
+`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`; each
+hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
+one `git worktree create` recorded for the current branch
+(`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
+default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
+linked worktree `git status` adds `worktree.main_root`, its main checkout.
 `git files` (`git.files.search`) lists the files under the target folder whose
 path holds the query's characters in order, case-insensitively and ignoring
 spaces, best first: tracked files still in the working tree and untracked
 files no ignore rule hides. It prints at most `--limit` (50, up to 200)
 results relative to `search_root`, the folder searched; `root` is the
 repository top level.
+`git list` (`git.files.list`, shorthand `git ls`) lists the immediate children of the target folder
+for a file explorer: each candidate `git files` would rank folds into its
+first path component, a `directory` when paths sit below it or it is a
+submodule, else a `file`. Directories come first, then names
+case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
+and sets `truncated` when more exist.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
+
+`conversation` maps one verb to each `conversation.*` operation of the local
+conversation owner (resource-api-v2.md, "Conversations"); it is a
+`cmux-tui` scope only, and the conversation operations are not MCP tools,
+because MCP clients act as the local user. `send` takes its idempotency key
+from `--idempotency-key` or a random one; the key is the message's
+`client_msg_id`. `events` prints one item per line with `--jsonl`.
+
+`chief` is the chat with the person's Chief over the same operations: it
+selects the Chief conversation (the oldest one with participant `agent_mux`),
+reads `conversation.events`, and sends with `conversation.send` as the
+person, so Home and the CLI show the same messages live. With `-p <text>`, or
+with text on stdin, it sends one message, prints the Chief's reply (live from
+its `draft` items when stdout is a terminal, else only the posted messages,
+or each as a JSON line with `--json`) and exits 0 when the turn that answers
+the message ends; it gives up after `--timeout` seconds (default 1800,
+`0` waits without a limit) and exits 124. After a stream gap it takes the
+turn's state from the reopened stream's snapshot, so a lost typing item
+never makes it wait for nothing. On a terminal it opens an inline
+chat: finished messages go into the terminal's scrollback, the live reply and
+the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
+Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
+`/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
+commands. `chief engine` and `chief stop` make one such call without the
+chat. It refuses a socket under
+`~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
+Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
+timeout.
 
 `git checkpoint` (`git.checkpoint.create|get|list|pin|unpin`, capability
 `git-checkpoints-v1`) stores an immutable checkpoint of a repository: the raw
@@ -549,18 +652,120 @@ most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
 kept per repository; pins never expire, and pins beginning `handoff:` or
 `restore:` are owned by cmux and cannot be removed with `unpin`.
 
+`git commit` (`git.commit`, capability `git-commit-v1`) and `git push`
+(`git.push`, capability `git-push-v1`) are the user's own actions: git runs in
+the user's environment as in a terminal, so their config, identity, signing,
+hooks, credential helper and SSH agent apply, and inherited `GIT_*` variables
+of the daemon are dropped. Git never prompts (no terminal,
+`GIT_TERMINAL_PROMPT=0`, no askpass) and is stopped after 120 s with
+`timed_out`; a GUI prompt the user's own tools open (a signing pinentry, a
+Keychain dialog) can still hold a run until that deadline. Both run only on
+this machine: with another machine as the target the CLI refuses them. `commit` commits the named paths as they are in the working tree
+(paths are relative to the current directory; they are staged first and stay staged when the commit is refused; other staged changes stay out of the commit), every tracked
+change with `--all` (plus untracked files with `--include-untracked`), or the
+index as it is; `--no-verify` skips pre-commit and commit-msg. It refuses with
+`nothing_to_commit`, `head_moved` (HEAD is not `--expected-head`),
+`merge_in_progress` (also a rebase, cherry-pick or revert), `hook_failed` (with
+the hook's output, at most 16 KiB, in `extra.output`), `identity_missing`,
+`index_locked`, `path_not_found` or `git_failed`. A retry with the same key
+replays the first result, and a retry after a lost reply or a timeout
+reports the commit the first attempt made: the attempt's id is in the commit's
+reflog message (bounded attempt journal: 7 days, 256 entries). `push` pushes the branch's tip (the current branch unless
+`--branch`) to the branch of the same name on a configured remote (default:
+where `git push` would go, else `origin`), never forced, and makes it the
+branch's upstream when the branch has none (or with `--set-upstream`). It
+refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `upstream_mismatch`, `detached_head`, `branch_not_found`, `head_moved`,
+`rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
+`hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
+commit the remote has succeeds with `up_to_date`.
+
+`git worktree create` (`git.worktree.create`, capability `git-worktree-v1`)
+makes a chat's own worktree, in the user's environment like `commit`, and
+only on this machine. The worktree is `~/.cmux/worktrees/<project>/<name>`
+(`<project>` is the main checkout's folder name) on a new branch
+`cmux/<name>` from `--base` (default: the current branch, else HEAD's
+commit), and the base is recorded as `branch.cmux/<name>.cmuxBase` (a branch by
+name, any other revision as its commit). The name
+is `--name` as a slug (lowercase letters, digits and `-`, at most 48 before a suffix), else
+`chat-` and six random hex digits; a name taken by a folder or a branch gets
+the next free suffix (`-2` to `-99`). The user's checkout, its index and its
+uncommitted changes are untouched. The result is the worktree's `root`,
+`branch`, `base`, `base_commit` and, unless the repository is bare,
+`main_root`. It refuses with `base_not_found`, `name_taken`, `path_exists`,
+`no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
+worktree the first attempt made. A failing post-checkout hook does not undo
+the worktree, so it is reported as made.
+
+`git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
+run in a worktree whose branch `git worktree create` recorded a base for, brings
+its work back to the main checkout, in the user's environment and only on this
+machine. Everything the worktree changed since the merge base with that base
+(its commits, its uncommitted edits and the new files it never added) lands in
+the main checkout's files as uncommitted changes; submodules are left out. HEAD
+and the index of both checkouts stay as they are, and the user's diff and apply
+settings change nothing. The result is `main_root` and the `files` it changed.
+It refuses, changing nothing, with `not_a_worktree`, `no_base`, `unmerged`
+(mid-merge or mid-rebase), `no_merge_base`, `nothing_to_apply`,
+`main_checkout_changed` (the main checkout has a change of its own, or a file git
+does not track, at those paths, listed in `extra.files`), `does_not_apply` or
+`git_failed`. A retry after a lost reply or a timeout finds the work applied
+instead of applying it twice; one stopped while git wrote the files is refused
+as `interrupted`, as the main checkout may hold part of it.
+
+`git worktree remove` (`git.worktree.remove`, capability `git-worktree-remove-v1`),
+run in a linked worktree, removes it with `git worktree remove` from the main
+checkout, in the user's environment and only on this machine; the folder goes
+with its ignored files. Its branch goes too, with its settings, when `git
+worktree create` made it (`cmux/<name>` with a recorded base); any other branch
+stays. Without `--discard` it refuses, changing nothing, with
+`uncommitted_changes` (tracked or untracked files; `extra.files` lists up to 20,
+`extra.count` all) or `unpushed_commits` (commits on no other branch and no
+remote, on a detached HEAD or on the branch that goes; `extra.count`), checked
+again right before the folder and the branch go: a branch that got new commits
+meanwhile stays. With `--discard` that work is lost. The main checkout is
+refused as `not_a_worktree`, and other worktrees are never touched. The result
+is the removed `root`, `main_root`, the `branch` and whether it was deleted
+(`branch_deleted`). A retry after a timeout finishes what the first attempt
+started; once the folder is gone, a request naming it finds no repository.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
+## Agent messages
+
+`agent message` stores a message with `agent.message.send` and then delivers
+it. `<agent>` is a terminal agent (`term_...`), an agent (`agent_...`, sent to
+its terminal), or an acpmux session by name or id (`acp:` optional). The
+sender is the caller's acpmux session (`ACPMUX_SESSION_ID`), else its terminal
+(`CMUX_TUI_TERMINAL_ID`), else `cli`; `--from` adds an untrusted display name.
+A lone `-` reads the body from standard input. `--reply-to` answers a message:
+the reply goes to its sender and stays in its thread.
+
+For an acpmux recipient the command then prompts the session with the message,
+using the message id as the acpmux prompt id, and marks the receipt
+`delivered` (or `failed`, with the error). It first sends that recipient's
+older queued messages, oldest first; the prompt id keeps any of them from
+running twice. A `failed` message is not retried. It never starts the acpmux
+daemon. For a Codex terminal agent whose thread the shared Codex app-server
+daemon has loaded, it hands the agent's queued messages to Codex as one input
+(`turn/start` when the thread is idle, `turn/steer` when a turn is running)
+and marks them `delivered`. Any other terminal agent's message, or one Codex
+cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
+stored either way, and problems with older messages are reported on stderr.
+
+`agent inbox` lists messages newest first for `<agent>`, or for the caller's
+own address when it has one, else every message. `--ack` marks the listed
+messages acknowledged for that recipient.
+
 ## Local agent plugins
 
 `agent plugin` commands read and write local installation state. They clone
 and build the selected package, validate its `kind = "agent"` manifest, and
 write the selected background command to `agents.plugin`. They do not open a
-protocol connection or send a plugin ID to a session. Run `cmux server
+protocol connection or send a plugin ID to a session. Run `cmux daemon
 reload-config` after changing the selection. The running plugin uses the
 generic journal producer and append operations over the server socket. Use
 `agent plugin use --builtin` to disable the selected userland plugin and return
@@ -594,7 +799,10 @@ uses the `workspace_group.*` resource operations, and `add`/`remove` use
 workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
-(`personal-mixed-order-v1`). `workspace list --order personal` lists the
+(`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
+sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
+or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
 workspaces in the sidebar order. `workspace list` without `--order` (or with
 `--order session`) lists the session's workspace order, the same order as
 `topology.workspaces`: creation order unless a workspace was moved, not the

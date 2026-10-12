@@ -7,6 +7,7 @@
 // borders draw lines (appearance.borders lines), as by default.
 import type { DiffViewerAppearance, DiffViewerTheme } from "../../appearance";
 import type { GhosttyTheme } from "./ghostty";
+import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
 import {
   css,
   deriveTokens,
@@ -19,7 +20,7 @@ import {
   type ThemeTokens,
 } from "./tokens";
 
-export function themeInput(theme: GhosttyTheme): ThemeInput {
+export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): ThemeInput {
   const color = (hex: string | null | undefined) => (hex ? parseHex(hex) : null);
   // ThemeBridge passes the entries Ghostty reports; a theme always reports 16 (its own or the
   // defaults under them), so a gap takes Ghostty's default color.
@@ -31,13 +32,19 @@ export function themeInput(theme: GhosttyTheme): ThemeInput {
     selectionBackground: color(theme.selectionBackground) ?? undefined,
     selectionForeground: color(theme.selectionForeground) ?? undefined,
     backgroundOpacity: 1,
+    accent,
   };
 }
 
-export const themeTokens = (theme: GhosttyTheme): ThemeTokens => deriveTokens(themeInput(theme));
+export const themeTokens = (theme: GhosttyTheme, accent: AppAccent = "neutral"): ThemeTokens =>
+  deriveTokens(themeInput(theme, accent));
 
-/** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`. */
-export function webThemePayload(tokens: ThemeTokens): {
+/** WebTheme(tokens).payload: `{variables, colorScheme, scrollers}`; with `app`, also the app
+ * theme's `--cmux-app-*` tokens (WebTheme sends them from CmuxTheme's AppTheme, the same contract). */
+export function webThemePayload(
+  tokens: ThemeTokens,
+  app?: AppTheme,
+): {
   variables: Record<string, string>;
   colorScheme: "dark" | "light";
   scrollers: "overlay" | "legacy";
@@ -47,6 +54,7 @@ export function webThemePayload(tokens: ThemeTokens): {
     variables: {
       "--cmux-surface-background": css(page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
+      "--cmux-surface-solid": css(page),
       "--cmux-elevated-background": css(tokens.elevatedBackground),
       "--cmux-text": css(tokens.textPrimary),
       "--cmux-text-secondary": css(tokens.textSecondary),
@@ -54,6 +62,12 @@ export function webThemePayload(tokens: ThemeTokens): {
       "--cmux-separator": css(tokens.separator),
       "--cmux-hover": css(tokens.hoverFill),
       "--cmux-selection": css(tokens.selectionFill),
+      // The gallery has no Ghostty cursor or selection color: the text color and the accent tint.
+      "--cmux-text-selection": "color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent)",
+      "--cmux-caret": css(tokens.textPrimary),
+      "--cmux-accent": css(tokens.accent),
+      "--cmux-on-accent": css(tokens.onAccent),
+      ...(app ? appThemeVariables(app) : {}),
     },
     colorScheme: tokens.isDark ? "dark" : "light",
     scrollers: "overlay",
@@ -61,8 +75,9 @@ export function webThemePayload(tokens: ThemeTokens): {
 }
 
 /** The pane's fade durations in seconds (MotionTunables.swift); under Reduce Motion each is at
- * most one crossfade (MotionPolicy.duration). */
-const MOTION = { hover: 0.08, focus: 0.1, fadeIn: 0.12, fadeOut: 0.08 } as const;
+ * most one crossfade and hover is instant (MotionPolicy.duration). `move` is the move spring's
+ * timed equivalent, instant under Reduce Motion. */
+const MOTION = { hover: 0.08, hoverOut: 0, focus: 0.1, fadeIn: 0.12, fadeOut: 0.08, move: 0.19 } as const;
 const CROSSFADE = 0.1;
 
 /** AgentPaneTheme.values(tokens). */
@@ -70,7 +85,10 @@ export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Rec
   const page = withAlpha(tokens.surfaceBackground, 1);
   const opaquePage = withAlpha(tokens.contentBackground, 1);
   const motion = Object.fromEntries(
-    Object.entries(MOTION).map(([key, seconds]) => [key, reducedMotion ? Math.min(seconds, CROSSFADE) : seconds]),
+    Object.entries(MOTION).map(([key, seconds]) => [
+      key,
+      !reducedMotion ? seconds : key.startsWith("hover") || key === "move" ? 0 : Math.min(seconds, CROSSFADE),
+    ]),
   );
   return {
     isDark: tokens.isDark,
@@ -84,7 +102,8 @@ export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Rec
     text: css(tokens.textPrimary),
     mutedText: css(tokens.textSecondary),
     softText: css(tokens.textTertiary),
-    accent: css(tokens.textPrimary),
+    accent: css(tokens.accent),
+    onAccent: css(tokens.onAccent),
     accentSoft: css(tokens.selectionFill),
     accentText: css(opaquePage),
     danger: css(tokens.danger),

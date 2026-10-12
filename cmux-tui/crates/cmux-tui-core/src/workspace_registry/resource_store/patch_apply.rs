@@ -11,7 +11,19 @@ pub(crate) fn apply_resource_patch(
     patch: &ResourcePatch,
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
+    apply_resource_patch_timed(transaction, patch, revision).map(|(patch, _)| patch)
+}
+
+/// [`apply_resource_patch`], also returning the time spent pruning unchanged
+/// changes (a `server-stats` span).
+pub(crate) fn apply_resource_patch_timed(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+    revision: i64,
+) -> anyhow::Result<(ResourcePatch, std::time::Duration)> {
+    let started = std::time::Instant::now();
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    let prune = started.elapsed();
     // Moves by any path keep ephemeral content ephemeral (or are refused).
     crate::state::ephemeral_moves::carry_ephemeral(transaction, &patch)?;
     // Closes by any path land in the closed history before their rows go.
@@ -22,7 +34,7 @@ pub(crate) fn apply_resource_patch(
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;
     crate::state::personal_order::place_created_workspaces(transaction, &created)?;
-    Ok(patch)
+    Ok((patch, prune))
 }
 
 /// A mutation whose result is the snapshot of the resource it changed

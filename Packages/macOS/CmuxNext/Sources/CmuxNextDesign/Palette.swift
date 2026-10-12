@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// Chrome colors, all derived from the terminal theme (`ThemeTokens`).
 ///
@@ -33,16 +34,37 @@ public struct Palette {
     /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
     /// gives a background it must paint: the surface background, opaque,
     /// in an opaque window, and clear over a see-through one, where the
-    /// window's one backdrop is the background (`WindowBackdrop`). A page
-    /// host's own layer paints nothing: the pane paints under it.
+    /// window's one backdrop is the background (`WindowBackdrop`). A
+    /// background image makes the window see-through at any opacity, so
+    /// the backdrop is read with the scope's image. A page host's own layer
+    /// paints nothing: the pane paints under it.
     public static var paneFill: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+        return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
+    /// A translucent scrim of the surface background for text over the
+    /// window's backdrop (``ThemeTokens/legibilityScrim``).
+    public static var legibilityScrim: NSColor { color(\.legibilityScrim, dynamic: PaletteDynamic.legibilityScrim) }
+    /// A small translucent capsule behind a label over busy content
+    /// (``ThemeTokens/capsuleScrim``).
+    public static var capsuleScrim: NSColor { color(\.capsuleScrim, dynamic: PaletteDynamic.capsuleScrim) }
+    /// The scrim's alpha: the most a translucent band over the window's
+    /// backdrop may cover (the Home header's top fade peaks there).
+    public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
+    /// The one solid surface of every overlay that carries text (palette,
+    /// dialogs, hover cards, find and prompt bars, page info, popovers,
+    /// tooltips): the window background lifted toward the text
+    /// (``ThemeTokens/opaqueOverlayFill(lift:)``), always opaque, so no text
+    /// under it shows through. Pages get the same color as
+    /// `--cmux-popup-surface` (`WebTheme`).
+    public static var popupSurface: NSColor {
+        guard let tokens = ThemeContext.active else { return PaletteDynamic.popupSurface }
+        return tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor
+    }
     /// Every pane's tab strip: a shade darker than the window.
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.
@@ -81,6 +103,8 @@ public struct Palette {
     public static var shadow: NSColor { color(\.shadow, dynamic: PaletteDynamic.shadow) }
     /// Selected text in chrome text fields.
     public static var textSelection: NSColor { color(\.textSelection, dynamic: PaletteDynamic.textSelection) }
+    /// Text carets: the terminal's cursor color (`cursor-color`), else the primary text.
+    public static var caret: NSColor { color(\.caret, dynamic: PaletteDynamic.caret) }
 
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
@@ -96,6 +120,12 @@ public struct Palette {
     public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
+
+    /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
+    /// the theme's own hue with `appearance.accent`. A themed menu's highlighted row (`NSMenu.themeRows(in:)`).
+    public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
+    /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
+    public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.

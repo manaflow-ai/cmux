@@ -1,3 +1,4 @@
+use cmux_tui_core::Actor;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -211,7 +212,7 @@ fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
 }
 
 #[test]
-fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
+fn websocket_pairing_is_approved_by_the_tui_and_credential_reconnects() {
     let mux = Mux::new("ws-pairing", SurfaceOptions::default());
     let socket_path = unique_socket("ws-pairing");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
@@ -234,12 +235,15 @@ fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
     assert_eq!(tui_challenge["request"], browser_challenge["pairing"]["id"]);
 
     let request = tui_challenge["request"].as_u64().unwrap();
+    // A plain Unix connection (an agent, a script) may not approve; the
+    // in-process TUI (or the verified app) does.
     writeln!(
         unix_writer,
         r#"{{"id":2,"cmd":"pairing-response","request":{request},"approve":true}}"#
     )
     .unwrap();
-    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], false);
+    assert!(mux.respond_pairing(request, true));
     let paired = read_until(&mut websocket, |value| value.get("paired").is_some());
     let credential = paired["paired"]["credential"].as_str().unwrap().to_string();
     send_json(&mut websocket, json!({"id": 3, "cmd": "identify"}));
@@ -258,7 +262,15 @@ fn websocket_pairing_is_approved_over_trusted_unix_and_credential_reconnects() {
 fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let mux = Mux::new("ws-streams", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     let server = server::serve_websocket(
@@ -318,7 +330,15 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
 fn websocket_render_attach_carries_large_rgba_state_and_stays_connected() {
     let mux = Mux::new("ws-large-render", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     mux.surface(surface)
@@ -421,7 +441,15 @@ fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
 fn clients_list_identify_resize_and_detach_across_transports() {
     let mux = Mux::new("client-presence", SurfaceOptions::default());
     let surface = mux
-        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .run_command_surface_as(
+            &Actor::Daemon,
+            vec!["/bin/cat".to_string()],
+            None,
+            true,
+            None,
+            None,
+            Some((80, 24)),
+        )
         .unwrap()
         .surface;
     let socket_path = unique_socket("client-presence");

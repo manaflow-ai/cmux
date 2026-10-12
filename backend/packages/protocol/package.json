@@ -14,6 +14,8 @@
     "catalog:vectors": "bun scripts/export-cloud-vectors.ts",
     "catalog:client": "bun scripts/export-client.ts",
     "catalog:client:check": "bun scripts/export-client.ts --check",
+    "catalog:rust": "bun scripts/export-rust-client.ts",
+    "catalog:rust:check": "bun scripts/export-rust-client.ts --check",
     "catalog:link-vectors": "bun scripts/export-link-token-vectors.ts && bun scripts/export-keyset-vectors.ts"
   },
   "dependencies": {

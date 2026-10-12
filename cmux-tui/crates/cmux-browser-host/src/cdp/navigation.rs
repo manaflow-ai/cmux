@@ -19,6 +19,38 @@ fn reached(tab: &TabState, wait_until: WaitUntil) -> bool {
 }
 
 impl Inner {
+    /// A page that loaded before the driver attached (a relay to a popup or
+    /// to a tab the person opened) sends no lifecycle events for that load:
+    /// its state comes from `document.readyState`, once, when the tab has no
+    /// lifecycle state yet. Later documents report their events as usual.
+    /// Only for relays: a tab the driver created reports its own events, and
+    /// a seeded blank start page would end a pending navigation's wait.
+    pub(super) fn seed_load_state(&self, target_id: &str, session_id: &str) {
+        if self.owns_browser {
+            return;
+        }
+        let ready = self.conn.call(
+            Some(session_id),
+            "Runtime.evaluate",
+            json!({"expression": "document.readyState", "returnByValue": true}),
+            INTERNAL_TIMEOUT,
+        );
+        let value = ready.ok().and_then(|r| r["result"]["value"].as_str().map(str::to_owned));
+        let reached: &[&str] = match value.as_deref() {
+            Some("complete") => &["DOMContentLoaded", "load"],
+            Some("interactive") => &["DOMContentLoaded"],
+            _ => &[],
+        };
+        let mut state = self.lock();
+        if let Some(tab) = state.tabs.get_mut(target_id)
+            && tab.lifecycle.is_empty()
+        {
+            tab.lifecycle.extend(reached.iter().map(|name| (*name).to_owned()));
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+
     pub(super) fn navigate(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let url = required_str(params, "url")?;
@@ -29,6 +61,12 @@ impl Inner {
         if let Some(error) =
             result.get("errorText").and_then(Value::as_str).filter(|e| !e.is_empty())
         {
+            // Its error page commits later, maybe during the next navigation.
+            if let Some(loader) = result.get("loaderId").and_then(Value::as_str)
+                && let Some(tab) = self.lock().tabs.get_mut(&session.target_id)
+            {
+                tab.navigation_failed(loader);
+            }
             return Err(DriverError::invalid(format!("{error} at {url}")));
         }
         if result.get("loaderId").and_then(Value::as_str).is_none() {
@@ -37,14 +75,18 @@ impl Inner {
             return Ok(json!({"url": url.unwrap_or_else(|| url_string(params))}));
         }
         // Any document committed after this call counts, so a client redirect
-        // continues the navigation instead of stranding the wait.
+        // continues the navigation instead of stranding the wait; the late
+        // error page of an earlier failed navigation does not.
         let what = format!("navigation to {url}");
         let landed = self.wait_for(&session.target_id, deadline, &what, |tab| {
             if tab.download_seq > downloads {
                 return Some(Err(DriverError::invalid(format!("Download is starting: {url}"))));
             }
-            (tab.nav_seq > before && !tab.last_nav_same_document && reached(tab, wait_until))
-                .then(|| Ok(json!({"url": tab.url})))
+            (tab.nav_seq > before
+                && !tab.last_nav_same_document
+                && !tab.shows_failed_navigation()
+                && reached(tab, wait_until))
+            .then(|| Ok(json!({"url": tab.url})))
         })?;
         if self.shows_browser_page(&session.target_id) {
             return Err(self.leave_browser_page(&session, deadline));
@@ -114,8 +156,10 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Value, DriverError> {
         self.wait_for(target_id, deadline, "navigation", |tab| {
-            (tab.nav_seq > after_seq && (tab.last_nav_same_document || reached(tab, wait_until)))
-                .then(|| Ok(json!({"url": tab.url})))
+            (tab.nav_seq > after_seq
+                && (tab.last_nav_same_document
+                    || (!tab.shows_failed_navigation() && reached(tab, wait_until))))
+            .then(|| Ok(json!({"url": tab.url})))
         })
     }
 

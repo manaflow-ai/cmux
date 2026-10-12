@@ -8,7 +8,10 @@
 CMUX_CUA_HELPER_ID="com.cmuxterm.cua"
 CMUX_CUA_HELPER_TEAM_ID="7WLXT3NR37"
 
-CMUX_CUA_HELPER_REQUIREMENT="=identifier \"$CMUX_CUA_HELPER_ID\" and anchor apple generic and certificate leaf[subject.OU] = \"$CMUX_CUA_HELPER_TEAM_ID\""
+# The release helper's designated requirement: the two certificate fields are
+# the Developer ID intermediate and leaf markers, so an Apple Development or
+# Apple Distribution signature of the same team fails too.
+CMUX_CUA_HELPER_REQUIREMENT="=identifier \"$CMUX_CUA_HELPER_ID\" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$CMUX_CUA_HELPER_TEAM_ID\""
 
 # Exit 0 only when the bundle's signature satisfies the Developer ID
 # requirement of the release helper. Reads the signature on disk; launches

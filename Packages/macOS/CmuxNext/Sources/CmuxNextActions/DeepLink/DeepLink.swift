@@ -32,6 +32,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// An acpmux agent chat session, and optionally one turn in it
         /// (`#turn-<turnId>`).
         case session(String, turn: String?)
+        /// A Chief subagent's chat: acpmux session `session` in the Chief home whose id is
+        /// `home` (8 lowercase hex, optchat-chief `paths::home_id`), whose agent tabs record
+        /// host `chief:<home>`. The Chief writes it in its text (`workspaces::subagent_link`).
+        case chiefSession(home: String, session: String)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
         case legacyWorkspace(UUID, fallback: UUID?)
@@ -80,6 +84,7 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .session(let id, let turn):
             text += "session/\(id)"
             fragment = turn.map { Self.turnFragmentPrefix + $0 }
+        case .chiefSession(let home, let session): text += "chief/\(home)/session/\(session)"
         case .legacyWorkspace(let workspace, let fallback):
             text += "workspace/\(workspace.uuidString)"
             if let fallback { query.append("stable_workspace_id=\(fallback.uuidString)") }
@@ -107,6 +112,7 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .pane(let id): return Self.isResourceID(id, prefix: "pane_")
         case .tab(let id): return Self.isResourceID(id, prefix: "tab_")
         case .session(let id, let turn): return Self.isToken(id) && (turn.map(Self.isToken) ?? true)
+        case .chiefSession(let home, let session): return Self.isChiefHome(home) && Self.isToken(session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
@@ -122,6 +128,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         guard text.hasPrefix(prefix) else { return false }
         let hex = text.utf8.dropFirst(prefix.utf8.count)
         return hex.count == resourceHexDigits && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// A Chief home id: 8 lowercase hex digits (FNV-1a 32 of the home's path).
+    static func isChiefHome(_ text: String) -> Bool {
+        text.utf8.count == 8 && text.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 
     /// An acpmux session or turn id: 1 to 200 ASCII letters, digits, `-`,

@@ -39,6 +39,12 @@ struct DeepLinkNavigator {
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent)
+        case .chiefSession(let home, let session):
+            // Only this app's Chief home, only a tab that shows that session there; never a
+            // new tab (the session runs in the Chief home's acpmux, not this Mac's).
+            let host = "chief:" + home
+            guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
+                  services.revealTab(shown, intent: intent) else { throw Self.gone }
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)

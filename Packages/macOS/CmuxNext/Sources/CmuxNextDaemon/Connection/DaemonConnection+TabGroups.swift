@@ -111,14 +111,6 @@ extension DaemonConnection {
         return try await moveTabGroup(group, to: result.pane ?? pane, index: index, transaction: transaction)
     }
 
-    @available(*, deprecated, renamed: "reopenSavedTabGroup(_:in:index:transaction:)")
-    @discardableResult
-    public func openSavedTabGroup(_ saved: SavedTabGroupID, in pane: PaneID? = nil, index: Int? = nil,
-                                  transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        guard let pane else { throw DaemonError.malformedResponse("reopen-saved-tab-group requires a pane") }
-        return try await reopenSavedTabGroup(saved, in: pane, index: index, transaction: transaction)
-    }
-
     /// Unsaves the record linked to a live group; the group stays.
     @discardableResult
     public func unsaveTabGroup(group: TabGroupID) async throws -> Bool {

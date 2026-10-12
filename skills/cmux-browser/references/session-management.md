@@ -3,9 +3,10 @@
 Drive several browser tabs at once by keeping each tab's `tab_…` id. Related:
 [authentication.md](authentication.md), [../SKILL.md](../SKILL.md).
 
-Saved browser state was removed: the old `state save|load`, `cookies` and
-`storage` commands have no replacement in the new CLI, so auth cannot be copied
-from one tab to another by command.
+The per-tab CLI cannot save or copy browser state. The browser REPL can:
+`session.storageState({ path })` and `session.setStorageState(stateOrPath)`
+save and restore cookies and localStorage, and `tabs.open(url, { incognito:
+true })` opens a tab with none ([repl-guide.md](repl-guide.md)).
 
 ## Parallel tabs
 

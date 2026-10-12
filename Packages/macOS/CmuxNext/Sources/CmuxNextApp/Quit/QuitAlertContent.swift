@@ -24,25 +24,20 @@ struct QuitAlertContent: Equatable {
 
     var message: String { lines.joined(separator: "\n") }
 
-    /// "Quit cmux?": how many terminals keep running, how many programs run,
-    /// and one line each for incognito windows and other machines when
-    /// relevant. With only incognito terminals (or a remembered end), it is
-    /// the incognito close confirmation: Quit and Cancel.
+    /// "Quit cmux?": how many programs run, how many agents are working, and
+    /// one line for incognito windows when relevant. With only incognito
+    /// terminals (or a remembered end), it is the incognito close
+    /// confirmation: Quit and Cancel.
     static func main(_ prompt: QuitPrompt) -> QuitAlertContent {
         guard prompt.offersSessionChoice else {
-            var lines = [QuitStrings.incognitoOnly]
-            if prompt.remoteSessions { lines.append(QuitStrings.remote) }
-            return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: lines, buttons: [.quit, .cancel],
+            return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
                                     showsSuppression: false)
         }
+        // Statuses only, no explanation of what quitting does.
         var lines: [String] = []
-        if prompt.runningPrograms > 0 {
-            lines += [QuitStrings.terminalsKeepRunning(prompt.terminals), QuitStrings.programsRunning(prompt.runningPrograms)]
-        }
-        // Agents are not warned about: they keep working in acpmux and reattach.
-        if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsKeepWorking(prompt.agentsInTurn)) }
+        if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
+        if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
-        if prompt.remoteSessions { lines.append(QuitStrings.remote) }
         return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
                                 showsSuppression: true)
     }

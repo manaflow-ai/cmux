@@ -37,13 +37,13 @@ To iterate on the real pane inside a running cmux-next with hot reload:
 1. `cd webviews && bun run dev:agent-pane` serves this directory with Vite at `http://127.0.0.1:4176/`.
 2. Launch a tagged build with the pane pointed at it: `CMUX_NEXT_AGENT_PANE_DEV_URL=http://127.0.0.1:4176/ ./scripts/reload.sh --tag <tag>`. `reload.sh` forwards the variable to the app.
 3. Open New Agent Chat and edit the TypeScript or CSS here; Vite hot-reloads the pane in about a second. Swift still answers the handshake, so the page talks to the real acpmux daemon and its sessions.
-4. Before committing, rebuild the shipped page with `./scripts/cmux-next/build-agent-pane-web.sh`; CI runs it with `--check`.
+4. Commit only the sources. The shipped page is gitignored build output: every app build, Swift test run and release builds it first with `./scripts/cmux-next/build-web-bundles.sh`, and CI checks that it builds.
 
 Only Debug and tagged builds read the variable; Release always loads the bundled page. The URL must be `http` on `127.0.0.1` or `localhost` with an explicit port, and anything else falls back to the bundled page. The pane only trusts that exact origin, but whatever process listens on that port receives the daemon token, so point it only at your own dev server. The dev page's CSP (`index.html`) allows same-origin scripts for Vite; the bundled page keeps its inline-only CSP.
 
 ## Merging feat-cmux-next
 
-The shipped page and the webviews app bundle are committed build output, so two branches that each rebuilt them always collide. With the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies instead of stopping on them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, rebuilds both bundles and stages them. CI's `--check` steps fail until it has run. GitHub ignores merge drivers, so the PR page still reports the conflict until the merge is pushed. Rebase, cherry-pick and `git stash pop` use the driver too, and in a rebase "ours" is the upstream, so each replayed commit loses its bundle change: run the script and commit after those as well.
+The shipped page and the webviews app bundle are not committed (cx-vn5), so merges never collide in them. The strings tables (`generated/strings.json`) are still committed: with the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies of them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, regenerates and stages the strings tables, and removes from the index any bundle file a branch from before cx-vn5 still tracks.
 
 ## Comparing against reference captures
 

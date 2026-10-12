@@ -9,6 +9,17 @@ use acpmux::cli::entry::{self, Invocation};
 
 /// `cmux acp <args>`.
 pub(crate) fn run(args: Vec<OsString>) -> i32 {
+    run_as(args, "cmux acp")
+}
+
+/// `cmux <head> <args>` for `head` = `acp`, `chats`, `harness` or `route`.
+pub(crate) fn run_scope(head: &str, args: Vec<OsString>) -> i32 {
+    run_as(args, if head == "acp" { "cmux acp" } else { "cmux" })
+}
+
+/// `<display_name> <args>`: `cmux acp …`, or `cmux` for the `cmux chats …` and
+/// `cmux harness …` aliases, so usage and errors name the command the user typed.
+pub(crate) fn run_as(args: Vec<OsString>, display_name: &str) -> i32 {
     if let [chats, open, rest @ ..] = args.as_slice()
         && chats == "chats"
         && open == "open"
@@ -41,14 +52,17 @@ pub(crate) fn run(args: Vec<OsString>) -> i32 {
         std::env::current_exe().ok().as_deref(),
     );
     let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
-    finish(entry::main(
-        args,
-        Invocation {
-            display_name: "cmux acp".into(),
-            daemon_prefix: vec!["acp".into()],
-            home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
-        },
-    ))
+    finish(
+        entry::main(
+            args,
+            Invocation {
+                display_name: display_name.into(),
+                daemon_prefix: vec!["acp".into()],
+                home: home.and_then(|home| tagged_home(tag.as_deref(), &home)),
+            },
+        ),
+        display_name,
+    )
 }
 
 /// `cmux acp open NAME [--pane ID]`: show an agent session in a new tab of
@@ -85,6 +99,106 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .into_iter()
         .map(str::to_owned)
         .collect())
+}
+
+/// Point the linked acpmux at the home `cmux acp` uses, for code that talks
+/// to the acpmux daemon without going through `cmux acp` (agent messages).
+pub(crate) fn configure_home() {
+    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(std::env::var("CMUX_TAG").ok(), identity);
+    if let Some(home) = home.and_then(|home| tagged_home(tag.as_deref(), &home)) {
+        acpmux::config::set_home_override(home);
+    }
+}
+
+/// The acpmux unix socket the session daemon attaches agent tabs through
+/// (`agent-session-attach-v1`): the one `cmux acp` in this daemon's terminals
+/// reaches. `ACPMUX_SOCKET`, else the socket of the home `cmux acp` uses
+/// (`ACPMUX_HOME`, else the tag's own home, else `~/.acpmux`). Read once at
+/// daemon start, without touching acpmux's process-wide config.
+#[cfg(unix)]
+pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    if let Some(socket) = env_value("ACPMUX_SOCKET") {
+        return Some(daemon_socket(Some(&socket), Path::new(""), uid));
+    }
+    Some(daemon_socket(None, &daemon_acpmux_home()?, uid))
+}
+
+/// The socket for a configured `ACPMUX_SOCKET` or an acpmux home, by the rule
+/// acpmux and every host share (cmux-agent-pane-policy `socket_path`).
+#[cfg(unix)]
+fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
+    PathBuf::from(cmux_agent_pane_policy::environment::socket_path(configured, home, uid))
+}
+
+/// How the session daemon starts the acpmux that [`daemon_socket_path`]
+/// names when an `agent-session-start` finds nothing there: this binary's
+/// `acp daemon start` with that home, as `cmux acp` starts it (acpmux bounds
+/// the wait for its socket), without the daemon's terminal identity. None
+/// with `ACPMUX_SOCKET`: a fixed socket belongs to an acpmux this daemon does
+/// not own.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxStarter> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    Some(std::sync::Arc::new(move || {
+        let mut command = std::process::Command::new(&exe);
+        // acpmux and every agent it starts outlive this call: none of them
+        // may claim the terminal this daemon was started from.
+        for name in TERMINAL_IDENTITY_ENV {
+            command.env_remove(name);
+        }
+        let status = command
+            .env("ACPMUX_HOME", &home)
+            .args(["acp", "daemon", "start"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|error| format!("acpmux daemon start: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("acpmux daemon start exited with {status}"))
+        }
+    }))
+}
+
+/// The cmux terminal a process runs in; a detached acpmux has none (the
+/// same claims the detached owner drops, local_owner.rs; socket and config
+/// variables stay).
+#[cfg(unix)]
+const TERMINAL_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+
+/// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else the tag's own home,
+/// else `~/.acpmux`.
+#[cfg(unix)]
+fn daemon_acpmux_home() -> Option<PathBuf> {
+    if let Some(home) = env_value("ACPMUX_HOME") {
+        return Some(PathBuf::from(home));
+    }
+    let home = PathBuf::from(env_value("HOME")?);
+    let identity = crate::app_identity::AppIdentity::detect(
+        |name| std::env::var(name).ok(),
+        std::env::current_exe().ok().as_deref(),
+    );
+    let tag = acpmux_tag(env_value("CMUX_TAG"), identity);
+    Some(tagged_home(tag.as_deref(), &home).unwrap_or_else(|| home.join(".acpmux")))
+}
+
+#[cfg(unix)]
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
 }
 
 /// `cmux harness run ID --tab`: a new tab in the current pane whose process
@@ -196,14 +310,14 @@ pub(crate) fn run_standalone(args: Vec<OsString>) -> i32 {
         .and_then(|exe| exe.file_name().map(|name| name != "acpmux"))
         .unwrap_or(false);
     let daemon_prefix: Vec<OsString> = if renamed { vec!["acp".into()] } else { Vec::new() };
-    finish(entry::main(args, Invocation { daemon_prefix, ..Invocation::default() }))
+    finish(entry::main(args, Invocation { daemon_prefix, ..Invocation::default() }), "cmux acp")
 }
 
-fn finish(result: anyhow::Result<()>) -> i32 {
+fn finish(result: anyhow::Result<()>, display_name: &str) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
-            eprintln!("cmux acp: {error:#}");
+            eprintln!("{display_name}: {error:#}");
             1
         }
     }
@@ -246,6 +360,47 @@ fn sanitize_tag(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_daemon_finds_the_acpmux_socket_where_acpmux_puts_it() {
+        let home = Path::new("/Users/me/.cmux/brains/chief/acpmux");
+        assert_eq!(daemon_socket(None, home, 501), home.join("acpmux.sock"));
+        let long = PathBuf::from(format!("/Users/me/{}", "d".repeat(100)));
+        let socket = daemon_socket(None, &long, 501);
+        assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
+        assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
+    }
+
+    /// The shared cases (cmux-agent-pane-policy tests/cases/environment.json) the
+    /// Swift host, the brain host and the Chief run too.
+    #[cfg(unix)]
+    #[test]
+    fn the_daemon_socket_matches_the_shared_cases() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmux-agent-pane-policy/tests/cases/environment.json");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        for row in cases["sockets"].as_array().unwrap() {
+            let got = daemon_socket(
+                None,
+                Path::new(row[0].as_str().unwrap()),
+                row[1].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[2].as_str(), "home {}", row[0]);
+        }
+        let configured = cases["configured_sockets"].as_array().unwrap();
+        assert!(!configured.is_empty());
+        for row in configured {
+            let given = row[0].as_str().unwrap();
+            let got = daemon_socket(
+                Some(given).filter(|g| !g.is_empty()),
+                Path::new(row[1].as_str().unwrap()),
+                row[2].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[3].as_str(), "configured {given}");
+        }
+    }
 
     #[test]
     fn harness_run_tab_runs_the_harness_in_a_new_tab_in_its_folder() {

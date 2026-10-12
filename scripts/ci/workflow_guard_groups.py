@@ -75,7 +75,6 @@ PATH_OWNERS = {
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
-    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),

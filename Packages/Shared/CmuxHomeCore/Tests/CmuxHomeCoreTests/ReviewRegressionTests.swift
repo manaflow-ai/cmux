@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxHomeCoreTestSupport
 @testable import CmuxHomeCore
 
 /// Regressions for the lane 14 review findings (mirror + intent log).
@@ -74,9 +75,6 @@ actor LosingFirstAnswerSource: HomeSource {
 
 @MainActor
 @Suite struct StoreReviewRegressionTests {
-    func waitUntil(_ condition: @escaping @MainActor () -> Bool) async {
-        for _ in 0..<400 where !condition() { await Task.yield() }
-    }
 
     @Test func lostAnswerIsResentOnceWithTheSameKeyAndApplied() async throws {
         let source = LosingFirstAnswerSource(inner: MockHomeSource(options: .immediate))

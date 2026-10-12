@@ -13,7 +13,7 @@ extension KeyRouter {
     /// extension shortcut. Only for a key the dispatcher never saw (a
     /// synthetic event): the dispatcher already decided every real key-down.
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
-        if decided.contains(event) { return false }
+        if decided.contains(event) || Self.overlayHasKeys(focus) { return false }
         let context = keyContext(for: focus, facts: Facts())
         // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
         if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
@@ -21,6 +21,14 @@ extension KeyRouter {
             return RegistryKeyBindings(registry).run(winner, keyContext: context.bits)
         }
         return runExtensionShortcut(event, focus: focus)
+    }
+
+    /// An overlay (palette, sheet, rename, group editor) has the keyboard. AppKit also offers
+    /// the main window behind it a key equivalent its panel did not handle; that key is the
+    /// overlay's, so nothing below takes it (cx-6so.46: Cmd-K in the palette cleared the
+    /// terminal, whose context bits the palette keeps).
+    nonisolated static func overlayHasKeys(_ focus: FocusState) -> Bool {
+        !focus.overlays.isEmpty
     }
 
     /// Chromium dispatches extension shortcuts from the Chromium toolbar that

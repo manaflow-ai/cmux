@@ -11,6 +11,9 @@ pub enum Kind {
     Echo,
     /// Memories imported from an older system.
     Note,
+    /// Another AI's replies and tool calls, from an imported chat; not the
+    /// agent's own (the reference client's kind).
+    Ai,
 }
 
 impl Kind {
@@ -21,6 +24,7 @@ impl Kind {
             Kind::Tool => "tool",
             Kind::Echo => "echo",
             Kind::Note => "note",
+            Kind::Ai => "ai",
         }
     }
 
@@ -31,6 +35,7 @@ impl Kind {
             "tool" => Kind::Tool,
             "echo" => Kind::Echo,
             "note" => Kind::Note,
+            "ai" => Kind::Ai,
             _ => return None,
         })
     }

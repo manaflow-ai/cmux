@@ -4,6 +4,12 @@ import { AGENT_BRAND_SMALL_POINT_SIZE } from "./agentBrands.generated";
 
 export { agentBrand };
 
+/// The first of `candidates` that names a known mark (a profile's icon, then its family, then its
+/// id), else the last one given: an unknown icon falls back to its family's mark.
+export function knownMark(...candidates: (string | undefined)[]): string | undefined {
+  return candidates.find((candidate) => agentBrand(candidate)) ?? candidates.filter(Boolean).at(-1);
+}
+
 /// How marks color: each vendor's own colors (the default), or white on dark themes
 /// and black on light ones.
 export type AgentMarkStyle = "brand" | "mono";
@@ -25,7 +31,9 @@ function subscribe(listener: () => void) {
     observer = new MutationObserver(() => listeners.forEach((notify) => notify()));
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme", "data-agent-marks"],
+      // `style`: pages without data-theme (Settings) take the theme's lightness from the
+      // root's color-scheme, which window.cmuxTheme.apply sets (WebTheme.swift).
+      attributeFilter: ["data-theme", "data-agent-marks", "style"],
     });
   }
   return () => {
@@ -41,7 +49,9 @@ export const agentMarkObserving = () => observer !== undefined;
 // The pane is dark, in brand color, until told otherwise.
 const appearance = () => {
   if (typeof document === "undefined") return "dark brand";
-  const { theme, agentMarks } = document.documentElement.dataset;
+  const root = document.documentElement;
+  const { agentMarks } = root.dataset;
+  const theme = root.dataset.theme ?? root.style.colorScheme;
   return `${theme === "light" ? "light" : "dark"} ${agentMarks === "mono" ? "mono" : "brand"}`;
 };
 
@@ -52,18 +62,21 @@ const box = (v: readonly number[]) => v.join(" ");
 /// and new-tab cards. With `label` it is an image named for the agent; without, it
 /// is decoration beside text that already names it. Marks pick their colors for the
 /// page's theme; on a surface of the other lightness (a selected row on the accent),
-/// `onDark` says which side the surface is on. The marks and their sources live in
+/// `onDark` says which side the surface is on. An agent without a mark draws nothing. The marks and their sources live in
 /// design/agent-icons (manifest.json); agentBrands.generated.ts is generated from it.
 export function AgentMark({
   agent,
   size = 16,
   label,
   onDark,
+  reserve,
 }: {
   agent?: string;
   size?: number;
   label?: string;
   onDark?: boolean;
+  /** In a list: an unknown mark keeps its `size` slot (an empty box), so the names line up. */
+  reserve?: boolean;
 }) {
   const key = agentBrand(agent);
   const [scheme, style] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
@@ -78,25 +91,16 @@ export function AgentMark({
       ? { ...full, viewBox: full.small.viewBox, paths: full.small.paths, overlays: undefined, small: undefined }
       : full;
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
+  // A mark nobody knows (a profile's own id, a file icon) draws nothing: a placeholder square read
+  // as a broken image (Leo, 2026-10-12, the "Vercel AI Gateway" chip). The name beside it says who.
   if (!spec)
-    return (
-      <svg
-        className="agent-mark agent-mark-generic"
-        width={size}
-        height={size}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.25}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        focusable="false"
-        {...a11y}
-      >
-        <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2.5" />
-        <path d="m5.25 6.5 2 1.75-2 1.75M8.75 10h2" />
-      </svg>
-    );
+    return reserve ? (
+      <span
+        className="agent-mark agent-mark-empty"
+        style={{ display: "inline-block", flex: "none", width: size, height: size }}
+        aria-hidden="true"
+      />
+    ) : null;
   const tile = brand ? spec.tile : undefined;
   const fill = brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
   const drawPath = (path: AgentBrandSpec["paths"][number], index: number, paint?: string) => {

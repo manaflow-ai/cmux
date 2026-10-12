@@ -1,6 +1,6 @@
 import Foundation
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Assigns `value` only when it differs. Observation (`@Observable`)
 /// notifies on every set, even of the same value, so a view that writes back
@@ -33,9 +33,6 @@ public final class UpdateCycleDetector: Sendable {
         self.maxDepth = maxDepth
         self.ledger = ledger
     }
-
-    /// Re-entries seen since launch.
-    public var reentryCount: UInt64 { reentries.load(ordering: .relaxed) }
 
     /// Runs `update`, reporting when it runs inside another update of this owner.
     public func run<T>(_ update: () throws -> T) rethrows -> T {

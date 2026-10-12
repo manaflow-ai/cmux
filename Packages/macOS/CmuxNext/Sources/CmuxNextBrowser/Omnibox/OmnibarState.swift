@@ -112,6 +112,9 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
     public var redo: [UndoEntry] = []
     /// Consecutive edits of one kind share one undo entry.
     public var lastEditKind: EditKind?
+    /// The edited text holds pasted text: Enter loads it as it is, with no
+    /// host typo fix. Cleared when the text is emptied, reverted or committed.
+    public var editHasPaste = false
 
     public init(pageURL: URL? = nil) { self.pageURL = pageURL }
 

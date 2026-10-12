@@ -1,5 +1,5 @@
-// The Swift window's remaining cards, drawn by the page (R82 commit 4): the theme picker by level
-// (Appearance), the wallpaper grid (Appearance, behind appearance.experimentalControls), the
+// The Swift window's remaining cards, drawn by the page (R82 commit 4): the wallpaper grid
+// (Experimental, behind appearance.experimentalControls), the
 // terminal facts (Terminal) and the settings file with its problems (Advanced). Data comes from
 // the host lists; writes run host ops or catalog actions, the palette's paths.
 import { useState } from "react";
@@ -7,83 +7,18 @@ import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
-
-export function ThemeLevels() {
-  const store = useStore();
-  const { host, domains } = useSettingsState();
-  const levels = host?.theme?.levels ?? [];
-  const [picked, setPicked] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [custom, setCustom] = useState<string | null>(null);
-  if (!host?.theme || levels.length === 0) return null;
-  const level = picked && levels.includes(picked) ? picked : levels[0]!;
-  const current = host.theme.current[level] ?? null;
-  const text = query.trim();
-  const names = text
-    ? domains.themes.filter((name) => name.toLowerCase().includes(text.toLowerCase()))
-    : domains.themes;
-  const onQuery = (value: string) => {
-    setQuery(value);
-    const typed = value.trim();
-    setCustom(null);
-    if (typed && !domains.themes.includes(typed)) {
-      void store.acceptsTheme(typed).then((accepts) => setCustom(accepts ? typed : null));
-    }
-  };
-  const choice = (title: string, spec: string | null) => (
-    <button
-      type="button"
-      key={spec ?? "\u0000config"}
-      className="theme-choice"
-      aria-pressed={current === spec}
-      onClick={() => void store.setTheme(level, spec)}
-    >
-      {title}
-    </button>
-  );
-  return (
-    <section className="group" data-card="theme">
-      <h3 className="group-title">{t("settingsWindow.themePicker")}</h3>
-      <div className="theme-picker">
-        <fieldset className="segmented" aria-label={t("settingsWindow.themePicker")}>
-          {levels.map((id) => (
-            <label key={id} className="segment" data-checked={id === level ? "" : undefined}>
-              <input
-                type="radio"
-                name="theme-level"
-                value={id}
-                aria-label={t(`settingsWindow.themeLevel.${id}`)}
-                checked={id === level}
-                onChange={() => setPicked(id)}
-              />
-              {t(`settingsWindow.themeLevel.${id}`)}
-            </label>
-          ))}
-        </fieldset>
-        <input
-          className="field"
-          aria-label={t("settingsWindow.themeSearch")}
-          placeholder={t("settingsWindow.themeSearch")}
-          value={query}
-          onChange={(event) => onQuery(event.target.value)}
-        />
-        <div className="theme-list" data-theme-list="">
-          {choice(t("settingsWindow.themeUseConfig"), null)}
-          {custom && custom === text && choice(t("settingsWindow.themeUse", custom), custom)}
-          {names.map((name) => choice(name, name))}
-        </div>
-      </div>
-    </section>
-  );
-}
+import { ArtBrowser } from "./ArtBrowser";
 
 export function Backdrops() {
   const store = useStore();
   const { host, rows } = useSettingsState();
+  const [browsing, setBrowsing] = useState(false);
   const enabled = rows.get("appearance.experimentalControls")?.value === true;
   const backdrops = host?.backdrops ?? [];
   if (!enabled || backdrops.length === 0) return null;
-  const current = (rows.get("appearance.background")?.value as string | undefined) ?? "none";
+  // Unset is the schema default (a figure drawing), not "none".
+  const background = rows.get("appearance.background");
+  const current = ((background?.value ?? background?.default) as string | undefined) ?? "none";
   const tile = (id: string, title: string, attribution: string) => (
     <button
       type="button"
@@ -102,14 +37,50 @@ export function Backdrops() {
       <span className="row-help">{attribution}</span>
     </button>
   );
+  // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
+  // title, then the person's own images ("Your images"); the desktop picture and system
+  // wallpapers follow in one untitled group.
+  const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
+  for (const choice of backdrops) {
+    const key = choice.collection ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.choices.push(choice);
+    else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
+  }
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <div className="row-help">{t("settingsWindow.backdropPicker.hint")}</div>
       <div className="backdrop-grid">
         {tile("none", t("settingsWindow.backdropPicker.none"), t("settingsWindow.backdropPicker.none"))}
-        {backdrops.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+        <button type="button" className="backdrop-tile" onClick={() => void store.chooseBackdropImage()}>
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            +
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.backdropPicker.chooseImage")}</span>
+          <span className="row-help">{t("settingsWindow.backdropPicker.dropHint")}</span>
+        </button>
+        <button
+          type="button"
+          className="backdrop-tile"
+          aria-expanded={browsing}
+          onClick={() => setBrowsing((open) => !open)}
+        >
+          <span className="backdrop-thumb backdrop-none backdrop-choose" aria-hidden="true">
+            ⌕
+          </span>
+          <span className="backdrop-title">{t("settingsWindow.artBrowser.open")}</span>
+          <span className="row-help">{t("settingsWindow.artBrowser.help")}</span>
+        </button>
       </div>
+      {browsing && <ArtBrowser onClose={() => setBrowsing(false)} />}
+      {groups.map((group) => (
+        <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
+          {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
+          <div className="backdrop-grid">
+            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }
@@ -119,13 +90,14 @@ export function TerminalInfo() {
   if (!host?.terminal) return null;
   return (
     <section className="group" data-card="terminal">
-      <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
-          <span className="row-help selectable">{host.terminal.ghostty_config}</span>
+          <span className="row-help selectable" title={host.terminal.ghostty_config}>
+            {host.terminal.ghostty_config}
+          </span>
         </ActionRow>
         <ActionRow title={t("settingsWindow.shellIntegration")} help="">
-          <span className="row-help selectable">
+          <span className="row-help selectable" title={host.terminal.shell_integration ?? undefined}>
             {host.terminal.shell_integration ?? t("settingsWindow.shellIntegrationUnknown")}
           </span>
         </ActionRow>

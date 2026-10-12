@@ -31,6 +31,7 @@ public final class HostBrowserSignInFlow {
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
+    private let instantCancelWindow: TimeInterval
     private let signOutCoordinator: HostBrowserSignOutCoordinator
     private let callbackStateGenerator = HostBrowserCallbackStateGenerator()
     private let deadline: HostBrowserDeadline
@@ -45,6 +46,9 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
     @ObservationIgnored private var handedOffAttemptID: UInt64?
+    /// Time since the active popup started, for telling a browser's instant
+    /// cancel from the person's.
+    @ObservationIgnored private var popupAge: (attemptID: UInt64, isFresh: @Sendable () -> Bool)?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var activeAttemptSelectsAccount = false
     @ObservationIgnored private var pendingManualCallbackState: String?
@@ -66,6 +70,7 @@ public final class HostBrowserSignInFlow {
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
+        instantCancelWindow: TimeInterval = 1.5,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
@@ -84,6 +89,7 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        self.instantCancelWindow = instantCancelWindow
         deadline = HostBrowserDeadline(clock: clock)
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
@@ -332,35 +338,15 @@ public final class HostBrowserSignInFlow {
                 self.log.log("auth.browser.session.completion id=\(attemptID) \(self.sessionResultSummary(result))")
                 if case let .callback(url) = result, !self.callbackRouter.isAuthCallbackURL(url) {
                     self.log.log("auth.browser.session.completion.nonAuth id=\(attemptID) \(self.authCallbackSummary(url))")
-                    guard self.activeAttemptID == attemptID, self.activeSessionContinuationAttemptID == attemptID else {
-                        self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=staleNonAuthCallback active=\(self.activeAttemptID.map(String.init) ?? "nil")")
-                        return
-                    }
-                    if let state = self.activeCallbackState {
-                        self.issueCallbackState(state)
-                    }
-                    self.cancelSlowSignInHint()
-                    self.signInIsSlow = true
-                    if self.handedOffAttemptID != attemptID, let state = self.activeCallbackState {
-                        self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
-                        if self.openExternalURL(self.attemptSignInURL(state)) {
-                            // Browser launched: keep the attempt parked so the
-                            // eventual cmux://auth-callback resumes it. Open at
-                            // most once per attempt.
-                            self.handedOffAttemptID = attemptID
-                        } else {
-                            // No browser launched, so nothing will call back.
-                            // End the attempt with a failure instead of parking
-                            // the awaited sign-in until the timeout, so callers
-                            // and the UI stop waiting and the user can retry.
-                            self.log.log("auth.browser.handoff.openFailed attempt=\(attemptID)")
-                            self.resumeActiveSessionContinuation(
-                                returning: .failed(reason: "browser_open_failed"),
-                                reason: "handoffOpenFailed",
-                                expectedAttemptID: attemptID
-                            )
-                        }
-                    }
+                    self.continueInDefaultBrowser(attemptID: attemptID, staleReason: "staleNonAuthCallback")
+                    return
+                }
+                // A default browser that cannot host the popup ends it at once,
+                // reported as the person cancelling (cx-13h6w): nobody could
+                // have acted that fast, so the sign-in goes on there instead.
+                if case .cancelled(reason: "canceled_login") = result, self.endedAtOnce(attemptID) {
+                    self.log.log("auth.browser.session.completion.instantCancel id=\(attemptID)")
+                    self.continueInDefaultBrowser(attemptID: attemptID, staleReason: "staleInstantCancel")
                     return
                 }
                 self.resumeActiveSessionContinuation(returning: result, reason: "sessionCompletion", expectedAttemptID: attemptID)
@@ -382,7 +368,58 @@ public final class HostBrowserSignInFlow {
                 return
             }
             activeSession = session
+            popupAge = (attemptID, Self.until(clock: clock, after: .seconds(instantCancelWindow)))
         }
+    }
+
+    /// Continues `attemptID` in the default browser: the popup ended without
+    /// signing in, so the same sign-in page opens there and the attempt waits
+    /// for its `<scheme>://auth-callback`. Opens at most once per attempt.
+    private func continueInDefaultBrowser(attemptID: UInt64, staleReason: String) {
+        guard activeAttemptID == attemptID, activeSessionContinuationAttemptID == attemptID else {
+            log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=\(staleReason) active=\(activeAttemptID.map(String.init) ?? "nil")")
+            return
+        }
+        if let state = activeCallbackState {
+            issueCallbackState(state)
+        }
+        cancelSlowSignInHint()
+        signInIsSlow = true
+        guard handedOffAttemptID != attemptID, let state = activeCallbackState else { return }
+        log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
+        if openExternalURL(attemptSignInURL(state)) {
+            // Browser launched: keep the attempt parked so the
+            // eventual cmux://auth-callback resumes it.
+            handedOffAttemptID = attemptID
+        } else {
+            // No browser launched, so nothing will call back.
+            // End the attempt with a failure instead of parking
+            // the awaited sign-in until the timeout, so callers
+            // and the UI stop waiting and the user can retry.
+            log.log("auth.browser.handoff.openFailed attempt=\(attemptID)")
+            resumeActiveSessionContinuation(
+                returning: .failed(reason: "browser_open_failed"),
+                reason: "handoffOpenFailed",
+                expectedAttemptID: attemptID
+            )
+        }
+    }
+
+    /// Whether `attemptID`'s popup ended within `instantCancelWindow` of starting.
+    private func endedAtOnce(_ attemptID: UInt64) -> Bool {
+        guard let popupAge, popupAge.attemptID == attemptID else { return false }
+        return popupAge.isFresh()
+    }
+
+    /// True until `window` has passed on `clock`.
+    private static func until(clock: any Clock<Duration>, after window: Duration) -> @Sendable () -> Bool {
+        fresh(clock: clock, for: window)
+    }
+
+    private static func fresh<C: Clock>(clock: C, for window: Duration) -> @Sendable () -> Bool
+        where C.Duration == Duration {
+        let deadline = clock.now.advanced(by: window)
+        return { clock.now < deadline }
     }
 
     private func finishAttempt(_ attemptID: UInt64) {
@@ -395,6 +432,7 @@ public final class HostBrowserSignInFlow {
         )
         cancelAttemptTimeout()
         cancelSlowSignInHint()
+        popupAge = nil
         activeAttemptID = nil
         activeAttemptTask = nil
         handedOffAttemptID = nil
@@ -414,6 +452,7 @@ public final class HostBrowserSignInFlow {
         )
         cancelAttemptTimeout()
         cancelSlowSignInHint()
+        popupAge = nil
         activeAttemptID = nil
         activeAttemptTask = nil
         handedOffAttemptID = nil

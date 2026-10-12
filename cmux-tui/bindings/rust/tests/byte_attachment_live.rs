@@ -4,6 +4,8 @@
 //! `cmux-tui-sdks.yml` live conformance job sets it. Without the variable the
 //! test reports the skip and passes, because the SDK package lanes do not
 //! build the daemon.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     AttachOptions, AttachTarget, AttachmentItem, ByteAttachment, ByteAttachmentReader, CellSize,

@@ -1,0 +1,10 @@
+{
+  "_doc": "Post-deploy smoke for scripts/cmux-next/release/worker-release.ts verify (backend.yml deploy jobs). Routes without sources run after every deploy; the others when a matching file under backend/apps/api changed.",
+  "routes": [
+    { "name": "health", "method": "GET", "path": "/v1/health", "expect": [200], "bodyIncludes": "\"ok\":true" },
+    { "name": "sso discover", "method": "GET", "path": "/v1/sso/discover?email=release-smoke%40example.com", "expect": [200], "sources": ["src/**sso*", "src/auth.ts"] },
+    { "name": "stack webhook refuses an unsigned delivery", "method": "POST", "path": "/v1/hooks/stack", "body": "{}", "expect": [401, 503], "sources": ["src/stack-webhook.ts", "src/team-stack-sync.ts"], "why": "503 until STACK_WEBHOOK_SECRET is set, then 401 for no signature; never 500" },
+    { "name": "model router lists models", "method": "GET", "path": "/v1/inference/models", "expect": [200], "bodyIncludes": "\"object\":\"list\"", "sources": ["src/inference/**"] },
+    { "name": "model router refuses an unsigned call", "method": "POST", "path": "/v1/inference/chat/completions", "body": "{}", "expect": [401, 503], "sources": ["src/inference/**"], "why": "503 where INFERENCE_ENABLED is off, else 401 without a token; never 500" }
+  ]
+}

@@ -670,7 +670,7 @@ do_rollback() {
 
 do_uninstall() {
   if [ -L "$data_dir/current" ] && [ -x "$data_dir/current/bin/cmux" ]; then
-    "$data_dir/current/bin/cmux" server stop --session server --end-terminals --force >/dev/null 2>&1 || true
+    "$data_dir/current/bin/cmux" daemon stop --session server --end-terminals --force >/dev/null 2>&1 || true
   fi
   # One unit per call: systemctl aborts the whole call when one unit is missing.
   for unit in cmux-server-inhibit.service cmux-postgres.service cmux-server.service; do

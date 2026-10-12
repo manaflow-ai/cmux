@@ -1,4 +1,5 @@
-//! Help for the scopes `browser`, `notification`, `room`, `closed` and `git`,
+//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git` and
+//! `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
 pub(super) const BROWSER_HELP: &str = "\
@@ -70,6 +71,8 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
+  cmux closed <closed> delete [--members <i,j,...>]
+  cmux closed clear [--since-ms <unix-ms>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
@@ -77,14 +80,18 @@ its pane at its old index, each screen in its workspace, each workspace as a
 new workspace. Without an id, reopen takes the newest group of the window, else
 the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
+delete and clear remove groups permanently (and their terminal archives; the
+journals keep what they recorded); clear --since-ms removes only the groups
+closed at or after that time.
 ";
 
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
-    [--max-files <n>] [<path>...]
+    [--max-files <n>] [--context-lines <n>] [<path>...]
   cmux git files [TARGET] [--limit <n>] <query>...
+  cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
     [--exclude <path,...>] [--reason manual|handoff|turn] [--max-bytes <n>]
     [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
@@ -93,7 +100,14 @@ USAGE
   cmux git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
-    [--max-patch-bytes <n>] [--max-files <n>]
+    [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+  cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
+    [--no-verify] [--expected-head <commit>] [<path>...]
+  cmux git push [TARGET] [--remote <name>] [--branch <name>]
+    [--set-upstream | --no-set-upstream] [--expected-head <commit>]
+  cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
+  cmux git worktree apply [TARGET]
+  cmux git worktree remove [TARGET] [--discard]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -109,11 +123,13 @@ SCOPES
   unstaged     The working tree against the index, with untracked files
   staged       The index against HEAD
   committed    HEAD against its first parent
-  branch       The working tree against the merge base with origin's default
-               branch (else main or master), with untracked files
+  branch       The working tree against the merge base with the base branch,
+               with untracked files
 
-status prints the branch, upstream, how far it is ahead and behind, and the
-base branch. diff prints each changed file's status and line counts; --patch
+status prints the branch, upstream, how far it is ahead and behind, the base
+branch (the one a worktree create recorded for the branch, else origin's
+default branch, else main or master), and in a linked worktree its main
+checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
@@ -123,6 +139,11 @@ characters in order (case-insensitive, spaces ignored), best first: tracked
 files and untracked files that are not ignored. At most --limit (50, up to
 200) are printed, relative to the folder searched.
 
+list (or ls) lists the immediate children of the target folder, as a file explorer
+shows them: folders first, then files, by name. A child is listed when git
+knows a file at or under it (tracked, or untracked and not ignored); a
+submodule is a folder. At most --limit (2000, up to 5000) are printed.
+
 checkpoint create stores the index, the tracked worktree files and the named
 untracked files (or every eligible one) under refs/cmux/checkpoints/ without
 changing HEAD, the index or the worktree. Ignored, credential-like and
@@ -131,6 +152,30 @@ the first result; get --key recovers it. Checkpoints expire after 7 days unless
 pinned; pins beginning handoff: or restore: belong to cmux. checkpoint diff
 lists what changed from one checkpoint to a later one, or to the working tree
 now when <to> is left out, in the shape of diff.
+
+commit and push run git as in your terminal, with your hooks, identity and
+credentials, but never prompt and stop after 120 s. commit commits the named
+paths, every tracked change with --all (and untracked files with
+--include-untracked), or else the index as it is. push pushes the branch's
+commit to the branch of the same name, never forced, and sets its upstream
+when it has none. --expected-head refuses when HEAD moved since you read it.
+
+worktree create makes a worktree for a chat at ~/.cmux/worktrees/<project>/<name>
+on a new branch cmux/<name> from --base (the current branch by default), and
+records the base as branch.cmux/<name>.cmuxBase. A taken name gets the next free
+suffix (-2, -3, ...); without --name it is chat-<random>. Your checkout is left
+as it is.
+
+worktree apply, run in such a worktree, brings everything it changed since its
+recorded base (commits, edits and new files; not submodules) to the main checkout
+as uncommitted changes. HEAD and the index stay; it is refused when the main
+checkout has changes of its own (or untracked files) at those paths, or when the
+work does not apply cleanly there.
+
+worktree remove, run in such a worktree, removes it (with its ignored files) and
+the cmux/<name> branch worktree create made. It is refused while the worktree has
+uncommitted changes or commits on no other branch or remote, unless --discard.
+The main checkout is never removed.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
@@ -150,3 +195,19 @@ pub(super) fn edit_distance(left: &str, right: &str) -> usize {
     }
     previous[right.len()]
 }
+
+pub(super) const CONVERSATION_HELP: &str = "\
+USAGE
+  cmux conversation list
+  cmux conversation <conv_id> get [--tail <0..500>]
+  cmux conversation <conv_id> history --before-seq <n> --limit <1..500>
+  cmux conversation search <words>... [--limit <1..100>]
+  cmux conversation <conv_id> send --text <text> | --parts-json <json>
+    [--reply-to <msg_id> [--reply-part <n>]]
+  cmux conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
+
+The conversations of this session that you take part in (Home and the Chief).
+send writes as you; Home shows it at once. events streams the conversation:
+a snapshot, then each commit, typing and the Chief's live reply drafts, one
+JSON line each with --jsonl. `cmux chief` is the chat on top of these.
+";

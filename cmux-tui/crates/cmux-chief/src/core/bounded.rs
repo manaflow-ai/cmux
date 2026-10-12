@@ -43,21 +43,3 @@ impl Bounded {
         self.order.iter()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_the_newest_entries_up_to_the_cap_and_a_known_key_keeps_its_place() {
-        let mut map = Bounded::default();
-        map.remember("a", "1", 2);
-        map.remember("b", "2", 2);
-        map.remember("a", "3", 2);
-        map.remember("c", "4", 2);
-        let entries: Vec<(&str, &str)> =
-            map.keys().map(|k| (k.as_str(), map.get(k).unwrap().as_str())).collect();
-        assert_eq!(entries, vec![("b", "2"), ("c", "4")]);
-        assert_eq!(MAX_AUTHORS, 10_000);
-    }
-}

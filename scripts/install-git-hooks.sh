@@ -69,8 +69,8 @@ printf -v TRUSTED_HOOKS_CONFIG 'git config core.hooksPath %q' "$TRUSTED_HOOK_DIR
 warn_manual_wiring() {
     local hooks_dir="$1"
     {
-        echo "To run cmux's tracked pre-commit checks (pbxproj normalization, test"
-        echo "registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
+        echo "To run cmux's tracked pre-commit checks (formatting, pbxproj normalization,"
+        echo "test registration) alongside your hooks, add this line to $hooks_dir/pre-commit"
         echo "(create it with a #!/bin/sh line and chmod +x if it does not exist):"
         echo ""
         echo "    $TRUSTED_PRE_COMMIT"
@@ -125,12 +125,18 @@ MERGE_DRIVER_DIR="$GIT_COMMON_DIR/cmux-merge-drivers"
 mkdir -p "$MERGE_DRIVER_DIR/ci"
 install -m 0755 scripts/merge-xcstrings.py "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 install -m 0755 scripts/merge-pbxproj.py "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+install -m 0755 scripts/merge-baseline.py "$MERGE_DRIVER_DIR/merge-baseline.py"
+install -m 0755 scripts/merge-daemon-capabilities.py "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 install -m 0644 scripts/ci/merge_main_resolver.py "$MERGE_DRIVER_DIR/ci/merge_main_resolver.py"
 install -m 0755 scripts/normalize-pbxproj.py "$MERGE_DRIVER_DIR/normalize-pbxproj.py"
 printf -v XCSTRINGS_DRIVER '%q -I %q %%O %%A %%B %%P %%L' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-xcstrings.py"
 printf -v PBXPROJ_DRIVER '%q -I %q %%O %%A %%B %%P' \
     "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-pbxproj.py"
+printf -v BASELINE_DRIVER '%q -I %q %%O %%A %%B %%P' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-baseline.py"
+printf -v CAPABILITIES_DRIVER '%q -I %q %%O %%A %%B %%P' \
+    "$PYTHON3_BIN" "$MERGE_DRIVER_DIR/merge-daemon-capabilities.py"
 git config merge.xcstrings-v2.name "Xcode string catalog (trusted key-wise three-way merge)"
 git config merge.xcstrings-v2.driver "$XCSTRINGS_DRIVER"
 # Neutralize the checkout-relative command installed by older setup versions.
@@ -144,6 +150,12 @@ git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
 git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
 git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."
+git config merge.cmux-baseline-v1.name "Ratchet baseline (trusted entry-wise three-way merge)"
+git config merge.cmux-baseline-v1.driver "$BASELINE_DRIVER"
+echo "==> ratchet baseline merge driver installed (merge.cmux-baseline-v1.driver)."
+git config merge.cmux-capabilities-v1.name "Daemon capability export (trusted per-list set merge)"
+git config merge.cmux-capabilities-v1.driver "$CAPABILITIES_DRIVER"
+echo "==> daemon capability merge driver installed (merge.cmux-capabilities-v1.driver)."
 # Generated web bundles keep the current branch's copy and are rebuilt by
 # scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
 # checkout path, so this driver needs no trusted copy.

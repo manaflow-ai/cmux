@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2, "version": "0.66", "channel": "beta", "date": "Oct 7",
+  "headline": {"en": "Too many sentences. Ends with a period."},
+  "extra": true,
+  "entries": [
+    {"id": "Bad_ID", "category": "feature", "title": {"en": "x"},
+     "summary": {"en": "One. Two. Three. Four."}, "tryIt": {"action": "a", "deeplink": "cmux://x"},
+     "docs": "http://insecure", "platforms": ["windows"], "audience": "everyone"},
+    {"id": "dup", "category": "fixed", "title": {"en": "y"}, "summary": {"en": "z"}, "docs": "https://cmux.com", "platforms": ["macos"], "audience": "all"},
+    {"id": "dup", "category": "fixed", "title": {"en": "y"}, "summary": {"en": "z"}, "docs": "https://cmux.com", "platforms": ["macos"], "audience": "all"}
+  ]
+}

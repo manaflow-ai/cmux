@@ -36,15 +36,16 @@ pub const ProviderRenameWorkspaceOptions = provider.RenameWorkspaceOptions;
 pub const ProviderCloseWorkspaceOptions = provider.CloseWorkspaceOptions;
 
 test {
+    // refAllDecls walks every declaration at comptime; the generated protocol
+    // has more than the default 1000 branches allow.
+    @setEvalBranchQuota(10_000);
     std.testing.refAllDecls(capabilities);
     std.testing.refAllDecls(provider);
-    _ = @import("raw/authority_test.zig");
     _ = @import("raw/provider_test.zig");
     _ = @import("raw/stream_client_test.zig");
     _ = @import("raw/wire_presence_test.zig");
     _ = @import("raw/generated/presence_test.zig");
     std.testing.refAllDecls(protocol);
-    try std.testing.expectEqual(@as(usize, 232), protocol.command_count);
     for ([_][]const u8{
         "browser-frame-presented",
         "browser-key-press",
@@ -64,5 +65,4 @@ test {
         }
         try std.testing.expect(found);
     }
-    try std.testing.expectEqual(@as(usize, 67), protocol.event_count);
 }

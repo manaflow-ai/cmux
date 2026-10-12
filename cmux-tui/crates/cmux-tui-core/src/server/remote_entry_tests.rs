@@ -77,11 +77,33 @@ fn connect(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
 
 /// A verified link: read the banner, then the caller sends the stamp.
 fn connect_as_link(entry: &Entry) -> (UnixStream, BufReader<UnixStream>) {
+    let started = Instant::now();
     let (stream, mut reader) = connect(entry);
     let mut banner = String::new();
-    reader.read_line(&mut banner).expect("the entry greets a verified link");
-    assert_eq!(banner.trim_end(), cmux_link::entry_path::ENTRY_BANNER);
+    let read = reader.read_line(&mut banner).unwrap_or_else(|error| {
+        panic!("the entry did not greet a verified link: {}", entry_state(entry, started, &error))
+    });
+    assert_eq!(
+        banner.trim_end(),
+        cmux_link::entry_path::ENTRY_BANNER,
+        "read {read} bytes; {}",
+        entry_state(entry, started, &"wrong banner"),
+    );
     (stream, reader)
+}
+
+/// The entry's side of a failed read, so a full-suite failure (a read that
+/// hit READ_HANG_GUARD, not reproduced in 120 loaded runs) names whether the
+/// connection was ever accepted.
+fn entry_state(entry: &Entry, started: Instant, error: &dyn std::fmt::Display) -> String {
+    let connections = entry.mux.connection_stats();
+    format!(
+        "{error} after {:?}; active connections {}, remote clients {:?}, socket exists {}",
+        started.elapsed(),
+        connections.active(),
+        remote_clients(&entry.mux),
+        entry.server.path().exists(),
+    )
 }
 
 fn send(stream: &mut UnixStream, line: &str) {
@@ -90,9 +112,12 @@ fn send(stream: &mut UnixStream, line: &str) {
 }
 
 fn response(reader: &mut BufReader<UnixStream>) -> Value {
+    let started = Instant::now();
     let mut line = String::new();
-    let read = reader.read_line(&mut line).expect("a response before the timeout");
-    assert!(read > 0, "the entry closed the connection");
+    let read = reader.read_line(&mut line).unwrap_or_else(|error| {
+        panic!("no response after {:?}: {error} (kind {:?})", started.elapsed(), error.kind())
+    });
+    assert!(read > 0, "the entry closed the connection after {:?}", started.elapsed());
     serde_json::from_str(&line).unwrap()
 }
 

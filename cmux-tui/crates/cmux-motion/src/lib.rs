@@ -14,7 +14,9 @@
 //! `advance(now, &policy())` once per frame and scheduling another frame
 //! only while it returns true. The process-wide settings (`speed`,
 //! `policy`, the env vars) are the default `settings` feature; without it the
-//! host builds a `MotionPolicy` itself. A `Spring` is a `SpringKind::Size`
+//! host builds a `MotionPolicy` itself. The system Reduce Motion setting is
+//! read on macOS, Linux and Windows (`system_reduce_motion`; on Linux and
+//! Windows a watcher thread keeps it current). A `Spring` is a `SpringKind::Size`
 //! (a move to 0 uses `disappear`) unless built with `Spring::position`
 //! (positions and offsets never switch token). The numbers in `spring.rs`
 //! are the only animation timing constants; change them together with
@@ -25,6 +27,9 @@ mod marquee;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
+// The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
+#[cfg(all(feature = "settings", not(target_os = "macos")))]
+mod system;
 
 pub use clock::*;
 pub use marquee::*;

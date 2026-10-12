@@ -77,7 +77,7 @@ public final class ScrollEdgeFadeView: NSView {
         let center = NotificationCenter.default
         for name in [NSView.boundsDidChangeNotification, NSView.frameDidChangeNotification] {
             observers.append(center.addObserver(forName: name, object: clip, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateFade() }
+                MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
             })
         }
         updateFade(animated: false)
@@ -86,8 +86,12 @@ public final class ScrollEdgeFadeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 
     public override func layout() {
@@ -166,7 +170,7 @@ public final class ScrollEdgeFadeView: NSView {
         observedDocument = document
         document.postsFrameChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFade() }
+            MainActor.assumeIsolated { self?.updateFade() } // main-proof: observer on queue: .main
         })
     }
 }

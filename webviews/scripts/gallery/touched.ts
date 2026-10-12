@@ -25,6 +25,7 @@ const EVERYTHING = [
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
+  /^\.github\/workflows\/gallery-pr\.yml$/,
 ];
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];

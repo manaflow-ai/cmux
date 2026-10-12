@@ -71,6 +71,14 @@ nonisolated enum UpdateSettingsSchema {
                 default: .number(Double(defaults.keepPreviousVersions)),
                 keywords: ["update", "rollback", "previous", "downgrade"]
             ),
+            SettingDescriptor(
+                UpdatesSettings.showWhatsNewPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.updates.showWhatsNew", "Show What's New After Updates"),
+                help: SettingsText.keyed("settings.updates.showWhatsNew.help",
+                                        "After an update, a What's New item shows at the top of the sidebar until you open it."),
+                kind: .toggle, default: .bool(defaults.showWhatsNew),
+                keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]
+            ),
         ]
     }
 

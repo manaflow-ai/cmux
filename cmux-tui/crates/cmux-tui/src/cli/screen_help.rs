@@ -14,7 +14,7 @@ USAGE
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> column <split_…> update [--dock <bool>]
-    [--edge left|right] [--mode docked|overlay] [--width <fraction>]
+    [--edge left|right|top|bottom] [--mode docked|overlay] [--width <fraction>]
   cmux screen <selector> pane ...
   cmux screen group list [--workspace <selector>]
   cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]
@@ -24,7 +24,7 @@ USAGE
   cmux screen group remove --screens <screen_…,...>
 
 Pinned screens sort first and leave their group. Group colors: grey, blue,
-red, yellow, green, pink, purple, cyan, orange.
+red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB.
 
 SELECTORS
   <selector> is an id (screen_…), current, or an exact name. Prefix name:

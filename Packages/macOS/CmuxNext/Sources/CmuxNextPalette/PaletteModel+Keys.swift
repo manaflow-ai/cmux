@@ -160,7 +160,7 @@ extension PaletteModel {
 
     func openActionsMenu() -> Bool {
         guard let item = selectedItem, item.isEnabled else { return false }
-        actionsMenu = PaletteActionsMenuState(itemID: item.id, itemTitle: item.title, commands: item.allCommands)
+        actionsMenu = PaletteActionsMenuState(itemID: item.id, itemTitle: item.title, commands: item.allCommands + PaletteRowControls.commands(for: item, model: self))
         return true
     }
 
@@ -170,6 +170,13 @@ extension PaletteModel {
         menu.selectedIndex = index
         actionsMenu = menu
         handle(.submit)
+    }
+
+    /// Points the Actions menu's selection at the row under the pointer (mouse).
+    public func hoverActionsMenuCommand(at index: Int) {
+        guard var menu = actionsMenu, menu.selectedIndex != index, menu.visibleCommands.indices.contains(index) else { return }
+        menu.selectedIndex = index
+        actionsMenu = menu
     }
 
     public func closeActionsMenu() {

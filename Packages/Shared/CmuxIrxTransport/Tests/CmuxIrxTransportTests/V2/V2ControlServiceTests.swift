@@ -474,6 +474,33 @@ private final class SleepRecorder: @unchecked Sendable {
         #expect(exits.contains("sleep-cancelled") || exits.contains("cancelled") || exits.contains("run-superseded"))
     }
 
+    /// Server timestamps are any Int on the wire. `refreshAfter - now` overflowed
+    /// (an app trap) for a ticket at Int.min; the journal now saturates.
+    @Test func ticketTimestampsAtIntegerBoundsAreJournaledWithoutTrapping() async throws {
+        let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-bounds-test")
+        let backend = V2TestBackend(now: now)
+        // The bogus ticket is due at once; a long sleep keeps renewal from spinning.
+        let service = try service(backend: backend, journal: journal, sleep: { _ in
+            try await Task.sleep(for: .seconds(3600))
+        })
+        await service.start()
+        _ = try await ready(service)
+        await backend.currentSocket().setReplacementTicket(
+            V2Ticket(expiresAt: .max, refreshAfter: .min, token: "bounds-ticket")
+        )
+        _ = try await service.refreshAPITicket()
+        var fields: [String: String]?
+        for _ in 0..<200 where fields == nil {
+            fields = events(journal, "refresh-succeeded")
+                .last { $0.attributes["expires_in_s"] == String(Int.max - now) }?
+                .attributes
+            if fields == nil { try await Task.sleep(for: .milliseconds(5)) }
+        }
+        #expect(fields?["schema"] == "ticket.request.v1")
+        #expect(fields?["refresh_after_in_s"] == String(Int.min))
+        await service.stop()
+    }
+
     @Test func serverCooldownsAreJournaledWithTheirSource() async throws {
         let journal = IrxJournal(subsystem: "com.cmux.test", category: "v2-journal-cooldown-test")
         let rateLimitedBackend = V2TestBackend(now: now)

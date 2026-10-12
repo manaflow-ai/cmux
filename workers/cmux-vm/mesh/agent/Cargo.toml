@@ -1,0 +1,38 @@
+# Standalone workspace: the mesh device agent builds on its own, with its own
+# lockfile and toolchain, and shares no workspace with cmux-tui.
+[workspace]
+
+[package]
+name = "cmux-mesh-agent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "cmux mesh device agent: enroll a device and test one userspace WireGuard tunnel"
+
+[[bin]]
+name = "cmux-mesh-agent"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+# Same versions and feature choices as cmux-tui/Cargo.toml (crates/cmux-wg).
+boringtun = { version = "0.7", default-features = false }
+clap = { version = "4", features = ["derive"] }
+getrandom = "0.3"
+# The install key: ECDSA P-256 with SHA-256 (RFC 6979 deterministic signatures).
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "socket-tcp", "socket-icmp"] }
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zeroize = "1"
+
+[profile.release]
+strip = true
+
+[dev-dependencies]
+# The loopback tests' stand-in VM answers ICMP echo; the agent itself does not.
+smoltcp = { version = "0.14", default-features = false, features = ["auto-icmp-echo-reply"] }

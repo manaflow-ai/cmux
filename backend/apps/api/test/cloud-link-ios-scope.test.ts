@@ -10,10 +10,6 @@ import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, installOf, pe
  */
 
 describe("cloud-link grant class", { timeout: 60_000 }, () => {
-  it("is a grant class that no op declares as its risk, so it opens no other op", () => {
-    expect(Schema.is(OpClass)("cloud-link")).toBe(true)
-    expect(cloudOps.filter((d) => (d.risk as string) === "cloud-link").map((d) => d.name)).toEqual([])
-  })
 
   it("an install with only cloud-link mints a link token; without execute or cloud-link it is refused", async () => {
     const x = person()

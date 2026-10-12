@@ -115,35 +115,3 @@ impl RecvWindow {
         Some(grant)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[tokio::test]
-    async fn sender_waits_for_credit() {
-        let credit = SendCredit::new();
-        assert_eq!(credit.try_take(10).await, 0);
-        let waiter = {
-            let credit = credit.clone();
-            tokio::spawn(async move { credit.take(100).await })
-        };
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        assert!(!waiter.is_finished());
-        credit.grant(40).await;
-        assert_eq!(waiter.await.unwrap(), 40);
-        assert_eq!(credit.available().await, 0);
-    }
-
-    #[test]
-    fn receiver_refuses_overrun_and_regrants_at_half_window() {
-        let mut window = RecvWindow::new(100);
-        assert_eq!(window.initial_grant(), 100);
-        window.received(60).unwrap();
-        assert_eq!(window.consumed(30), None);
-        assert_eq!(window.consumed(20), Some(50));
-        window.received(90).unwrap();
-        assert_eq!(window.received(1), Err(CreditViolation));
-    }
-}

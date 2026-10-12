@@ -126,7 +126,7 @@ public struct MobileTerminalClockOffsetEstimator: Sendable {
         }
         let offset = offsetNanos ?? sampleOffset
         let uplink = Int64(bitPattern: t2 &- t1) &- offset
-        let clampedUplink = UInt64(max(0, min(Int64(roundTrip), uplink)))
+        let clampedUplink = UInt64(clamping: min(Int64(clamping: roundTrip), uplink))
         return Split(
             roundTripNanos: roundTrip,
             uplinkNanos: clampedUplink,

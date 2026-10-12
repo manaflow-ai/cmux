@@ -19,6 +19,9 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public nonisolated enum Status: Hashable, Sendable {
         case connected
         case connecting
+        /// The link to the machine dropped (sleep, a network drop or
+        /// change) and redials on its own; its programs keep running.
+        case reconnecting
         case offline
         /// Connected, but the machine's cmux-tui lacks features this app
         /// uses; they stay off until the machine is updated.
@@ -34,6 +37,19 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case authFailed
         /// The network cannot reach the machine; retried on network change.
         case unreachable
+        /// The machine answers, but its cmux-tui did not start (or the
+        /// remote command failed); the detail carries its error.
+        case failed
+
+        /// The machine cannot connect until the person acts (sign-in,
+        /// network, install or update). In one list its workspaces' second
+        /// line names the status (cx-mdo0); no header or status row shows.
+        public var needsAttention: Bool {
+            switch self {
+            case .authFailed, .unreachable, .installRequired, .updateRequired, .failed: true
+            case .connected, .connecting, .reconnecting, .offline, .updateAvailable, .installing: false
+            }
+        }
     }
 
     public var id: MachineID

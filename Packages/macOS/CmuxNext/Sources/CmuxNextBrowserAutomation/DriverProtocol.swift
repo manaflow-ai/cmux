@@ -37,6 +37,8 @@ public nonisolated struct DriverError: Error, Hashable, Sendable {
         case unsupported
         case invalid
         case closed
+        /// Refused by a rule (a full cookie backup store).
+        case forbidden
         /// A page exception thrown by evaluated code.
         case evaluation
     }

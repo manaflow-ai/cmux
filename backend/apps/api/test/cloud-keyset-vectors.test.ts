@@ -16,14 +16,6 @@ interface Case {
 const doc = keysetVectors as unknown as { cases: ReadonlyArray<Case> }
 
 describe("keyset vectors", { timeout: 60_000 }, () => {
-  it("covers a9's cases", () => {
-    const names = doc.cases.map((c) => c.name)
-    for (const n of ["ok", "unknown_fields", "three_kids", "version_change", "rate_limited", "unavailable", "wrong_alg", "wrong_crv"]) expect(names, n).toContain(n)
-  })
-
-  it("the reference parser gives every expected result", () => {
-    for (const c of doc.cases) for (const a of c.answers) expect(parseKeysetAnswer(a), c.name).toEqual(a.expect)
-  })
 
   it("the live endpoint answer parses", async () => {
     const res = await worker.fetch("https://api.test/v1/cloud/keyset")

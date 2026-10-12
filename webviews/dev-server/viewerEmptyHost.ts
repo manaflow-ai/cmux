@@ -1,5 +1,4 @@
-// Pure pieces of the dev host for the viewer empty states (plugins.ts), split out so
-// test/viewer-empty-dev-server.test.ts can cover them: the recent repositories and markdown files
+// Pure pieces of the dev host for the viewer empty states (plugins.ts): the recent repositories and markdown files
 // (a small JSON file in the slot's state folder) and the fallback picker's folder listing, which
 // lists only inside the allowed roots (the user's home in dev). Dev server only; nothing ships.
 import { execFileSync } from "node:child_process";

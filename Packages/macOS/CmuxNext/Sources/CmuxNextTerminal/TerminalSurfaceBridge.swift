@@ -16,9 +16,18 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// The font scale after each font size change (nil: the configured
     /// size), `TerminalFontScale.observe`.
     @MainActor var onFontScaleChange: ((Double?) -> Void)?
+    /// The last font scale Ghostty reported, nil at the configured size.
+    @MainActor var fontScale: Double?
+
+    /// The cached answers to Ghostty's link filter (cx-do47.1).
+    let linkFilter = TerminalLinkFilter()
 
     init(input: TerminalInputSink) {
         self.input = input
+        // An answer that changed shows at once: the pointer goes to Ghostty again.
+        linkFilter.onChange { [weak self] in
+            MainDelivery().run { self?.sendPointerAgain() }
+        }
     }
 
     static func from(_ raw: UnsafeMutableRawPointer?) -> SurfaceBridge? {

@@ -17,6 +17,7 @@ impl Mux {
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
+        let cwd = self.new_terminal_cwd(cwd, None, Some(workspace));
         let reservation = self.effect_terminal_reservation(
             intent,
             &workspace_key,

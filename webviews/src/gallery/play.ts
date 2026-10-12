@@ -8,7 +8,8 @@
 //     frames over 16.7 ms are reported, and a frame over 33 ms fails ONLY from Long Animation
 //     Frames data. rAF timing (headless WebKit on a CPU-only VM: software rendering) measures the
 //     machine, not the page, so it only warns (coordinator 2026-10-07); real WebKit frame timing
-//     comes from the native app on a fleet Mac.
+//     comes from the native app on a fleet Mac. An entry's settle budget (settleMaxMs) gates the
+//     same way: settling waits on frames, so a rAF-timed step over its budget only warns.
 // An entry may loosen a threshold only with a written `reason` (format.ts `checks`).
 //
 // Targets resolve on the real DOM: by role and accessible name, by test id, by text, or by a CSS
@@ -21,12 +22,20 @@ export type PlayTarget =
   | { role: string; name?: string | RegExp }
   | { testId: string }
   | { text: string | RegExp }
-  | { selector: string };
+  | { selector: string }
+  /** A CSS selector matched in the document and in every open shadow root (a web component's rows). */
+  | { deep: string };
 
 export type PlayContext = {
   click(target: PlayTarget): Promise<void>;
+  /** Opens a point-anchored context menu with a trusted right-click in the matrix runner. */
+  contextMenu(target: PlayTarget): Promise<void>;
   hover(target: PlayTarget): Promise<void>;
   focus(target: PlayTarget): Promise<void>;
+  /** Moves a scroll container to an absolute offset or one of its edges. */
+  scroll(target: PlayTarget, position: number | "top" | "bottom"): Promise<void>;
+  /** Selects the rendered text inside a real component, as a user drag would. */
+  selectText(target: PlayTarget): Promise<void>;
   /** Types into the focused element (or `target`, focused first). */
   type(text: string, target?: PlayTarget): Promise<void>;
   /** One key: `Enter`, `Escape`, `ArrowDown`, `Meta+k`. */
@@ -51,7 +60,34 @@ export type PlayChecks = {
   anchorMovePx?: { value: number; reason: string };
   longFrameFailMs?: { value: number; reason: string };
   layoutShiftMax?: { value: number; reason: string };
+  /** Maximum action-to-settled wall time for each measured play step. */
+  settleMaxMs?: { value: number; reason: string };
+  /**
+   * Popup layer problems (judgePopups) warn by default while the matrix baseline is unknown;
+   * `true` makes them fail (a UI-tournament round's screening sets it), `false` turns them off.
+   */
+  popupLayer?: { value: boolean; reason: string };
 };
+
+/** One open popup as the stage measured it (playRunner.ts). */
+export type PopupMeasure = {
+  label: string;
+  rect: Rect;
+  hits: { point: string; covered: boolean; by?: string }[];
+  clippedBy: string[];
+};
+
+/** The interactions whose action-to-settled latency is useful in a gallery report. */
+export type PlayAction =
+  | "click"
+  | "context-menu"
+  | "key"
+  | "press-drag"
+  | "hover"
+  | "focus"
+  | "type"
+  | "scroll"
+  | "select";
 
 export const DEFAULT_CHECKS = {
   anchorMovePx: 0,
@@ -64,6 +100,10 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type Shift = { value: number; sources: string[] };
 export type StepReport = {
   step: string;
+  /** The interaction that produced this step. Pointer down, move and up share press-drag. */
+  action: PlayAction;
+  /** Wall time from dispatching the action until the page settles. */
+  settleMs: number;
   anchorMoves: { anchor: string; before: Rect | null; after: Rect | null; delta: number }[];
   layoutShift: number;
   shifts: Shift[];
@@ -72,10 +112,44 @@ export type StepReport = {
   frameSource: "long-animation-frame" | "raf";
   status: "pass" | "warn" | "fail";
   problems: string[];
+  /** Popup layer problems (judgePopups); absent where the stage measured none. */
+  popupProblems?: string[];
 };
 export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: StepReport[]; error?: string };
 
 // ---- Pure rules (unit tested) ----
+
+/** Pixels a popup may overhang the viewport (subpixel rounding). */
+const VIEWPORT_SLACK = 1;
+
+/**
+ * The problems of the open popups after a step: a popup must be the top element at its sampled
+ * points (else a z-index or a missing portal hides part of it) and neither an ancestor's overflow
+ * nor the viewport may clip it (webviews/src/ui/README.md, "Layers and transparency").
+ */
+export function judgePopups(popups: PopupMeasure[], viewport: { width: number; height: number }): string[] {
+  const problems: string[] = [];
+  for (const popup of popups) {
+    for (const hit of popup.hits)
+      if (hit.covered)
+        problems.push(
+          `popup ${popup.label} is covered at ${hit.point} by ${hit.by ?? "another element"} (z-index or portal)`,
+        );
+    for (const clip of popup.clippedBy)
+      problems.push(`popup ${popup.label} is clipped by ${clip} (render it in the portal)`);
+    const { x, y, width, height } = popup.rect;
+    if (
+      x < -VIEWPORT_SLACK ||
+      y < -VIEWPORT_SLACK ||
+      x + width > viewport.width + VIEWPORT_SLACK ||
+      y + height > viewport.height + VIEWPORT_SLACK
+    )
+      problems.push(
+        `popup ${popup.label} runs past the viewport (${Math.round(x)},${Math.round(y)} ${Math.round(width)}x${Math.round(height)})`,
+      );
+  }
+  return problems;
+}
 
 export function rectDelta(before: Rect | null, after: Rect | null): number {
   if (!before || !after) return before === after ? 0 : Number.POSITIVE_INFINITY;
@@ -96,6 +170,7 @@ export function judgeStep(
   const movePx = checks.anchorMovePx?.value ?? DEFAULT_CHECKS.anchorMovePx;
   const failMs = checks.longFrameFailMs?.value ?? DEFAULT_CHECKS.longFrameFailMs;
   const shiftMax = checks.layoutShiftMax?.value ?? DEFAULT_CHECKS.layoutShiftMax;
+  const settleMax = checks.settleMaxMs?.value;
   for (const move of measured.anchorMoves)
     if (move.delta > movePx) problems.push(`anchor ${move.anchor} moved ${move.delta.toFixed(1)} px (limit ${movePx})`);
   const failing = measured.longFrames.filter((ms) => ms > failMs);
@@ -104,8 +179,22 @@ export function judgeStep(
     problems.push(`${failing.length} frame(s) over ${failMs} ms (longest ${Math.max(...failing).toFixed(1)} ms)`);
   if (measured.layoutShift > shiftMax)
     problems.push(`layout shift ${measured.layoutShift.toFixed(4)} (limit ${shiftMax})`);
-  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs);
-  return { status: problems.length ? "fail" : warn ? "warn" : "pass", problems };
+  // Settling waits on frames, so where rAF times them (a software renderer) its latency measures
+  // the machine as the frame timing does: over the budget it warns there, with the number.
+  const warnings: string[] = [];
+  if (settleMax !== undefined && measured.settleMs > settleMax) {
+    const latency = `settle latency ${measured.settleMs.toFixed(1)} ms (limit ${settleMax} ms`;
+    if (measured.frameSource === "long-animation-frame") problems.push(`${latency})`);
+    else warnings.push(`${latency}; rAF timing, not a gate)`);
+  }
+  const popupProblems = checks.popupLayer?.value === false ? [] : (measured.popupProblems ?? []);
+  if (checks.popupLayer?.value === true) problems.push(...popupProblems);
+  else warnings.push(...popupProblems);
+  const warn = measured.longFrames.some((ms) => ms > DEFAULT_CHECKS.longFrameReportMs) || warnings.length > 0;
+  return {
+    status: problems.length ? "fail" : warn ? "warn" : "pass",
+    problems: problems.length ? problems : warnings,
+  };
 }
 
 /** Every loosened check names its reason (an entry file states why). */
@@ -177,11 +266,24 @@ export function describeTarget(target: PlayTarget): string {
   if ("role" in target) return `${target.role}${target.name === undefined ? "" : ` "${String(target.name)}"`}`;
   if ("testId" in target) return `[data-testid=${target.testId}]`;
   if ("text" in target) return `text "${String(target.text)}"`;
+  if ("deep" in target) return `deep ${target.deep}`;
   return target.selector;
+}
+
+/** The first match of `selector` in `root` or in any open shadow root under it, in document order. */
+export function deepQuery(root: Document | Element | ShadowRoot, selector: string): Element | null {
+  const direct = root.querySelector(selector);
+  if (direct) return direct;
+  for (const element of root.querySelectorAll("*")) {
+    const found = element.shadowRoot ? deepQuery(element.shadowRoot, selector) : null;
+    if (found) return found;
+  }
+  return null;
 }
 
 export function resolveTarget(root: Document | Element, target: PlayTarget): Element | null {
   if ("selector" in target) return root.querySelector(target.selector);
+  if ("deep" in target) return deepQuery(root, target.deep);
   if ("testId" in target) return root.querySelector(`[data-testid="${CSS.escape(target.testId)}"]`);
   const all = [...root.querySelectorAll("*")];
   if ("text" in target) {

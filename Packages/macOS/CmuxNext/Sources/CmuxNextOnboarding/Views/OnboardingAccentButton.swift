@@ -1,8 +1,9 @@
 import AppKit
 import CmuxNextDesign
 
-/// The import action's filled button. It keeps the primary action legible on
-/// the glass surface without the capsule shape used by system glass buttons.
+/// Onboarding's filled primary button (Continue, Done, Import). It keeps the
+/// primary action legible on the glass surface without the capsule shape used
+/// by system glass buttons, in the theme's own colors.
 final class OnboardingAccentButton: NSButton {
     init(title: String, target: AnyObject?, action: Selector) {
         super.init(frame: .zero)
@@ -40,12 +41,13 @@ final class OnboardingAccentButton: NSButton {
 
     private func applyAppearance() {
         performWithTheme {
-            // `highlightText` is derived with ThemeTokens.minimumTextContrast
-            // (4.5:1), so the action fill stays readable in every theme.
-            layer?.backgroundColor = Palette.highlight.cgColor
+            // The theme's own foreground as the fill and its background as
+            // the text: never a blue. `Palette.highlight` is the theme's ANSI
+            // blue, which is blue in most themes (lead rule: no blue).
+            layer?.backgroundColor = Palette.textPrimary.cgColor
             attributedTitle = NSAttributedString(string: title, attributes: [
                 .font: OnboardingMetrics.bodyFont,
-                .foregroundColor: Palette.highlightText,
+                .foregroundColor: Palette.textOnPrimary,
             ])
         }
     }

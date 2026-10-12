@@ -815,6 +815,18 @@ jobs:
           if cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh --optional)" && [[ -n "$cef_dir" ]]; then
             echo "Chromium engine readable at $cef_dir; admission embeds it"
             echo "CMUX_NEXT_SKIP_CEF=0" >> "$GITHUB_ENV"
+            # The Embed remote browser host phase fails a DEV build whose pinned
+            # host is unavailable. Fetch it here with the same key; without it the
+            # admission build opts out explicitly (logged, and recorded in About).
+            if [[ ! -x scripts/cmux-next/ensure-remote-browser-host.sh ]]; then
+              :
+            elif host="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-remote-browser-host.sh)" && [[ -n "$host" ]]; then
+              echo "remote browser host readable at $host; admission embeds it"
+              echo "CMUX_NEXT_SKIP_RB_HOST=0" >> "$GITHUB_ENV"
+            else
+              echo "::warning title=No remote browser host::the pinned remote browser host was not readable; admission builds with CMUX_NEXT_SKIP_RB_HOST=1"
+              echo "CMUX_NEXT_SKIP_RB_HOST=1" >> "$GITHUB_ENV"
+            fi
           else
             echo "Chromium engine artifact not readable here; admission builds without it"
             echo "CMUX_NEXT_SKIP_CEF=1" >> "$GITHUB_ENV"
@@ -2291,9 +2303,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The cmux-tui a release ships: the commit scripts/cmux-next/cmux-tui.pin
-          # names, as release.yml installs it. (Nightly and tagged builds bundle
-          # the cmux-tui of their own tree, scripts/cmux-next/pin-cmux-tui.sh.)
+          # The hand-pinned cmux-tui (scripts/cmux-next/cmux-tui.pin). A release
+          # no longer ships it: release.yml installs its own commit's tree
+          # (pin-cmux-tui.sh resolve-exact, cx-urd.9.1), as nightly and tagged
+          # builds do. This check still validates the bundle with the pin until
+          # it resolves the tree of the commit under test (follow-up bead).
           commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           manifest_url="https://files.cmux.com/cmux-tui/$commit/manifest.json"

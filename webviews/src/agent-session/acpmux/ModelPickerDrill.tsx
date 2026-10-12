@@ -54,7 +54,7 @@ export function ModelPickerDrill(props: ModelMenuProps) {
   ];
   const harnessRows: MenuNode[] =
     data.harnesses.length > 1
-      ? data.harnesses.map((harness) => harnessNode(harness, props, t, t("picker.harness")))
+      ? [...data.harnesses].reverse().map((harness) => harnessNode(harness, props, t, t("picker.harness")))
       : [];
   const browse: MenuNode[] = [...harnessRows, ...build.upperLayer()];
   // The breadcrumb follows the rows opened under the harness; a query filters what they hold.

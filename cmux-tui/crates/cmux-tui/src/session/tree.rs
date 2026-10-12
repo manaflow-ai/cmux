@@ -801,7 +801,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .unwrap_or_default()
                                 .to_string(),
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
-                                Some("browser") => SurfaceKind::Browser,
+                                Some("browser" | "remote-terminal") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
                             },
                             browser_source: match tab.get("browser_source").and_then(|v| v.as_str())

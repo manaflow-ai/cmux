@@ -14,6 +14,7 @@ pub(crate) const CLOSE_REASON_CAPABILITY: &str = "close-reason-v1";
 
 pub(super) fn run(
     mux: &Mux,
+    client: u64,
     surfaces: &[TabRef],
     end_terminals: bool,
     transaction: Option<String>,
@@ -21,7 +22,7 @@ pub(super) fn run(
     mutation: &MutationRequest,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
-    let workspace_mutation = workspace_mutation(mutation)?;
+    let workspace_mutation = workspace_mutation(mux, client, mutation)?;
     anyhow::ensure!(
         mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),
         "close-tabs does not take expected_generation or expected_revision"

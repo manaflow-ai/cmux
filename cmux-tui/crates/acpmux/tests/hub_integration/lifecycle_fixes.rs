@@ -299,6 +299,7 @@ async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
 /// rename does not either (the child holds the same inode). A short-lived
 /// `sh` opens, writes, and closes the file in its own process, so no fork of
 /// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+#[cfg(unix)]
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
@@ -311,4 +312,208 @@ fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]
         .unwrap();
     child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
     assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+}
+
+/// LAUNCH-NO-TCC-PROMPTS: a model probe starts an agent and opens a session
+/// in its folder, so it never runs in the home folder or `/` (an agent
+/// there reads Downloads, Documents and Desktop at once and macOS asks the
+/// user in the app's name). It runs in acpmux's own probe folder.
+#[tokio::test]
+async fn a_model_probe_runs_its_agent_outside_the_home_folder() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-probe-cwd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let report = dir.join("probe-cwd.txt");
+    let argv = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        format!("/bin/pwd -P > '{}'; exec python3 '{fake}'", report.display()),
+    ];
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv,
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let mut cwd = String::new();
+    while cwd.is_empty() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        cwd = std::fs::read_to_string(&report).unwrap_or_default().trim().to_owned();
+    }
+    assert!(!cwd.is_empty(), "the model probe never ran");
+    let home = dirs::home_dir().and_then(|h| std::fs::canonicalize(h).ok()).unwrap();
+    assert_ne!(std::path::Path::new(&cwd), home.as_path(), "probe ran in the home folder");
+    assert_ne!(cwd, "/", "probe ran in the root folder");
+    assert_eq!(
+        acpmux::protected_folders::unasked_refusal(std::path::Path::new(&cwd)),
+        None,
+        "probe ran in a guarded folder: {cwd}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A client that uses a few harnesses (the Chief: `ACPMUX_PROBE_HARNESSES`)
+/// gets model probes for those only: a Claude-only Chief never starts
+/// codex-acp at daemon start.
+#[tokio::test]
+async fn the_model_probes_start_only_the_listed_harnesses() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-probe-only-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let report = |name: &str| dir.join(format!("{name}.started"));
+    let profile = |name: &str| HarnessProfile {
+        kind: Default::default(),
+        argv: vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            format!("touch '{}'; exec python3 '{fake}'", report(name).display()),
+        ],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let agents = BTreeMap::from([
+        ("used".to_owned(), profile("used")),
+        ("unused".to_owned(), profile("unused")),
+    ]);
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("used".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_probe_only(Some(["used".to_owned()].into()));
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !report("used").exists() && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(report("used").exists(), "the listed harness was never probed");
+    // Both probes start at once: a moment more for one that should not.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!report("unused").exists(), "a harness outside the list was started");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An engine change to a harness outside the start-time list (a Claude-only
+/// Chief set to codex) still gets that harness's model list: the client asks
+/// for it (`_acpmux/models {"probe": [...]}`), and the probe runs then.
+#[tokio::test]
+async fn a_harness_allowed_later_is_probed_and_its_models_listed() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let dir = std::env::temp_dir().join(format!("acpmux-probe-later-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let started = dir.join("later.started");
+    let profile = |marker: Option<&std::path::Path>| HarnessProfile {
+        kind: Default::default(),
+        argv: match marker {
+            Some(m) => vec![
+                "/bin/sh".to_owned(),
+                "-c".to_owned(),
+                format!("touch '{}'; exec python3 '{fake}'", m.display()),
+            ],
+            None => vec!["python3".to_owned(), fake.to_owned()],
+        },
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let agents = BTreeMap::from([
+        ("claude-only".to_owned(), profile(None)),
+        ("later".to_owned(), profile(Some(&started))),
+    ]);
+    let mut cfg = Config {
+        harnesses: agents,
+        default_harness: Some("claude-only".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.set_probe_only(Some(["claude-only".to_owned()].into()));
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let listed = |catalog: &serde_json::Value| {
+        catalog["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|h| h["harness"] == "later" && h["models"].to_string().contains("m2"))
+    };
+    // Outside the start-time list: never started.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(!started.exists(), "a harness outside the list was started at daemon start");
+    hub.allow_probes(["later".to_owned()].into()).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let mut catalog = hub.models_catalog().await;
+    while !listed(&catalog) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        catalog = hub.models_catalog().await;
+    }
+    assert!(started.exists(), "the later harness was never probed");
+    assert!(listed(&catalog), "the later harness has no probed model list: {catalog}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// cx-m5up: an agent that stays alive but never answers its start fails
+/// the request with a typed deadline instead of holding the session's spawn
+/// lock (and every later request of the session) forever, and the same
+/// session starts normally once the agent answers.
+#[tokio::test]
+async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
+    let gate = std::env::temp_dir().join(format!("acpmux-start-gate-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&gate, b"").unwrap();
+    let env = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.agent_start_timeout_ms = Some(1_500);
+    let created = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "gated"}}}),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    // Stop the agent; the next prompt starts a fresh one that never reads.
+    c.request(method::MUX_KILL, json!({"sessionId": id})).await.unwrap();
+    std::fs::remove_file(&gate).unwrap();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]});
+    let refused = c
+        .request(method::SESSION_PROMPT, prompt.clone())
+        .await
+        .expect_err("a prompt whose agent never started succeeded");
+    assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // The agent answers from now on: the same session prompts normally.
+    std::fs::write(&gate, b"").unwrap();
+    let answered = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    assert!(answered["stopReason"].is_string(), "{answered}");
+    let _ = std::fs::remove_file(&gate);
 }

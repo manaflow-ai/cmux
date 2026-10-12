@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a. */
+/* cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd. */
 
 
 import type * as T from "./types.js";
@@ -18,6 +18,25 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
+  /** What the agent is doing now; null clears the surface's presence and every other field is then null. */
+  "activity": (T.AgentPresenceActivity) | null;
+  /** Adapter identity (claude, codex, ...). */
+  "agent": (string) | null;
+  /** The 1-based line the tool call targets, when the tool input names one. */
+  "line": (bigint) | null;
+  /** The file the tool call targets, when the tool input names one. */
+  "path": (string) | null;
+  /** The agent's portable session id, a stable identity for colour. */
+  "session": (string) | null;
+  "surface": T.Id;
+  /** The native tool name of the current or last tool call. */
+  "tool": (string) | null;
+  /** When the hook observed the event; null on clear. */
+  "updated_at_ms": (bigint) | null;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -104,6 +123,20 @@ export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxResyncedEvent = { event: "cloud-mux-resynced" } & {
+  "account"?: string;
+  "pending": (T.JsonValue) | null;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudMuxWakeEvent = { event: "cloud-mux-wake" } & {
+  "account"?: string;
+  "seq": bigint;
+  "wakes": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
   "expires_at"?: (bigint) | null;
   "reason": string;
@@ -142,6 +175,13 @@ export type ConversationChangedEvent = { event: "conversation-changed" } & {
   "conversation": string;
   "rev": bigint;
   "transaction": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  "conversation": string;
+  "item": T.JsonValue;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -199,6 +239,12 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
   "summary"?: string;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type HistoryChangedEvent = { event: "history-changed" } & {
+  "kinds": Array<string>;
+  "revision": bigint;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
@@ -212,8 +258,10 @@ export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
 export type NotificationEvent = { event: "notification" } & {
   "body": string;
+  "desktop"?: boolean;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "reply"?: boolean;
   "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
@@ -345,6 +393,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type SettingsChangedEvent = { event: "settings-changed" } & {
+  "keys": Array<string>;
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
@@ -557,6 +612,7 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -567,11 +623,14 @@ export type KnownCmuxEvent =
   | CloudConversationResyncedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
   | CloudSessionNeededEvent
   | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -579,6 +638,7 @@ export type KnownCmuxEvent =
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -597,6 +657,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -629,6 +690,7 @@ export type SerializedButNotEmittedEvent =
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ClientAttachedEvent
@@ -638,14 +700,18 @@ export type KnownSubscribeEvent =
   | CloudConversationResyncedEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
+  | CloudMuxResyncedEvent
+  | CloudMuxWakeEvent
   | CloudSessionNeededEvent
   | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -660,6 +726,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent

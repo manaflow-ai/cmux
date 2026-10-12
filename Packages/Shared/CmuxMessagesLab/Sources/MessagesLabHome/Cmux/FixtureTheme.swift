@@ -19,7 +19,8 @@ struct FixtureTheme: Equatable {
         let secondaryText: NSColor
         /// (2x px window y, colour), over the gradient's 1041 pt.
         let gradientStops: [(CGFloat, NSColor)]
-        let outgoingGradient: CGGradient
+        /// nil when Core Graphics refuses the stops (bubbles then draw no gradient).
+        let outgoingGradient: CGGradient?
         /// A light theme (background luminance above one half). MessagesLab
         /// measured a dark window only: on a dark theme the field and typing
         /// colours below keep its measured values; a light theme takes the
@@ -48,7 +49,7 @@ struct FixtureTheme: Equatable {
             gradientStops = stops.map { (span * $0.location, c($0.color)) }
             outgoingGradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
                                           colors: stops.map { $0.color.cgColor } as CFArray,
-                                          locations: stops.map(\.location))!
+                                          locations: stops.map(\.location))
             let bg = p.background
             let light = 0.2126 * bg.red + 0.7152 * bg.green + 0.0722 * bg.blue > 0.5
             isLight = light

@@ -1,0 +1,313 @@
+public import Foundation
+import CmuxNextCompat
+import os
+
+/// The wire of a chat whose acpmux runs on another machine: it answers the page's acpmux
+/// JSON-RPC (already checked by ``AgentPaneTransport``) with typed calls on the owning session
+/// daemon (``AgentSessionRemoteClient``), and turns the daemon's pushes back into acpmux
+/// notifications, so the page's own connect, replay and reconnect logic runs unchanged.
+///
+/// Only the chat's own session is served: `initialize`, `_acpmux/status`, `_acpmux/watch` (that
+/// one session), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
+/// blocks only), `session/cancel` and `_acpmux/permission_respond`. Every other method, and any
+/// frame that names another session, is answered `remote.unsupported`: nothing on the other
+/// machine changes a mode, reads a folder or spawns a process from here.
+///
+/// A new chat's wire (``init(start:)``) has no session yet: its page's first `session/new` (the
+/// first send, cx-k21v) starts the chat on that machine through the host's start
+/// (`agent-session-start`, policy `ask`) once, and the wire then serves that one session. No
+/// session exists on the other machine before that send.
+public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
+    /// JSON-RPC `code` and `data.code` of a refused method.
+    public static let unsupportedCode = -32601
+    public static let unsupported = "remote.unsupported"
+
+    /// Starts a new chat on the other machine in `cwd` with `harness` (the page's `session/new`
+    /// values; nil leaves the host's own choice) and answers its attachment and session.
+    public typealias Start = @Sendable (_ cwd: String?, _ harness: String?) async throws
+        -> (client: any AgentSessionRemoteClient, session: String)
+
+    private struct State {
+        var onFrame: (@Sendable (String) -> Void)?
+        var onClose: (@Sendable (Int, String) -> Void)?
+        var closed = false
+        /// acpmux's id of the session (an attach page names it; the tab may hold a name).
+        var resolved: String?
+        /// The session's daemon attachment; nil until a new chat's start answered.
+        var client: (any AgentSessionRemoteClient)?
+        /// The session the tab shows (its store record, or the one this wire started).
+        var session: String?
+        /// A `session/new` is starting the chat (one at a time).
+        var starting = false
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
+    private let start: Start?
+    private let state: Mutex<State>
+
+    /// The wire of the chat `session` (its store record), through `client`.
+    public init(client: any AgentSessionRemoteClient, session: String) {
+        start = nil
+        state = Mutex(State(client: client, session: session))
+    }
+
+    /// The wire of a new chat that has no session yet: the page's first `session/new` runs `start`.
+    public init(start: @escaping Start) {
+        self.start = start
+        state = Mutex(State())
+    }
+
+    public func open(onFrame: @escaping @Sendable (String) -> Void,
+                     onClose: @escaping @Sendable (Int, String) -> Void) async throws {
+        state.withLock { state in
+            state.onFrame = onFrame
+            state.onClose = onClose
+        }
+    }
+
+    public func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void) {
+        guard !state.withLock({ $0.closed }),
+              let frame = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let method = frame["method"] as? String else { return completion(false) }
+        completion(true)
+        let id = frame["id"].flatMap(Self.idText)
+        let params = frame["params"] as? [String: Any] ?? [:]
+        switch method {
+        case "initialize":
+            reply(id, ["protocolVersion": 1, "agentCapabilities": [String: Any](),
+                       "_meta": ["acpmux": ["origin": "remote", "extensions": [String]()]]])
+        case "_acpmux/status":
+            reply(id, ["peers": [Any]()])
+        case "session/new":
+            startChat(id, params)
+        case "session/cancel":
+            run(id) { client in try await client.cancel(); return Data("{}".utf8) }
+        case "_acpmux/detach":
+            run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/watch" where state.withLock({ $0.client == nil }):
+            // A new chat before its first send: no session on that machine yet.
+            reply(id, ["sessions": [Any]()])
+        case "_acpmux/watch", "_acpmux/attach", "_acpmux/events":
+            guard method == "_acpmux/watch" || names(params["sessionId"]) else { return refuse(id, method) }
+            let page = Self.page(params, method: method)
+            run(id) { [weak self] client in
+                guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
+                return try await self.page(method, page, client: client)
+            }
+        case "session/prompt":
+            guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
+            let prompt = ((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["promptId"] as? String
+                ?? UUID().uuidString.lowercased()
+            let session = state.withLock { $0.session } ?? ""
+            run(id) { [weak self] client in
+                let accepted = try await client.prompt(id: prompt, text: text)
+                let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
+                let turn = object["turn_id"] ?? NSNull()
+                self?.notify("_acpmux/prompt_accepted", ["sessionId": session, "promptId": prompt, "turnId": turn,
+                                                         "queued": object["queued"] ?? false])
+                return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
+            }
+        case "_acpmux/permission_respond":
+            guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
+                  let option = params["optionId"] as? String else { return refuse(id, method) }
+            // The decision proof the host added (never the page): acpmux on that machine decides.
+            let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            run(id) { client in
+                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                return Data("{}".utf8)
+            }
+        default:
+            refuse(id, method)
+        }
+    }
+
+    public func cancel(code: Int, reason: String) {
+        guard close(), let client = state.withLock({ $0.client }) else { return }
+        // task-owner: ends the daemon attachment once; nothing waits on it
+        Task { await client.close() }
+    }
+
+    // MARK: Start
+
+    /// A new chat's `session/new` (its first send): starts the chat on that machine once and
+    /// answers its session. Refused on a wire that already has a session, while a start runs, and
+    /// for an adopt (an outside chat of this Mac never moves there). A refused start leaves no
+    /// session, so the next send (a person's action) may start again; nothing retries by itself.
+    private func startChat(_ id: String?, _ params: [String: Any]) {
+        let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        guard let start, acpmux?["adopt"] == nil, state.withLock({ state -> Bool in
+            guard !state.closed, state.client == nil, !state.starting else { return false }
+            state.starting = true
+            return true
+        }) else { return refuse(id, "session/new") }
+        let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
+        let harness = (acpmux?["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // task-owner: the one start of this wire's chat; its reply ends it
+        Task { [weak self] in
+            do {
+                let (client, session) = try await start(cwd, harness)
+                guard let self else { await client.close(); return }
+                let open = state.withLock { state -> Bool in
+                    state.starting = false
+                    guard !state.closed else { return false }
+                    (state.client, state.session) = (client, session)
+                    return true
+                }
+                // The page reconnects with a new wire, which finds the started chat.
+                guard open else { await client.close(); return }
+                reply(id, ["sessionId": session])
+            } catch {
+                self?.state.withLock { $0.starting = false }
+                let refused = error as? AgentSessionRemoteError
+                self?.fail(id, code: refused?.code ?? Self.unsupported, message: refused?.message ?? String(describing: error))
+            }
+        }
+    }
+
+    // MARK: Pages
+
+    /// `_acpmux/watch` lists only this session (an attach of one record gives its summary);
+    /// `_acpmux/attach` subscribes (again: the daemon only pages); `_acpmux/events` pages.
+    private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
+        if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
+        let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
+        let object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any] ?? [:]
+        let summary = object["session"] as? [String: Any]
+        if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
+        guard method == "_acpmux/watch" else { return result }
+        return Self.json(["sessions": summary.map { [$0] } ?? []])
+    }
+
+    /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
+    private static func withMore(_ result: Data) -> Data {
+        guard var object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any],
+              object["more"] == nil else { return result }
+        object["more"] = object["hasMore"] ?? false
+        return json(object)
+    }
+
+    private static func page(_ params: [String: Any], method: String) -> AgentSessionPage {
+        let number = { (key: String) -> UInt64? in (params[key] as? NSNumber)?.uint64Value }
+        let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
+        if method == "_acpmux/watch" { return AgentSessionPage(limit: 1, kinds: ["transcript"]) }
+        return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
+                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
+    }
+
+    // MARK: Pushes
+
+    private func pushed(_ event: AgentSessionRemoteEvent) {
+        switch event {
+        case .record(let data):
+            guard let record = try? JSONSerialization.jsonObject(with: data) else { return }
+            notify("_acpmux/event", record)
+        case .permission(let data):
+            guard let request = try? JSONSerialization.jsonObject(with: data) else { return }
+            notify("_acpmux/permission_pending", request)
+        case .changed(let data):
+            guard let change = try? JSONSerialization.jsonObject(with: data) else { return }
+            notify("_acpmux/session_changed", change)
+        case .closed(let reason):
+            Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
+            // The page reconnects (a fresh wire and daemon connection) and replays from the
+            // newest seq it holds; this attachment's connection ends now.
+            guard close(), let client = state.withLock({ $0.client }) else { return }
+            // task-owner: ends the ended attachment's daemon connection; nothing waits on it
+            Task { await client.close() }
+            state.withLock { $0.onClose }?(1012, reason)
+        }
+    }
+
+    // MARK: Helpers
+
+    /// Marks the wire closed; false when it already was.
+    private func close() -> Bool {
+        state.withLock { state in
+            guard !state.closed else { return false }
+            state.closed = true
+            return true
+        }
+    }
+
+    /// True when `value` names this chat's session (the tab's, or acpmux's id for it).
+    private func names(_ value: Any?) -> Bool {
+        guard let name = value as? String else { return false }
+        return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
+    }
+
+    /// The text of a prompt made only of text blocks; nil for any other block.
+    static func text(_ value: Any?) -> String? {
+        guard let blocks = value as? [[String: Any]], !blocks.isEmpty else { return nil }
+        var parts: [String] = []
+        for block in blocks {
+            guard block["type"] as? String == "text", let text = block["text"] as? String else { return nil }
+            parts.append(text)
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func run(_ id: String?, _ work: @escaping @Sendable (any AgentSessionRemoteClient) async throws -> Data) {
+        // A new chat before its first send has no attachment: nothing to page, cancel or detach.
+        guard let client = state.withLock({ $0.client }) else {
+            return reply(id, [:])
+        }
+        // task-owner: one daemon call per page request; its reply ends it
+        Task { [weak self] in
+            do {
+                let result = try await work(client)
+                self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: result, as: UTF8.self) + "}" })
+            } catch let error as AgentSessionRemoteError {
+                self?.fail(id, code: error.code, message: error.message)
+            } catch {
+                self?.fail(id, code: Self.unsupported, message: String(describing: error))
+            }
+        }
+    }
+
+    private func refuse(_ id: String?, _ method: String) {
+        fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    private func fail(_ id: String?, code: String, message: String) {
+        guard let id else { return }
+        let error: [String: Any] = ["code": Self.unsupportedCode, "message": message, "data": ["code": code]]
+        emit(#"{"jsonrpc":"2.0","id":\#(id),"error":"# + String(decoding: Self.json(error), as: UTF8.self) + "}")
+    }
+
+    private func reply(_ id: String?, _ result: [String: Any]) {
+        emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: Self.json(result), as: UTF8.self) + "}" })
+    }
+
+    private func notify(_ method: String, _ params: Any) {
+        emit(String(decoding: Self.json(["jsonrpc": "2.0", "method": method, "params": params]), as: UTF8.self))
+    }
+
+    private func emit(_ text: String?) {
+        guard let text else { return }
+        let onFrame = state.withLock { $0.closed ? nil : $0.onFrame }
+        onFrame?(text)
+    }
+
+    /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.
+    private static func idText(_ value: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject([value]),
+              let data = try? JSONSerialization.data(withJSONObject: [value]) else { return nil }
+        return String(decoding: data.dropFirst().dropLast(), as: UTF8.self)
+    }
+
+    static func json(_ object: Any) -> Data {
+        (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8)
+    }
+}
+
+/// A refused daemon call: its stable `error_code` (`agent_session.*`) and text.
+public nonisolated struct AgentSessionRemoteError: Error, Sendable, Equatable {
+    public var code: String
+    public var message: String
+
+    public init(code: String, message: String) {
+        self.code = code
+        self.message = message
+    }
+}

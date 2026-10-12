@@ -19,7 +19,7 @@ enum DebugCEF {
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
         ]
-        if let browserTabs = services.cache.browserTabs {
+        if case let browserTabs = services.cache.browserTabs {
             object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)
             object["unavailable"] = unavailable(browserTabs.cefUnavailable())
             let fallbacks = browserTabs.fallbacks

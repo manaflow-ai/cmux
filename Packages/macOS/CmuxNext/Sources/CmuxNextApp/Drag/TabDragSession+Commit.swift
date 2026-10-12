@@ -35,7 +35,7 @@ extension TabDragSession {
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
-                self?.services.inputMonitor.noteChange()
+                self?.services.input.monitor?.noteChange()
                 // The view change of a landed user drop, after the echo.
                 if ok { self?.revealLanded(drag, outcome: outcome, dropWindow: dropWindow) }
             }
@@ -91,7 +91,7 @@ extension TabDragSession {
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).
             let slot = gapSlot(drag)
-            Task {
+            Task { [services] in
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
@@ -103,7 +103,7 @@ extension TabDragSession {
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task {
+            Task { [services] in
                 let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
@@ -137,20 +137,20 @@ extension TabDragSession {
             settle(false)
         case .newWorkspace:
             let slot = gapSlot(drag)
-            Task {
+            Task { [services] in
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
                 settle(key != nil)
             }
         case .workspace(let id):
-            // Into the workspace's first pane, after its tabs.
-            guard let pane = services.workspace(id: id)?.screens.first?.panes.first else { return gone(settle) }
+            // Into the workspace's first pane outside the chat dock, after its tabs.
+            guard let pane = ChatDockRules.workspaceDropPane(services.workspace(id: id)?.screens.first, services: services) else { return gone(settle) }
             drag.landedWorkspaceID = id
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task {
+            Task { [services] in
                 let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
@@ -185,13 +185,14 @@ extension TabDragSession {
         switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
         case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
         case .intoGroup(let group)?: .endOfGroup(group)
-        case .intoWorkspace?, nil: nil
+        case .intoWorkspace?, .beforeTab?, nil: nil
         }
     }
 
     func claimAndPlace(_ key: WorkspaceKey, in state: WindowState, at slot: WorkspaceSlot?, select: Bool = true) {
         services.windows.claim(workspaceID: key.rawValue, in: state, select: select)
-        if let slot { services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot) }
+        // No gap (a drop that names no slot): the `workspaces.newPlacement` slot.
+        services.windows.place(newWorkspace: key.rawValue, in: state.id, at: slot)
     }
 
     /// The view change after a landed drop (`DropRevealPolicy`): drags are

@@ -8,11 +8,6 @@ on:
     paths:
       - tests/automation-bench/**
       - .github/workflows/automation-bench.yml
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - tests/automation-bench/**
-      - .github/workflows/automation-bench.yml
   workflow_dispatch:
 
 permissions:

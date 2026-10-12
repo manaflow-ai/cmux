@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { evictDurableObject, introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { runRowOf } from "../src/domains/scheduler-rows.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 const testEnv = env as unknown as {
@@ -268,12 +269,12 @@ describe("webhook triggers (workerd)", () => {
       const r = instance.submitSystem("automation.deliver", { automation, trigger, delivery_id: "orphan" }, "deliver-orphan")
       run = r.frames.find((f: any) => f.t === "result").value.id
       instance.submitSystem("run.dispatched", { run }, `dispatch:${run}`)
-      const rec = JSON.parse(state.storage.sql.exec("SELECT json FROM own_state").toArray()[0]!.json as string).runs[run]
+      const rec = JSON.parse(state.storage.sql.exec("SELECT json FROM own_rows WHERE tbl = 'run' AND k = ?", run).toArray()[0]!.json as string)
       // Note-only body: deadline = dispatch + one hour of grace; the alarm targets exactly that instant.
       expect(rec.deadline_at - Date.now()).toBeGreaterThan(59 * 60_000)
       expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now())).toBeLessThanOrEqual(rec.deadline_at)
       await instance.enforceDeadlines(Date.now() + 30 * 60_000)
-      expect(instance.boundEngine.currentState.runs[run].state).toBe("queued")
+      expect(runRowOf(instance.boundEngine.rows, run)!.state).toBe("queued")
       await instance.enforceDeadlines(rec.deadline_at + 1)
     })
     const runs = await read(token, "automation.runs.list", { automation })
@@ -295,7 +296,7 @@ describe("webhook triggers (workerd)", () => {
       await fireAlarm(scheduler(team))
       await wf.waitForStepResult({ name: "cmux:sleeping-0" })
       await inDO(scheduler(team), async (instance) => {
-        const rec = instance.boundEngine.currentState.runs[run]
+        const rec = runRowOf(instance.boundEngine.rows, run) as { deadline_at: number }
         expect(rec.deadline_at - Date.now()).toBeLessThanOrEqual(60_000)
         await instance.enforceDeadlines(rec.deadline_at + 1)
       })

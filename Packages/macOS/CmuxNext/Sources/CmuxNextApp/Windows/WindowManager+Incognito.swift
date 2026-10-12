@@ -22,7 +22,7 @@ extension WindowManager {
         // The session begins now, so the window's first page is incognito.
         _ = incognitoProfile()
         let daemon = services.daemon
-        let browserTabs = services.cache.browserTabs!
+        let browserTabs = services.cache.browserTabs
         let choice: BrowserEngineChoice = if case .open(let choice) = browserTabs.resolve(requested: nil) {
             choice
         } else {
@@ -37,7 +37,7 @@ extension WindowManager {
         // session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        Task {
+        Task { [services] in
             guard let connection = daemon.connection else {
                 pendingClaims[key.rawValue] = nil
                 return endIncognitoSessionIfUnused()
@@ -46,7 +46,7 @@ extension WindowManager {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
                     let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
                     if let pane = terminal.pane {
-                        _ = try await browserTabs.open(choice, in: pane, url: address, incognito: true)
+                        _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
                     }
                     return created.rawValue
@@ -169,17 +169,18 @@ extension WindowManager {
     /// in a window of the origin's kind: `preferred` (usually the active
     /// window) when it matches, else the origin's window. `newWindow` opens
     /// a new window of that kind (incognito even before the daemon reports
-    /// the workspace).
+    /// the workspace); an open one places it by `workspaces.newPlacement`.
     func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool, select shows: Bool = true) {
         if newWindow {
             openWindow(workspaces: [key], incognito: origin.incognito, behind: !shows)
             return
         }
-        if let preferred, isIncognito(window: preferred.id) == origin.incognito {
-            claim(workspaceID: key, in: preferred, select: shows)
-        } else if let window = origin.window, let state = states[window], registry.value.window(window)?.isOpen == true {
-            claim(workspaceID: key, in: state, select: shows)
-        }
+        let target = preferred.flatMap { isIncognito(window: $0.id) == origin.incognito ? $0 : nil }
+            ?? origin.window.flatMap { registry.value.window($0)?.isOpen == true ? states[$0] : nil }
+        guard let target else { return }
+        let rule = NewWorkspacePlacements.rule(for: target.id, in: self)
+        claim(workspaceID: key, in: target, select: shows)
+        NewWorkspacePlacements.expect(key, in: target.id, byDefault: rule, windows: self)
     }
 
     /// The window a workspace is shown in, for move checks.

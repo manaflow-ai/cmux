@@ -1,6 +1,6 @@
 // The save path of the markdown editor: a minimal-change write. A WYSIWYG editor that serializes
-// its whole document rewrites the user's file (Milkdown's serializer left 2 of the 35 files of
-// test/fixtures/markdown-roundtrip byte-identical with no edit; escaping, list spacing, table
+// its whole document rewrites the user's file (Milkdown's serializer left 2 of 35 real repo markdown
+// files byte-identical with no edit; escaping, list spacing, table
 // padding, front matter and reference definitions all change). So the editor keeps, for every
 // top-level block, the exact source text it was parsed from, and a save writes that text back for
 // every block the user did not change. Only edited or new blocks go through the serializer, and the

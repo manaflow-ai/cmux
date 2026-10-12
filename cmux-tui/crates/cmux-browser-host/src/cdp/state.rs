@@ -71,6 +71,11 @@ pub struct TabState {
     pub lifecycle: HashSet<String>,
     /// Bumps on every main-frame navigation, document or same-document.
     pub nav_seq: u64,
+    /// Loaders of the newest main-frame navigations that failed
+    /// (`Page.navigate` answered `errorText`). Chromium commits their error
+    /// page later, often after the next navigation started: that commit and
+    /// its `load` are not the next navigation's (`TabState::shows_failed_navigation`).
+    pub failed_loaders: std::collections::VecDeque<String>,
     pub last_nav_same_document: bool,
     pub buttons: i64,
     /// Keys pressed and not released, oldest first: (key, code, location).
@@ -155,6 +160,7 @@ impl TabState {
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
+            failed_loaders: std::collections::VecDeque::new(),
             last_nav_same_document: false,
             buttons: 0,
             held_keys: Vec::new(),
@@ -185,6 +191,24 @@ impl TabState {
         } else {
             "commit"
         }
+    }
+
+    /// How many failed loaders a tab remembers: their error pages commit
+    /// within the next navigation or two.
+    const FAILED_LOADERS: usize = 8;
+
+    /// Records the loader of a main-frame navigation that failed.
+    pub fn navigation_failed(&mut self, loader: &str) {
+        if self.failed_loaders.len() == Self::FAILED_LOADERS {
+            self.failed_loaders.pop_front();
+        }
+        self.failed_loaders.push_back(loader.to_owned());
+    }
+
+    /// Whether the current document is the error page of a navigation that
+    /// already failed: a later navigation still waits for its own document.
+    pub fn shows_failed_navigation(&self) -> bool {
+        self.loader.as_ref().is_some_and(|loader| self.failed_loaders.contains(loader))
     }
 }
 

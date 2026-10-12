@@ -45,7 +45,7 @@ enum KeybindingControl {
         } else {
             controller = controllers.first { $0.window?.isKeyWindow == true } ?? controllers.first
         }
-        guard let controller, let window = controller.window, let router = services.keyRouter else {
+        guard let controller, let window = controller.window, case let router = services.keyRouter else {
             return (KeyContext(bits: services.registry.context), nil)
         }
         return (router.keyContext(for: controller.focus.state, facts: router.facts(in: window, controller: controller)), controller.state.id)

@@ -14,6 +14,14 @@ pub mod automation_input;
 pub mod cdp;
 pub mod cookie_backups;
 pub mod driver;
+mod egress_devtools;
+mod egress_holders;
+// The listener sources are macOS-only; Linux reads /proc (egress_services).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod egress_listeners;
+pub mod egress_proxy;
+pub mod egress_scope;
+pub mod egress_services;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
@@ -22,9 +30,13 @@ pub mod headless_activity;
 #[cfg(unix)]
 pub mod headless_configure;
 #[cfg(unix)]
+pub mod headless_linger;
+#[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
 pub mod headless_source;
+#[cfg(unix)]
+pub mod history_link;
 pub mod host;
 pub mod idle_exit;
 pub mod lease;
@@ -35,6 +47,7 @@ pub mod private_data_log;
 pub mod protocol;
 pub mod provider;
 #[cfg(unix)]
+pub mod provider_downloads;
 pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;

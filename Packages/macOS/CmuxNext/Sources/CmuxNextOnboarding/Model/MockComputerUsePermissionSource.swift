@@ -5,6 +5,8 @@ public import Foundation
 public final class MockComputerUsePermissionSource: ComputerUsePermissionSource {
     public let helperAppURL: URL?
     public private(set) var opened: [ComputerUsePermissionPane] = []
+    /// How many times Allow turned Computer Use on.
+    public private(set) var enabledCount = 0
     public var current: ComputerUsePermissions {
         didSet { continuations.values.forEach { $0.yield(current) } }
     }
@@ -26,4 +28,10 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
     }
 
     public func openSettings(_ pane: ComputerUsePermissionPane) { opened.append(pane) }
+
+    /// Turns the mock on: the grants stop reporting off.
+    public func enable() {
+        enabledCount += 1
+        if current.isOff { current.isOff = false }
+    }
 }

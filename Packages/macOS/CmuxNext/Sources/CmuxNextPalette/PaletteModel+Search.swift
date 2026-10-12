@@ -35,10 +35,10 @@ extension PaletteModel {
         }
     }
 
-    /// Ranks the page's rows for its query and generation. An empty query
-    /// ranks on the main actor (no matching, just grouping); a real query
-    /// goes to the searcher and the rows on screen stay until its result
-    /// lands.
+    /// Ranks the page's rows for its query and generation on the searcher,
+    /// off the main actor. An empty query shows its last rank or its
+    /// unranked rows at once (`searchEmpty`); for a real query the rows on
+    /// screen stay until its result lands.
     func search(_ state: PageState) {
         let generation = state.generation
         switch state.kind {
@@ -66,32 +66,29 @@ extension PaletteModel {
         case .list(let page):
             searchGeneration += 1
             let searchID = searchGeneration
-            if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
-                searchTask = nil
-                let ranked = ranker.rankEmpty(
-                    entries: state.entries,
-                    sectionOrders: state.sectionOrders,
-                    frecency: frecency,
-                    now: now(),
-                    showsRecent: page.showsRecent
-                )
-                deliver(Self.leading(page.queryItems?(state.query), state.resolve(ranked)), to: state, generation: generation)
+            if state.query.allSatisfy(\.isWhitespace) || !page.filtersByQuery {
+                searchEmpty(state, page: page, generation: generation, searchID: searchID)
                 return
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
                            orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
                            keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst)
             let searcher = searcher
+            // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
+            // and holding the page would keep its providers alive after the palette moved on.
+            let queryItems = page.queryItems
+            // The superseded search ranks nothing if it has not started (its result is stale anyway).
+            searchTask?.cancel()
             searchTask = Task { [weak self, weak state] in
-                await searcher.install(entries: request.entries, version: request.version)
                 let result = await searcher.search(
+                    entries: request.entries, version: request.version,
                     query: request.query, generation: searchID, sectionOrders: request.orders,
                     frecency: request.frecency, now: request.now, showsRecent: request.recent,
                     keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(Self.leading(page.queryItems?(request.query), state.resolve(result.sections)), to: state,
+                self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
                              generation: generation)
                 if self.pendingClose {
                     self.pendingClose = false
@@ -111,12 +108,16 @@ extension PaletteModel {
     /// A page's rows for `generation`: cached on the page, shown when the
     /// page is on screen, and handed to the reducer, which takes them only
     /// for the level's current generation and keeps or moves the selection.
-    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int) {
+    /// `provisional` rows stand in until the ranked rows of the same
+    /// generation land (`PaletteNavEvent.results`).
+    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         state.lastSections = sections
+        state.awaitsRank = provisional
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection))
+                      isFinal: !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
+                      provisional: provisional))
     }
 
     /// What navigation needs from the rows.

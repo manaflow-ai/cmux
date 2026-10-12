@@ -24,7 +24,7 @@ impl Surface {
     /// Whether [`Self::begin_host_termination`] would signal a terminal host
     /// (`Some`) rather than report a local runtime (`None`). It only reads
     /// the runtime kind; it never waits for the host.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn has_host_termination(&self) -> bool {
         let Some(pty) = self.as_pty() else { return false };
         if pty.host_identity.is_none() || pty.host_exit_record_path.is_none() {
@@ -38,7 +38,7 @@ impl Surface {
     /// `None` and keep their existing kill path. Pass the result to
     /// [`Self::wait_for_host_exit`], whose durable exit receipt is the
     /// authoritative completion.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
         let Some(identity) = pty.host_identity.clone() else { return Ok(None) };
@@ -62,7 +62,7 @@ impl Surface {
 
     /// Wait for the ordered host stream to publish the durable exit receipt
     /// after [`Self::begin_host_termination`].
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn wait_for_host_exit(
         &self,
         termination: HostTermination,
@@ -93,7 +93,7 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn terminal_host_exit_sidecar(
         &self,
     ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
@@ -104,3 +104,56 @@ impl Surface {
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 }
+
+#[cfg(any(unix, windows))]
+pub(super) fn mark_hosted_runtime_exited(
+    pty: &PtySurface,
+    identity: &crate::terminal_host_runtime::TerminalHostIdentity,
+) {
+    let mut runtime = pty.runtime.lock().unwrap();
+    let matches = match &*runtime {
+        PtyRuntime::Hosted(host) => host.identity() == *identity,
+        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
+    };
+    if matches {
+        if let PtyRuntime::Hosted(host) = &*runtime {
+            host.disconnect();
+        }
+        *runtime = PtyRuntime::ExitedHosted;
+        pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
+        drop(runtime);
+        pty.finish_hosted_exit();
+    }
+}
+
+pub(super) fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    if !pty.local_pty_drained.load(Ordering::Acquire) || pty.exit.lock().unwrap().is_none() {
+        return;
+    }
+    if pty.exit_notified.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err()
+    {
+        return;
+    }
+    pty.dead.store(true, Ordering::Release);
+    if let Some(mux) = pty.mux.upgrade() {
+        mux.surface_exited(surface.id);
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
+    let Some(pty) = surface.as_pty() else { return };
+    let master = {
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { master, .. } = &mut *runtime else { return };
+        master.take()
+    };
+    // portable-pty's ConPTY reader keeps a separate output handle. Closing
+    // the master closes the pseudoconsole, which lets that reader drain the
+    // final bytes and then observe EOF.
+    drop(master);
+}
+
+#[cfg(not(windows))]
+pub(super) fn close_local_terminal_master_after_exit(_surface: &Arc<Surface>) {}

@@ -8,6 +8,10 @@ enum HandlerStrings {
         String(localized: "handlers.rename.pane.title", defaultValue: "Rename Pane", table: "Handlers", bundle: .module)
     }
 
+    static var noOtherPanes: String {
+        String(localized: "handlers.refusal.noOtherPanes", defaultValue: "there are no other panes to close", table: "Handlers", bundle: .module)
+    }
+
     static var renameScreenTitle: String {
         String(localized: "handlers.rename.screen.title", defaultValue: "Rename Screen", table: "Handlers", bundle: .module)
     }

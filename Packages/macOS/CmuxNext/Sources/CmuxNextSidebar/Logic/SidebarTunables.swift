@@ -27,10 +27,17 @@ public nonisolated enum SidebarTunables {
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
-        help: "Where a workspace row draws the brand mark of an agent working or waiting in it (R79 prototype).",
-        default: .off, code: "SidebarTunables.agentMark")
+        help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
+        default: .besideTitle, code: "SidebarTunables.agentMark")
+
+    /// Multiplayer agent presence (cx-gg84): off until the dots are styled
+    /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
+    public static let presenceDots = Tunable<Bool>.toggle(
+        "sidebar.presenceDots", .sidebar, "Agent presence dots",
+        help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
+        default: false, code: "SidebarTunables.presenceDots")
 
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, updateCardButton.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

@@ -1,6 +1,7 @@
 public import AppKit
 public import QuartzCore
 import SwiftUI
+import CmuxNextWakeups
 
 /// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
 /// animation is retargetable: a new change starts from the view's current
@@ -18,6 +19,10 @@ extension Motion {
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
         let spring = self.spring(token)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
+        guard #available(macOS 15, *) else {
+            // macOS 14 has no SwiftUI-animation NSAnimationContext: the timed curve, not retargetable.
+            return runTimed(self.duration(token), changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(animation, changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
@@ -27,6 +32,9 @@ extension Motion {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
+        guard #available(macOS 15, *) else {
+            return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
+        }
         NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
     }
 
@@ -106,7 +114,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -116,7 +124,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
     }
 
     // MARK: Core Animation
@@ -194,7 +202,7 @@ extension Motion {
         guard MotionTrace.isEnabled else { return layer.add(animation, forKey: keyPath) }
         MotionTrace.begin(trace)
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { MotionTrace.end(trace) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         layer.add(animation, forKey: keyPath)
         CATransaction.commit()
     }
@@ -220,13 +228,13 @@ extension Motion {
     }
 
     /// A movement (scale, position) timed with a fade token, as a panel's
-    /// shrink while it fades out. Unlike `set(_:_:to:fade:)` it applies at
-    /// once when movement does not animate (Reduce Motion, speed "off"), so
-    /// only the opacity crossfade remains (motion.md rule 7).
+    /// shrink while it fades out. When movement does not animate (Reduce
+    /// Motion, speed "off") the value stays as it is, so only the opacity
+    /// crossfade remains (motion.md rule 7): applied at once, a close's
+    /// shrink jumped the panel smaller in one frame before it faded.
     @discardableResult
     public static func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
         guard animatesMovement else {
-            setModel(layer, keyPath, value)
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
@@ -243,11 +251,11 @@ extension Motion {
     // MARK: Loops
 
     /// A continuous rotation for a busy spinner, or nil when loops are off.
-    public static func spinAnimation() -> CAAnimation? {
+    public static func spinAnimation(backward: Bool = false) -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
-        spin.toValue = -2 * CGFloat.pi
+        spin.toValue = (backward ? 2 : -2) * CGFloat.pi
         spin.duration = period
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false
@@ -308,6 +316,20 @@ extension Motion {
             flash.duration = MotionLoop.flash.period / 2
         }
         return flash
+    }
+
+    /// Keeps a layer hidden while a `token` move is still more than 3% from
+    /// its target, then fades it in: a row another row passes over shows
+    /// again once they no longer overlap (cx-ai79). Nil when moves snap.
+    public static func passOverAnimation(_ token: MotionSpring) -> CAAnimation? {
+        guard animatesMovement else { return nil }
+        let settle = spring(token).settlingTime(within: 0.03)
+        let total = settle + duration(MotionFade.fadeIn)
+        let hide = CAKeyframeAnimation(keyPath: "opacity")
+        hide.values = [0, 0, 1]
+        hide.keyTimes = [0, NSNumber(value: settle / total), 1]
+        hide.duration = total
+        return hide
     }
 
     /// A crossfade layer action for swapped contents (`CALayer.actions`).

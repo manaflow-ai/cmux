@@ -271,7 +271,8 @@
     return pattern.split(".").length * 2 + 1;
   };
   var restriction = { allow: 1, ask: 2, block: 3 };
-  var byPrecedence = (a, b) => patternSpecificity(b.pattern) - patternSpecificity(a.pattern) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  var isExact = (pattern) => !pattern.split(".").includes("*");
+  var byPrecedence = (a, b) => patternSpecificity(b.pattern) - patternSpecificity(a.pattern) || Number(isExact(b.pattern)) - Number(isExact(a.pattern)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   var resolveToolPolicy = (address, rules) => {
     const firstByOwner = new Map;
     for (const rule of [...rules].sort(byPrecedence)) {
@@ -292,10 +293,7 @@
       return resolveToolPolicy(address, rules) ?? { action: defaultAction, source: "default" };
     const byOwner = new Map;
     for (const rule of [...rules].sort(byPrecedence)) {
-      if (!matchPattern(rule.pattern, address))
-        continue;
-      const cur = byOwner.get(rule.owner);
-      if (!cur || rule.pattern === address && cur.pattern !== address)
+      if (!byOwner.has(rule.owner) && matchPattern(rule.pattern, address))
         byOwner.set(rule.owner, rule);
     }
     let selected;

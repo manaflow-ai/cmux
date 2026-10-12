@@ -95,5 +95,29 @@ nonisolated enum RemoteViewStrings {
     static var unavailableInvalidAddress: String {
         t("rd.tab.unavailable.invalidAddress", "This tab's remote desktop address is not valid.")
     }
+    static func share(_ kind: RemoteUpstreamKind) -> String {
+        switch kind {
+        case .microphone: t("rd.upstream.share.microphone", "Share Microphone")
+        case .camera: t("rd.upstream.share.camera", "Share Camera")
+        case .screen: t("rd.upstream.share.screen", "Share Screen")
+        }
+    }
+
+    static func sharing(_ kind: RemoteUpstreamKind) -> String {
+        switch kind {
+        case .microphone: t("rd.upstream.sharing.microphone", "Microphone on")
+        case .camera: t("rd.upstream.sharing.camera", "Camera on")
+        case .screen: t("rd.upstream.sharing.screen", "Sharing screen")
+        }
+    }
+
+    static func stopSharing(_ kind: RemoteUpstreamKind) -> String {
+        switch kind {
+        case .microphone: t("rd.upstream.stop.microphone", "Stop Sharing Microphone")
+        case .camera: t("rd.upstream.stop.camera", "Stop Sharing Camera")
+        case .screen: t("rd.upstream.stop.screen", "Stop Sharing Screen")
+        }
+    }
+
     static func accessibilityPane(_ host: String) -> String { String(format: t("rd.a11y.pane", "Remote desktop: %@"), host) }
 }

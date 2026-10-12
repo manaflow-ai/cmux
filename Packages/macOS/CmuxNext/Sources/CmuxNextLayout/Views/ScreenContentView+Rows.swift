@@ -51,7 +51,7 @@ extension ScreenContentView {
     func stepRows(_ dt: Double) -> Bool {
         var moving = false
         for id in Array(rowScrolls.keys) where rowScrolls[id]?.state.isGestureActive == false {
-            if rowScrolls[id]!.state.spring.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) { moving = true }
+            if rowScrolls[id]?.state.spring.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) == true { moving = true }
         }
         if !rowScrolls.isEmpty { refreshRowShift() }
         return moving

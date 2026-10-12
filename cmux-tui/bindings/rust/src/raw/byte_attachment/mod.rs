@@ -70,6 +70,8 @@ pub const BYTE_ATTACHMENT_CAPABILITIES: &[&str] = &[
     "terminal-pending-sequence-v1",
     "shared-sizing-v1",
     "terminal-color-overrides-v1",
+    // `SizeDeviceKind` decodes a kind it does not know as `Unknown`.
+    "open-device-kinds-v1",
 ];
 
 /// Server capabilities `open` requires before it attaches.
@@ -118,7 +120,8 @@ pub struct ClientIdentity {
     pub kind: Option<String>,
     pub user_id: Option<String>,
     pub display_name: Option<String>,
-    /// `mac`, `iphone`, `ipad`, `tui`, or `browser`.
+    /// `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, or `windows`.
+    /// A daemon reads any other value as `unknown`.
     pub device_kind: Option<String>,
     pub device_name: Option<String>,
     pub device_id: Option<String>,
@@ -344,7 +347,7 @@ pub(crate) struct Shared {
 }
 
 struct Outbound {
-    socket: std::os::unix::net::UnixStream,
+    socket: crate::codec::UnixStream,
     next_id: u64,
     last_reported: Option<CellSize>,
 }

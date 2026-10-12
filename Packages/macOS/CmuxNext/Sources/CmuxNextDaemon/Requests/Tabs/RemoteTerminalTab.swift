@@ -12,6 +12,7 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-remote-terminal-tab"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
     public var pane: PaneID?
     public var sessionID: String
     public var terminalID: TerminalID
@@ -39,6 +40,7 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
         public var changed: Bool
     }
     public static let command = "update-remote-terminal-tab"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
     /// The daemon's bound on `snapshot` (UTF-8 bytes).
     public static let snapshotLimit = 65_536
     public var surface: SurfaceID
@@ -68,10 +70,10 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
     public static func bounded(_ text: String, limit: Int = snapshotLimit) -> String {
         let bytes = Array(text.utf8)
         guard bytes.count > limit else { return text }
-        var start = bytes.count - limit
-        while start < bytes.count, bytes[start] & 0xC0 == 0x80 { start += 1 }
-        if let newline = bytes[start...].prefix(4096).firstIndex(of: 0x0A) { start = newline + 1 }
-        return String(decoding: bytes[start...], as: UTF8.self)
+        // Skip continuation bytes so the cut never lands inside a sequence.
+        var tail = bytes.suffix(limit).drop { $0 & 0xC0 == 0x80 }
+        if let newline = tail.prefix(4096).firstIndex(of: 0x0A) { tail = tail.suffix(from: tail.index(after: newline)) }
+        return String(decoding: tail, as: UTF8.self)
     }
 }
 
@@ -82,6 +84,7 @@ public struct RemoteTerminalSnapshotRequest: DaemonRequest {
         public var snapshot: String?
     }
     public static let command = "remote-terminal-snapshot"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.remoteTerminalTabs
     public var surface: SurfaceID
 
     public init(surface: SurfaceID) { self.surface = surface }

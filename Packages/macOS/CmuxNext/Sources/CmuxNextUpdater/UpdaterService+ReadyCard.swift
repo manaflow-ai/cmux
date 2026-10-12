@@ -7,11 +7,20 @@ public import Foundation
 /// the App's settings path).
 extension UpdaterService {
     /// The card while an update is staged or installing; nil otherwise and,
-    /// for a staged update, under `updates.notify` silent (``footerPill``).
+    /// for a staged update, under `updates.notify` silent (``footerPill``)
+    /// until the user asks to check: Sparkle skips checks while an update
+    /// waits, so a check answers with the waiting update, never nothing.
     public var readyCard: UpdateReadyCard? {
-        guard let pill = footerPill else { return nil }
+        guard let pill = footerPill ?? askedWhileStaged else { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
-        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes)
+        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
+                               changelog: stagedChangelog)
+    }
+
+    /// The staged update's pill when the user asked to check while it waits.
+    private var askedWhileStaged: UpdateFooterPill? {
+        guard flow.userAsked, case .ready = flow.phase else { return nil }
+        return .ready
     }
 
     /// The full release notes of the staged update: the build's GitHub

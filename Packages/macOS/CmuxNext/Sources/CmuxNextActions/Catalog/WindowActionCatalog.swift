@@ -18,13 +18,14 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 symbol: "macwindow.badge.plus", surfaces: [.palette, .keyboard, .menu, .contextMenu],
                 cliName: "app new-window", mainMenu: .window
             ),
-            // Incognito window (user decision 2026-09-30): palette, CLI,
-            // menu and a bindable shortcut with no default (Cmd-Shift-N is
-            // New Window).
+            // Incognito window (user decisions 2026-09-30, 2026-10-07):
+            // palette, CLI, menu and Option-Shift-Cmd-N (Shift-Cmd-N is New
+            // Window, also in a page).
             ActionDescriptor(
                 id: "newIncognitoWindow",
                 title: String(localized: "action.newIncognitoWindow", defaultValue: "New Incognito Window", bundle: .module),
-                keywords: ["private", "incognito", "browser", "off the record"], category: .window,
+                keywords: ["private", "incognito", "browser", "off the record"],
+                defaultShortcut: Shortcut("n", modifiers: [.command, .option, .shift]), category: .window,
                 symbol: "eyeglasses", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app new-incognito-window", mainMenu: .window
             ),

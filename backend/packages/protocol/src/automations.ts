@@ -236,6 +236,26 @@ export const RunsListParams = Schema.Struct({
   limit: Schema.optionalKey(Int(1, 200))
 })
 
+/** Keyset cursor of automation.list and run.list (pass the previous page's next_cursor). */
+const PageCursor = Schema.String.check(Schema.isMaxLength(32))
+
+export const AutomationListParams = Schema.Struct({
+  cursor: Schema.optionalKey(PageCursor),
+  limit: Schema.optionalKey(Int(1, 100))
+})
+
+export const RunListParams = Schema.Struct({
+  automation: Schema.optionalKey(AutomationId),
+  state: Schema.optionalKey(RunState),
+  cursor: Schema.optionalKey(PageCursor),
+  limit: Schema.optionalKey(Int(1, 100))
+})
+
+export const RunSelector = Schema.Struct({ run: RunId })
+
+/** A run with the body of the automation version that fired it (later edits never change it). */
+export const RunWithBody = Schema.Struct({ ...Run.fields, body: Body }).annotate({ identifier: "RunWithBody" })
+
 /** Internal ops (owner `system` principal only; never on HTTP, MCP or the CLI). */
 export const AutomationFireParams = Schema.Struct({
   automation: AutomationId,

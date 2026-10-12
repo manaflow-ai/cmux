@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a. */
+/* cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -17,6 +17,8 @@ export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
 };
 
+export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
+
 export type AgentRecord = {
   "session": (string) | null;
   "source": AgentSource;
@@ -30,7 +32,7 @@ export type AgentReportSource = "socket" | "hook";
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
-  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  /** install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it. */
   "host": string;
   /** Display name of the host machine: 1 to 255 bytes, no control characters. */
   "host_name"?: (string) | null;
@@ -196,6 +198,7 @@ export type ColorHex = string;
 export type ColumnPin = {
   "edge": string;
   "mode": string;
+  "role"?: (string) | null;
 };
 
 export type ConversationChange = {
@@ -221,6 +224,8 @@ export type ConversationImportMessage = {
 };
 
 export type ConversationMessage = {
+  "answers"?: Array<string>;
+  "answers_pending"?: Array<string>;
   "author": string;
   "client_msg_id": string;
   "conversation": string;
@@ -232,6 +237,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread_root"?: string;
 };
 
 export type ConversationPart = {
@@ -313,6 +319,8 @@ export type ConversationTabRecord = {
   "owner"?: string;
   /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
   "page"?: string;
+  /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+  "route"?: string;
 };
 
 export type ConversationTextRun = {
@@ -320,6 +328,14 @@ export type ConversationTextRun = {
   "link"?: string;
   "mention"?: string;
   "start": number;
+};
+
+export type ConversationThreadSummary = {
+  "authors": Array<string>;
+  "last_reply_at": (string) | null;
+  "last_reply_seq": (bigint) | null;
+  "reply_count": bigint;
+  "root": string;
 };
 
 export type CopyResult = {
@@ -442,6 +458,22 @@ export type GuestUrlSubscribeResult = {
   "url_open_ready": boolean;
 };
 
+export type HistorySearchHit = {
+  "at_ms": bigint;
+  "highlights": Array<HistorySearchRange>;
+  "key": string;
+  "kind": string;
+  "position": (bigint) | null;
+  "snippet": string;
+  "target": string;
+  "title": string;
+};
+
+export type HistorySearchRange = {
+  "end": number;
+  "start": number;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -453,7 +485,9 @@ export type IdMapping = {
 export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
+  "build_id"?: (string) | null;
   "capabilities"?: Array<string>;
+  "cli_path"?: (string) | null;
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
@@ -628,6 +662,15 @@ export type PaneNeighborResult = {
 
 /** Opaque JSON: A pane named by its numeric id or its public pane_ id. */
 export type PaneRef = JsonValue;
+
+export type PaneSurfaceResult = {
+  "pane_id"?: (string) | null;
+  "replayed"?: (boolean) | null;
+  "surface": Id;
+  "tab_id"?: (string) | null;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
 
 export type PingResult = {
   "build_commit"?: (string) | null;
@@ -828,7 +871,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -911,12 +954,42 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsResourceProjection = {
+  "commit_apply_us": ServerStatsHistogram;
+  "commit_journal_us": ServerStatsHistogram;
+  "commit_prune_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "commits": bigint;
+  "crosscheck_mismatches": bigint;
+  "crosschecks": bigint;
+  "diff_us": ServerStatsHistogram;
+  "full_projections": bigint;
+  "index_us": ServerStatsHistogram;
+  "journaled_changes": ServerStatsHistogram;
+  "projected_changes": ServerStatsHistogram;
+  "projections": bigint;
+  "read_us": ServerStatsHistogram;
+  "scope_fallbacks": bigint;
+  "scoped_projections": bigint;
+  "written_changes": ServerStatsHistogram;
+};
+
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "uptime_ms": bigint;
+  "write_path"?: ServerStatsWritePath;
+};
+
+export type ServerStatsWritePath = {
+  "effect_intent_batches": bigint;
+  "effect_intent_failures": bigint;
+  "effect_intents": bigint;
+  "request_effect_commits": bigint;
+  "writer_registry_locks": bigint;
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
@@ -944,6 +1017,7 @@ export type SetTerminalIdlePolicyResult = {
 export type SetTerminalKeepResult = {
   "keep": boolean;
   "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
 };
 
 export type ShutdownDaemonResult = {
@@ -970,7 +1044,7 @@ export type SizeDetachActor = {
   "user_id"?: (string) | null;
 };
 
-export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "linux" | "windows" | "unknown";
 
 export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
 
@@ -1060,6 +1134,8 @@ export type Tab = {
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
@@ -1085,7 +1161,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1097,7 +1173,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;
@@ -1149,8 +1225,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {
@@ -1233,6 +1332,7 @@ export type TerminalPlacement = {
   "surface": (Id) | null;
   "terminal_id": string;
   "terminal_incarnation": (string) | null;
+  "terminal_resource_id"?: string;
   "terminal_revision": bigint;
   "workspace": (Id) | null;
 };
@@ -1301,6 +1401,10 @@ export type Tree = {
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export type ViewportPaneWidthResult = {
+  "width": number;
+};
 
 export type VtStateResult = {
   "cols": number;

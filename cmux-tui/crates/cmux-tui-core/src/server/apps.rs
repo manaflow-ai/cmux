@@ -4,10 +4,12 @@
 //! `user|cli|mcp|script|remote`, absent = cli. Replies use the normal
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
 //! Only local (Unix socket) connections may use apps commands. `apps-set`
-//! changes apps, so it needs a verified cmux app connection whatever origin
-//! it claims, and so does every request with origin `user` (Gate A2,
-//! plans/cmux-next/request-origin.md; `origin.forbidden` otherwise), and so
-//! does `apps-provider-register`. The verified app is proved (P8,
+//! and the App Store mutations of `apps-store {op, args}` (`cmux.apps.set`,
+//! `install`, `uninstall`; apps/store.rs) change apps, so they need a
+//! verified cmux app connection whatever origin they claim, and so does
+//! every request with origin `user` (Gate A2, plans/cmux-next/
+//! request-origin.md; `origin.forbidden` otherwise), and so does
+//! `apps-provider-register`. The verified app is proved (P8,
 //! server/app_trust.rs); a connection that only declares kind `app` is not
 //! it. Origin `user` from a verified connection that is bound to an agent
 //! is `apps.origin_forbidden` (see `apps::provider::hosting_app_connection`). A connection
@@ -50,6 +52,13 @@ enum Command {
         sandboxed: Option<bool>,
         #[serde(default)]
         grant: Option<GrantParam>,
+    },
+    /// An App Store op (`cmux.apps.*`, apps/store.rs): `{op, args}`.
+    #[serde(rename = "apps-store")]
+    Store {
+        op: String,
+        #[serde(default)]
+        args: Value,
     },
     #[serde(rename = "apps-mount")]
     Mount {
@@ -223,6 +232,8 @@ fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWri
         );
     }
     mux.control_clients.apps.cancel_request(client, &request.target);
+    // The same frame ends a running script cell (server/scripts.rs).
+    mux.control_clients.scripts.cancel_request(client, &request.target);
     reply(writer, request.id, Ok(json!({})))
 }
 
@@ -264,11 +275,16 @@ pub(super) fn try_handle(
         ));
     }
     // Gate A2 on the legacy door (request-origin.md): every apps-set change
-    // (install, uninstall, enable, disable, hide, sandbox, grant), whatever
+    // (install, uninstall, enable, disable, hide, sandbox, grant) and every
+    // App Store mutation (`apps-store` set, install, uninstall), whatever
     // origin it claims, and every request with origin user (gestures) need a
     // verified cmux app connection. A declared kind app does not count.
-    let user_authority = matches!(request.command, Command::Set { .. })
-        || request.origin == crate::apps::Origin::User;
+    let changes_apps = match &request.command {
+        Command::Set { .. } => true,
+        Command::Store { op, .. } => crate::apps::store_op_mutates(op),
+        _ => false,
+    };
+    let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
     if user_authority && let Err(e) = super::origin_gate::require_user(mux, client) {
         return Some(reply(writer, request.id, Err(e)));
     }
@@ -319,6 +335,7 @@ pub(super) fn try_handle(
                 grant: grant.map(|g| (g.scope, g.granted)),
             },
         ),
+        Command::Store { op, args } => supervisor.store_call(client, &op, args, origin),
         Command::Mount { app, interface, mount_id, context } => {
             supervisor.mount(client, &mount_id, &app, &interface, context)
         }

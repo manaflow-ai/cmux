@@ -1,8 +1,14 @@
 /// <reference types="vite/client" />
-import { createRootRoute, HeadContent, Link, Outlet, Scripts } from "@tanstack/react-router"
+import { createRootRoute, HeadContent, Link, Outlet, Scripts, useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
-import { signOut } from "../lib/server"
+import { useLocale } from "../lib/approval-strings"
+import { useLoad } from "../lib/hooks"
+import { read, signOut } from "../lib/server"
 import { setSignedIn, useSignedIn } from "../lib/session"
+import { TeamsContext } from "../lib/team-api"
+import { TeamForbidden, TeamPicker } from "../lib/team-picker"
+import { keepTeam, notMemberOf, parseTeamSearch, searchForTeam, type TeamsList } from "../lib/team-scope"
+import { teamText } from "../lib/team-strings"
 
 const css = `
 :root { color-scheme: light dark; --fg:#111; --bg:#fafafa; --muted:#666; --line:#ddd; --card:#fff; --accent:#2563eb; --bad:#b91c1c; }
@@ -36,6 +42,8 @@ export const Route = createRootRoute({
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
     ]
   }),
+  // ?team=<id> (cx-5xew): the team every page acts in; absent = the personal team.
+  validateSearch: parseTeamSearch,
   shellComponent: Shell,
   component: Layout
 })
@@ -57,26 +65,43 @@ function Shell({ children }: { children: ReactNode }) {
 
 function Layout() {
   const signedIn = useSignedIn()
+  const locale = useLocale()
+  const { team } = Route.useSearch()
+  const navigate = useNavigate()
+  // Read without a team (the personal scope), so the list loads even when the URL's team refuses the caller.
+  const teams = useLoad<TeamsList>(signedIn ? "user-teams" : null, async () => {
+    const r = await read({ data: { op: "user.teams.list", params: {} } })
+    if (r.status === 401) setSignedIn(false)
+    if (r.status !== 200) throw new Error(`user.teams.list ${r.status}`)
+    return r.body.value as unknown as TeamsList
+  })
+  const list = teams.data
+  const pick = (id: string) => void navigate({ to: ".", search: ((prev: Record<string, unknown>) => searchForTeam(prev, list?.teams, id)) as never })
+  const personal = list?.teams.find((t) => t.kind === "personal")?.id
+  // The server's list is TeamDO-confirmed: a URL team a complete list does not have is refused on every call.
+  const refused = signedIn && list && !list.incomplete && notMemberOf(list.teams, team) ? team : undefined
   return (
-    <>
+    <TeamsContext.Provider value={{ list, reload: teams.reload }}>
       <header>
         <strong>cmux Cloud (next)</strong>
-        <Link to="/devices" activeProps={{ className: "active" }}>
+        <Link to="/devices" search={keepTeam} activeProps={{ className: "active" }}>
           Devices
         </Link>
-        <Link to="/team" activeProps={{ className: "active" }}>
+        <Link to="/team" search={keepTeam} activeProps={{ className: "active" }}>
           Team
         </Link>
-        <Link to="/automations" activeProps={{ className: "active" }}>
+        <Link to="/automations" search={keepTeam} activeProps={{ className: "active" }}>
           Automations
         </Link>
-        <Link to="/integrations" activeProps={{ className: "active" }}>
+        <Link to="/integrations" search={keepTeam} activeProps={{ className: "active" }}>
           Integrations
         </Link>
-        <Link to="/policy" activeProps={{ className: "active" }}>
+        <Link to="/policy" search={keepTeam} activeProps={{ className: "active" }}>
           Policy
         </Link>
         <span style={{ flex: 1 }} />
+        {signedIn && list ? <TeamPicker teams={list.teams} selected={team} locale={locale} onSelect={pick} /> : null}
+        {signedIn && teams.loading && !list ? <span className="muted">{teamText(locale, "picker.loading")}</span> : null}
         {signedIn ? (
           <button onClick={() => void signOut().then(() => setSignedIn(false))}>Sign out</button>
         ) : signedIn === false ? (
@@ -84,8 +109,10 @@ function Layout() {
         ) : null}
       </header>
       <main>
-        <Outlet />
+        {teams.error ? <p className="error">{teamText(locale, "picker.error", { error: teams.error })}</p> : null}
+        {list?.incomplete ? <p className="muted">{teamText(locale, "picker.incomplete")}</p> : null}
+        {refused ? <TeamForbidden team={refused} locale={locale} onPersonal={() => personal && pick(personal)} /> : <Outlet />}
       </main>
-    </>
+    </TeamsContext.Provider>
   )
 }

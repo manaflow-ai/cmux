@@ -20,7 +20,7 @@ public struct SidebarMock {
                     id: WorkspaceID("ws-new-\(counter)"),
                     machineID: machineID,
                     title: "Workspace \(counter)",
-                    subtitle: "~"
+                    directory: "~"
                 )
                 insert(ws, into: model, group: group)
                 model.click(ws.id)
@@ -28,35 +28,6 @@ public struct SidebarMock {
             }
             model.apply(intent)
         }
-        return model
-    }
-
-    /// Scale fixture: `count` workspaces in groups of 10 on one machine.
-    public static func makeLargeModel(count: Int) -> SidebarModel {
-        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        var nodes: [SidebarNode] = []
-        var made = 0
-        var groupIndex = 0
-        while made < count {
-            let size = min(10, count - made)
-            let items = (0..<size).map { i in
-                SidebarWorkspace(
-                    id: WorkspaceID("ws-\(made + i)"),
-                    title: "workspace \(made + i)",
-                    subtitle: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
-                    activity: i == 3 ? .busy : .idle
-                )
-            }
-            made += size
-            if groupIndex.isMultiple(of: 3) {
-                nodes.append(contentsOf: items.map(SidebarNode.workspace))
-            } else {
-                let color = GroupColor.allCases[groupIndex % GroupColor.allCases.count]
-                nodes.append(.group(SidebarGroup(id: GroupID("grp-\(groupIndex)"), name: "group \(groupIndex)", color: color, workspaces: items)))
-            }
-            groupIndex += 1
-        }
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("ws-0"))
         return model
     }
 
@@ -82,7 +53,7 @@ public struct SidebarMock {
             let isAgentLine = subtitle.map { $0.hasPrefix("Claude:") || $0.hasPrefix("Codex:") } ?? false
             return SidebarWorkspace(
                 id: WorkspaceID(id), machineID: machine, title: title,
-                subtitle: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
+                directory: isAgentLine ? nil : subtitle, status: isAgentLine ? subtitle : nil,
                 icon: icon, unread: unread, activity: activity
             )
         }

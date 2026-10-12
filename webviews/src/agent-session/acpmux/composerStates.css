@@ -7,12 +7,14 @@
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
    its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
    the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
-   no-preference, as the transcript's do (conversation/motion.test.ts). */
+   no-preference, as the transcript's do. */
 :root {
   --agent-motion-hover: 80ms;
   --agent-motion-focus: 100ms;
   --agent-motion-in: 120ms;
   --agent-motion-out: 80ms;
+  /* The native move spring's timed equivalent (MotionSpring.move). */
+  --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
 }
@@ -29,20 +31,42 @@
   background: var(--acpmux-composer-press);
 }
 .acpmux-plan[aria-pressed="true"]:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 22%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
 .acpmux-plan[aria-pressed="true"]:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 28%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
 }
 
-/* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
+/* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
+.acpmux-steer {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.acpmux-steer:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-steer:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+}
+
+/* Send and Stop: the one filled control, in the accent (the terminal theme's text color, or its own
+   hue with appearance.accent; never the ANSI blue); it steps toward the base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover,
 .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active,
 .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
@@ -96,7 +120,6 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
     opacity: 0;
   }
 }
-
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
@@ -151,7 +174,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: 40vh;
+  max-height: calc(22px * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;
@@ -161,12 +184,60 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   overflow-y: auto;
   font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
-  caret-color: var(--acpmux-shell-accent);
+  caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
 .acpmux-shell-field::placeholder {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
 }
+/* Focus in the composer: its rounded edge takes one tonal step, as the New Tab box does
+   (newtab/screen.css). The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+.acpmux-composer-box:focus-within {
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 28%, var(--acpmux-composer-edge));
+}
+.acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
+}
+/* Under Increase Contrast the edge is already the text color, so the step above would not show:
+   the box takes the shared focus ring, following its rounded corners. */
+@media (prefers-contrast: more) {
+  .acpmux-composer-box:focus-within,
+  .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+    box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
+  }
+}
 .acpmux-composer[data-shell] .acpmux-composer-box {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+
+/* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row
+   focused from the keyboard shows its ring and its actions; an edit takes the text's place. */
+.acpmux-queued-menu {
+  display: contents;
+}
+.acpmux-queued:focus {
+  outline: none;
+}
+.acpmux-queued:focus-visible {
+  border-radius: 6px;
+  background: var(--acpmux-composer-hover);
+}
+.acpmux-queued:focus-visible .acpmux-queued-actions {
+  opacity: 1;
+}
+.acpmux-queued-edit {
+  flex: 1;
+  min-width: 0;
+  max-height: 88px;
+  margin: 2px 0;
+  padding: 2px 6px;
+  resize: none;
+  line-height: 18px;
+  border: 0;
+  border-radius: 6px;
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1px;
+  background: var(--acpmux-base);
+  color: var(--agent-text);
+  font: inherit;
 }

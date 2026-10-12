@@ -6,27 +6,53 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_message;
+#[cfg(unix)]
+mod agents;
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+#[cfg(unix)]
+mod chief;
+mod chief_target;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
+mod codex_app_server;
 mod command;
 mod docs;
 mod extra_help;
 mod federation;
+mod fix_command;
+#[cfg(unix)]
+mod frontend_browser;
+#[cfg(unix)]
+mod host_mount;
+mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+#[cfg(unix)]
+pub(crate) use host_mount::early_unix_scope;
+mod machine_server;
+#[cfg(test)]
+use machine_server::ServerRoute;
+pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
 mod resolve;
 mod scope_help;
 mod screen_help;
+#[cfg(unix)]
+mod script;
 mod shorthand;
+#[cfg(unix)]
+mod skew;
+#[cfg(unix)]
+mod status;
 mod surface;
 mod topology_help;
 mod wire;
@@ -56,6 +82,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "room",
     "closed",
     "git",
+    "conversation",
     "sidebar",
     "pairing",
     "projection",
@@ -66,8 +93,17 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] =
-    &["machine", "session", "client", "sidebar", "pairing", "projection", "provider", "raw"];
+const CMUX_TUI_ONLY_SCOPES: &[&str] = &[
+    "machine",
+    "session",
+    "client",
+    "sidebar",
+    "pairing",
+    "projection",
+    "provider",
+    "raw",
+    "conversation",
+];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -192,12 +228,34 @@ pub(super) fn canonical_scope(value: &str) -> &str {
     shorthand::scope(value)
 }
 
+/// Rewrites a pre-D1 `cmux server <lifecycle verb>` to `cmux daemon <verb>`
+/// (with the deprecation hint), so `main` routes `server start` to the
+/// headless startup like `daemon start`. No-op elsewhere.
+pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
+    if let Some(rewritten) = machine_server::deprecated_lifecycle(args, Surface::current()) {
+        *args = rewritten;
+    }
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    let lifecycle_args;
+    let args = match machine_server::run_if_requested(args, surface) {
+        Some(machine_server::Mount::Exit(code)) => return code,
+        Some(machine_server::Mount::Lifecycle(rewritten)) => {
+            lifecycle_args = rewritten;
+            lifecycle_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| agents::run_if_requested(args))
+        .or_else(|| chief::run_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
+        .or_else(|| script::run_if_requested(args))
+        .or_else(|| status::run_args(args))
     {
         return code;
     }
@@ -231,6 +289,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 command::run_provider_authority(global, authority)
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
+            CommandPlan::AgentMessage(plan) => agent_message::run_message(global, *plan),
+            CommandPlan::AgentInbox(plan) => agent_message::run_inbox(global, plan),
         },
         Err(failure) => {
             // Words the mux grammar does not know may name an app action
@@ -240,10 +300,22 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             if let Some(code) = run_app_action_fallback(args) {
                 return code;
             }
+            // A command this build does not know may be one the daemon's
+            // build knows: run that daemon's CLI (cli/skew.rs).
+            #[cfg(unix)]
+            let skew = parse_globals(args)
+                .ok()
+                .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
+            #[cfg(not(unix))]
+            let skew: Option<String> = None;
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
                 failure.error.to_string()
+            };
+            let message = match skew {
+                Some(skew) => format!("{message}\n{skew}"),
+                None => message,
             };
             wire::print_local_error(
                 &serde_json::json!({
@@ -315,6 +387,9 @@ fn parse_command(
     command_args: Vec<String>,
     surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
+    if let Some(decided) = machine_server::cmux_words(&command_args, surface) {
+        return decided;
+    }
     let mut command_args = shorthand::normalize(&command_args, surface)?;
     federation::apply_qualifiers(&mut global, &mut command_args)?;
     if command_args.is_empty() {
@@ -342,9 +417,6 @@ fn parse_command(
         return Err(UsageError::new(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
-    }
-    if command_args[0] == "daemon" {
-        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
     if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
         return Err(error);
@@ -595,6 +667,10 @@ fn apply_idempotency_key(plan: &mut CommandPlan, key: Option<&str>) -> Result<()
             request.idempotency_key = Some(key.to_owned());
             Ok(())
         }
+        CommandPlan::AgentMessage(message) => {
+            message.idempotency_key = Some(key.to_owned());
+            Ok(())
+        }
         _ => Err(UsageError::new("--idempotency-key is accepted only for mutations")),
     }
 }
@@ -640,6 +716,7 @@ fn scope_help_for(
 ) -> Cow<'static, str> {
     let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
@@ -665,6 +742,7 @@ fn scope_help_for(
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
+        "conversation" => Cow::Borrowed(scope_help::CONVERSATION_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
@@ -808,6 +886,9 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
+  cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
+  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
@@ -833,6 +914,8 @@ const PAIRING_HELP: &str = "\
 USAGE
   cmux pairing request list
   cmux pairing request <selector> respond <accept|reject>
+
+  accept works only from the cmux app or the TUI that runs the daemon.
 ";
 
 const PROJECTION_HELP: &str = "\

@@ -9,8 +9,10 @@ public nonisolated struct StatusReport: Hashable, Sendable, Identifiable {
         case explicit
         /// `cmux status run -- cmd`.
         case run
-        /// Agent hooks (Claude, Codex, ...).
+        /// Agent hooks (Claude, Codex, ...) and acpmux turns.
         case agent
+        /// OSC 7501 program status from any terminal program.
+        case program
         /// OSC 9;4 progress the terminal program emitted.
         case terminalProgress
         /// A browser page loading.
@@ -20,9 +22,10 @@ public nonisolated struct StatusReport: Hashable, Sendable, Identifiable {
 
         var rank: Int {
             switch self {
-            case .explicit: 6
-            case .run: 5
-            case .agent: 4
+            case .explicit: 7
+            case .run: 6
+            case .agent: 5
+            case .program: 4
             case .terminalProgress: 3
             case .browser: 2
             case .command: 1
@@ -81,7 +84,7 @@ public nonisolated enum StatusStack {
         switch state {
         case .error: 6
         case .waiting: 5
-        case .busy: 4
+        case .busy, .working: 4
         case .paused: 3
         case .success: 2
         case .idle: 0
@@ -108,11 +111,5 @@ public nonisolated enum StatusStack {
         let visible = reports.filter { $0.state.isVisible }.sorted(by: precedes)
         guard let top = visible.first else { return .idle }
         return StatusSummary(state: top.state, style: honoring.contains(top.source) ? top.style : nil, reports: visible)
-    }
-
-    /// A parent's summary (a workspace over its tabs, a collapsed group over
-    /// its workspaces): every child's reports merged.
-    public static func rollUp(_ children: [StatusSummary], own: [StatusReport] = []) -> StatusSummary {
-        resolve(children.flatMap(\.reports) + own)
     }
 }

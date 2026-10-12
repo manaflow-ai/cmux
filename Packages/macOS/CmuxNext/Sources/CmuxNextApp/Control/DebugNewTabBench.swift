@@ -24,6 +24,30 @@ enum DebugNewTabBench {
         } until: { _ in true }
     }
 
+    /// `bench_open`: Cmd-T in the focused pane of window `window`; measured until that pane shows
+    /// the new tab page and its strip shows the tab. `opening` says whether a spare was adopted and
+    /// whether it had to change size (a relayout at adoption), `frames.first_tick_ms` when the
+    /// first display frame after the key came.
+    static func open(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
+        guard let pane = controller.content?.focusedPane else { return .object(["error": .string("no focused pane")]) }
+        let before = services.newTabSpares.openings.count
+        var result = await run(services) {
+            _ = DebugKey.send(["key": .string("t"), "modifiers": .array([.string("command")]), "window": .string(controller.state.id)],
+                              services: services)
+        } until: { _ in
+            guard services.newTabSpares.openings.count > before, let key = pane.currentTabKey else { return false }
+            return services.agentTabs.isNewTabPage(key) && pane.view.stripView.presentedTabIDs.contains { $0.rawValue == key }
+        }
+        if case .object(var fields) = result {
+            let opening = services.newTabSpares.openings.count > before ? services.newTabSpares.openings.last : nil
+            fields["opening"] = opening.map {
+                .object(["spare": .bool($0.spare), "refit": .bool($0.refit), "ms": .number($0.milliseconds)])
+            } ?? .null
+            result = .object(fields)
+        }
+        return result
+    }
+
     /// `bench_bang`: `!` typed into the focused new tab page; measured until a terminal shows.
     static func bang(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
         guard let pane = controller.content?.focusedPane, let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) else {
@@ -70,6 +94,9 @@ final class BenchFrames {
     private var intervals: [Double] = []
     private var refresh: Double = 0
     private var waiter: Waiter?
+    private var startedAt = ContinuousClock.now
+    /// Ms from ``start()`` to the first display frame after it.
+    private var firstTick: Double?
 
     private struct Waiter {
         var done: () -> Bool
@@ -90,6 +117,8 @@ final class BenchFrames {
 
     func start() {
         last = 0
+        startedAt = .now
+        firstTick = nil
         intervals.removeAll(keepingCapacity: true)
         client.activate()
     }
@@ -101,12 +130,14 @@ final class BenchFrames {
         return .object([
             "count": .number(Double(intervals.count)), "refresh_ms": .number(period),
             "max_ms": .number(intervals.max() ?? 0), "missed": .number(Double(missed)),
+            "first_tick_ms": firstTick.map { .number($0) } ?? .null,
             "intervals_ms": .array(intervals.prefix(64).map { .number(($0 * 100).rounded() / 100) }),
         ])
     }
 
     private func tick(_ tick: FrameTick) {
         if let interval = tick.refreshInterval { refresh = interval }
+        if firstTick == nil { firstTick = BenchSpans.ms(.now - startedAt) }
         if last > 0 { intervals.append((tick.timestamp - last) * 1_000) }
         last = tick.timestamp
         guard var waiting = waiter else { return }

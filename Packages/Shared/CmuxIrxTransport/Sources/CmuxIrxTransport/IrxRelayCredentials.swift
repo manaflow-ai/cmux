@@ -58,7 +58,7 @@ public struct IrxRelayCredentialPolicy: Sendable {
         // Keep the potentially huge server duration out of Double/Int64
         // millisecond conversions, which can overflow or round it down.
         let jitterMilliseconds = Double(min(floor, 120)) * 250 * jitter
-        return .seconds(floor) + .milliseconds(Int64(jitterMilliseconds))
+        return .seconds(floor) + .milliseconds(jitterMilliseconds.saturatedInteger(Int64.self) ?? 0)
     }
 }
 

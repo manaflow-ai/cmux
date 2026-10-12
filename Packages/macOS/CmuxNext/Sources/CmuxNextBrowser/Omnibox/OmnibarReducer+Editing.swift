@@ -56,6 +56,7 @@ nonisolated extension OmnibarStep {
         let atEnd = selection == Self.caretAtEnd(text)
         state.phase = .editing
         state.edit = .init(userText: text, selection: selection, suppressCompletion: kind != .insert || !atEnd)
+        if kind == .paste { state.editHasPaste = true } else if text.isEmpty { state.editHasPaste = false }
 
         // Typing the next characters of a shown completion keeps the rest
         // of it on screen until fresh rows arrive (no flicker).

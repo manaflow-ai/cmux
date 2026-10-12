@@ -3,13 +3,16 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextPages
 import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
+import os
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -20,71 +23,76 @@ final class AppServices {
     let launchReveal: LaunchReveal
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
+    /// Crash and exception reports to Sentry (cx-urd.58); started only for the app process.
+    let crashReporting: AppCrashReporting
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
-    /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
-    private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
+    /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
+    private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
-    /// The app's key window. Tests and `debug.key` replace it: a window
-    /// only becomes key in a running, active app.
+    /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
-    private(set) var cloud: CloudService!
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
-    private(set) var feed: FeedService!
+    private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    private(set) var ssh: SSHService!
+    private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
-    private(set) var updateSheet: UpdateSheetController!
+    private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts.
     var settings: SettingsController?
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
-    private(set) var cache: TabContentCache!
-    private(set) var windows: WindowManager!
-    private(set) var dragSession: TabDragSession!
-    private(set) var palette: PaletteController!
-    private(set) var previews: TabPreviewSource!
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
+    private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
+    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
+    private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
+                                                                          usage: DaemonPaletteUsageStore(services: self))  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
-    private(set) var resources: AppResourceSource!
+    private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
-    /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
-    var inputMonitor: InputInvariantMonitor!
-    var inputGeometryObservers: [any NSObjectProtocol] = []
-    /// No-activate mode only: gives back a keyboard the user did not give.
-    var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
-    private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
-    /// Reopen Closed Tab history; set when the tab handlers bind.
-    var closedTabs: ClosedTabTracker?
+    /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
+    let input = InputVerificationService()
+    private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
+    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
+    private(set) lazy var modelRouter: ModelRouterLease? = {
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
+                                                               environment: ProcessInfo.processInfo.environment) else { return nil }
+        return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
+                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
+    }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
-    /// Recently closed workspaces (history lists).
-    private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
@@ -99,17 +107,17 @@ final class AppServices {
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
-    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
+    lazy var sidebarLayout: SidebarLayoutService = {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
         return service
     }()
-    /// Recently closed screens (Reopen Closed Screen).
-    let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
+    /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
+    let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
@@ -117,18 +125,20 @@ final class AppServices {
     let newTabTypeAhead = NewTabTypeAhead()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
+    /// The spare React page hosts for Settings, History and Cloud.
+    private(set) lazy var pageHostPool = PageHostPool()
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) var configActions: ConfigActionsController!
+    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
-    private(set) var keyRouter: KeyRouter!
-    private(set) var chromiumWarmup: ChromiumWarmup!
+    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
@@ -139,13 +149,17 @@ final class AppServices {
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
+    /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
+    private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// Room, workspace and terminal themes.
-    private(set) var themes: ThemeCoordinator!
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
-    private(set) var remoteLocalhost: RemoteLocalhostService!
+    private(set) lazy var remoteLocalhost: RemoteLocalhostService = RemoteLocalhostService(machines: machines)  // first read in init (no IUO)
+    /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
@@ -155,12 +169,18 @@ final class AppServices {
     let popups: BrowserPopupPanels
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Click by Hint over the whole window (`hints.show`, Cmd-J).
+    let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
-    /// The sidebar's Recents (nil without acpmux), watched once for every window.
-    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
+    /// The device-wide Chats index (nil without acpmux), watched once for every window.
+    private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.started(for: self)
+    /// Relays the Chats index and editor sources into the daemon's project list.
+    private(set) lazy var projectsImport = ProjectsImport(services: self)
+    /// Shared Open Chat path for sidebar clicks and palette Return.
+    private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
@@ -179,7 +199,9 @@ final class AppServices {
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
-    private(set) var remoteTerminals: RemoteTerminalService!
+    private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
+    /// Cross-build session discovery and acknowledge-then-close handoff.
+    private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -190,34 +212,35 @@ final class AppServices {
         popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
+        // After the run marker's handlers: Sentry calls them after its report.
+        crashReporting = AppCrashReporting(environment: environment)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
-        cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
-        feed = FeedService(auth: cloud.auth, showcase: environment.showcase)
-        ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
+        _ = cloud  // built here, as before
+        _ = feed  // built here, as before
+        _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
-        cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
-        themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
-        remoteLocalhost = RemoteLocalhostService(machines: machines)
-        cache.configureBrowser = { [weak self] tab, url, base in
-            await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
+        _ = cache  // built here, as before
+        _ = themes  // built here, as before
+        _ = remoteLocalhost  // built here, as before
+        cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
+            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
+            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in
             self?.home.releaseTabView(key)
             self?.madeAgentTabs?.releaseIfGone(key)
+            self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
-        cache.machineBadge = { [weak self] key, url in
-            guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
-            let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            return remoteLocalhost.badge(for: tab, url: url, engine: engine)
-        }
+        cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
-        cache.cef.onReady = { [crashRecovery] in
+        cache.cef.onReady = { [crashRecovery, crashReporting] in
             crashRecovery.marker?.installHandlers()
+            crashReporting.reporter.reassertSignalHandlers()
             // Chromium resets signal actions at start and catches SIGINT and
             // SIGHUP itself; they stay requested quits.
             QuitSignal.reclaim()
@@ -232,13 +255,10 @@ final class AppServices {
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
         cache.browserTabs.isIncognitoTab = { [weak self] key in
-            guard let self, let windows, let workspace = workspaceID(ofTab: key) else { return false }
+            guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        cache.browserTabs.isIncognitoPane = { [weak self] pane in
-            guard let self, let windows, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
-            return windows.isIncognito(workspace: workspace)
-        }
+        wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
         cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
         cache.profileBadgeMenu = { [weak self] key in
@@ -248,25 +268,31 @@ final class AppServices {
         }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
-            return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
+            return browserProfiles.profileForNewTab(in: pane.handle, on: machines.daemon(forPane: pane), explicit: explicit)
         }
-        emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
+        _ = emptyWorkspaces  // built here, as before
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self
-        keyRouter = KeyRouter(registry: registry)
+        _ = keyRouter  // built here, as before
         keyRouter.services = self
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
-        cache.onBrowserEntryCreated = { [registry, unowned self] entry in
+        cache.onBrowserEntryCreated = { [registry, weak self] entry in
+            guard let self else { return }
             PageInfoHandlers.installRouter(on: entry, registry: registry)
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
+            onboarding.browserImportOffer.attach(entry)
+            attachMachineBadgeMenu(entry)
         }
-        cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
+        cache.onSuggestionEngineCreated = { [weak self] in
+            guard let self else { return }
+            BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0)
+        }
         cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
-        cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
+        cache.makeExtensionMenuHandler = { [weak self] key in self.map { ExtensionMenuRouter(services: $0, tabKey: key) } }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
@@ -274,28 +300,25 @@ final class AppServices {
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
-        cache.onPresentationChange = { [weak self] in
-            self?.surfaceInvariant.noteChange()
-            self?.browserHost?.provider.refreshTabs()
-        }
-        resources = AppResourceSource(services: self)
-        windows = WindowManager(services: self)
+        cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
+        _ = resources  // built here, as before
+        _ = windows  // built here, as before
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
         }
-        dragSession = TabDragSession(services: self)
-        previews = TabPreviewSource(cache: cache)
-        remoteTerminals = RemoteTerminalService(services: self)
+        _ = dragSession  // built here, as before
+        _ = previews  // built here, as before
+        _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
-        palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
+        _ = palette  // built here, as before
         terminalDelegate.services = self
-        configActions = ConfigActionsController(context: AppActionContext(services: self))
-        let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
-        self.updateSheet = updateSheet
+        _ = configActions  // built here, as before
+        let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
@@ -303,9 +326,8 @@ final class AppServices {
             }
         }
         observePaletteForFocus()
-        startInputVerification()
-        startNoActivateGuard()
-        chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        input.start(services: self)
+        _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
         notifications.start(services: self)
@@ -315,20 +337,19 @@ final class AppServices {
             self?.browserHost?.noteInput(event)
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
     }
-
     // MARK: Lookup
-
     /// The tab with durable id `id` and the pane that holds it.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps
-                    // its first id; links name it by the resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                    // A tab first seen without a `tab_` resource id keeps its first id; links
+                    // (and TabMirror's wait) name it by the observed resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
                         return (tab, pane)
                     }
                 }
@@ -336,7 +357,6 @@ final class AppServices {
         }
         return nil
     }
-
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
         daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
@@ -345,7 +365,6 @@ final class AppServices {
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
-
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)

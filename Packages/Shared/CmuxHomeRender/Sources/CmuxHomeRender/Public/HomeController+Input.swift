@@ -33,15 +33,16 @@ extension HomeController {
         return more
     }
 
-    /// The owner refused a send before logging it (for example while offline,
-    /// where nothing queues): the field gets its text back if it is still empty.
+    /// The store refused a send before logging it (a stopped store; a send
+    /// made offline waits for the reconnect instead): the field gets its
+    /// text back if it is still empty.
     public func restoreDraft(for key: IdempotencyKey) {
         guard let pending = pendingSend, pending.intent.key == key else { return }
         pendingSend = nil
         pendingOrigins = [:]
         if scene.hostedField != nil {
             onRestoreDraft(pending.text)
-            if case .sendMessage(_, let parts) = pending.intent.op {
+            if case .sendMessage(_, let parts, _) = pending.intent.op {
                 let refs = parts.compactMap { part -> AttachmentRef? in
                     if case .attachment(let ref) = part { ref } else { nil }
                 }

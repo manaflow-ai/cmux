@@ -20,7 +20,6 @@ nonisolated enum HomeStrings {
         String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",
                               table: "Home", bundle: .module), built, total)
     }
-    static var thisMacOnly: String { String(localized: "home.owner.local", defaultValue: "This Mac only", table: "Home", bundle: .module) }
     static var archiveDefaultChief: String {
         String(localized: "home.chief.archive.default", defaultValue: "Make another Chief the default before archiving this one.",
                table: "Home", bundle: .module)

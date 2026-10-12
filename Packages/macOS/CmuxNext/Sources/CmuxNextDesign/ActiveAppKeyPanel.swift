@@ -51,7 +51,7 @@ open class ActiveAppKeyPanel: NSPanel {
         keyElsewhereObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
                                                                       queue: .main) { [weak self] note in
             let window = note.object as? NSWindow
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self, let window, window !== self, !self.isKeyWindow else { return }
                 self.stopWatching()
                 // Owners ignore it once the panel is closed.
@@ -65,7 +65,11 @@ open class ActiveAppKeyPanel: NSPanel {
         keyElsewhereObserver = nil
     }
 
-    isolated deinit {
-        stopWatching()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            stopWatching()
+        }
     }
 }

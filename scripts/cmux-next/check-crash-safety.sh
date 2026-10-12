@@ -25,7 +25,7 @@ set -euo pipefail
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python3 - "$root" <<'PY'
-import os, re, sys
+import os, re, subprocess, sys
 
 root = sys.argv[1]
 sources = os.path.join(root, "Sources")
@@ -43,26 +43,38 @@ def code_of(line):
 def allowed(lines, index):
     return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
 
+def swift_sources():
+    # Only tracked files count: ignored build or sync output in a per-job tree
+    # must never fail the check (2026-10-07). Outside git it refuses (exit 2).
+    try:
+        # Paths relative to `sources` (git -C prints them relative to that directory).
+        out = subprocess.run(["git", "-C", sources, "ls-files", "-z", "--", "."],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+        return sorted(os.path.join(sources, p) for p in out.split("\0") if p)
+    except (OSError, subprocess.CalledProcessError) as error:
+        # Walking every file counts build output: refuse, as crash_ratchet.py does (2026-10-09).
+        print(f"check-crash-safety: refused: {sources} is not in a git checkout ({error})", file=sys.stderr)
+        sys.exit(2)
+
 failures = []
-for dirpath, _, files in os.walk(sources):
-    for name in sorted(files):
-        if not name.endswith(".swift"):
+for path in swift_sources():
+    name = os.path.basename(path)
+    if not name.endswith(".swift") or not os.path.isfile(path):
+        continue
+    rel = os.path.relpath(path, root)
+    module = os.path.relpath(path, sources).split(os.sep)[0]
+    lines = open(path, encoding="utf-8").read().split("\n")
+    text = "\n".join(lines)
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//"):
             continue
-        path = os.path.join(dirpath, name)
-        rel = os.path.relpath(path, root)
-        module = os.path.relpath(path, sources).split(os.sep)[0]
-        lines = open(path, encoding="utf-8").read().split("\n")
-        text = "\n".join(lines)
-        for index, line in enumerate(lines):
-            if line.lstrip().startswith("//"):
-                continue
-            code = code_of(line)
-            if TRY_BANG.search(code) and not allowed(lines, index):
-                failures.append(f"{rel}:{index + 1}: try! (throw a typed error instead)")
-            if module in EXTERNAL and FORCE.search(code) and not allowed(lines, index):
-                failures.append(f"{rel}:{index + 1}: force unwrap or as! in a module that decodes external data")
-        if SOCKET.search(text) and not NOSIGPIPE.search(text):
-            failures.append(f"{rel}: makes or accepts a socket without SO_NOSIGPIPE or MSG_NOSIGNAL")
+        code = code_of(line)
+        if TRY_BANG.search(code) and not allowed(lines, index):
+            failures.append(f"{rel}:{index + 1}: try! (throw a typed error instead)")
+        if module in EXTERNAL and FORCE.search(code) and not allowed(lines, index):
+            failures.append(f"{rel}:{index + 1}: force unwrap or as! in a module that decodes external data")
+    if SOCKET.search(text) and not NOSIGPIPE.search(text):
+        failures.append(f"{rel}: makes or accepts a socket without SO_NOSIGPIPE or MSG_NOSIGNAL")
 
 entry = os.path.join(sources, "CmuxNextApp", "CmuxNextApp.swift")
 if "ChildSignalDefaults.installAppSignalPolicy()" not in open(entry, encoding="utf-8").read():

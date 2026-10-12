@@ -317,6 +317,35 @@ class LocalResolverTests(TempRepoCase):
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
 
+    def test_former_web_bundles_stay_out_of_a_tree_that_builds_them(self) -> None:
+        """cx-vn5: the cmux-next web bundles are build output. Main still commits the
+        webviews app; a sync into feat-cmux-next keeps it deleted, new files included."""
+        chunk = "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
+        self.seed(chunk, "base chunk\n")
+        git(self.repo, "rm", "-q", chunk)
+        commit(self.repo, "build output", {
+            "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md": "placeholder\n"})
+        green = self.main_commit("main rebuilds the app", {
+            chunk: "main chunk\n", "Resources/markdown-viewer/webviews-app/chunks/new.mjs": "new\n",
+            "main.txt": "main\n"})
+        code, output = self.run_merge({green: "success"})
+        self.assertEqual(code, 0, output)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), green)
+        self.assertEqual(git(self.repo, "ls-files", "--", "Resources/markdown-viewer/webviews-app"), "")
+        self.assertEqual(git(self.repo, "ls-files", "--", "main.txt"), "main.txt")
+        self.assertIn("web bundle build output since cx-vn5: 2 file(s) kept out of the index", output)
+
+    def test_a_tree_that_commits_the_bundles_still_stops_on_their_conflicts(self) -> None:
+        chunk = "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
+        self.seed(chunk, "base chunk\n")
+        git(self.repo, "rm", "-q", chunk)
+        before = commit(self.repo, "delete the chunk", {"feature.txt": "feature\n"})
+        green = self.main_commit("main chunk", {chunk: "main chunk\n"})
+        code, output = self.run_merge({green: "success"})
+        self.assertEqual(code, 1, output)
+        self.assertIn("deleted on one side and changed on the other", output)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), before)
+
 
 class ClassificationTests(TempRepoCase):
     def test_inherited_and_introduced_failures_are_told_apart(self) -> None:

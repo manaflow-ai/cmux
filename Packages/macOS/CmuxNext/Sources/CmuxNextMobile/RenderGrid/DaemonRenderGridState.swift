@@ -51,8 +51,9 @@ public struct DaemonRenderGridState: Sendable {
             // A resizing delta: keep the rows that still fit, blank the new ones.
             rows = Array(rows.prefix(rowCount)) + Array(repeating: [], count: max(0, rowCount - rows.count))
         }
-        for row in frame.rows where row.row >= 0 && row.row < rows.count {
-            rows[row.row] = row.runs
+        // A row outside the grid is skipped.
+        for row in frame.rows where rows.indices.contains(row.row) {
+            rows.replaceSubrange(row.row...row.row, with: [row.runs])
         }
         cursor = frame.cursor
         if let fg = frame.defaultFG { defaultFG = fg }

@@ -16,7 +16,8 @@ public struct CuaSocketClient: Sendable {
         let line = AgentActivityWire.requestLine(method: method, args: args, authToken: configuration.authToken,
                                                  hostAuthToken: configuration.hostAuthToken)
         let data = try await AgentActivityLineConnection.oneShot(path: configuration.socketPath, send: line,
-                                                                 deadline: deadline)
+                                                                 deadline: deadline,
+                                                                 acceptsServer: CuaHelperIdentity.isHelperServer)
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw AgentActivitySourceError.malformed
         }

@@ -9,11 +9,14 @@ import os
 /// menu, palette, or context-menu run of a destructive action shows
 /// before it runs. Scripted runs never get here (they pass `confirm`).
 ///
-/// Closing a workspace asks only while one of its terminals runs a
+/// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
+/// and an undo toast offers them back). Closing a workspace, a group's
+/// workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
-/// on; that question has "Don't ask again". Delete Space follows the same
-/// rule for the workspaces it closes. The other destructive actions
-/// always ask. A target that does not resolve is not asked about: the
+/// on; a tab group follows the tab close rule (`TabCloseGuard`); those
+/// questions have "Don't ask again". Forget Machine has an undo toast and
+/// no question. The Cloud deletes, profile delete, agent extension access
+/// and remote install still ask. A target that does not resolve is not asked about: the
 /// handler then refuses it with the usual typed reason.
 enum DestructiveConfirmation {
     struct Prompt: Equatable {
@@ -46,28 +49,32 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
-        case "workspaceGroup.delete", "workspaceGroup.closeWorkspaces":
-            guard let group = try? context.group(invocation) else { return nil }
-            let daemon = services.machines.daemons.first { $0.store.group(group.id) === group }
-            let count = daemon?.store.workspaces.filter { $0.group == group.id }.count ?? 0
+        case "workspaceGroup.closeWorkspaces":
+            // No question of its own (an undo toast offers the workspaces back):
+            // only a foreground program in them asks, as for Close Workspace.
+            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
+                  let group = try? context.group(invocation) else { return nil }
+            let members = WorkspaceGroupClose.members(of: group, context)
+            var programs: [String] = []
+            for (workspace, daemon) in members { programs += await runningPrograms(in: workspace, on: daemon) }
+            guard !programs.isEmpty else { return nil }
             let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-            return id == "workspaceGroup.delete"
-                ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
-                : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
-                         button: ConfirmationStrings.close)
+            return Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name),
+                          body: ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),
+                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
         case "browser.allowAgentWithExtensions":
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
-        case "remote.install", "remote.forget":
+        case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "tabGroup.close":
-            guard let (group, count) = tabGroup(invocation, context) else { return nil }
-            let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-            return Prompt(title: ConfirmationStrings.closeTabGroupTitle(name), body: ConfirmationStrings.tabGroupBody(count),
-                          button: ConfirmationStrings.close)
+            // The rule of every tab close (TabCloseGuard): the undo toast
+            // brings the group back, so only work in progress asks.
+            guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
+            return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
         case "closeWorkspace":
             guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
                   let workspace = context.scope(invocation).workspace,
@@ -75,7 +82,7 @@ enum DestructiveConfirmation {
             let programs = await runningPrograms(in: workspace, on: daemon)
             guard !programs.isEmpty else { return nil }
             return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
-                          body: ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
+                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
                           suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
             return nil
@@ -105,16 +112,16 @@ enum DestructiveConfirmation {
         }
     }
 
-    /// The targeted (or focused tab's) open tab group and its tab count,
-    /// looked up without refusing.
-    private static func tabGroup(_ invocation: ActionInvocation, _ context: AppActionContext) -> (TabGroupModel, Int)? {
+    /// The targeted (or focused tab's) open tab group's tabs and their
+    /// daemon, looked up without refusing.
+    private static func tabGroup(_ invocation: ActionInvocation, _ context: AppActionContext) -> ([TabModel], DaemonService)? {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .tabGroup }?.id
         let id = explicit ?? context.scope(invocation).tabGroupID
         guard let id else { return nil }
         for daemon in context.services.machines.daemons {
             for pane in daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes) {
                 if let group = pane.tabGroups.first(where: { $0.id.rawValue == id }) {
-                    return (group, pane.tabs.filter { $0.tabGroup == group.id }.count)
+                    return (pane.tabs.filter { $0.tabGroup == group.id }, daemon)
                 }
             }
         }

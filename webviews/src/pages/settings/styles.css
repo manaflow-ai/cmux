@@ -31,8 +31,8 @@
     --cmux-selection,
     var(--app-accent-soft, light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.13)))
   );
-  --danger: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
-  --warning: var(--app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
+  --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+  --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
   --motion-hover: 120ms;
   --motion-focus: 120ms;
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -48,6 +48,13 @@ body {
   margin: 0;
   height: 100%;
   color: var(--text);
+}
+
+/* One scroller (cx-jh7kq): the content column. The Settings page's document never scrolls, so a
+   wheel at the content's end goes nowhere and the page never slides up under the window. Pages
+   that only borrow this stylesheet (gallery frames) keep their own scrolling. */
+:is(html, body):has(.settings) {
+  overflow: hidden;
 }
 
 body {
@@ -85,9 +92,11 @@ mark {
 }
 
 .settings {
+  position: relative;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -97,6 +106,7 @@ mark {
   padding: 14px 10px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  overscroll-behavior: contain;
   transition: border-color var(--motion-hover);
 }
 
@@ -106,9 +116,30 @@ mark {
   border-right-color: transparent;
 }
 
+/* Rows fade out under the top and bottom edges instead of being cut mid-row. The fades sit in
+   the padding at either end; the scrollbar's strip on the right stays unmasked. */
 .content {
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px 28px 48px;
+  --content-fade-top: 18px;
+  --content-fade-bottom: 28px;
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--content-fade-top),
+      #000 calc(100% - var(--content-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-size:
+    calc(100% - 14px) 100%,
+    14px 100%;
+  mask-position:
+    left top,
+    right top;
+  mask-repeat: no-repeat;
 }
 
 .search {
@@ -280,6 +311,11 @@ mark {
   max-width: 60%;
 }
 
+/* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
+.row-control-menu {
+  display: contents;
+}
+
 .notice,
 .banner {
   display: flex;
@@ -306,7 +342,7 @@ mark {
 
 .field {
   min-width: 0;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--input-bg);
@@ -378,7 +414,7 @@ mark {
 
 .slider {
   width: 160px;
-  accent-color: var(--text);
+  accent-color: var(--accent, var(--text));
 }
 
 .select {
@@ -419,7 +455,7 @@ mark {
 
 .segment {
   position: relative;
-  padding: 2px 10px;
+  padding: 1px 10px;
   border-radius: 5px;
   background: transparent;
   cursor: default;
@@ -494,7 +530,6 @@ mark {
   background: transparent;
   padding: 3px 10px;
   white-space: nowrap;
-  transition: background var(--motion-hover);
 }
 
 .link-button {
@@ -510,9 +545,11 @@ mark {
   color: var(--muted-text);
 }
 
+/* As the section links: the fill eases in under the pointer and clears at once when it leaves. */
 .button:hover,
 .icon-button:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .danger {
@@ -530,9 +567,6 @@ mark {
 
 .domain {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
 }
 
 .domain-button {
@@ -542,14 +576,12 @@ mark {
   max-width: 260px;
 }
 
+/* A pop-up over the rows (cx-jh7kq): opening it pushes no row down. */
 .domain-panel {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 260px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .domain-list {
@@ -597,7 +629,7 @@ mark {
   gap: 2px;
   padding: 1px 2px 1px 8px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 12px;
 }
 
@@ -694,6 +726,12 @@ mark {
   font: inherit;
   text-align: left;
   justify-content: flex-start;
+}
+
+/* A profile row opens on click, so it answers the pointer like other clickable rows. */
+.row:has(> .host-toggle[aria-expanded="false"]:hover) {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .host-avatar {
@@ -818,7 +856,8 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px 0 0 36px;
+  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  padding: 6px 0 0 40px;
 }
 
 .accounts-body:empty {
@@ -829,44 +868,17 @@ mark {
   max-width: 320px;
 }
 
-/* Theme picker by level and wallpaper grid (R82 commit 4). */
-.theme-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.theme-picker > .field {
-  max-width: 320px;
-}
-
-.theme-list {
-  display: flex;
-  flex-direction: column;
-  max-height: 240px;
-  overflow-y: auto;
-  border-top: 1px solid var(--border);
-}
-
-.theme-choice {
-  padding: 6px 8px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-
-.theme-choice[aria-pressed="true"] {
-  background: var(--accent-soft);
-}
-
+/* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 8px;
   margin-top: 8px;
+}
+
+.backdrop-group-title {
+  margin: 12px 0 0;
+  font-weight: 600;
 }
 
 .backdrop-tile {
@@ -899,6 +911,39 @@ mark {
   border-color: var(--border);
 }
 
+/* Choose Image… (cx-t2x.8): an empty tile with a plus. */
+.backdrop-choose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-text);
+  font-size: var(--text-title);
+  border-style: dashed;
+}
+
+/* Browse More Art (cx-t2x.8). */
+.art-browser {
+  margin: 12px 0;
+}
+
+.art-browser-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.art-browser-search .field {
+  flex: 1;
+}
+
+.art-browser output:empty {
+  display: none;
+}
+
+.art-browser output {
+  display: block;
+}
+
 .backdrop-title {
   overflow: hidden;
   font-size: 12px;
@@ -912,6 +957,12 @@ mark {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* Why a chat root is refused: its own line under the path, wrapping rather than clipped. */
+.folder-reason {
+  max-width: 320px;
+  text-align: right;
 }
 
 .folder-item {

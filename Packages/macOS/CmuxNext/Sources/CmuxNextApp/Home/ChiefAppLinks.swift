@@ -14,6 +14,11 @@ nonisolated enum ChiefAppLinks {
     static func controlLink(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/app.sock") }
     static func daemonLink(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/app-daemon.sock") }
 
+    /// The links the brain host gets (`HomeBrainHost.childEnvironment`).
+    static func hostEnvironment(_ home: ChiefHome) -> [String: String] {
+        ["CMUX_SOCKET_PATH": controlLink(home).path, "CMUX_APP_DAEMON_SOCKET": daemonLink(home).path]
+    }
+
     /// Points both links at this app (last writer wins), each atomically.
     static func publish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
         let state = home.root.appendingPathComponent("state", isDirectory: true)

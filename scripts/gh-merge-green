@@ -419,6 +419,7 @@ for name in open(sys.argv[2]).read().split():
     esac
   done <<<"$next_verdicts"
   for next_check in \
+    "cmux-next Swift canary" \
     "cmux-next Release compile (Xcode 26)" \
     "cmux app scheme compile (Debug)" \
     "cmux-next swift test"; do

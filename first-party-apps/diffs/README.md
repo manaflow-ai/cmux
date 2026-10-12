@@ -9,7 +9,7 @@ Status: prototype on the current app runtime. Every data and action op it uses i
 - Implements `cmux.diff.renderer/1` (pane kind `diff`, declared as `x-cmux-implements` until the manifest has `implements`).
 - Consumes `cmux.editor/1`: each file body is an embed of the user's editor app (default `cmux/codemirror`, setting `editorApp`) through the proposed `ui.embed.create` and a proposed `Embed` scene node. Without an editor app, or when the embed fails, the app draws its own inline or side-by-side diff with the scene API (`src/views/filediff.ts`).
 - Consumes `cmux.diff.source/1` through diff resources (`diff_…`) and git ops.
-- `src/interfaces/*.ts` are typed definitions of the proposed interfaces (`cmux.editor/1`, `cmux.diff.renderer/1`, `cmux.diff.source/1`, documents, git, embeds, the web pane bridge). The same files are vendored, byte for byte, in `first-party-apps/{diffs,monaco,codemirror}/src/interfaces`; a test keeps them identical until the platform generates them.
+- `src/interfaces/*.ts` are typed definitions of the proposed interfaces (`cmux.editor/1`, `cmux.diff.renderer/1`, `cmux.diff.source/1`, documents, git, embeds, the web pane bridge). The same files are vendored, byte for byte, in `first-party-apps/{diffs,codemirror}/src/interfaces`; a test keeps them identical until the platform generates them.
 
 ## Contributions
 

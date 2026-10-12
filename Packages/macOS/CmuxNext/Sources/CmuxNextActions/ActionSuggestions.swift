@@ -20,4 +20,7 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
 
     /// Every Ghostty theme (the App lists them).
     public static let ghosttyThemes = "ghosttyThemes"
+    /// Items `sidebar.item.add` puts in the sidebar: the built-ins, plus
+    /// `workspace:<id>` and `app:<publisher>/<name>` typed as text.
+    public static let sidebarItems = "sidebarItems"
 }

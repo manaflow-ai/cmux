@@ -72,6 +72,8 @@ final class HomeCloudLink {
     private var provenInFloor = false
     /// The reason of a forced renewal asked for while `cooldown` runs.
     private var pendingForced: String?
+    /// The hops and timer deadlines in flight, for tests to wait on.
+    let probe = HomeCloudLinkProbe()
 
     /// `clock` runs the retry backoff; tests pass a manual clock.
     init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, stackProjectID: String? = nil,
@@ -82,13 +84,21 @@ final class HomeCloudLink {
         self.stackProjectID = stackProjectID
         retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
         cooldown = DemandTimer(owner: "App.homeCloud.renewCooldown", clock: clock)
-        source.onLeaseMissing { [weak self] in
+        source.onLeaseMissing { [weak self, probe] in
+            probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in self?.leaseMissing() }
+            Task { @MainActor in
+                self?.leaseMissing()
+                probe.hopEnded()
+            }
         }
-        source.onLeaseProven { [weak self] in
+        source.onLeaseProven { [weak self, probe] in
+            probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
-            Task { @MainActor in self?.leaseProven() }
+            Task { @MainActor in
+                self?.leaseProven()
+                probe.hopEnded()
+            }
         }
     }
 
@@ -133,6 +143,7 @@ final class HomeCloudLink {
             return
         }
         leasing += 1
+        probe.setLeasing(leasing)
         let outcome = await lease.sync(endpoint, expectedUserID: link.userID)
         leasing -= 1
         switch outcome {
@@ -145,6 +156,9 @@ final class HomeCloudLink {
             source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
         }
         settled(outcome, reason: "missing")
+        // Published after the follow-up work above, so a test that waits
+        // for idle never sees the gap between two lease steps.
+        probe.setLeasing(leasing)
     }
 
     /// The daemon asked for a lease (`cloud-session-needed`): it is for the
@@ -211,6 +225,7 @@ final class HomeCloudLink {
     private func renew(reason: String, answering expiry: UInt64? = nil) {
         guard let endpoint = last?.endpoint else { return }
         leasing += 1
+        probe.setLeasing(leasing)
         lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
             if case .leased(let subject, let expiresAt) = outcome {
                 if let expiry, expiry != expiresAt { self?.answered(expiry) }
@@ -222,6 +237,7 @@ final class HomeCloudLink {
             if case .leased = outcome, Self.isForced(reason) { startCooldown() }
             settled(outcome, reason: reason)
             sendPendingForced()
+            probe.setLeasing(leasing)
         }
     }
 
@@ -232,8 +248,9 @@ final class HomeCloudLink {
         let rest = forcedWait - Self.firstRetry
         cooldownInFloor = true
         provenInFloor = false
-        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self] in
+        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self, probe] in
             self?.cooldownFloorPassed(rest: rest)
+            probe.fired()
         }
     }
 
@@ -247,8 +264,9 @@ final class HomeCloudLink {
             sendPendingForced()
             return
         }
-        cooldown.schedule(after: rest) { @MainActor [weak self] in
+        cooldown.schedule(after: rest) { @MainActor [weak self, probe] in
             self?.sendPendingForced()
+            probe.fired()
         }
     }
 
@@ -263,7 +281,8 @@ final class HomeCloudLink {
             guard !retry.isScheduled else { return }
             let delay = retryDelay
             retryDelay = min(retryDelay * 2, Self.maxRetry)
-            retry.schedule(after: delay) { @MainActor [weak self] in
+            retry.schedule(after: delay) { @MainActor [weak self, probe] in
+                defer { probe.fired() }
                 guard let self, leasing == 0 else { return }
                 renew(reason: reason)
             }
@@ -277,9 +296,17 @@ final class HomeCloudLink {
     }
 
     #if DEBUG
-    /// Waits for the lease work started so far (tests).
+    /// Waits until the hops started so far ran and the lease work they and
+    /// earlier calls started ended, with what that work started in turn
+    /// (tests): one wait on the probe's idle signal. A timer deadline that
+    /// passed is not covered: wait for it with `timersFired(atLeast:)`.
     func settle() async {
-        await lease.settle()
+        await probe.wait { $0.isIdle }
+    }
+
+    /// Waits until the link handled `count` timer deadlines in all (tests).
+    func timersFired(atLeast count: Int) async {
+        await probe.wait { $0.fires >= count }
     }
     #endif
 }

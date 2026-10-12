@@ -57,9 +57,14 @@ public nonisolated struct ContextMenuPlacement: Sendable, Hashable {
     /// The titled submenu the row lives in (``MenuFolder``); nil keeps it
     /// at the top level.
     public var folder: MenuFolder?
+    /// A shorter row title in this menu only (the space menu's "Edit Theme
+    /// Color…" for Set Space Color…); the palette and CLI keep the
+    /// action's own title. Nil uses the action's title.
+    public var label: String?
 
     public init(_ context: ActionMenuContext, _ group: MenuGroup, _ rank: Int = 0,
-                style: MenuPlacementStyle = .item, parent: ActionID? = nil, folder: MenuFolder? = nil) {
+                style: MenuPlacementStyle = .item, parent: ActionID? = nil, folder: MenuFolder? = nil, label: String? = nil) {
+        self.label = label
         self.context = context
         self.group = group
         self.rank = rank

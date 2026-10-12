@@ -1,14 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// The terminal's scroller (SCROLLBARS-FOLLOW-MACOS), from Ghostty's scrollbar action
-/// (`TerminalScrollbar`: total, offset and visible rows). It follows the macOS "Show scroll bars"
-/// setting through ``SystemScrollers``:
-/// - overlay ("When scrolling", or "Automatically" with a trackpad): hidden at rest, shown while
-///   the viewport moves through the scrollback (wheel, keyboard, search), never for output that
-///   only follows the bottom. It takes no clicks, so the last column stays the terminal's.
-/// - legacy ("Always"): always shown in its own strip; the host narrows the surface by
-///   ``reservedWidth`` so no cell sits under it. Dragging it scrolls the terminal.
+/// The terminal's scroller (SCROLLBARS-THIN), from Ghostty's scrollbar action
+/// (`TerminalScrollbar`: total, offset and visible rows). Like every scroller in cmux it is an
+/// overlay one whatever the macOS "Show scroll bars" setting (``SystemScrollers/nativeStyle``):
+/// hidden at rest, shown while the viewport moves through the scrollback (wheel, keyboard,
+/// search), never for output that only follows the bottom. It takes no clicks, so the last column
+/// stays the terminal's. The style is pinned: AppKit resets a scroll view to the system's style
+/// when the setting changes, which here would briefly reserve a legacy strip and take clicks.
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so
 /// AppKit draws and animates a native scroller in either style.
@@ -36,13 +35,18 @@ final class TerminalScroller: NSScrollView {
         contentView.drawsBackground = false
         contentView.postsBoundsChangedNotifications = true
         documentView = document
-        apply(SystemScrollers.preferredStyle)
-        SystemScrollers.observe(self) { [weak self] style in
-            self?.apply(style)
+        apply(SystemScrollers.nativeStyle)
+        // AppKit resets a scroll view's style when the setting changes.
+        SystemScrollers.observe(self) { [weak self] _ in
+            self?.apply(SystemScrollers.nativeStyle)
             self?.onStyleChange?()
         }
-        NotificationCenter.default.addObserver(self, selector: #selector(clipMoved(_:)),
-                                               name: NSView.boundsDidChangeNotification, object: contentView)
+        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
+        clipObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
+        }
     }
 
     @available(*, unavailable)
@@ -50,10 +54,26 @@ final class TerminalScroller: NSScrollView {
         fatalError("init(coder:) is not supported")
     }
 
+    private var clipObserver: (any NSObjectProtocol)?
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
+        }
+    }
+
+    /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = SystemScrollers.nativeStyle }
+    }
+
     private func apply(_ style: NSScroller.Style) {
         scrollerStyle = style
-        // "Always" shows the track even when everything fits, as Terminal does.
-        autohidesScrollers = style == .overlay
+        // Both styles hide the scroller while everything fits (the document equals the viewport).
+        autohidesScrollers = true
     }
 
     /// The width the host keeps free for the scroller: the legacy scroller's, else none.
@@ -96,7 +116,7 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    @objc private func clipMoved(_ note: Notification) {
+    private func clipMoved() {
         guard !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)

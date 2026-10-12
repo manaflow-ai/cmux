@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "sad tab": the page's content process ended. Covers the content
 /// area (child-window pages get an occlusion hole there, so this view is
@@ -17,7 +18,6 @@ final class PageGoneView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
-        symbol.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
         let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
@@ -37,7 +37,7 @@ final class PageGoneView: NSView {
             messageLabel.font = BrowserMetrics.bodyFont
             codeLabel.font = BrowserMetrics.captionFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
-            symbol.symbolConfiguration = .init(pointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6, weight: .regular)
+            symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }
         density.start()
@@ -47,8 +47,10 @@ final class PageGoneView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func show(_ exit: BrowserProcessExit) {
-        titleLabel.stringValue = Strings.pageGoneTitle(exit.reason)
-        messageLabel.stringValue = Strings.pageGoneMessage(exit.reason)
+        // A Chromium tab says what Chrome's sad tab says.
+        let chromium = exit.engine == .cef
+        titleLabel.stringValue = chromium ? Strings.pageGoneChromiumTitle : Strings.pageGoneTitle(exit.reason)
+        messageLabel.stringValue = chromium ? Strings.pageGoneChromiumMessage : Strings.pageGoneMessage(exit.reason)
         if let code = exit.codeDescription {
             codeLabel.stringValue = Strings.pageGoneErrorCode(code)
             codeLabel.isHidden = false

@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The host's record of the user's last real gesture in a pane (a key or mouse event in its web
 /// view, or a native action such as a permission shortcut). Each gesture gives two single-use
@@ -54,7 +54,9 @@ import Synchronization
     }
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
-    public static let ticketLifetime: TimeInterval = 60
+    public nonisolated static let ticketLifetime: TimeInterval = 60
+    /// How long a prompt held for the folder trust answer keeps its send's gesture.
+    public nonisolated static let heldPromptLifetime: TimeInterval = 600
 
     struct Ticket {
         var connection: Int
@@ -71,7 +73,7 @@ import Synchronization
     public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
         guard consume() else { return nil }
         let at = now()
-        tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime
+        tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
             && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }
         let ticket = UUID().uuidString
         tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
@@ -87,12 +89,79 @@ import Synchronization
 
     /// Spends `ticket`; true when it was this connection's, still fresh, and for exactly `pick`.
     public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?) -> Bool {
+        if let seed = redeemSeed(ticket, pick: pick) { return seed }
         guard let held = tickets.removeValue(forKey: ticket) else { return false }
-        return held.connection == connection && now() - held.at <= Self.ticketLifetime && held.intent.matches(pick)
+        return held.connection == connection && now() - held.at <= held.intent.lifetime && held.intent.matches(pick)
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
+    /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { tickets.removeAll() }
+
+    // MARK: A seeded prompt's ticket (cx-k21v gap 4)
+
+    /// The ticket of a prompt a person's own action seeded (``AgentPaneSeed/PromptBy``): issued
+    /// once, with the seed, when the handshake hands the prompt out. It lets that one prompt (its
+    /// promptId) go out without a live gesture, and one start of a new chat on another machine
+    /// before it (`session/new` on a remote wire). Single use: the prompt that redeems it, any
+    /// other frame that names it, or its lifetime ends it.
+    struct SeedTicket {
+        var ticket: String
+        var promptId: String
+        var at: TimeInterval
+        /// The one remote start it allows was used.
+        var started = false
+    }
+
+    private var seedTicket: SeedTicket?
+
+    /// Issues the seeded prompt's ticket and its promptId (a new one replaces an older one).
+    /// Takes no live gesture: the person's action that seeded the prompt is the gesture.
+    public func issueSeedTicket() -> (promptId: String, ticket: String) {
+        let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
+        seedTicket = issued
+        #if DEBUG
+        lastSeed = (issued.promptId, issued.ticket)
+        #endif
+        return (issued.promptId, issued.ticket)
+    }
+
+    /// Uses the seed ticket's one start of a new chat on another machine: true once, while the
+    /// ticket is fresh and its prompt was not sent yet.
+    public func takeSeedStart() -> Bool {
+        guard var seed = seedTicket, !seed.started, now() - seed.at <= Self.heldPromptLifetime else { return false }
+        seed.started = true
+        seedTicket = seed
+        return true
+    }
+
+    /// Spends the seed ticket when `ticket` is it: true when it is fresh and `pick` is its prompt.
+    /// Nil when `ticket` is not the seed ticket (the connection's tickets decide).
+    private func redeemSeed(_ ticket: String, pick: AgentPaneGesturePick?) -> Bool? {
+        guard let seed = seedTicket, seed.ticket == ticket else { return nil }
+        seedTicket = nil
+        return now() - seed.at <= Self.heldPromptLifetime
+            && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
+    }
+
+    #if DEBUG
+    /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
+    private var lastSeed: (promptId: String, ticket: String)?
+
+    /// Redeems the last seed ticket again for its own prompt, as a page that replays it would:
+    /// false once it was spent (DEBUG proof that the ticket is single use); nil when none was issued.
+    public func replayLastSeedTicket(connection: Int) -> Bool? {
+        guard let lastSeed else { return nil }
+        return redeem(lastSeed.ticket, connection: connection,
+                      pick: AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": lastSeed.promptId]]]))
+    }
+    #endif
+
+    /// Ends the seed ticket (a prompt went out without it).
+    public func dropSeedTicket() { seedTicket = nil }
+
+    /// Whether a seed ticket is outstanding, and whether its start was used (DEBUG `gesture_state`).
+    public var seedTicketState: (outstanding: Bool, started: Bool) { (seedTicket != nil, seedTicket?.started == true) }
 
     var ticketCount: Int { tickets.count }
     /// The last ticket issued (tests replay it).
@@ -107,10 +176,16 @@ import Synchronization
 /// - a `permission_request` event the daemon recorded (`dir` "mux") in the `_acpmux/event` stream,
 ///   or in `result.events` of a reply to `_acpmux/attach` or `_acpmux/events`: `msg.permissionId`,
 ///   `msg.request.options`.
-/// An option id seen with two kinds counts as allow (it needs a gesture).
+/// An option id seen with two kinds counts as allow (it needs a gesture). A request whose
+/// `request.toolCall._meta.acpmux.question` (the daemon's normalized question) is an object is a
+/// question; its items' ids and prompts are the keys its `answers` may use (``questionKeys(permissionId:)``).
+/// A permission seen once without a question is no question (as the policy crate's `is_question`).
 public nonisolated final class AcpmuxPermissionOptions: Sendable {
     /// permissionId -> optionId -> whether every kind seen for it denies (`reject_*`).
     private let denies = Mutex<[String: [String: Bool]]>([:])
+    /// permissionId -> the item ids and prompts of its question; nil once a request without a
+    /// question was seen for it.
+    private let questions = Mutex<[String: Set<String>?]>([:])
 
     /// The replies whose `result.events` hold the daemon's history.
     public static let historyReplies: Set<String> = ["_acpmux/attach", "_acpmux/events"]
@@ -126,9 +201,12 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
     /// The same for a parsed daemon frame; `method` is the request a reply answers.
     public func observe(_ object: [String: Any], replyTo method: String?) {
         var found: [(permission: String, option: String, denies: Bool)] = []
+        var asked: [(permission: String, keys: Set<String>?)] = []
         func request(_ record: [String: Any]?) {
-            guard let record, let permission = record["permissionId"] as? String,
-                  let options = (record["request"] as? [String: Any])?["options"] as? [Any] else { return }
+            guard let record, let permission = record["permissionId"] as? String else { return }
+            let request = record["request"] as? [String: Any]
+            asked.append((permission, request.flatMap(Self.questionKeys)))
+            guard let options = request?["options"] as? [Any] else { return }
             for case let option as [String: Any] in options {
                 guard let id = option["optionId"] as? String, let kind = option["kind"] as? String else { continue }
                 found.append((permission, id, kind.hasPrefix("reject")))
@@ -148,12 +226,48 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             events.forEach(event)
         default: return
         }
+        if !asked.isEmpty {
+            questions.withLock { questions in
+                for entry in asked {
+                    let before: Set<String>? = questions[entry.permission] ?? Set<String>()
+                    // updateValue keeps a nil (no question) entry; a subscript set of nil removes it.
+                    questions.updateValue(before.flatMap { old in entry.keys.map { old.union($0) } }, forKey: entry.permission)
+                }
+            }
+        }
         guard !found.isEmpty else { return }
         denies.withLock { denies in
             for entry in found {
                 denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
             }
         }
+    }
+
+    /// The keys `answers` may use for `permissionId`: its question's item ids and prompts; nil
+    /// when the pane never saw it as a question (a tool permission, or an unknown one).
+    public func questionKeys(permissionId: String) -> Set<String>? {
+        questions.withLock { $0[permissionId] ?? nil }
+    }
+
+    /// The item ids and prompts of `request.toolCall._meta.acpmux.question`, when it is an object.
+    static func questionKeys(_ request: [String: Any]) -> Set<String>? {
+        let tool = request["toolCall"] as? [String: Any]
+        let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        guard let question = acpmux?["question"] as? [String: Any] else { return nil }
+        var keys = Set<String>()
+        for case let item as [String: Any] in question["items"] as? [Any] ?? [] {
+            for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
+        }
+        return keys
+    }
+
+    /// True when the pane saw `permissionId` offer `optionId` and the stored value says it does not
+    /// deny. The stored value is the AND of "denies" over every sighting of that option, so one
+    /// sighting with a kind that is not `reject_*` makes it an allow here (cx-0q7o: a permission
+    /// ticket is reserved only for such an option). acpmux decides by the real kind of the pending
+    /// prompt.
+    public func isKnownAllow(permissionId: String, optionId: String) -> Bool {
+        denies.withLock { $0[permissionId]?[optionId] == false }
     }
 
     /// True only when `optionId` is a known deny of `permissionId`; an unknown option counts as allow.

@@ -132,8 +132,25 @@ impl ResourceMutationPlan {
         operation: &str,
     ) -> anyhow::Result<Option<State>> {
         use crate::mux::layout_invariants as layout;
+        // `permanent-dock-v1`: with a permanent column anywhere, every plan is
+        // staged before the commit and refused if it removed one. With an
+        // agent chat dock anywhere, it is refused if it split that dock.
+        let permanent = crate::mux::permanent_columns(state);
+        let chat = crate::mux::agent_chat_columns(state);
+        let docks_kept = |operation: &str, state: &State| -> anyhow::Result<()> {
+            crate::mux::ensure_permanent_columns_kept(operation, &permanent, state)?;
+            crate::mux::ensure_agent_chat_columns_unsplit(operation, &chat, state)
+        };
         if !layout::conserves_tabs(operation) {
-            return Ok(None);
+            if permanent.is_empty() && chat.is_empty() {
+                return Ok(None);
+            }
+            let before = self.stage(state);
+            if let Err(error) = docks_kept(operation, state) {
+                *state = before;
+                return Err(error);
+            }
+            return Ok(Some(before));
         }
         let before_model = layout::project(state);
         let model = self
@@ -143,7 +160,8 @@ impl ResourceMutationPlan {
             .transpose()?;
         let before = self.stage(state);
         let result =
-            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state);
+            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state)
+                .and_then(|()| docks_kept(operation, state));
         if let Err(error) = result {
             *state = before;
             return Err(error);

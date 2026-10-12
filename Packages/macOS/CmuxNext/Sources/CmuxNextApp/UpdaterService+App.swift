@@ -1,4 +1,6 @@
+import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -13,11 +15,45 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        // The click: the windows leave the screen at once (S1); a failed
+        // install brings them back.
+        let handoff = UpdateWindowHandoff()
+        willInstallStaged = { _ = handoff.hide() }
+        installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        // "See What's New" on the Updated card: the React changelog page
+        // for the releases this update crossed (`#/?from=&to=`).
+        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
+        // What's New after an update: bundled documents and this feed's digests.
+        whatsNew.load()
         runAllowListedAction = { [weak services] id in
             guard PageDescriptor.changelogTryItActions.contains(id) else { return }
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
+        attachTips(registry: services.registry)
+        #if DEBUG
+        UpdateHarnessProbe.install(updater: self)
+        #endif
+    }
+
+    /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog
+    /// action as the user's own; the user's own runs mark features used
+    /// (local only); a return to cmux may pick the next day's tip.
+    func attachTips(registry: ActionRegistry) {
+        runTipAction = { [weak registry] action in
+            guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
+            _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
+        }
+        registry.runObserver = { [weak self] id, invocation in
+            guard invocation.origin == .user else { return }
+            self?.markTipActionUsed(id.rawValue)
+        }
+        activationObservation?.cancel()
+        activationObservation = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.refreshTip()
+            }
         }
     }
 
@@ -43,8 +79,12 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements) in Observations({ (settings.snapshot.updates, settings.snapshot.announcements) }) {
+            for await (updates, announcements, tips) in ObservationStream({
+                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+            }) {
                 self?.apply(updates)
+                if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
+                if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }

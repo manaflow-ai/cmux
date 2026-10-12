@@ -3,7 +3,8 @@ import CmuxNextBrowserAutomation
 import Foundation
 
 extension BrowserHostProvider {
-    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open"]
+    /// `cookies.restore` names a backup, not a tab: the backup records its profile.
+    static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
 
     /// One frame from the host, in order, on the main actor.
     func handle(_ frame: ProviderFrame) {
@@ -31,8 +32,8 @@ extension BrowserHostProvider {
     /// changed meanwhile). Calls run concurrently, as the driver allows.
     private func handleCall(id: UInt64, method: String, params: DriverJSON) {
         let targetID: String? = if case .object(let fields) = params, case .string(let value)? = fields["targetId"] { value } else { nil }
-        // Only tabs.list and tabs.open name no tab. Every other call without
-        // a tab (cookies.*, a malformed targetId) is refused here, whatever
+        // Only tabs.list, tabs.open and cookies.restore name no tab. Every other
+        // call without a tab (cookies.get/set/clear, a malformed targetId) is refused here, whatever
         // the host forwards: the app does not rely on the host for it.
         guard targetID != nil || Self.tabLessMethods.contains(method) else {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "\(method): the app serves only calls on a tab").json))
@@ -46,6 +47,12 @@ extension BrowserHostProvider {
         }
         if let targetID, calledTargets.insert(targetID).inserted {
             marking?.agentWillDrive(targetID: targetID)
+        }
+        // A Chromium session's new tab is a Chromium tab: never the WebKit driver's.
+        if method == "tabs.open", case .object(let fields) = params, fields["engine"] == .string(ProviderEngine.cef.rawValue) {
+            let url: String? = if case .string(let value)? = fields["url"], !value.isEmpty { value } else { nil }
+            openChromiumTab(id: id, url: url)
+            return
         }
         guard let driver else {
             send(.result(id: id, result: nil, error: DriverError(.unsupported, "\(method): this app has no WebKit driver").json))
@@ -61,6 +68,34 @@ extension BrowserHostProvider {
                 frame = .result(id: id, result: nil, error: error.json)
             }
             guard let self, let link, self.connection === link else { return }
+            // A tab the call opened or closed reaches the host before the
+            // reply, so the session's next tabs.list sees it.
+            if method == "tabs.open" || method == "tabs.close" { self.observeTabs() }
+            self.send(frame)
+        }
+    }
+
+    /// `tabs.open` on a Chromium session, through the app's tab opener. The
+    /// host learns the new tab (`tab.announced`) before the reply names it,
+    /// so the session's next call finds it.
+    private func openChromiumTab(id: UInt64, url: String?) {
+        guard let opener else {
+            send(.result(id: id, result: nil, error: DriverError(.unsupported, "tabs.open: this app cannot open Chromium tabs").json))
+            return
+        }
+        let link = connection
+        Task { [weak self] in
+            let frame: ProviderFrame
+            var opened = false
+            do throws(DriverError) {
+                let targetID = try await opener.openProviderTab(engine: .cef, url: url)
+                frame = .result(id: id, result: .object(["targetId": .string(targetID)]), error: nil)
+                opened = true
+            } catch {
+                frame = .result(id: id, result: nil, error: error.json)
+            }
+            guard let self, let link, self.connection === link else { return }
+            if opened { self.observeTabs() }
             self.send(frame)
         }
     }

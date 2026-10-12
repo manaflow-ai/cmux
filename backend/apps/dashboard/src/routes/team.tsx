@@ -1,7 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import { useLocale } from "../lib/approval-strings"
 import { useLoad } from "../lib/hooks"
-import { read } from "../lib/server"
-import { setSignedIn, useSignedIn } from "../lib/session"
+import { newKey, setSignedIn, useSignedIn } from "../lib/session"
+import { useTeamApi, useTeams } from "../lib/team-api"
+import { TeamForbidden, teamLabel } from "../lib/team-picker"
+import { isNotTeamMember } from "../lib/team-scope"
+import { callerRole, type TeamRole } from "../lib/team-vm"
+import { TeamVmSection } from "./-team-vm"
 
 export const Route = createFileRoute("/team")({ component: Team })
 
@@ -13,11 +18,35 @@ interface Directory {
 
 function Team() {
   const signedIn = useSignedIn()
-  const dir = useLoad<{ value: Directory; revision: string }>(signedIn ? "team" : null, async () => {
-    const r = await read({ data: { op: "team.directory", params: {} } })
+  const locale = useLocale()
+  const api = useTeamApi()
+  const teams = useTeams()
+  const navigate = useNavigate()
+  // The page acts in the URL's team (cx-5xew); a 403 team.not_member means the caller is not a member now (a role refusal stays an error).
+  type Loaded = { forbidden: true } | { forbidden: false; value: Directory; revision: string; role: TeamRole | null }
+  /** The header list may predate a removal: list again, so the picker drops the team too. */
+  const refusedTeam = (): Loaded => {
+    teams.reload()
+    return { forbidden: true }
+  }
+  const dir = useLoad<Loaded>(signedIn ? `team:${api.team ?? "personal"}` : null, async () => {
+    // user.ensure is idempotent and names the caller, whose role decides the team VM actions.
+    const e = await api.mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
+    if (e.status === 401) setSignedIn(false)
+    if (api.team && isNotTeamMember(e)) return refusedTeam()
+    if (e.status !== 200) throw new Error(`user.ensure failed: ${e.status}`)
+    const me = String((e.body.value as { id?: unknown } | undefined)?.id ?? "")
+    const r = await api.read({ data: { op: "team.directory", params: {} } })
     if (r.status === 401) setSignedIn(false)
+    if (api.team && isNotTeamMember(r)) return refusedTeam()
     if (r.status !== 200) throw new Error(`team.directory failed: ${r.status} (open Devices once to create your personal team)`)
-    return { value: r.body.value as unknown as Directory, revision: r.body.revision }
+    const value = r.body.value as unknown as Directory
+    // The directory lists the first 200 members; a caller past them is found through team.members.list.
+    const role = await callerRole(me, value.members, async (cursor) => {
+      const p = await api.read({ data: { op: "team.members.list", params: { cursor } } })
+      return p.status === 200 ? (p.body.value as unknown as { members: Array<{ user: string; role: string }>; next_cursor: string | null }) : null
+    })
+    return { forbidden: false, value, revision: r.body.revision, role }
   })
   if (signedIn === false)
     return (
@@ -25,16 +54,22 @@ function Team() {
         <Link to="/">Sign in</Link> to see your team.
       </p>
     )
-  const d = dir.data?.value
+  // No ?team is the personal team.
+  if (dir.data?.forbidden && api.team) return <TeamForbidden team={api.team} locale={locale} onPersonal={() => void navigate({ to: "/team", search: {} as never })} />
+  const loaded = dir.data && !dir.data.forbidden ? dir.data : undefined
+  const d = loaded?.value
+  const role = loaded?.role ?? null
+  const shown = d ? teams.list?.teams.find((t) => t.id === d.team) : undefined
   return (
     <>
-      <h2>Team</h2>
+      <h2>{shown ? teamLabel(locale, shown) : "Team"}</h2>
       {dir.error ? <p className="error">{dir.error}</p> : null}
       {d ? (
         <p className="muted">
-          <code>{d.team}</code> · revision {dir.data?.revision}
+          <code>{d.team}</code> · revision {loaded?.revision}
         </p>
       ) : null}
+      {d ? <TeamVmSection team={d.team} role={role} /> : null}
       <h3>Members</h3>
       <div className="card">
         <table>

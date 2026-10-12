@@ -74,7 +74,8 @@
   "presentation": {
     "sidebarItem": { "section": "top", "order": 20 },
     "screen": "app",
-    "tab": true
+    "tab": true,
+    "hiddenByDefault": true
   },
   "scopes": {
     "coderouter:read": "See CodeRouter status, your connected accounts, API key names, usage and failover order. Never a key or token.",

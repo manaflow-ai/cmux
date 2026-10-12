@@ -1,7 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The shared Home core's `HomeSource` over the local daemon's conversation
 /// owner (`local-conversations-v1`, plans/cmux-next/home-mac.md 1). The owner
@@ -13,6 +13,9 @@ nonisolated final class DaemonHomeSource: HomeSource {
         var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
         var connection: DaemonConnection?
         var lastEvent: [HomeEvent] = []
+        /// An inbox read runs (`rereadInbox`); another is due after it.
+        var inboxRead = false
+        var inboxReadAgain = false
     }
     private let state = Mutex(State())
     /// Per subscriber. A subscriber that falls this far behind loses the
@@ -43,33 +46,73 @@ nonisolated final class DaemonHomeSource: HomeSource {
             publish(.connection(.offline(since: Date())))
             return
         }
-        // task-owner: one inbox read per connection; ends with its reply
-        Task { [weak self] in
-            guard let self else { return }
-            publish(.connection(.online))
-            if let inbox = try? await inbox() { publish(.inbox(inbox)) }
-        }
+        publish(.connection(.online))
+        // The same serial read as an event's reread, so an older reply never
+        // replaces a newer inbox (the Chief conversation created meanwhile).
+        rereadInbox()
     }
 
     func publish(_ event: HomeEvent) {
         let targets = state.withLock { state -> [AsyncStream<HomeEvent>.Continuation] in
-            if case .connection = event { state.lastEvent = [event] } else if case .inbox = event { state.lastEvent.append(event) }
+            if case .connection = event {
+                state.lastEvent = [event]
+            } else if case .inbox = event {
+                // Replay keeps the connection and the newest inbox only.
+                state.lastEvent = state.lastEvent.filter { if case .inbox = $0 { false } else { true } } + [event]
+            }
             return Array(state.continuations.values)
         }
         for target in targets { target.yield(event) }
     }
 
-    /// One owner event (`conversation-changed`) as Home core events.
+    /// One owner event (`conversation-changed`) as Home core events. A
+    /// conversation's own head (`conversation`: it was created, renamed or
+    /// imported) goes to the store as it is. An event of a conversation the
+    /// caller has no head for (another client, such as the Chief's brain
+    /// host, created it after this connection's inbox read) reads the
+    /// owner's inbox again, so the store always learns the conversation:
+    /// without it Home shows no Chief and its first send goes nowhere
+    /// (cx-ebm.55).
     func publish(_ event: ConversationEvent, summary: CmuxNextDaemon.ConversationSummary?) {
         switch event.change {
         case .message(let message), .messageUpdated(let message):
             publish(.message(HomeCoreMapping.message(message), rev: event.rev))
-        case .readCursor, .conversation, .unknown:
+        case .conversation(let head):
+            publish(.conversationChanged(HomeCoreMapping.summary(head), stream: .conversation(ConversationID(head.id)),
+                                         rev: event.rev))
+            if summary == nil { rereadInbox() }
+            return
+        case .readCursor, .unknown:
             break
         }
         if let summary {
             publish(.conversationChanged(HomeCoreMapping.summary(summary), stream: .conversation(ConversationID(summary.id)),
                                          rev: event.rev))
+        } else {
+            rereadInbox()
+        }
+    }
+
+    /// Reads the owner's inbox and publishes it; one read at a time, and a
+    /// request made during a read runs one more read after it.
+    private func rereadInbox() {
+        let start = state.withLock { state -> Bool in
+            if state.inboxRead { state.inboxReadAgain = true; return false }
+            state.inboxRead = true
+            return true
+        }
+        guard start else { return }
+        // task-owner: one inbox read (and at most one more); ends with its reply
+        Task { [weak self] in
+            while let self {
+                if let inbox = try? await inbox() { publish(.inbox(inbox)) }
+                let again = state.withLock { state -> Bool in
+                    if state.inboxReadAgain { state.inboxReadAgain = false; return true }
+                    state.inboxRead = false
+                    return false
+                }
+                if !again { return }
+            }
         }
     }
 
@@ -95,6 +138,14 @@ nonisolated final class DaemonHomeSource: HomeSource {
         return connection
     }
 
+    /// The connection for a write: without one nothing is sent
+    /// (`HomeOwnerOffline`), so the store keeps the send waiting for the
+    /// owner instead of counting it as possibly delivered.
+    func requireOwner() throws -> DaemonConnection {
+        guard let connection = state.withLock({ $0.connection }) else { throw HomeOwnerOffline() }
+        return connection
+    }
+
     func inbox() async throws -> InboxSnapshot {
         let list = try await Self.mapped { try await ConversationClient(self.requireConnection()).list() }
         let rev = list.map(\.rev).max() ?? 0
@@ -106,7 +157,28 @@ nonisolated final class DaemonHomeSource: HomeSource {
             try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: min(max(tail, 1), 500))
         }
         return ConversationPage(conversation: HomeCoreMapping.summary(page.conversation),
-                                messages: page.messages.map(HomeCoreMapping.message))
+                                messages: page.messages.map(HomeCoreMapping.message),
+                                threads: page.threads.map { HomeCoreMapping.thread($0) })
+    }
+
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
+        let page = try await Self.mapped {
+            try await ConversationClient(self.requireConnection())
+                .historyPage(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
+        }
+        return HistoryPage(messages: page.messages.map(HomeCoreMapping.message), threads: page.threads.map { HomeCoreMapping.thread($0) })
+    }
+
+    /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
+        let connection = try requireConnection()
+        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationThread) == true else {
+            return try await scanThread(of: conversation, root: root, after: afterSeq, limit: limit)
+        }
+        let page = try await Self.mapped {
+            try await ConversationClient(connection).thread(conversation.rawValue, root: root.rawValue, after: afterSeq, limit: limit)
+        }
+        return HomeCoreMapping.threadPage(page, message: HomeCoreMapping.message)
     }
 
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
@@ -124,12 +196,22 @@ nonisolated final class DaemonHomeSource: HomeSource {
             }
             return HomeOpResult(rev: 0, conversation: conversation)
         }
+        if case .createGroup(let title, let participants) = intent.op {
+            return try await createChannel(title: title, participants: participants, key: intent.key)
+        }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {
             throw HomeRejection.invalid("unsupported_on_local_owner")
         }
         let request = ConversationOpRequest(conversation: mapped.conversation, idempotencyKey: intent.key.rawValue,
                                             transaction: ClientTransactionID(rawValue: intent.key.rawValue), op: mapped.op)
-        let result = try await Self.mapped { try await ConversationClient(self.requireConnection()).op(request) }
+        let connection = try requireOwner()
+        let result = try await Self.mapped { try await ConversationClient(connection).op(request) }
+        // A daemon from before conversation-threads-v1 does not move the
+        // sender's cursor: move it here, so my own sends never count as unread.
+        if case .sendMessage = intent.op, let seq = result.seq, !result.replayed,
+           await connection.identity?.supports(DaemonCapabilities.shared.conversationThreads) != true {
+            readThrough(seq, in: mapped.conversation, on: connection)
+        }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))
     }
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a.
+// cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -37,6 +37,25 @@ pub struct ActivitySubscribeResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentPresenceActivity {
+    #[serde(rename = "thinking")]
+    Thinking,
+    #[serde(rename = "editing")]
+    Editing,
+    #[serde(rename = "reading")]
+    Reading,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "browsing")]
+    Browsing,
+    #[serde(rename = "computer_use")]
+    ComputerUse,
+    #[serde(rename = "waiting")]
+    Waiting,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentRecord {
     pub session: Nullable<String>,
@@ -61,7 +80,7 @@ pub struct AgentSessionSource {
     /// The agent kind the chat was started with.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub harness: Optional<String>,
-    /// install: and the stable install id of the machine whose acpmux runs the session.
+    /// install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it.
     pub host: String,
     /// Display name of the host machine: 1 to 255 bytes, no control characters.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -323,6 +342,8 @@ pub struct CloseTerminalResult {
 pub struct ColumnPin {
     pub edge: String,
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub role: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -360,6 +381,10 @@ pub struct ConversationImportMessage {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMessage {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub answers_pending: Option<Vec<String>>,
     pub author: String,
     pub client_msg_id: String,
     pub conversation: String,
@@ -374,6 +399,8 @@ pub struct ConversationMessage {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub retracted_at: Option<String>,
     pub seq: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -489,6 +516,9 @@ pub struct ConversationTabRecord {
     /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
+    /// What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -500,6 +530,16 @@ pub struct ConversationTextRun {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub mention: Option<String>,
     pub start: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadSummary {
+    pub authors: Vec<String>,
+    pub last_reply_at: Nullable<String>,
+    pub last_reply_seq: Nullable<u64>,
+    pub reply_count: u64,
+    pub root: String,
 }
 
 #[rustfmt::skip]
@@ -713,6 +753,26 @@ pub struct GuestUrlSubscribeResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchHit {
+    pub at_ms: i64,
+    pub highlights: Vec<HistorySearchRange>,
+    pub key: String,
+    pub kind: String,
+    pub position: Nullable<i64>,
+    pub snippet: String,
+    pub target: String,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySearchRange {
+    pub end: u32,
+    pub start: u32,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
@@ -739,8 +799,12 @@ pub struct IdentifyResult {
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub build_id: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cli_path: Optional<String>,
     pub daemon_handoff: u64,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1017,6 +1081,22 @@ pub enum PaneKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneNeighborResult {
     pub pane: Nullable<Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaneSurfaceResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub replayed: Optional<bool>,
+    pub surface: Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_incarnation: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1318,7 +1398,7 @@ pub struct SavedTabGroupMember {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedTabGroupRecord {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     pub members: Vec<SavedTabGroupMember>,
@@ -1421,12 +1501,48 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsResourceProjection {
+    pub commit_apply_us: ServerStatsHistogram,
+    pub commit_journal_us: ServerStatsHistogram,
+    pub commit_prune_us: ServerStatsHistogram,
+    pub commit_us: ServerStatsHistogram,
+    pub commits: u64,
+    pub crosscheck_mismatches: u64,
+    pub crosschecks: u64,
+    pub diff_us: ServerStatsHistogram,
+    pub full_projections: u64,
+    pub index_us: ServerStatsHistogram,
+    pub journaled_changes: ServerStatsHistogram,
+    pub projected_changes: ServerStatsHistogram,
+    pub projections: u64,
+    pub read_us: ServerStatsHistogram,
+    pub scope_fallbacks: u64,
+    pub scoped_projections: u64,
+    pub written_changes: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     pub uptime_ms: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub write_path: Option<ServerStatsWritePath>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsWritePath {
+    pub effect_intent_batches: u64,
+    pub effect_intent_failures: u64,
+    pub effect_intents: u64,
+    pub request_effect_commits: u64,
+    pub writer_registry_locks: u64,
 }
 
 #[rustfmt::skip]
@@ -1476,6 +1592,8 @@ pub struct SetTerminalIdlePolicyResult {
 pub struct SetTerminalKeepResult {
     pub keep: bool,
     pub terminal_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_resource_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1527,7 +1645,11 @@ pub enum SizeDeviceKind {
     Tui,
     #[serde(rename = "browser")]
     Browser,
-    #[serde(rename = "unknown")]
+    #[serde(rename = "linux")]
+    Linux,
+    #[serde(rename = "windows")]
+    Windows,
+    #[serde(rename = "unknown", other)]
     Unknown,
 }
 
@@ -1745,6 +1867,9 @@ pub struct Tab {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub supports_clear_history_key_fallback: Option<bool>,
     pub surface: Id,
+    /// Why a terminal will end with something other than its shell although terminal hosts are on: \`breakaway_denied\` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or \`host_start_failed\` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_host_fallback: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1781,7 +1906,7 @@ pub struct TabGroupOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRecord {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     /// May be empty: the group shows only its color.
@@ -1796,7 +1921,7 @@ pub struct TabGroupRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRun {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub count: u64,
     pub id: String,
@@ -1883,8 +2008,37 @@ pub struct TerminalColors {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandDeleteResult {
+    pub deleted: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalCommandHistoryResult {
     pub enabled: bool,
+    pub retention_days: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandList {
+    pub commands: Vec<TerminalCommandRecord>,
+    pub deletions: String,
+    pub registry_id: String,
+    pub retention_days: u32,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandRecord {
+    pub command: Nullable<String>,
+    pub cwd: Nullable<String>,
+    pub duration_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub id: String,
+    pub started_at_ms: String,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]
@@ -2246,6 +2400,8 @@ pub struct TerminalPlacement {
     pub surface: Nullable<Id>,
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminal_resource_id: Option<String>,
     pub terminal_revision: u64,
     pub workspace: Nullable<Id>,
 }
@@ -2343,6 +2499,12 @@ pub enum ViewAttachmentOutcome {
     Passive,
     #[serde(rename = "superseded")]
     Superseded,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewportPaneWidthResult {
+    pub width: f32,
 }
 
 #[rustfmt::skip]

@@ -12,6 +12,12 @@ public nonisolated enum RemoteRdCoreError: Error, Sendable, Hashable {
     case failed
     /// An internal error; the receiver is unusable.
     case panic
+    /// The stream is not open, or the stream limit is reached.
+    case stream
+    /// An upstream sender has no consent for its media kind.
+    case consent
+    /// A bulk queue or the open transfer limit is full.
+    case full
     /// A code this wrapper does not know.
     case unknown(Int32)
 
@@ -23,6 +29,9 @@ public nonisolated enum RemoteRdCoreError: Error, Sendable, Hashable {
         case -4: self = .carrier
         case -5: self = .failed
         case -6: self = .panic
+        case -7: self = .stream
+        case -8: self = .consent
+        case -9: self = .full
         default: self = .unknown(code)
         }
     }

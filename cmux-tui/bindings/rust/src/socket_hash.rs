@@ -40,7 +40,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     // Each feature combination uses a different subset.

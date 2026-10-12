@@ -45,7 +45,7 @@ public nonisolated struct OmnibarKeyword: Hashable, Sendable {
         components.scheme = "cmux-omnibox"
         components.host = extensionID.isEmpty ? "extension" : extensionID
         components.path = "/" + content
-        let url = components.url ?? URL(string: "cmux-omnibox://extension/")!
+        let url = components.url ?? URL(string: "cmux-omnibox://extension/") ?? URL(fileURLWithPath: "/dev/null")
         var row = BrowserSuggestion(kind: .keyword, title: description.isEmpty ? content : description,
                                     detail: description.isEmpty || description == content ? "" : content,
                                     url: url, score: Double(1000 - rank))

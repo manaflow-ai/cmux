@@ -55,7 +55,12 @@ final class TabHoverCardController: HoverCardSource {
     /// Each recently hovered tab's last CPU and memory sample, shown until
     /// the first fresh one arrives (no placeholder flash on a retarget).
     private var lastReports: [TabID: ResourceReport] = [:]
+    /// Tabs whose last fetch had no thumbnail: their cards open without one.
+    private var noThumbnail: Set<TabID> = []
     private var bodyID: HoverTargetID?
+    /// The next card opens from hidden, not by a retarget: a tab whose thumbnail is not
+    /// known yet gets the empty frame its thumbnail fades into.
+    private var opensFresh = true
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
@@ -71,7 +76,13 @@ final class TabHoverCardController: HoverCardSource {
         memoryPressure = source
     }
 
-    isolated deinit { memoryPressure?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            memoryPressure?.cancel()
+        }
+    }
 
     /// The image the card body shows now (`debug.hover_sweep`).
     var shownThumbnail: CGImage? { body?.thumbnailImage }
@@ -118,8 +129,19 @@ final class TabHoverCardController: HoverCardSource {
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
-        if case .tab = content { body.setResources(resources.report ?? lastReports[tab]) }
+        if case .tab = content {
+            body.setResources(resources.report ?? lastReports[tab])
+            // On a retarget, a tab whose thumbnail is not known yet keeps what the card
+            // shows (the last tab's picture, or no frame) until its own lands: never an
+            // empty frame that collapses again (R131).
+            if noThumbnail.contains(tab) {
+                body.setThumbnailVisible(false)
+            } else if thumbnails.image(for: tab) != nil || (bodyID != id && opensFresh) {
+                body.setThumbnailVisible(true)
+            }
+        }
         let newCard = bodyID != id
+        if newCard { opensFresh = false }
         // A retarget keeps the shown thumbnail until this tab's lands; a tab
         // seen before shows its own at once.
         if newCard, let cached = thumbnails.image(for: tab) { body.setThumbnail(cached) }
@@ -149,7 +171,11 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask?.cancel()
         bodyID = nil
         // A card that hides starts its next show blank, never with this tab's image.
-        if !cardIsShowing() { body?.setThumbnail(nil) }
+        // Its frame stays as it is while it fades out.
+        if !cardIsShowing() {
+            body?.setThumbnail(nil)
+            opensFresh = true
+        }
     }
 
     /// Whether a card is on screen (a deactivation then is a retarget, not
@@ -162,6 +188,7 @@ final class TabHoverCardController: HoverCardSource {
         let open = Set(strip.model.tabs.map(\.id))
         thumbnails.keep(only: open)
         lastReports = lastReports.filter { open.contains($0.key) }
+        noThumbnail.formIntersection(open)
     }
 
     private func rememberReport(_ report: ResourceReport, for tab: TabID) {
@@ -192,14 +219,23 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
-            // No thumbnail (a page never captured): the placeholder, not the
-            // previous tab's picture kept through the retarget.
+            // No thumbnail (a page never captured): none, not the previous
+            // tab's picture kept through the retarget or an empty frame.
             guard let image else {
+                self.noThumbnail.insert(id)
                 self.body?.setThumbnail(nil)
+                self.body?.setThumbnailVisible(false)
+                self.coordinator.contentChanged(target)
                 return
             }
             self.thumbnails.insert(image, for: id)
+            self.noThumbnail.remove(id)
+            // A card that showed no frame (the last tab had none) grows one for it.
+            let grows = self.body?.showsThumbnail == false
+            // It fades into the new frame, not swapped in over a hidden tab's picture.
+            if grows { self.body?.setThumbnail(nil) }
             self.body?.setThumbnail(image)
+            if grows { self.coordinator.contentChanged(target) }
         }
     }
 }

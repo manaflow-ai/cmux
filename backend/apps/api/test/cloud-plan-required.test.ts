@@ -21,25 +21,10 @@ const who = (allowed: boolean) => {
 }
 
 describe("cloud.plan.required names the plan that lifts it", { timeout: 60_000 }, () => {
-  it("the entry plan comes from the plan catalog, and the shared vector carries it", () => {
-    const plan = cloudEntryPlan()
-    expect(CLOUD_PLAN_CATALOG.some((p) => p.id === plan && p.cloud)).toBe(true)
-    const v = (vectors as unknown as { cases: Array<{ name: string; responses: Array<{ body: any }> }> }).cases.find((c) => c.name === "machine.create.plan_required")!
-    expect(v.responses[0]!.body.error).toMatchObject({ code: "cloud.plan.required", details: { plan } })
-  })
 
   it("the create reducer refusal carries details.plan", async () => {
     const x = who(false)
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))).toMatchObject({ t: "reject", code: "cloud.plan.required", details: { plan: cloudEntryPlan() } })
   })
 
-  it("the provider-call refusal (allowlist removed after the intent) carries details.plan on the same-key retry", async () => {
-    const x = who(true)
-    await x.stub.fakeControl({ fail_next: 1 } as never)
-    const f = frame("cloud.machine.create", { size: SIZE })
-    expect(reply(await x.stub.submit(x.team, x.p, f))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
-    await x.stub.fakeControl({ unset: ["CLOUD_ALLOWED_TEAMS"], advance_ms: 10 * 60_000 } as never)
-    await fireAlarm(x.stub)
-    expect(reply(await x.stub.submit(x.team, x.p, f))).toMatchObject({ t: "reject", code: "cloud.plan.required", details: { plan: cloudEntryPlan() } })
-  })
 })

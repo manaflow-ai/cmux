@@ -34,7 +34,7 @@ The log is from the final run of `tests/install-cases.sh`, after every fix below
 | --- | --- | --- |
 | cut download (first 6,000 bytes piped to `sh`) | PASS | syntax error at EOF, nothing created |
 | fresh install `curl … \| sh -s -- --version 1` | PASS | 1.9 to 2.1 s, including the 44 MB cmux download. Store, profile 1, `current` flip, shim, units, start. State dirs are 0700 and `updater.state` is 0600. |
-| client on the socket | PASS | `workspace create`, `tab create terminal`, `terminal write`, `screen wait`, `screen read` show `proto-marker-42`. `cmux server status --json` reports the session `server` at `/run/user/1001/cmux-tui-1001/server.sock`. |
+| client on the socket | PASS | `workspace create`, `tab create terminal`, `terminal write`, `screen wait`, `screen read` show `proto-marker-42`. `cmux daemon status --json` reports the session `server` at `/run/user/1001/cmux-tui-1001/server.sock`. |
 | idempotent rerun | PASS | 0.93 to 0.98 s. Store hits, "no change", unit not rewritten, same MainPID. |
 | upgrade to v2 (cmux-host-run 2, adds cmux-hook) | PASS | 1.5 to 3.7 s. The manifest was signed with the *next* key and was accepted. The session host was restarted (new PID). |
 | terminal across the upgrade restart | PASS | The shell keeps the same PID under the same terminal host PID, the new daemon adopts it, and the screen still shows the marker. |
@@ -49,7 +49,7 @@ The log is from the final run of `tests/install-cases.sh`, after every fix below
 | `--system` | PASS (refused as designed) | It runs only `sudo <verified bootstrap>` and checks first that the binary has `server install`. The pinned binary does not have it, so the script stops with "system mode is UNVERIFIED". |
 | reboot survival with linger | PASS | See below. |
 
-Readiness: `cmux-server.service` is `Type=forking` with a `PIDFile`. `ExecStart` runs `cmux server ensure --session server --json`. That command returns only after the owner answers identify with `lifecycle_ready`. So `systemctl --user start` returns when the server is ready, and the installer has no sleep loop. The polling stays inside cmux-tui's own ensure. `KillMode=process`: a stop or restart sends SIGTERM only to the session host, so terminal hosts survive for adoption (docs/cloud-guest-upgrades.md).
+Readiness: `cmux-server.service` is `Type=forking` with a `PIDFile`. `ExecStart` runs `cmux daemon ensure --session server --json`. That command returns only after the owner answers identify with `lifecycle_ready`. So `systemctl --user start` returns when the server is ready, and the installer has no sleep loop. The polling stays inside cmux-tui's own ensure. `KillMode=process`: a stop or restart sends SIGTERM only to the session host, so terminal hosts survive for adoption (docs/cloud-guest-upgrades.md).
 
 Linger:
 

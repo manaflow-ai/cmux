@@ -124,6 +124,86 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `tabs.cmdWClosesPinnedTabs`
+
+What Cmd-W does on a pinned tab.
+
+```json
+{
+  "tabs": { "cmdWClosesPinnedTabs": true }
+}
+```
+
+- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
+- `true`: Cmd-W closes a pinned tab like any other tab.
+
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+
+## `tabs.swapCmdTAndCmdN`
+
+Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
+
+```json
+{
+  "tabs": { "swapCmdTAndCmdN": true }
+}
+```
+
+- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane that hides it (an agent chat alone in its column, by default) it opens a workspace in the current group. Cmd-N opens a workspace.
+- `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
+
+Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
+## `tabs.tabBar`
+
+Whether a pane shows its horizontal tab bar, by what the pane holds. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+
+```json
+{
+  "tabs": { "tabBar": { "terminal": "auto", "browser": "auto", "agent": "always" } }
+}
+```
+
+- `terminal`: panes with terminals, or a mix of kinds. `browser`: panes with only browser tabs. `agent`: panes with only agent chats. New Tab pages count as neither.
+- `"auto"` (default): terminal and browser panes show the tab bar. An agent chat alone in its column, or in the chat dock, hides it until the pane holds two tabs.
+- `"always"` shows it, and `"never"` hides it.
+
+**Show Tab Bar** in the command palette or a pane's right-click menu shows or hides one pane's tab bar, whatever its kind's value. Cmd-T always opens a tab in the current workspace, like a browser, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
+
+## `tabs.newTabPosition`
+
+Where Cmd-T and the + button put a new tab.
+
+```json
+{
+  "tabs": { "newTabPosition": "afterCurrent" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
+- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+
+## `tabs.newTabTemplate`
+
+The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+
+```json
+{
+  "tabs": { "newTabTemplate": "terminal" }
+}
+```
+
+- `default`: one field with agent rows, recent chats as cards, and Tools.
+- `composer`: one large prompt field, with nothing else.
+- `threads`: the field and the recent chats as a list.
+- `console`: a monospace field with a `>` prompt and the recent chats as lines.
+- `classic`: the Terminal, Browser and Agent switch.
+- `terminal`: no page. Cmd-T, the + button and a new workspace open a terminal. New Tab Page (`newTab.page`) and Focus Location Bar (Cmd-L) still show the page, so you can pick another template.
+
+The template applies when `tabs.newTabKind` is `page` (the default). Change it in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.
@@ -199,6 +279,55 @@ What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--
 - `everything`: every tab, pane and page focus is a step, as in earlier builds.
 
 A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
+
+## `layout.newPanePlacement` and `layout.tileBrowsers`
+
+Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, the strip's +, the palette).
+
+```json
+{
+  "layout": { "newPanePlacement": "split", "tileBrowsers": false }
+}
+```
+
+- `newPanePlacement: "tab"` (default): a new tab in the focused pane.
+- `newPanePlacement: "split"`: a new pane, the same as New Pane (Auto Layout) (Ctrl-Cmd-N). The largest pane on screen splits along its longer side, like Zellij. A docked column never splits. The new terminal starts in the focused terminal's folder.
+- `tileBrowsers` (default `false`): with `split`, new browsers also get their own pane instead of a tab.
+
+The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
+
+## `workspaces.newPlacement`
+
+Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.
+
+```json
+{
+  "workspaces": { "newPlacement": "top" }
+}
+```
+
+- `"top"` (default): first in the group of the workspace the window shows. When that workspace is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
+
+So under every value, a new workspace opened while you are in a group stays in that group.
+
+A place you pick always wins: a tab dropped on a gap in the sidebar, New Workspace Above, Below, at Top or at Bottom, and New Workspace Like This. A reopened workspace (Reopen Closed Workspace) comes back where it was. The position is written to the sidebar order cmux keeps for you, so it survives a relaunch and shows the same in every window. Change it in **Settings > General > Sidebar** or with `cmux settings set workspaces.newPlacement afterCurrent`.
+
+## `sidebar.groupByComputer`
+
+Whether the sidebar groups workspaces by computer.
+
+```json
+{
+  "sidebar": { "groupByComputer": false }
+}
+```
+
+- `false` (default): one list of workspaces with no computer headers. A workspace on another computer (a Cloud machine, an SSH host) shows that computer's name first on its second line. The Pinned section and your workspace groups stay.
+- `true`: a section per computer, each under a header you can collapse.
+
+Change it in **Settings > General > Sidebar** or with `cmux settings set sidebar.groupByComputer true`.
 
 ## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
 
@@ -311,15 +440,58 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
+## New tab, workspace and window shortcuts
+
+| Shortcut | Action | `shortcuts.bindings` key |
+| --- | --- | --- |
+| Cmd+T | New Tab | `newTab.default` |
+| Cmd+N | New Workspace | `newTab` |
+| Cmd+Shift+N | New Window | `newWindow` |
+| Cmd+Option+Shift+N | New Incognito Window | `newIncognitoWindow` |
+
+The menu bar, the command palette, the CLI (`cmux tab new`, `cmux workspace new`, `cmux app new-window`, `cmux app new-incognito-window`) and MCP run the same actions. Cmd+Shift+N and Cmd+Option+Shift+N also work while a web page has the keyboard. Rebind or unbind each one from Settings > Keyboard Shortcuts or in `cmux.json`; a saved file applies at once:
+
+```json
+{ "shortcuts": { "bindings": { "newWindow": "cmd+shift+m", "newIncognitoWindow": null } } }
+```
+
 ## New Cloud Workspace shortcut and the plus-button menu
 
 Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
 
-When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Ctrl+Backtick), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## Search Tabs shortcut
 
 Cmd+Shift+A opens Search Tabs: every tab in every window, workspace, pane and connected machine, with recently closed tabs below. Type to match a tab's title, URL, folder or the agent running in it. Return focuses and reveals the tab (or reopens a closed one), and Cmd+W closes the selected tab, or removes a closed one from the list, without closing the search. Rebind or unbind it from Settings > Keyboard Shortcuts or with `shortcuts.bindings["tab.search"]`, for example `"tab.search": "cmd+shift+f"` or `"tab.search": null`. A focused Simulator keeps Cmd+Shift+A for its own Toggle Appearance. Focus TextBox moved to Cmd+Option+A so a terminal does not take the chord.
+
+## Tab and Space number shortcuts (Ctrl+1…9)
+
+Ctrl+1 through Ctrl+8 select tab 1 through 8 of the focused pane and Ctrl+9 selects its last tab (`selectSurfaceByNumber`). Ctrl+Option+1…9 select Space 1…9 (`space.selectByNumber`), and Cmd+1…9 select workspaces. The keys work in every surface, including a focused terminal, so a terminal program does not receive Ctrl+1…9 while they are bound.
+
+The first-run Number Keys screen (also under Help > Continue Setup) offers the other order: Spaces on Ctrl+1…9 and tabs on Ctrl+Option+1…9. It writes the two bindings into `cmux.json`, and choosing Tabs removes them again:
+
+```json
+{ "shortcuts": { "bindings": { "space.selectByNumber": "ctrl+1", "selectSurfaceByNumber": "ctrl+opt+1" } } }
+```
+
+A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
+
+## Start Agent and `app.startAgentGlobalHotKey`
+
+Start Agent… (File menu, command palette, `cmux agent quick`, Ctrl+Cmd+Return) opens a small floating panel for one new agent session. The folder row at its top picks the folder or checkout, and the composer's chips pick the harness, model and mode. Return sends the prompt and starts the session in the background: the panel closes and the session appears in the sidebar as a new workspace, without taking focus. Cmd+Return starts it and opens it in the main window. Escape hides the panel and keeps the draft. Rebind the panel's key from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.quickAgentChat"]`.
+
+The panel can also open while another app is in front. This system-wide key is off by default, because it takes the key from every other app:
+
+```json
+{
+  "app": {
+    "startAgentGlobalHotKey": true
+  }
+}
+```
+
+Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -526,6 +698,15 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
+## `mcp.enabled` and agent sessions
+
+Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
+and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+`"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
+To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
+daemon (or in one acpmux profile's `env`). A Claude profile that passes
+`--strict-mcp-config` opts out too and keeps only the MCP servers it names.
+
 ## `agents.launchers`
 
 cmux resolves resume commands for the wrapper launchers it owns (Claude Teams and Codex Teams, started with `cmux agent launch-claude-teams` and `cmux agent launch-codex-teams`). A launcher cmux does not own is invisible to that resolution: a multi-account router such as [`teamclaude`](https://www.npmjs.com/package/@karpeleslab/teamclaude), an LLM-gateway front end, or any `<wrapper> run -- <agent argv>` shim execs the real agent as a child, so the capture records the inner `claude` and restore replays a bare `claude --resume <id>`. The wrapper is dropped, and whatever it provided (account fallback, quota spreading, request logging) is gone from the restored pane.
@@ -604,3 +785,29 @@ shows the same keys.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
+
+## `agentPane.editedFiles.*`
+
+The card in an agent chat that lists the files a turn edited, with Undo and View changes.
+Settings > General > Agent Chat shows the same keys.
+
+```jsonc
+{
+  "agentPane": {
+    "editedFiles": {
+      "show": "always",
+      "maxRows": 5,
+      "scope": "turn"
+    }
+  }
+}
+```
+
+- `show`: `always` (default) shows the card with its file rows, `collapsed` shows only the
+  header (its chevron shows the rows), and `never` shows no card (the turn keeps its plain
+  tool rows).
+- `maxRows`: file rows shown before "Show N more", `1` to `50`. Default: `5`.
+- `scope`: `turn` (default) gives each turn its own card; `session` shows one card for the
+  whole chat, at its latest edit.
+
+A value cmux does not know keeps that key's default and is reported as a diagnostic.

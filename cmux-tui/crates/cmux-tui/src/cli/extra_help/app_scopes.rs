@@ -51,6 +51,10 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        // The classic `cmux identify|ping|capabilities` are `cmux app …`.
+        ["identify" | "ping" | "capabilities"] => {
+            return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
+        }
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -89,6 +93,7 @@ action with that CLI name: `cmux action list --noun {scope}` lists them.
 
 const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
+       cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
@@ -105,8 +110,15 @@ usage: cmux events [--after <seq>] [--name <name>]... [--category <category>]...
 Prints one JSON line per app event until interrupted.";
 
 const HISTORY_HELP: &str = "\
-usage: cmux history list [--kind <kind>] [--range <range>] [--limit <n>]
-       cmux history search <text> [--kind <kind>] [--range <range>] [--limit <n>]";
+usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]
+       cmux history search <text> [--kind <kind,...>] [--range <range>] [--profile <profile>] [--limit <n>]
+       cmux history remove <entry id>...
+       cmux history remove-site <host> [--profile <profile>]
+       cmux history clear-range --range <range> [--kind <kind,...>] [--profile <profile>]
+       cmux history restore <restore id>
+       cmux history <verb...>   (an app action: show, back, forward, reopen, clear, ...)
+The session daemon keeps history, so these work while the app is closed.
+Every removal of page visits answers a restore id.";
 
 const BOOKMARK_HELP: &str = "\
 usage: cmux bookmark list [--folder <folder>] [--profile <profile>] [--limit <n>]
@@ -117,8 +129,12 @@ usage: cmux accounts list
 Lists the app's AI provider accounts; secrets are never printed.";
 
 const OPEN_HELP: &str = "\
-usage: cmux open <path|url>... [--focus [true|false]] [--no-focus]
-URLs open in a browser split, folders in a new workspace, files in the app.";
+usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+URLs open as a browser tab in the caller's pane (or the --workspace pane),
+folders in a new workspace, files in the app. `open -` reads one http(s) URL
+per stdin line, so a URL with a token never appears in argv; it checks every
+line first and stops at the first URL the app refuses.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

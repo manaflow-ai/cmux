@@ -7,10 +7,14 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     /// The clicked row, or the whole selection when the row is part of it,
     /// in visual order.
     case workspaces([WorkspaceID])
+    /// A tab row listed under its workspace (`sidebar.showWorkspaceTabs`).
+    case tab(WorkspaceID, TabID)
     case group(GroupID)
     case section(SectionID)
     /// Empty space below or between sections.
     case background
+    /// Empty space in the bottom band (cx-wab7m): Show for each piece hidden from it.
+    case footer
     /// A dot in the profile bar.
     case profile(ProfileKey)
     /// An item of a pinned section.

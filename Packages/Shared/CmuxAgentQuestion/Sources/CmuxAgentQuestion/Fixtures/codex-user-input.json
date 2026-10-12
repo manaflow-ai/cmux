@@ -1,0 +1,44 @@
+{
+  "id": "perm_codex_1",
+  "source": {
+    "harness": "codex",
+    "session": "sess_codex_1",
+    "permission": "perm_codex_1",
+    "agentName": "Codex",
+    "answerOption": "allow_once",
+    "rejectOption": "reject_once",
+    "toolCall": "call_codex_1"
+  },
+  "items": [
+    {
+      "id": "db_engine",
+      "header": "Database",
+      "prompt": "Which database should the service use?",
+      "options": [
+        {
+          "id": "Postgres",
+          "label": "Postgres",
+          "detail": "Managed Postgres with point-in-time restore."
+        },
+        {
+          "id": "SQLite",
+          "label": "SQLite",
+          "detail": "One file next to the service."
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": true
+    },
+    {
+      "id": "service_name",
+      "header": "Name",
+      "prompt": "What should the service be called?",
+      "options": [],
+      "multiSelect": false,
+      "allowsOther": true
+    }
+  ],
+  "state": {
+    "kind": "pending"
+  }
+}

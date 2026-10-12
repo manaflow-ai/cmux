@@ -33,6 +33,11 @@ on:
         required: false
         default: false
         type: boolean
+      agent_tools:
+        description: Bake the agent tools (browser role baked, on-demand agent display and computer use, tool dir for acpmux; dev snapshots only, bead cx-h8n)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -76,10 +81,12 @@ jobs:
         id: bake
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          AGENT_TOOLS: ${{ inputs.agent_tools && '--agent-tools' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
-          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" | tee "$OUT_DIR/bake.out"
+          # shellcheck disable=SC2086
+          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS | tee "$OUT_DIR/bake.out"
           snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
           test -n "$snapshot"
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"

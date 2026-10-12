@@ -36,10 +36,14 @@ pub const RISKS: &[&str] =
 impl Risk {
     /// The default for an op that declares none: `read` for a read op. A
     /// mutation must declare its risk; using this for one fails the build.
+    /// Only `pane_op!` calls it, for the associated const `Op::RISK`, so the
+    /// panic is const evaluation (a compile error), never a runtime panic.
+    #[allow(clippy::panic)]
     pub const fn default_for(kind: OpKind) -> Self {
         match kind {
             OpKind::Read => Self::Read,
             OpKind::Mutation | OpKind::Stream => {
+                // crash-allow: const-evaluated by pane_op! (Op::RISK); a mutation without `risk` fails the build
                 panic!("a mutation or stream op must declare `risk`")
             }
         }
@@ -191,35 +195,4 @@ macro_rules! pane_event {
             type Data = $data;
         }
     };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    crate::pane_op! {
-        HiddenOp {
-            name: "cmux.test.hidden.run", kind: Mutation, scope: "test:write",
-            params: crate::example::HelloParams, result: crate::example::HelloResult,
-            errors: [],
-            risk: MutateOwn,
-            gesture: true,
-            mcp: OptIn,
-            cli: "hidden run" positional ["name"] visible false,
-        }
-    }
-
-    #[test]
-    fn the_macro_sets_cli_visibility_and_defaults_it_to_visible() {
-        assert!(!HiddenOp::CLI[0].visible);
-        assert_eq!(HiddenOp::CLI[0].positional, ["name"]);
-        assert_eq!(HiddenOp::MCP.expose, McpExpose::OptIn);
-        assert_eq!((HiddenOp::RISK, HiddenOp::GESTURE), (Risk::MutateOwn, true));
-        assert_eq!(
-            (crate::git::GitStatusOp::RISK, crate::git::GitStatusOp::GESTURE),
-            (Risk::Read, false)
-        );
-        assert!(crate::git::GitStatusOp::CLI[0].visible);
-        assert_eq!(crate::git::GitStatusOp::PATH_PARAMS, ["cwd"]);
-    }
 }

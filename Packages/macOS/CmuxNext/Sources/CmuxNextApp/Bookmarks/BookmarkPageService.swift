@@ -94,6 +94,8 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
 
     var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
 
+    func favicon(for node: BookmarkNode) -> CGImage? { services.bookmarks.favicon(of: node, profile: profile, fetching: true)?.cgImage }
+
     func apply(_ operation: BookmarkOperation) -> Bool {
         do {
             try services.bookmarks.apply(operation, profile: profile)
@@ -113,6 +115,7 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
     }
 
     func importHTML() { BookmarkFiles(services: services).chooseImport(profile: profile) }
+    func importFromBrowser() { BookmarkBrowserImport(services: services).choose(profile: profile, window: NSApp.keyWindow) }
     func exportHTML() { BookmarkFiles(services: services).chooseExport(profile: profile) }
 
     func copy(_ text: String) {

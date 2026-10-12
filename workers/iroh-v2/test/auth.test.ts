@@ -23,6 +23,19 @@ test("Stack establishes user and explicit team authority without a solo-team fal
     .rejects.toMatchObject({ code: "team_access_revoked", status: 403 });
 });
 
+test("a project without a publishable key verifies without sending the header", async () => {
+  const sent: Array<string | null> = [];
+  const authority = new StackAuthority({ ...configuration, publishableKey: "" }, async (url, init) => {
+    sent.push(new Headers(init.headers).get("x-stack-publishable-client-key"));
+    return Response.json(url.includes("users/me") ? { id: device.identity.userId } : { items: [{ id: device.identity.teamId }] });
+  });
+  expect((await authority.verify("test-token", device.identity, 100)).userId).toBe(device.identity.userId);
+  expect(sent).toEqual([null, null]);
+  const missing = new StackAuthority({ ...configuration, publishableKey: undefined }, async (url) =>
+    Response.json(url.includes("users/me") ? { id: device.identity.userId } : { items: [{ id: device.identity.teamId }] }));
+  expect((await missing.verify("test-token", device.identity, 100)).teamId).toBe(device.identity.teamId);
+});
+
 test("wrong user, environment and project never create claimed authority", async () => {
   let calls = 0;
   const authority = new StackAuthority(configuration, async () => { calls++; return Response.json({ id: "other-user" }); });

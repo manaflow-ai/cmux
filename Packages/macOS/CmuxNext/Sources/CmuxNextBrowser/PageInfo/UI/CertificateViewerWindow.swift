@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// fields, field value, Export).
 final class CertificateViewerWindow: PageInfoWindow {
     private let chain: [PageInfoCertificate]
-    private let tabs = NSSegmentedControl()
+    private let tabs = ThemedSegmentedControl()
     private let container = NSView()
     private var selected = 0
 
@@ -77,7 +77,7 @@ final class CertificateViewerWindow: PageInfoWindow {
 
     private func generalView(_ certificate: PageInfoCertificate) -> NSView {
         let missing = PageInfoStrings.notPartOfCertificate
-        func value(_ text: String?) -> String { text?.isEmpty == false ? text! : missing }
+        func value(_ text: String?) -> String { text.flatMap { $0.isEmpty ? nil : $0 } ?? missing }
         let dates = DateFormatter()
         dates.dateStyle = .full
         dates.timeStyle = .long

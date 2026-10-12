@@ -1,8 +1,11 @@
-//! Where the core's memory stands, saved in `state` (`memory/checkpoint`),
-//! so a start reads the view and a few frontier nodes by key instead of
-//! folding the whole log again (section 5.2, "At load", which stays the
-//! fallback). A stale checkpoint is fine: the messages after it are folded
-//! in as at load. The host saves one every `EVERY` messages and at shutdown.
+//! Where the core's memory stands, saved in `state` (`memory/checkpoint`):
+//! the view, the compaction view and their batch state. Taelin's recipe
+//! (gist 3c190e0, 3.2) saves the view to `view.json` and loads it at start,
+//! and never rebuilds it from the log: a rebuilt view differs from the live
+//! one, and every cache entry dies. This is that file, in the database's
+//! state table so it commits with the rest. The host saves it after every
+//! message and at shutdown; a fold from message 0 happens only when there
+//! is no usable checkpoint (a first start after an import or an older store).
 
 use std::io;
 
@@ -13,16 +16,20 @@ use super::{Built, Db};
 
 /// The state key of the checkpoint.
 pub const CHECKPOINT_KEY: &str = "memory/checkpoint";
-/// Messages between two saved checkpoints: a start folds at most this many.
-pub const EVERY: u64 = 256;
-/// A checkpoint more messages behind than this is not resumed from: its
-/// frontier and tail would cost about what a full fold does (the log was
-/// written by something else, an import or an old build).
-pub const STALE: u64 = 16 * EVERY;
+/// Messages between two saved checkpoints: every one (spec 3.2).
+pub const EVERY: u64 = 1;
 
 pub fn encode(c: &Checkpoint) -> String {
-    let view: Vec<Value> = c.view.iter().map(|p| json!([p.l, p.i])).collect();
-    json!({"t": c.t, "low": c.low, "view": view}).to_string()
+    let parts = |v: &[NodeId]| v.iter().map(|p| json!([p.l, p.i])).collect::<Vec<Value>>();
+    json!({
+        "t": c.t,
+        "low": c.low,
+        "view": parts(&c.view),
+        "compact_view": parts(&c.compact_view),
+        "merging": c.merging,
+        "compact_merging": c.compact_merging,
+    })
+    .to_string()
 }
 
 pub fn decode(text: &str) -> Option<Checkpoint> {
@@ -32,19 +39,29 @@ pub fn decode(text: &str) -> Option<Checkpoint> {
         .iter()
         .map(Value::as_u64)
         .collect::<Option<Vec<u64>>>()?;
-    let view = v["view"]
-        .as_array()?
-        .iter()
-        .map(|p| {
-            let l = p.get(0)?.as_u64()?;
-            let i = p.get(1)?.as_u64()?;
-            (l < 64).then(|| NodeId::new(l as u32, i))
-        })
-        .collect::<Option<Vec<NodeId>>>()?;
+    let parts = |v: &Value| {
+        v.as_array()?
+            .iter()
+            .map(|p| {
+                let l = p.get(0)?.as_u64()?;
+                let i = p.get(1)?.as_u64()?;
+                (l < 64).then(|| NodeId::new(l as u32, i))
+            })
+            .collect::<Option<Vec<NodeId>>>()
+    };
+    let view = parts(&v["view"])?;
+    // An older build's checkpoint has no compaction view: the resume derives it.
+    let compact_view = match v.get("compact_view") {
+        Some(c) => parts(c)?,
+        None => Vec::new(),
+    };
     Some(Checkpoint {
         t: v["t"].as_u64()?,
         low,
         view,
+        compact_view,
+        merging: v["merging"].as_bool().unwrap_or(false),
+        compact_merging: v["compact_merging"].as_bool().unwrap_or(false),
     })
 }
 
@@ -57,17 +74,18 @@ pub enum Loaded {
     Folded,
 }
 
-/// The core's memory for `db`: resumed from its checkpoint when it has a
-/// usable one (not more than `STALE` messages behind), else folded from every node's size (`built`, when the caller
-/// has them already). Either way the result is lazy and its checkpoint is
-/// saved, so the next start resumes.
+/// The core's memory for `db`: resumed from its checkpoint whenever it has
+/// one that fits the store, however far behind (the messages after it are
+/// appended as live); else folded from every node's size (`built`, when the
+/// caller has them already, after an import). Either way the result is lazy
+/// and its checkpoint is saved, so the next start resumes.
 pub fn load(db: &mut Db, built: Option<Built>, budget: usize) -> io::Result<(Memory, Loaded)> {
     if built.is_none() {
         let saved = db.state(CHECKPOINT_KEY)?.as_deref().and_then(decode);
-        if let Some(c) = saved.filter(|c| db.len().saturating_sub(c.t) <= STALE) {
+        if let Some(c) = saved {
             let frontier = db.frontier(&c.low)?;
             if let Some(m) = Memory::resume(&c, db.len(), frontier, budget, &*db) {
-                if db.len() - c.t > EVERY {
+                if db.len() > c.t {
                     save(db, &m)?;
                 }
                 return Ok((m, Loaded::Resumed));

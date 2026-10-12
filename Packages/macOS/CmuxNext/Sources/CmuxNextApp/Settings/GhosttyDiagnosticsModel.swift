@@ -24,7 +24,7 @@ final class GhosttyDiagnosticsModel {
         self.read = read
         refresh()
         observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            // main-proof: observer on queue: .main
             MainActor.assumeIsolated { self?.refresh() }
         }
     }

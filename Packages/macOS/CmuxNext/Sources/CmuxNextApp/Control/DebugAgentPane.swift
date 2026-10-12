@@ -15,27 +15,32 @@ import WebKit
 /// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
 /// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
-/// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
-/// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
+/// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
+/// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
+/// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
+/// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
+/// work; webviews loadDebug.ts), `typing_stats`,
+/// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
 /// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
 /// the chat automation verbs (webviews automation.ts; each runs the page
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
-/// `select_session` (`session`), `answer_permission` (`option`, `allow`,
+/// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
 /// `readiness` (page body, transcript and composer metrics), `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
-/// page; returns whether it is on). Every action first stops WebKit from
+/// page; returns whether it is on), or `inspector` (`open` sets its visibility;
+/// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
 @MainActor
 enum DebugAgentPane {
-    /// Long enough for a 5000-row seed and a waited fling of up to ~25 s.
-    static let deadline: Duration = .seconds(30)
+    /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
+    static let deadline: Duration = .seconds(60)
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
@@ -43,8 +48,19 @@ enum DebugAgentPane {
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
-        "set_model": "setModel", "models": "models", "stream": "stream",
+        "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
+        "load_seed": "loadSeed", "load_run": "loadRun",
     ]
+
+    /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
+    /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
+    /// pick or an answer as the user's, and automation reaches what a person sees (the trust
+    /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder"]
+
+    static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
+        if userVerbs.contains(action) { gestures.record() }
+    }
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
@@ -67,6 +83,7 @@ enum DebugAgentPane {
         }
         let action = params["action"]?.stringValue ?? ""
         keepRenderingWhenCovered(view.webView)
+        actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
             let selector = NSSelectorFromString("_webProcessIdentifier")
             guard view.webView.responds(to: selector),
@@ -80,20 +97,75 @@ enum DebugAgentPane {
             let state = view.model.transport.gestures.debugState
             var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            // A seeded prompt's ticket (cx-k21v gap 4): outstanding, and whether its one remote start was used.
+            let seed = view.model.transport.gestures.seedTicketState
+            fields["seed_ticket"] = .bool(seed.outstanding)
+            fields["seed_started"] = .bool(seed.started)
+            // `replay_seed: true` redeems the last seed ticket again for its own prompt (a replay): false once spent.
+            if params["replay_seed"]?.boolValue == true {
+                let replay = view.model.transport.gestures.replayLastSeedTicket(connection: view.model.transport.connection ?? -1)
+                fields["seed_replay_allowed"] = replay.map { .bool($0) } ?? .null
+            }
             return .object(fields)
         }
+        #if DEBUG
+        if action == "remote_approvals" {
+            // cx-kvmz T2: the "Remote approvals are off" notice as a person sees it; `press` clicks its restart.
+            let pressed = params["press"]?.boolValue == true ? view.pressRemoteApprovalsRestart() : false
+            guard let notice = view.remoteApprovalsNoticeLines else { return .object(["pane": .string(pane), "notice": .null, "pressed": .bool(pressed)]) }
+            return .object(["pane": .string(pane), "notice": .array(notice.lines.map(JSONValue.string)), "restart": .bool(notice.restart), "pressed": .bool(pressed)])
+        }
+        #endif
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
+        if action == "snapshot" {
+            // The page as WebKit draws it (`WKWebView.takeSnapshot`), PNG at `path`: a window
+            // snapshot draws no web content, and a build host may have no screen recording.
+            let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
+            guard let image = try? await view.webView.takeSnapshot(configuration: nil),
+                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:]),
+                  (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
+                return .object(["pane": .string(pane), "error": .string("snapshot failed")])
+            }
+            return .object(["pane": .string(pane), "path": .string(path), "width": .number(Double(rep.pixelsWide)), "height": .number(Double(rep.pixelsHigh))])
+        }
         if action == "readiness" {
-            return await readiness(pane: pane, view: view)
+            return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
+        }
+        if action == "close_menus" {
+            let script = """
+            const target = document.activeElement || document.body;
+            target.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+              bubbles: true, cancelable: true
+            }));
+            return JSON.stringify({
+              menus: document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu').length
+            });
+            """
+            do {
+                let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+                guard let text = result as? String,
+                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                      let value = JSONValue(foundation: object) else {
+                    return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
+                }
+                return .object(["pane": .string(pane), "result": value])
+            } catch {
+                return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+            }
         }
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
+        if action == "inspector" {
+            return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate or gesture_state")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -112,7 +184,7 @@ enum DebugAgentPane {
         }
     }
 
-    private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
+    private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
         const composer = document.querySelector('.acpmux-composer');
@@ -120,16 +192,28 @@ enum DebugAgentPane {
         const debug = window.cmuxAcpmuxDebug;
         const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
         const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
+        const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
+        if (waitForAnimations && menuAnimations.length) {
+          await Promise.race([
+            Promise.all(menuAnimations.map((animation) => animation.finished.catch(() => undefined))),
+            new Promise((resolve) => setTimeout(resolve, 1000))
+          ]);
+        }
+        const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
-          document_ready: document.readyState === 'complete'
+          document_ready: document.readyState === 'complete',
+          animations_pending: animationsPending
         });
         """
         do {
-            let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
+            let result = try await view.webView.callAsyncJavaScript(script, arguments: ["waitForAnimations": waitForAnimations],
+                                                                    in: nil, contentWorld: .page)
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),
@@ -138,6 +222,26 @@ enum DebugAgentPane {
             }
             members["pane"] = .string(pane)
             return .object(members)
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        }
+    }
+
+    /// Calls the page bridge that Show ACP Inspector calls
+    /// (`AgentPaneView.toggleInspector`) and reads back whether it is open.
+    private static func toggleInspector(_ view: AgentPaneView, open: Bool?, pane: String) async -> JSONValue {
+        let script = """
+            const bridge = window.cmuxAcpmuxBridge;
+            return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
+            """
+        do {
+            let result = try await view.webView.callAsyncJavaScript(
+                script, arguments: ["open": open.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page
+            )
+            guard let isOpen = result as? Bool else {
+                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
+            }
+            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
@@ -169,6 +273,15 @@ enum DebugAgentPane {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "load_seed":
+            return [params["turns"]?.intValue ?? 5000]
+        case "load_run":
+            // The chat under load (loadDebug.ts): a full-speed stream while the transcript scrolls.
+            var options: [String: Any] = [:]
+            for key in ["seconds", "chunk_chars", "chunk_ms", "tool_every", "scroll_speed", "scroll_depth"] {
+                if let value = params[key]?.doubleValue { options[key] = value }
+            }
+            return [options]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
@@ -181,6 +294,8 @@ enum DebugAgentPane {
             return [params["model"]?.stringValue ?? "", params["effort"]?.stringValue ?? NSNull()]
         case "select_session":
             return [params["session"]?.stringValue ?? ""]
+        case "pick_folder":
+            return [params["cwd"]?.stringValue ?? ""]
         case "answer_permission":
             var options: [String: Any] = [:]
             if let option = params["option"]?.stringValue { options["optionId"] = option }

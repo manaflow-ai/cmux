@@ -46,7 +46,8 @@ typedef enum {
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
   CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
-  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, s1 = text, s2 = url
+  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
+                                  // interstitial for it, s1 = text, s2 = url
   CMUX_SHIM_PROGRESS = 11,        // a = progress * 1000
   CMUX_SHIM_FULLSCREEN = 12,      // a = 1 entering
   CMUX_SHIM_DEVTOOLS_RESULT = 13, // request = message id, a = success, s1 = JSON
@@ -128,6 +129,34 @@ typedef enum {
   // Once per download: a = 1 complete, 2 cancelled, 3 interrupted;
   // b = cef_download_interrupt_reason_t; s1 = the full path ("" if none).
   CMUX_SHIM_DOWNLOAD_DONE = 36,
+  // A sign-in tab (cmux_shim_set_auth_callback) navigated its main frame to
+  // the session's callback. The shim cancelled the navigation before it
+  // loaded; s1 = the callback url.
+  CMUX_SHIM_AUTH_CALLBACK = 37,
+  // A main-frame navigation to a local file cmux shows elsewhere (Markdown,
+  // or H.264/HEVC or AAC media this build cannot decode;
+  // CEFShim/src/local_file_handoff.h). The shim cancelled it; s1 = url. The
+  // host opens the file in cmux's markdown page or a WebKit tab.
+  CMUX_SHIM_LOCAL_FILE_HANDOFF = 38,
+  // The chrome.bookmarks bridge (fork API 22): s1 = one cmux_bookmarks_observe
+  // event (JSON), s2 = the profile cache path. Every persistent profile is
+  // watched once its request context is initialized; {"op": "loaded"} asks
+  // the host to sync (cmux_shim_bookmarks_sync).
+  CMUX_SHIM_BOOKMARKS_EVENT = 39,
+  // A main-frame navigation to a scheme neither Chromium nor cmux loads
+  // (mailto:, an app's own scheme; CEFShim/src/external_url.h). The shim
+  // cancelled it; s1 = url, a = 1 when the user's gesture started it. The
+  // host opens it in its app or asks first (BrowserExternalApps).
+  CMUX_SHIM_EXTERNAL_URL = 40,
+  // A page asks for a permission the host decides (location;
+  // CEFShim/src/shim_permissions.mm). Chromium waits for
+  // cmux_shim_permission_continue (during the event or later). request =
+  // the prompt's token, a = the cef_permission_request_types_t bits,
+  // s1 = the requesting origin.
+  CMUX_SHIM_PERMISSION_PROMPT = 41,
+  // Chromium ended a waiting PERMISSION_PROMPT itself (the page navigated or
+  // closed); request = its token. Not sent after the host's answer.
+  CMUX_SHIM_PERMISSION_DISMISSED = 42,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -285,6 +314,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// File > Print… (CefBrowserHost::Print): Chromium's print preview over the
+// page, as the page's own window.print(). Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
@@ -423,6 +455,11 @@ CMUX_SHIM_EXPORT int cmux_shim_download_continue(int download_id, const char* pa
 // when the download is unknown or has finished, or for pause/resume before
 // its first update.
 CMUX_SHIM_EXPORT int cmux_shim_download_control(int download_id, int command);
+// Answers PERMISSION_PROMPT (prompt_token = its token): result 1 allows,
+// 2 denies (Chromium remembers both for the origin); any other value drops
+// it unanswered (no dismissal is recorded; Chromium ends it with the page).
+// Returns 0 when the prompt is not waiting.
+CMUX_SHIM_EXPORT int cmux_shim_permission_continue(int prompt_token, int result);
 
 // Shutdown ordering (fork API v2).
 CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
@@ -447,6 +484,12 @@ CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
 // Deletes the host and domain cookies of url named name (every name when
 // name is NULL or ""). REPLY with `reply` follows, a = deleted count.
 CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name);
+// Downloads the favicon at url through the browser's own request context
+// (CefBrowserHost::DownloadImage as a favicon: the tab's cookies and
+// profile), at most max_size pixels square. REPLY with `reply` follows:
+// a = HTTP status (0 when the fetch failed), s1 = base64 PNG at 1x, or "".
+// Returns 0 when the browser is gone, url is empty or max_size <= 0.
+CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int max_size);
 // Browser import: writes cookies into the request context of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // creating the context when no tab opened it yet. json = [{"url","name",
@@ -506,6 +549,41 @@ CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int
 // REPLY with `reply` and browser 0 follows: a = 1 deleted, 0 not. Returns 0
 // when nothing was started (as above, or an empty id).
 CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply);
+// Password manager core (fork API 18: cmux_password_list, _remove,
+// _exception_remove, _set_username, _reveal, _export; the Passwords page,
+// plans/cmux-next/passwords.md 1.4). profile_cache_path is a persistent
+// profile (an off-the-record key returns 0). Ids are the store's decimal
+// primary keys, as listed. Each call returns 0 when nothing was started (bad
+// input, or the fork lacks the call); otherwise exactly one REPLY (browser 0,
+// request `reply`) follows on the main thread once the profile is
+// initialized. Passwords never travel in a REPLY, a CEF value or a log line.
+// 1 when this fork has all six calls.
+CMUX_SHIM_EXPORT int cmux_shim_password_core_available(void);
+// REPLY: a = 1 and s1 = the fork's JSON {"passwords":[{"id","site","url",
+// "username","created","last_used" (ms since 1970, 0 = never),"times_used",
+// "weak","reused"}],"exceptions":[{"id","site"}]} (metadata only), or a = 0.
+CMUX_SHIM_EXPORT int cmux_shim_password_list(const char* profile_cache_path, int reply);
+// Removes saved sign-ins by id. REPLY: a = removed count, or -1.
+CMUX_SHIM_EXPORT int cmux_shim_password_remove(const char* profile_cache_path, const char* const* ids, int count, int reply);
+// Removes one never-save site. REPLY: a = 1 removed, 0 not found, -1 failed.
+CMUX_SHIM_EXPORT int cmux_shim_password_exception_remove(const char* profile_cache_path, const char* id, int reply);
+// Changes one sign-in's username (UTF-8, may be empty). REPLY: a = 1 changed
+// (or equal), 0 not found, -2 another sign-in of the site has it, -1 failed.
+CMUX_SHIM_EXPORT int cmux_shim_password_set_username(const char* profile_cache_path, const char* id, const char* username,
+                                                     int reply);
+// One password for the native reveal sheet or the pasteboard, after the app
+// authenticated the device owner. NOT a REPLY: `done` runs exactly once on
+// the main thread with the UTF-8 bytes (not terminated) in a shim buffer that
+// is valid only during the call and zeroed after it; NULL and 0 when the id
+// is not found or the store failed. The app copies the bytes into SecretBytes
+// inside `done`. Returns 0 (and never calls `done`) when nothing was started.
+typedef void (*cmux_shim_password_reveal_fn)(void* ctx, const char* password, size_t length);
+CMUX_SHIM_EXPORT int cmux_shim_password_reveal(const char* profile_cache_path, const char* id,
+                                               cmux_shim_password_reveal_fn done, void* ctx);
+// Writes every saved sign-in as Chrome's password CSV to the absolute
+// file_path (the fork writes a 0600 temp file and renames it; a symlink is
+// replaced, never followed). REPLY: a = sign-ins written, or -1.
+CMUX_SHIM_EXPORT int cmux_shim_password_export(const char* profile_cache_path, const char* file_path, int reply);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.
@@ -517,6 +595,13 @@ CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
 // as Chrome does) so the next load verifies the server again. REPLY with
 // `reply` follows once both finished, a = 1. Returns 0 when not started.
 CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply);
+// Proceed on the host's certificate warning page. Chromium fails a main-frame
+// load with a certificate error (the host shows its warning) unless this was
+// called for the browser, `host` and error `code` first: that error then
+// continues (Chromium remembers it for the profile), or, with
+// `chromium_decides`, goes to Chromium's own interstitial, which knows
+// whether HSTS allows proceeding. Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 // Renderer processes of a tab (resource hover cards). Writes at most
@@ -552,6 +637,12 @@ CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path);
 // blob: and filesystem: of those. The same rule as AgentURLPolicy.swift
 // (plans/cmux-next/passwords.md, section 2).
 CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
+// The callback of a sign-in session (ASWebAuthenticationSession) that runs in
+// browser_id: a custom scheme, or an https host and path (auth_callback_policy.h).
+// A main-frame navigation (redirects included) to it is cancelled before it
+// loads and reported as AUTH_CALLBACK. All empty or NULL clears it.
+CMUX_SHIM_EXPORT void cmux_shim_set_auth_callback(int browser_id, const char* scheme, const char* https_host,
+                                                  const char* https_path);
 
 // Profile preferences (UI thread). Only these names are allowed:
 // credentials_enable_service, credentials_enable_autosignin,
@@ -573,6 +664,13 @@ CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, con
 // unknown profile (enable only), a name not allowed, or a failed
 // registration. Shutdown releases every watch.
 CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled);
+
+// The chrome.bookmarks bridge (fork API 22, cmux_bookmarks_sync): makes
+// Chromium's Bookmarks bar and Other bookmarks of the profile equal to
+// tree_json ({"nodes": [...]}, pre-order). 1 applied; 0 the model is not
+// loaded yet (CMUX_SHIM_BOOKMARKS_EVENT "loaded" follows); -1 refused, also
+// when the engine has no bridge.
+CMUX_SHIM_EXPORT int cmux_shim_bookmarks_sync(const char* profile_cache_path, const char* tree_json);
 
 // cmux-page:// pages served from a folder. The scheme
 // is registered at startup in every process (standard, secure,

@@ -1,11 +1,11 @@
-# Journal operations: reading `server stats`
+# Journal operations: reading `daemon stats`
 
 The daemon reports where its own time goes. Ask it before sampling the
 process:
 
 ```bash
-cmux server stats --json            # exact object, spec/commands.md "server-stats"
-cmux server stats                   # nested key: value lines
+cmux daemon stats --json            # exact object, spec/commands.md "server-stats"
+cmux daemon stats                   # nested key: value lines
 ```
 
 Counters accumulate since daemon start and reading them costs a few atomic
@@ -64,7 +64,7 @@ comes to the cap.
 
 Until the in-binary load generator lands, use the Python scripts recorded in
 the cmuxterm-hq plan (`bench4.py`: N clients over K live terminals through a
-blocking hook helper) and read `server stats` before and after. Numbers on the
+blocking hook helper) and read `daemon stats` before and after. Numbers on the
 2026-09-02 main with 16 terminals, dev build, Apple M-series laptop: 16 clients
 p50 185 ms at 75 events/s; 48 clients p50 621 ms at 59 events/s; the remaining
 ceiling is the per-event projection commit under the registry lock.

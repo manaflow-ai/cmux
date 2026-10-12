@@ -142,6 +142,15 @@ export type MiniWindow = {
   browserProfile: string;
 };
 
+/** Whether the workspace that owns a mini window still exists after a stack change. */
+export function miniTargetExists(spaces: Spaces, mini: MiniWindow): boolean {
+  return Boolean(
+    spaces.spaces
+      .find((space) => space.id === mini.spaceId)
+      ?.stack.workspaces.some((workspace) => workspace.id === mini.workspaceId),
+  );
+}
+
 /** Opens a link in the mini window. It belongs to the workspace the link came from (another app's link: the current one). */
 export function openMini(
   spaces: Spaces,

@@ -18,12 +18,42 @@ const KEEP_IDLE = 24;
 
 export type Fetcher = (url: string) => Promise<unknown>;
 
-export const defaultFetcher: Fetcher = async (url) => {
+/** The local inspector: same-origin HTTP on the brain host's loopback server (cookie session). */
+export const httpFetcher: Fetcher = async (url) => {
   const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error((body as { error?: string }).error ?? `HTTP ${response.status}`);
   return body;
 };
+
+/** A page-bridge call (the app's `cmuxPage` handler), as `PageClient.call` shapes it. */
+export type BridgeCall = (op: string, params: unknown) => Promise<unknown>;
+
+/**
+ * A remote Chief's inspector: the app page (cmux-page://cmux.chief-inspector/) asks the app,
+ * which relays `cmux.chief_inspector.get {path, query}` to the brain's daemon.
+ */
+export function bridgeFetcher(call: BridgeCall): Fetcher {
+  return async (url) => {
+    const parsed = new URL(url, "cmux-page://cmux.chief-inspector/");
+    const query: Record<string, string> = {};
+    parsed.searchParams.forEach((value, key) => {
+      query[key] = value;
+    });
+    try {
+      return await call("cmux.chief_inspector.get", { path: parsed.pathname, query });
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+  };
+}
+
+/** One code path, chosen by origin: the app page uses the bridge, the loopback page uses HTTP. */
+export function fetcherFor(protocol: string, call: BridgeCall | null): Fetcher {
+  return protocol === "cmux-page:" && call ? bridgeFetcher(call) : httpFetcher;
+}
+
+export const defaultFetcher: Fetcher = httpFetcher;
 
 export class ApiStore {
   private slots = new Map<string, Slot>();

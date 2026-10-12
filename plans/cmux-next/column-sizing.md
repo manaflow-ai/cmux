@@ -26,6 +26,15 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   `ColumnLayoutSettingsTests` checks each default in the parser, the schema and `DesignSettings`.
   The pre-R87 keys `layout.stickyColumnEdge` and `layout.stickyColumnMode` (nightly-next only) are
   read for one release when the dock key is absent; the dock key wins.
+- New Pane (Auto Layout) (Ctrl-Cmd-N, CLI `pane new-auto-layout`) is Zellij's new pane
+  (`PanePlacement.autoSplit`): the largest shown pane of a scrolling column splits along its longer
+  side (right on a tie, the other axis when only it has room); equal areas prefer the most recently
+  focused pane. A docked column (side dock or band) never splits. The new pane starts in the
+  focused terminal's folder (NEW-TERMINAL-INHERITS-CWD). A run that names a pane splits that pane.
+- `layout.newPanePlacement` (tab default, split) and `layout.tileBrowsers` (false): with split, a
+  person's New Terminal (and New Browser, with tileBrowsers) takes the Auto Layout path; a browser
+  opens as a tab, then moves into its own pane. CLI, MCP and scripts always get a tab. Settings
+  window (General > Columns) and cmux.json; `PanePlacementSettingsTests` checks the defaults.
 - New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's
   text Look Up uses it only in text views). It replaces Cmd-Shift-Opt-N; rebind under
   `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D stays macOS's

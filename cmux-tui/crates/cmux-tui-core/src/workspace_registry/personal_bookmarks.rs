@@ -69,6 +69,8 @@ pub(super) fn create_bookmark_schema(transaction: &Transaction<'_>) -> anyhow::R
            UNIQUE(origin, mutation_id)
          );",
     )?;
+    // P8 landing 3b: the actor of a keyed op; a row without one is legacy.
+    super::mutation_ledger::add_nullable_column(transaction, "bookmark_mutations", "actor")?;
     transaction
         .execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     Ok(())

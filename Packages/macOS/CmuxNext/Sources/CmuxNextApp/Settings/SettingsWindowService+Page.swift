@@ -10,7 +10,10 @@ import CmuxNextSettingsWindow
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
-        [
+        // The app scope is not observable; reading the store's generation makes the page's
+        // host-lists watch re-send the Ghostty config preview after a config edit.
+        _ = ThemeStore.shared.generation
+        return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in
@@ -21,7 +24,9 @@ extension SettingsWindowService {
                 ]
             }),
             "profile_colors": .array(GroupColor.allCases.map { color in
-                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.swatch)), "fill": .string(Self.hex(color.fill))]
+                // Opaque colors only (hex drops alpha): grey keeps its own swatch and fill.
+                ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.markColor)),
+                 "fill": .string(Self.hex(color == .grey ? color.fill : color.themedChipFill))]
             }),
             // R82 commit 4: theme levels of the active window, terminal facts, the settings file
             // and the wallpaper choices (thumbnails at cmux-page://cmux.settings/backdrop/<id>).
@@ -30,13 +35,29 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
+                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
+                // scope's colors while appearance.theme is unset (null while it names a theme).
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
+            // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
+            "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": .array(Self.backdrops.choices.map { choice in
-                ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
+            // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré) and the
+            // person's own images theirs ("Your images"); the page groups the grid by it.
+            "backdrops": .array(Self.backdrops.choices.map { choice -> JSONValue in
+                var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
+                                                "attribution": .string(choice.attribution)]
+                if case .art(let art) = choice {
+                    row["collection"] = .string(art.collection.rawValue)
+                    row["collection_title"] = .string(art.collection.title)
+                } else if case .file = choice {
+                    row["collection"] = .string(BackdropUserImages.collection)
+                    row["collection_title"] = .string(BackdropUserImages.collectionTitle)
+                }
+                return .object(row)
             }),
             "derived": .object(pageDerivedNumbers()),
         ]
@@ -52,8 +73,17 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick).
-    static let backdrops = BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default)
+    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick), read
+    /// each time so an image the person just added is listed.
+    static var backdrops: BackdropCatalog {
+        BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default,
+                        userImages: userImages)
+    }
+
+    /// The person's own background images, in the backgrounds folder.
+    static var userImages: BackdropUserImages? {
+        BackdropArtDownloads.defaultFolder.map(BackdropUserImages.init(folder:))
+    }
 
     /// The theme picker's write: the same theme actions as the palette, at `level` of the active
     /// window; nil `spec` returns the level to the Ghostty config.
@@ -62,6 +92,19 @@ extension SettingsWindowService {
             throw ActionFailure.invalidTarget(level)
         }
         setTheme(spec, at: level)
+    }
+
+    /// Terminal colors as the page reads a theme (`GhosttyTheme`, unnamed: the page labels it).
+    static func themeJSON(_ input: ThemeInput) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "name": .string(""),
+            "background": .string(AppTheme.hex(input.background)),
+            "foreground": .string(AppTheme.hex(input.foreground)),
+            "palette": .array((0..<16).map { $0 < input.palette.count ? .string(AppTheme.hex(input.palette[$0])) : .null }),
+        ]
+        if let selection = input.selectionBackground { object["selectionBackground"] = .string(AppTheme.hex(selection)) }
+        if let selected = input.selectionForeground { object["selectionForeground"] = .string(AppTheme.hex(selected)) }
+        return .object(object)
     }
 
     private static func listRow(_ row: SettingsListRow) -> JSONValue {

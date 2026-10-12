@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Page ids and their trust (coordinator rule from the P8 review): a page id is its origin host
 /// (`cmux-page://<id>`), and a first-party host inherits first-party access (`cmux.agent` reaches
@@ -11,7 +11,7 @@ public nonisolated struct PageID {
     /// First-party pages the app ships.
     public static let firstParty: Set<String> = [
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
-        "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor",
+        "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor", "cmux.chief-inspector", "cmux.debug-settings",
     ]
 
     /// Whether `id` is a first-party page in the table (it gets first-party access).

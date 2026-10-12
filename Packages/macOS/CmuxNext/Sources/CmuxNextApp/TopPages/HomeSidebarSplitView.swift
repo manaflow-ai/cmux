@@ -38,6 +38,15 @@ final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     var sidebarWidth: CGFloat { arrangedSubviews.first?.frame.width ?? 0 }
 
+    /// The divider in window points from the content view's top-left (as
+    /// `debug.mouse` takes them), nil before the view is in a window.
+    var dividerFrameInWindow: NSRect? {
+        guard let window else { return nil }
+        let base = convert(dividerRect, to: nil)
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        return NSRect(x: base.minX, y: height - base.maxY, width: base.width, height: base.height)
+    }
+
     private var dividerRect: NSRect {
         NSRect(x: sidebarWidth, y: 0, width: dividerThickness, height: bounds.height)
     }

@@ -27,7 +27,8 @@ public struct LayoutMapping {
             let screenID = LayoutScreenID(screen.id)
             handles.screens[screenID] = screen.handle
             guard let layout = layout(of: screen, paneIDs: paneIDs, handles: &handles) else { continue }
-            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout))
+            let zoomed = screen.zoomedPane.flatMap { paneIDs[$0] } != nil
+            screens.append(LayoutScreen(id: screenID, name: screen.name ?? "", layout: layout, zoomed: zoomed))
         }
         return Result(screens: screens, handles: handles)
     }
@@ -78,7 +79,8 @@ public struct LayoutMapping {
         case .top: .top
         case .bottom: .bottom
         }
-        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
+        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked,
+                          role: snapshot.role.map { _ in .agentChat })
     }
 
     /// The layout's dock as the daemon's value. Top and bottom need a daemon
@@ -91,7 +93,8 @@ public struct LayoutMapping {
         case .top: .top
         case .bottom: .bottom
         }
-        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked)
+        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked,
+                            role: dock.role.map { _ in .agentChat })
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

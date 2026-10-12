@@ -14,13 +14,14 @@
 //! is safe: a protocol v4 host starts its child only after activation, which
 //! follows the durable topology commit; a live owner exact-kills an
 //! unclaimed host when its [`PrelaunchedTerminal`] drops; and a restarted
-//! owner ends every host whose terminal id the registry does not know.
+//! owner ends every such host: its record names no workspace, so it is not
+//! recovered (`orphan_hosts::recoverable`, cx-0tgl LC).
 //!
 //! The reaper uses the same pool to end several due terminals at once.
 
 use super::*;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod standby_host;
 
 /// Upper bound on concurrent terminal starts and reaps. A start is mostly
@@ -47,7 +48,7 @@ struct TerminalWorkState {
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
     /// The host process started ahead of the next new tab (R81, cap one).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
 }
 
@@ -136,7 +137,7 @@ impl TerminalWorkPool {
 }
 
 /// A host launched for a creation that has not committed yet.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct PrelaunchedTerminal {
     /// Spawn options before the surface identity environment, which the
     /// registry records as the launch spec.
@@ -144,7 +145,7 @@ pub(crate) struct PrelaunchedTerminal {
     host: crate::surface::PrelaunchedHost,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl PrelaunchedTerminal {
     pub(crate) fn launch_opts(&self) -> &SurfaceOptions {
         &self.launch_opts
@@ -182,7 +183,7 @@ impl Mux {
         env: Vec<(String, String)>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<String>> {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if !self.uses_terminal_host_runtime() {
                 return Ok(None);
@@ -196,13 +197,26 @@ impl Mux {
             };
             let Some(target) = target else { return Ok(None) };
             crate::debug_spans::mark("prelaunch.target");
-            let cwd = cwd.or_else(|| self.pane_cwd(target));
+            let cwd = self.new_terminal_cwd(cwd, Some(target), None);
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
             let workspace_key = self.workspace_key_for_pane(target);
             let terminal_id = match terminal_id {
+                // A retry of a keyed create names a terminal that exists: the
+                // create replays its first result, so nothing may launch a
+                // second host (or rewrite the record) under that id.
+                Some(terminal_id)
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .terminal_record(&terminal_id.to_hex())?
+                        .is_some() =>
+                {
+                    return Ok(None);
+                }
                 Some(terminal_id) => terminal_id,
                 None => TerminalId::random()?,
             };
@@ -246,7 +260,7 @@ impl Mux {
                 .insert(terminal_hex.clone(), PrelaunchedTerminal { launch_opts, host });
             Ok(Some(terminal_hex))
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (pane, terminal_id, cwd, env, size);
             Ok(None)
@@ -255,7 +269,7 @@ impl Mux {
 
     /// The prelaunched host reserved under `terminal_hex`, for the creation
     /// that reserves the same id.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn take_prelaunched_terminal(
         &self,
         terminal_hex: &str,
@@ -266,19 +280,19 @@ impl Mux {
     /// End the prelaunched host under `terminal_hex` unless its creation
     /// adopted it.
     pub(crate) fn discard_prelaunched_terminal(&self, terminal_hex: &str) {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             // Drop outside the lock: dropping kills and waits the host.
             let unclaimed = self.prelaunched_terminals.lock().unwrap().remove(terminal_hex);
             drop(unclaimed);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let _ = terminal_hex;
     }
 
     /// Whether new terminals run in durable host processes (tests may use
     /// in-process surfaces).
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn uses_terminal_host_runtime(&self) -> bool {
         #[cfg(test)]
         return !self.test_surface_runtime;
@@ -308,9 +322,13 @@ impl Mux {
         // daemon value always wins. The warning names the key, never the value.
         let dropped = crate::daemon_env::merge_caller_env(&mut opts.extra_env, env);
         crate::daemon_env::warn_dropped(&dropped);
-        // After the merge: a caller PATH (the app's login-shell PATH) may
-        // replace the daemon PATH, but the `claude` shim directory stays first
-        // on it, so `claude` still starts with the session's agent hooks.
+        // After the merge: a caller PATH (the app's login-shell PATH, an
+        // agent's PATH) may replace the daemon PATH, but the app's bundled
+        // `cmux` stays first on it, so a command that runs plain `cmux` gets
+        // the app's CLI, not an older one the caller lists first.
+        crate::daemon_env::keep_bundled_cli_first(&mut opts.extra_env, opts.bundled_cli.as_deref());
+        // The `claude` shim directory stays first on it, so `claude` still
+        // starts with the session's agent hooks.
         crate::daemon_env::keep_shim_first_on_path(
             &mut opts.extra_env,
             opts.claude_shim_dir.as_deref(),

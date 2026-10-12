@@ -2,7 +2,7 @@
 # Regenerates plans/cmux-next/action-surfaces.json, actions.md and links.json, then the
 # docs copy web/data/cmux-shortcuts.generated.json, on a fleet step (never on
 # a laptop), and prints them base64 between BEGIN/END markers:
-#   cmux-ci run --class exclusive --script scripts/measure/export-action-surfaces.sh --ref <sha> [--arg=--catalog-only]
+#   cmux-ci run --class light --script scripts/measure/export-action-surfaces.sh --ref <sha> [--arg=--catalog-only]
 set -euo pipefail
 # Fleet steps run with a short PATH; look where bun installs too.
 BUN="$(command -v bun || true)"

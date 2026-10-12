@@ -79,7 +79,8 @@ impl WorkspaceRegistry {
         id: &str,
         top_index: Option<usize>,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
-        let tx = self.connection.transaction()?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
         let output = Self::set_personal_group_top_in(&tx, id, top_index)?;
         tx.commit()?;
         Ok(output)

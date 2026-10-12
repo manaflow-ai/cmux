@@ -70,7 +70,7 @@ export function linkedText(text: string, key: string): ReactNode[] {
     if (link.start > at) out.push(text.slice(at, link.start));
     out.push(
       link.kind === "path" ? (
-        <PathChip key={`${key}-${index}`} path={link.value.replace(/:\d+(?::\d+)?$/, "")} written={link.value} />
+        <PathChip key={`${key}-${index}`} path={link.path!} written={link.value} />
       ) : (
         <UrlChip key={`${key}-${index}`} href={link.value}>
           {link.value}

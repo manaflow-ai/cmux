@@ -17,17 +17,21 @@ enum TabHandlers {
         bindMoves(registry, ctx)
         bindMetadata(registry, ctx)
         TabHandlers.bindMoreActions(into: registry, context: ctx)
+        PaneTabBarHandlers.bind(into: registry, context: ctx)
+        TabRestart.bind(into: registry, context: ctx)
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
-        registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
+        registry.bind("newTab.default", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
+        registry.bind("newTab.ofKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, followsSetting: false) })
+        registry.bind("newTab.toRight", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0, toRight: true) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
         registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
-        let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }
+        let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs.cefUnavailableReason() }
         registry.bind("openBrowser.chromium", unavailable: chromiumReason, invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .cef) })
         registry.bind("browser.openInChromium", unavailable: chromiumReason, invoke: { TabLifecycle.reopen(ctx, $0, on: .cef) })
         registry.bind("browser.openInWebKit", invoke: { TabLifecycle.reopen(ctx, $0, on: .webkit) })
@@ -49,9 +53,8 @@ enum TabHandlers {
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             if let tab = pane.tab(id), tab.kind == .browser {
-                // Same engine as the original (cookies live in one engine).
-                let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
-                pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
+                // Same engine as the original (cookies live in one engine), next to it, with its history.
+                BrowserTabDuplicate(pane: pane).open(tab)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
@@ -63,19 +66,26 @@ enum TabHandlers {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
         })
-        let history = ClosedTabTracker(services: ctx.services)
-        ctx.services.closedTabs = history
+        ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
+        // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
+        // level, from the daemon's closed history (the only one); a window the app closed is a
+        // `window` group there (`window-records-v1`). With no group to reopen (an older daemon, a
+        // record write that failed) the app's registry reopens the last closed window.
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            // The daemon's history first; the app's tracker covers daemons without it.
-            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+            if let entry = DaemonClosedHistory.newest(for: ctx.services.windows.active?.state.id, in: ctx.services) {
                 return DaemonClosedHistory.reopen(entry, services: ctx.services)
             }
-            guard let record = history.popLast() ?? ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab) else { return }
-            history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
+            if ctx.services.windows.reopenClosedWindow() { return }
+            guard DaemonClosedHistory.isServed(in: ctx.services) else {
+                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.stateResources))
+            }
+            ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab)
         })
     }
 
     private static func bindSelection(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind("navigate.next", invoke: { _ in PreviousNext.step(by: 1, ctx.services) })
+        registry.bind("navigate.previous", invoke: { _ in PreviousNext.step(by: -1, ctx.services) })
         registry.bind("nextSurface", invoke: { ctx.paneController($0)?.selectAdjacent(1) })
         registry.bind("prevSurface", invoke: { ctx.paneController($0)?.selectAdjacent(-1) })
         registry.bind("selectSurfaceByNumber", invoke: { invocation in

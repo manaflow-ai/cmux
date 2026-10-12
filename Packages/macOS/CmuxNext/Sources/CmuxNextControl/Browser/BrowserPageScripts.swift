@@ -96,7 +96,7 @@ enum BrowserPageScripts {
             const ref = 'e' + (next++);
             el.setAttribute('data-cmux-ref', ref);
             const name = nameOf(el);
-            refs[ref] = { role, name };
+            Object.assign(refs, { [ref]: { role, name } });
             lines.push('  '.repeat(depth) + '- ' + role + (name ? ' "' + name.replace(/"/g, "'") + '"' : '') + ' [ref=' + ref + ']');
             shown = true;
           }

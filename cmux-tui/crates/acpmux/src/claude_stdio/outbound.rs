@@ -12,11 +12,18 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
-                        Outbound::Lines(vec![json!({
+                        let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
                             "request": {"subtype": "initialize", "hooks": {}, "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"]}
-                        })])
+                        })];
+                        // Ultracode and fast mode survive a respawn on the live channel
+                        // (no CLI flag); the answer ("boot-*") needs no reply.
+                        let effort = self.effort.lock().await.clone();
+                        if let Some(settings) = startup_settings(&effort, *self.fast.lock().await) {
+                            lines.push(json!({"type": "control_request", "request_id": format!("boot-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}));
+                        }
+                        Outbound::Lines(lines)
                     }
                     method::SESSION_NEW | method::SESSION_LOAD => {
                         // The claude process already carries the session.
@@ -45,6 +52,14 @@ impl Translator {
                         }
                     }
                     method::SESSION_PROMPT => {
+                        let steer =
+                            p.pointer("/_meta/steer").and_then(Value::as_bool) == Some(true);
+                        if steer && !self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params(super::STEER_NO_TURN),
+                            ));
+                        }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
                         let content: Vec<Value> = blocks
@@ -61,18 +76,48 @@ impl Translator {
                                     text
                                 }
                                 Some("image") => json!({"type": "image", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("image/png"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}}),
-                                Some("resource") | Some("resource_link") => {
-                                    json!({"type": "text", "text": resource_text(b)})
+                                Some("document") => {
+                                    let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("application/pdf"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}});
+                                    if let Some(name) = b.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+                                        document["title"] = json!(name);
+                                    }
+                                    document
                                 }
+                                Some("resource") => {
+                                    let resource = b.get("resource").unwrap_or(b);
+                                    let mime = resource.get("mimeType").and_then(Value::as_str).unwrap_or("");
+                                    if mime == "application/pdf" {
+                                        let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": mime, "data": resource.get("blob").and_then(Value::as_str).unwrap_or("")}});
+                                        if let Some(uri) = resource.get("uri").and_then(Value::as_str).filter(|uri| !uri.is_empty()) {
+                                            document["title"] = json!(uri.strip_prefix("attachment://").unwrap_or(uri));
+                                        }
+                                        document
+                                    } else {
+                                        json!({"type": "text", "text": resource_text(b)})
+                                    }
+                                }
+                                Some("resource_link") => json!({"type": "text", "text": resource_text(b)}),
                                 _ => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
                             })
                             .collect();
+                        let mut content = content;
+                        if !steer && *self.effort.lock().await == "ultrathink" {
+                            ultrathink(&mut content);
+                        }
+                        // Claude Code echoes the line with this uuid when it reads it.
+                        let uuid = uuid::Uuid::now_v7().to_string();
+                        let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        if steer {
+                            // Claude Code reads it at its next tool boundary
+                            // and echoes it; the echo answers this request.
+                            self.steers.lock().await.push_back((uuid, id.to_string()));
+                            return Outbound::Lines(vec![line]);
+                        }
                         self.in_turn.store(true, Ordering::SeqCst);
+                        *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
-                        Outbound::Lines(vec![
-                            json!({"type": "user", "message": {"role": "user", "content": content}}),
-                        ])
+                        Outbound::Lines(vec![line])
                     }
                     method::SESSION_SET_MODE => {
                         let mode =
@@ -107,15 +152,34 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "set_permission_mode", "mode": val}}),
                                 ])
                             }
+                            "fast-mode" => {
+                                let on = match val.as_str() {
+                                    "on" => true,
+                                    "off" => false,
+                                    _ => {
+                                        return Outbound::Reply(Message::err(
+                                            id.clone(),
+                                            RpcError::invalid_params("fast-mode must be on or off"),
+                                        ));
+                                    }
+                                };
+                                self.pending.lock().await.insert(
+                                    id.to_string(),
+                                    Pending::Control(Setting::Fast, val.clone()),
+                                );
+                                Outbound::Lines(vec![
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": {"fastMode": on}}}),
+                                ])
+                            }
                             "effort" => {
-                                if !EFFORTS.iter().any(|(v, _)| *v == val) {
+                                if !EFFORTS.iter().any(|(v, _, _)| *v == val) {
                                     return Outbound::Reply(Message::err(
                                         id.clone(),
                                         RpcError::invalid_params(format!(
                                             "effort must be one of {}",
                                             EFFORTS
                                                 .iter()
-                                                .map(|(v, _)| *v)
+                                                .map(|(v, _, _)| *v)
                                                 .collect::<Vec<_>>()
                                                 .join(", ")
                                         )),
@@ -126,9 +190,8 @@ impl Translator {
                                     Pending::Control(Setting::Effort, val.clone()),
                                 );
                                 // Claude Code's live effort switch is the flag-settings channel.
-                                let level = if val == "default" { "auto".to_owned() } else { val };
                                 Outbound::Lines(vec![
-                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": {"effortLevel": level}}}),
+                                    json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(&val)}}),
                                 ])
                             }
                             other => Outbound::Reply(Message::err(
@@ -209,6 +272,18 @@ impl Translator {
                 ])
             }
         }
+    }
+}
+
+/// Ultrathink: the prompt's first text block starts with the prefix (one is
+/// added when the prompt has only images or resources).
+fn ultrathink(content: &mut Vec<Value>) {
+    match content.iter_mut().find(|b| b["type"] == "text") {
+        Some(block) => {
+            let text = block["text"].as_str().unwrap_or("");
+            block["text"] = json!(format!("{ULTRATHINK_PREFIX}{text}"));
+        }
+        None => content.insert(0, json!({"type": "text", "text": ULTRATHINK_PREFIX.trim_end()})),
     }
 }
 

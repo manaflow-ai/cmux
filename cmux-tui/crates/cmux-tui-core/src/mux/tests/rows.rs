@@ -32,7 +32,7 @@ fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String)
     let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new(format!("seed-rows-{name}"), "test").unwrap(),
+            &WorkspaceMutation::daemon(format!("seed-rows-{name}"), "test").unwrap(),
             "session.restore_fixture",
             &serde_json::json!({"fixture":"rows"}),
             None,
@@ -285,7 +285,7 @@ fn a_truly_closed_column_id_is_never_revived() {
     tree.viewport = RegistryViewport::default();
     let commit = |registry: &mut WorkspaceRegistry, key: &str, screen: RegistryScreen| {
         registry.commit_resource_patch(
-            &WorkspaceMutation::new(key.to_string(), "test").unwrap(),
+            &WorkspaceMutation::daemon(key.to_string(), "test").unwrap(),
             "test.screen",
             &serde_json::json!({"key": key}),
             None,

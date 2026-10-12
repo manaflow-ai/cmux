@@ -9,10 +9,39 @@ job's summary lists each tier and the reason for it.
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
 | generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph) | the CmuxNext package, `plans/cmux-next/`, the generators | mini |
+| swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
 | swift | `cmux-next swift test` | the test targets the target graph reaches | mini |
 | daemon | `cmux-next daemon tests` (`same-tree cmux-tui` reports a tree that nothing will publish) | cmux-tui tree inputs, daemon capabilities, `pin-cmux-tui.sh`, CmuxNextDaemon or CmuxNextMobile and their dependencies, CmuxNextControl | a mini, once the tree is published |
+
+A web nit runs no Mac tier. When every changed file is under `webviews/`, the
+webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
+or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
+type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
+proves the committed bundle matches them; the bundle is a `.copy` resource, so
+the app takes it without a compile. gallery-pr diffs the touched entries. A
+`dev-build` PR still compiles its dogfood app.
+
+The Swift canary is the pull-request gate for a small package-only Swift diff.
+It builds only the affected CmuxNext production targets with `swift build
+--configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
+It catches type-checking, dependency and module errors in those targets. It
+does not exercise optimizer-only behavior, Release compiler settings, Xcode
+scheme integration, signing or the CEF shim. The full Release compile still
+runs for diagnostics on that PR class and remains hard-gated on every
+`feat-cmux-next` push and on broader pull requests.
+
+A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
+`scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
+guards run actionlint and the CI unit tests. When the router itself changes,
+`Routing replay (router changes)` replays the last 30 merged PRs' changed files
+through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)
+and fails on any tier the new router adds, or drops without naming a fast tier.
+`gh-merge-green --revert OWNER/REPO#N` undoes a bad one in a command. A file
+that a Mac tier reads keeps its tier whatever its name: the Xcode pins,
+`.github/actions/setup-cmux-tui-rust/`, daemon and tree inputs, generated-file
+inputs such as `plans/cmux-next/`, and every file a Swift test reads.
 
 Every tier runs on:
 

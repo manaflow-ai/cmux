@@ -2,7 +2,8 @@
 //! `cmux_remote_browser::client`). JSON in, JSON out, in the shapes of
 //! `schemas/remote-tab/client.json`. Same rules as the rd handles: no I/O,
 //! no threads, panics caught, a panic poisons only that client, and the
-//! outcome bytes stay valid until the next call on the same client.
+//! outcome bytes stay valid until the next call on the same client. One
+//! client per rb session: the viewer makes a new one for each `rb.open`.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

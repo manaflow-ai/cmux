@@ -71,6 +71,11 @@ final class PaletteScopeListProvider: PaletteProvider {
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     var immediateItems: [PaletteItem]? { makeItems() }
     func items() async -> [PaletteItem] { makeItems() }
 
@@ -106,7 +111,7 @@ final class PaletteScopeListProvider: PaletteProvider {
 enum PaletteItemActionsPage {
     @MainActor
     static func make(for item: PaletteItem, model: PaletteModel) -> PalettePageSpec {
-        let rows = item.allCommands.map { command in
+        let rows = (item.allCommands + PaletteRowControls.commands(for: item, model: model)).map { command in
             PaletteItem(id: "action:\(command.id)", title: command.title, symbol: command.symbol, primary: command, frecencyKey: nil)
         }
         return PalettePageSpec(

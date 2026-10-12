@@ -113,7 +113,3 @@ impl Terminal {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "kitty_replay_tests.rs"]
-mod tests;

@@ -10,7 +10,10 @@ port for every paired machine. Same network only: no relay yet.
   peer list
   serve [--session-socket PATH]     run the link; with a session socket, paired
                                     peers reach that daemon's remote entry only
-  dial --host ID [--service daemon|ssh] [--socket ABSOLUTE_PATH]
+        [--server-config PATH]      server.json with an owner_session block (default
+                                    ~/.config/cmux/server.json): the server's owner, and
+                                    only the owner, also reaches the Chief brain's daemon
+  dial --host ID [--service daemon|ssh|owner_session] [--socket ABSOLUTE_PATH]
                                     bridge stdin and stdout to a paired install or Cloud
                                     host; one JSON line on stderr, exit 0 ok, 2 unknown host,
                                     3 not authorized, 4 paused, 5 unreachable, 6 no link,

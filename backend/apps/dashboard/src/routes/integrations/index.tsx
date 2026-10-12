@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { useLoad } from "../../lib/hooks"
-import { mutate, read } from "../../lib/server"
+import { useTeamApi } from "../../lib/team-api"
 import { newKey, setSignedIn, useSignedIn } from "../../lib/session"
+import { IntegrationApprovals } from "./-approvals"
 
 export const Route = createFileRoute("/integrations/")({ component: Integrations })
 
@@ -31,8 +32,9 @@ const LABEL: Record<Connection["provider"], string> = { github: "GitHub App", li
 
 function Integrations() {
   const signedIn = useSignedIn()
+  const { read, mutate, team } = useTeamApi()
   const [error, setError] = useState<string | null>(null)
-  const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? "integrations" : null, async () => {
+  const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? `integrations:${team ?? "personal"}` : null, async () => {
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)
     const [r, p] = await Promise.all([read({ data: { op: "integration.list", params: {} } }), read({ data: { op: "integration.policy.get", params: {} } })])
@@ -75,6 +77,7 @@ function Integrations() {
       <p className="muted">Provider tokens stay on the server, encrypted. Agents and automations use them only through cmux operations.</p>
       {list.error ? <p className="error">{list.error}</p> : null}
       {error ? <p className="error">{error}</p> : null}
+      {signedIn ? <IntegrationApprovals /> : null}
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {(list.data?.providers ?? []).map((p) => (
           <button key={p.provider} disabled={!p.configured} title={p.configured ? undefined : "Not configured on this deployment"} onClick={() => void connect(p.provider)}>

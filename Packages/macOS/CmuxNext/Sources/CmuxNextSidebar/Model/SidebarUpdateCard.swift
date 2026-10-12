@@ -6,8 +6,15 @@ public import Foundation
 /// `setAutomaticUpdates`, a link in the hover popover `openUpdateLink`.
 /// All text arrives localized.
 public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
-    /// "cmux <version> is ready".
+    /// "Update Ready".
     public var title: String
+    /// The short version and build date, nil when unknown.
+    public var detail: String?
+    /// The first changelog lines.
+    public var lines: [String]
+    /// "Release Notes" and the full list (`openUpdateLink`).
+    public var releaseNotesTitle: String?
+    public var releaseNotesURL: URL?
     /// "Restart to Update", or "Installing…" while disabled.
     public var buttonTitle: String
     /// False while the update installs (the click was taken).
@@ -18,9 +25,14 @@ public nonisolated struct SidebarUpdateCard: Hashable, Sendable {
     /// The hover popover.
     public var notes: Notes
 
-    public init(title: String, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
+    public init(title: String, detail: String? = nil, lines: [String] = [], releaseNotesTitle: String? = nil,
+                releaseNotesURL: URL? = nil, buttonTitle: String, isEnabled: Bool = true, automaticUpdatesTitle: String,
                 automaticUpdates: Bool, notes: Notes) {
         self.title = title
+        self.detail = detail
+        self.lines = lines
+        self.releaseNotesTitle = releaseNotesTitle
+        self.releaseNotesURL = releaseNotesURL
         self.buttonTitle = buttonTitle
         self.isEnabled = isEnabled
         self.automaticUpdatesTitle = automaticUpdatesTitle

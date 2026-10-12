@@ -93,16 +93,31 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
             };
+            // A subagent's updates are recorded with their subagent and
+            // parent (`crate::subagents`); they are not the session's own
+            // message stream.
+            let mut value = msg.to_value();
+            let mut subagent = None;
+            if d == "in"
+                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
+                && let Some(params) = value.get_mut("params")
+            {
+                subagent = tap_session
+                    .subagents
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .annotate(params);
+            }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.
             let live_update = d == "in"
                 && !kind.ends_with(".replay")
-                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE);
+                && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
+                && subagent.is_none();
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
-            let (rec, logged) =
-                tap_hub.append_logged(&tap_session, d, &kind, msg.to_value(), host_seq);
+            let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }

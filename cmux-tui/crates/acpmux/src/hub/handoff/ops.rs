@@ -151,7 +151,13 @@ impl Hub {
     /// `_acpmux/handoff_prepare`: capture the source's context and create
     /// the target (never prompted). The same `handoffKey` returns the same
     /// record.
-    pub async fn handoff_prepare(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
+    /// `remote`: a remote-origin caller; its new target is a remote-origin
+    /// session (a remote chain, sandboxed when it runs Claude Code).
+    pub async fn handoff_prepare(
+        self: &Arc<Self>,
+        p: &Value,
+        remote: bool,
+    ) -> Result<Value, RpcError> {
         let source_key = required(p, "sessionId")?;
         let harness = required(p, "harness")?;
         let key = required(p, "handoffKey")?;
@@ -252,7 +258,21 @@ impl Hub {
         // daemon stopped in between) is adopted, not created twice.
         let target = match self.handoff_orphan(key, &profile, &sm.cwd) {
             Some(t) => {
-                if self.policy_for(&t, default_policy) != policy {
+                let current = self.policy_for(&t, default_policy);
+                // Adopting a target never makes it run more without asking
+                // (cx-1l61): the tag may name a session the person narrowed.
+                if crate::hub::person::breadth(policy) > crate::hub::person::breadth(current) {
+                    return Err(refuse(
+                        INVALID,
+                        "key_conflict",
+                        format!(
+                            "handoffKey {key:?} names session {} with policy {current}, narrower than {policy}",
+                            t.meta().name
+                        ),
+                        None,
+                    ));
+                }
+                if current != policy {
                     self.set_policy(&t, policy).await;
                 }
                 t
@@ -263,6 +283,7 @@ impl Hub {
                         harness: Some(profile),
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
+                        remote,
                         ..Default::default()
                     })
                     .await?;
@@ -566,6 +587,9 @@ impl Hub {
             // A Web start is checked against the target in the remote guard,
             // and its turn there is a Web turn (the remote floor).
             control: if r.web { crate::hub::Control::Web } else { crate::hub::Control::Local },
+            trust_gate: false,
+            steer_only: false,
+            interrupt: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

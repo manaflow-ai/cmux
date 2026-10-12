@@ -3,6 +3,7 @@ import Foundation
 import Speech
 
 /// Delivers SpeechAnalyzer results while preserving range finalization metadata.
+@available(macOS 26, *)
 actor SpeechAnalyzerResultConsumer {
     private let transcriber: SpeechTranscriber
     private let continuation:

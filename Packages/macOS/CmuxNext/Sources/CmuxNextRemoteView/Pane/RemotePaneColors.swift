@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// Chrome colors of the pane, resolved by the pane view inside its theme
 /// scope and handed to every subview. No blue: selection and hover are the
-/// foreground at low alpha; the path dot uses success / attention.
+/// foreground at low alpha; the path dot uses success / attention; the
+/// upstream indicator uses the theme accent.
 struct RemotePaneColors: Equatable {
     var background = NSColor.windowBackgroundColor
     var textPrimary = NSColor.labelColor
@@ -16,6 +17,8 @@ struct RemotePaneColors: Equatable {
     var attention = NSColor.systemOrange
     var danger = NSColor.systemRed
     var success = NSColor.systemGreen
+    /// The Ghostty theme accent (`Palette.accent`), never the system blue.
+    var accent = NSColor.labelColor
     var drawsBorders = true
 
     /// Reads the chrome tokens; callers run it inside `performWithTheme`.
@@ -27,7 +30,7 @@ struct RemotePaneColors: Equatable {
             textTertiary: plain(Palette.textTertiary), hoverFill: plain(Palette.hoverFill),
             selectionFill: plain(Palette.selectionFill), badgeFill: plain(Palette.badgeFill),
             separator: plain(Palette.separator), attention: plain(Palette.attention),
-            danger: plain(Palette.danger), success: plain(Palette.success),
+            danger: plain(Palette.danger), success: plain(Palette.success), accent: plain(Palette.accent),
             drawsBorders: Borders.drawsLines)
     }
 

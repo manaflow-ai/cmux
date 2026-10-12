@@ -13,6 +13,7 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 path + ["style"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.style", "Style"),
                 help: SettingsText.keyed("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
+                summary: SettingsText.keyed("settings.statusIndicator.style.summary", "How work in progress shows"),
                 kind: .choice([
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.keyed("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.keyed("settings.choice.macSpinner", "macOS Spinner")),
@@ -40,6 +41,20 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.theme", "Theme")
             ),
             SettingDescriptor(
+                path + ["showAgentWorkingOnTabs"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.showAgentWorkingOnTabs", "Show Agent Working on Tabs"),
+                help: SettingsText.keyed("settings.statusIndicator.showAgentWorkingOnTabs.help",
+                                        "Three dots take the tab's icon place while an agent works."),
+                kind: .toggle, default: .bool(defaults.showsAgentWorkingOnTabs), keywords: ["agent", "working", "thinking", "dots"]
+            ),
+            SettingDescriptor(
+                path + ["showPageLoading"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.statusIndicator.showPageLoading", "Show Page Loading on Tabs"),
+                help: SettingsText.keyed("settings.statusIndicator.showPageLoading.help",
+                                        "A spinner takes a browser tab's icon place while its page loads."),
+                kind: .toggle, default: .bool(defaults.showsPageLoading), keywords: ["browser", "loading", "spinner", "page"]
+            ),
+            SettingDescriptor(
                 path + ["honorStatusStyle"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
                 help: SettingsText.keyed("settings.statusIndicator.honorStatusStyle.help",
@@ -50,6 +65,7 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.status.inferCommandBusy", "Show Running Commands"),
                 help: SettingsText.keyed("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
+                summary: SettingsText.keyed("settings.status.inferCommandBusy.summary", "Mark long shell commands as busy"),
                 kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
             ),
             SettingDescriptor(

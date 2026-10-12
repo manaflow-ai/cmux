@@ -38,6 +38,119 @@
     return d;
   };
 
+  // The event form, checked against the draft right before Save: the title,
+  // the start and end as the form shows them (dates and times in the
+  // event's time zone: the draft's timeZone, else this Mac's, which the
+  // browser and Calendar's default use), and the guests (the organizer, who
+  // Calendar lists once there are guests, aside). Fields are read through
+  // locators, in the agent's isolated world.
+  const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  // The draft's start and end as the form shows them: in the draft's time
+  // zone, else the browser's (Calendar's default). All-day dates are
+  // calendar days (UTC in the template), and the form shows the last day,
+  // not the day after. Runs in the page (the REPL runtime has no Intl).
+  function zonedRange(draft) {
+    const zonedParts = (d, timeZone) => {
+      const f = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23" });
+      const o = {};
+      for (const part of f.formatToParts(d)) o[part.type] = part.value;
+      return { y: Number(o.year), m: Number(o.month), d: Number(o.day), h: Number(o.hour) % 24, min: Number(o.minute) };
+    };
+    const zone = draft.timeZone || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const startDate = new Date(draft.start);
+    const endDate = new Date(draft.end);
+    return {
+      start: draft.allDay ? zonedParts(startDate, "UTC") : zonedParts(startDate, zone),
+      end: draft.allDay ? zonedParts(new Date(endDate.getTime() - 86400000), "UTC") : zonedParts(endDate, zone),
+    };
+  }
+  // "Oct 1, 2026", "Thursday, October 1", "2026-10-01", or a numeric date
+  // that reads only one way ("10/13/2026", "13/10/2026", "5/5/2026"). Calendar's
+  // date format is a user setting the form does not name, so a numeric date
+  // whose month and day could be either way round ("10/1/2026": October 1
+  // or January 10) is not accepted as any date.
+  function dateShows(text, p) {
+    const s = String(text || "").toLowerCase();
+    const nums = (s.match(/\d+/g) || []).map(Number);
+    const year = nums.find((n) => n >= 1000);
+    if (year !== undefined && year !== p.y) return false;
+    const small = nums.filter((n) => n < 1000);
+    const named = MONTHS.findIndex((m) => new RegExp(`\\b${m}`).test(s));
+    if (named >= 0) return named + 1 === p.m && small.length === 1 && small[0] === p.d;
+    if (small.length !== 2) return false;
+    const [a, b] = small;
+    // Year first is always year, month, day.
+    if (/^\D*\d{4}\D/.test(s)) return a === p.m && b === p.d;
+    if (a === b) return a === p.m && b === p.d;
+    // Two readings when both could be a month.
+    if (a <= 12 && b <= 12) return false;
+    return (a === p.m && b === p.d) || (a === p.d && b === p.m);
+  }
+  // "5:00pm", "5pm", "17:00".
+  function timeShows(text, p) {
+    const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*(a|p)?\.?\s*m?\.?\s*$/i.exec(String(text || ""));
+    if (!m) return false;
+    let h = Number(m[1]);
+    if (m[3]) {
+      if (h < 1 || h > 12) return false;
+      h = (h % 12) + (m[3].toLowerCase() === "p" ? 12 : 0);
+    }
+    return h === p.h && Number(m[2] || 0) === p.min;
+  }
+  async function fieldText(locator) {
+    if (!(await locator.count())) return null;
+    const one = locator.first();
+    const tag = String(await one._read("tagName", undefined, { timeout: 2000 }, "tag name")).toLowerCase();
+    return tag === "input" || tag === "textarea" ? one.inputValue({ timeout: 2000 }) : one.innerText({ timeout: 2000 });
+  }
+  // The account the Calendar page acts as: Google's account button names
+  // it ("Google Account: Name (email)"), read in the agent's world.
+  function readAccountEmail() {
+    const el = document.querySelector('[aria-label^="Google Account:"]');
+    const m = el && /\(([^()\s]+@[^()\s]+)\)/.exec(String(el.getAttribute("aria-label")).slice(0, 2000));
+    return m ? m[1].toLowerCase() : null;
+  }
+  // What the event form in `page` would save, right before Save (and again
+  // before Send to guests): the title, the start and end (checked as the
+  // form shows them, in the draft's time zone, else this machine's, which
+  // the browser and Calendar's default use: a match reads as the drafted
+  // ISO time, anything else as null), whether it is all day, and the
+  // guests the form lists besides the account's own address (the organizer
+  // Calendar lists once there are guests). A field the form does not show
+  // reads as null, which fails the compare.
+  async function observeForm(t, page, draft) {
+    const out = {};
+    const field = (label) => fieldText(page.locator(`[role="main"] [aria-label="${label}"]`));
+    const title = await field("Title");
+    out.title = title === null ? null : t.normText(title);
+    // The REPL runtime has no Intl: the page computes the parts.
+    const { start, end } = await t.readBack(page, zonedRange, draft);
+    const startDay = await field("Start date");
+    const endDay = await field("End date");
+    const startTime = await field("Start time");
+    const endTime = await field("End time");
+    out.allDay = startDay === null ? null : !startTime && !endTime;
+    const sameDay = start.y === end.y && start.m === end.m && start.d === end.d;
+    // The end date is shown only when it differs from the start.
+    const startShown = startDay !== null && dateShows(startDay, start) && (draft.allDay || timeShows(startTime, start));
+    const endShown = startDay !== null && (endDay === null ? sameDay : dateShows(endDay, end)) && (draft.allDay || timeShows(endTime, end));
+    out.start = startShown ? draft.start : null;
+    out.end = endShown ? draft.end : null;
+    const own = await t.readBack(page, readAccountEmail);
+    const drafted = new Set((draft.guests || []).map((g) => String(g).trim().toLowerCase()));
+    const listed = page.locator('[role="main"] [data-email]');
+    const n = await listed.count();
+    if (n <= 200) {
+      const shown = new Set();
+      for (let i = 0; i < n; i++) shown.add(String((await listed.nth(i).getAttribute("data-email", { timeout: 2000 })) || "").trim().toLowerCase());
+      // The organizer (the account) is listed once there are guests; it
+      // counts as a guest only when the draft lists it.
+      if (own && !drafted.has(own)) shown.delete(own);
+      out.guests = [...shown];
+    } else out.guests = null;
+    return out;
+  }
+
   S.register(
     "googleCalendar",
     (t) => {
@@ -79,29 +192,45 @@
             if (e.description) q.set("details", String(e.description));
             if (e.location) q.set("location", String(e.location));
             if (guests.length) q.set("add", guests.join(","));
-            if (e.timeZone) q.set("ctz", String(e.timeZone));
             if (e.recurrence) q.set("recur", String(e.recurrence));
             const uid = e.uid === undefined ? 0 : e.uid;
             base(uid);
             q.set("authuser", String(uid));
-            const url = `https://calendar.google.com/calendar/render?${q}`;
+            // The editor shows times in ctz; without a drafted time zone it is
+            // the browser's (read in the page at run time: the REPL runtime
+            // has no Intl), so the form and the check use the same zone.
+            const urlIn = (zone) => {
+              q.set("ctz", zone);
+              return `https://calendar.google.com/calendar/render?${q}`;
+            };
             return {
               category: guests.length ? "[9] create appointments; [14] sends invitations to guests" : "[9] create appointments",
               summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} in account u/${uid}${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
               preview: { account: uid, title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description || "", location: e.location || "", guests, timeZone: e.timeZone || null, recurrence: e.recurrence || null },
-              run: () =>
-                t.withTab(url, async (page) => {
+              run: async () => {
+                const zone = e.timeZone ? String(e.timeZone) : await t.inOrigin("https://calendar.google.com", () => Intl.DateTimeFormat().resolvedOptions().timeZone);
+                return t.withTab(urlIn(zone), async (page) => {
                   t.assertSignedIn("googleCalendar.create", page, SIGN_IN);
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
+                  // The form must hold the drafted title, start, end and
+                  // guests right before Save, and again before Send to guests.
+                  const draft = { title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, timeZone: zone, guests };
+                  const want = { title: t.normText(e.title), start: draft.start, end: draft.end, allDay: draft.allDay, guests: [...new Set(guests.map((g) => g.trim().toLowerCase()))] };
+                  const check = async () => t.checkFields("googleCalendar.create", await observeForm(t, page, draft), want, { what: "saved" });
+                  await check();
                   await save.first().click();
                   if (guests.length) {
-                    const send = page.getByRole("button", { name: /^Send$/ });
-                    await send.first().waitFor({ timeout: 8000 }).then(() => send.first().click(), () => {});
+                    const send = page.locator('[role="dialog"], [role="alertdialog"]').getByRole("button", { name: /^Send$/ });
+                    if (await send.first().waitFor({ timeout: 8000 }).then(() => true, () => false)) {
+                      await check();
+                      await send.first().click();
+                    }
                   }
                   await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                   return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
-                }),
+                });
+              },
             };
           });
         },

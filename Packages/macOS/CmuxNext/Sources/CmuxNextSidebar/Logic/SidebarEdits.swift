@@ -17,11 +17,14 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
-             .openUpdateLink, .layout, .toggleLayoutSection:
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .openHistory, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+             .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
+             .dropOnLayoutSection, .groupEditorEnded:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
+        case let .setGroupIcon(id, icon):
+            return mutateGroup(id, in: &sections) { $0.icon = icon.flatMap { WorkspaceIcon.parse($0) } }
         case let .closeGroup(id):
             return closeGroup(id, in: &sections)
         case let .reorder(ids, position):
@@ -30,12 +33,14 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids, anchor):
-            return createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections)
+        case let .createGroup(id, name, color, ids, anchor, collapsed, index):
+            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, index: index, in: &sections) else { return false }
+            if collapsed { _ = mutateGroup(id, in: &sections) { $0.isCollapsed = true } }
+            return true
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
-            return mutateGroup(id, in: &sections) { $0.color = color }
+            return mutateGroup(id, in: &sections) { $0.tint = color }
         case let .ungroup(id):
             return ungroup(id, in: &sections)
         case let .toggleCollapse(target):
@@ -53,6 +58,7 @@ public nonisolated enum SidebarEdits {
                 case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
+                case (.favicon?, nil): break // a page's favicon is not the user's to clear
                 }
             }
         case let .setIcon(ids, icon):
@@ -117,6 +123,14 @@ public nonisolated enum SidebarEdits {
         return sections.flatMap(\.workspaces).map(\.id).filter { wanted.contains($0) }
     }
 
+    /// Whether every workspace `ids` names may join group `group`: the group exists and each one
+    /// may live in its section (a group holds workspaces of one machine row). The one rule for a
+    /// drag, the palette and the CLI (`moveWorkspaceToGroup`).
+    public static func canMove(_ ids: [WorkspaceID], toGroup group: GroupID, in sections: [SidebarSection]) -> Bool {
+        guard let (s, _) = locateGroup(group, in: sections), !ids.isEmpty else { return false }
+        return ids.allSatisfy { id in workspace(id, in: sections).map { canPlace($0, in: sections[s]) } ?? false }
+    }
+
     /// Whether a workspace may live in a section.
     public static func canPlace(_ ws: SidebarWorkspace, in section: SidebarSection) -> Bool {
         switch section.kind {
@@ -167,6 +181,7 @@ public nonisolated enum SidebarEdits {
         color: GroupColor,
         workspaces ids: [WorkspaceID],
         anchor target: WorkspaceID? = nil,
+        index: Int? = nil,
         in sections: inout [SidebarSection]
     ) -> Bool {
         let ordered = treeOrder(ids, in: sections)
@@ -189,7 +204,7 @@ public nonisolated enum SidebarEdits {
         })
         let removed = removeWorkspaces(joining, from: &sections)
         let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
-        sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
+        sections[s].nodes.insert(.group(group), at: min(max(index ?? insertion, 0), sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
         return true
     }
@@ -232,7 +247,8 @@ public nonisolated enum SidebarEdits {
             if !sections.contains(where: { $0.id == .pinned }) {
                 sections.insert(SidebarSection(kind: .pinned, nodes: []), at: 0)
             }
-            let s = sections.firstIndex(where: { $0.id == .pinned })!
+            // Inserted above when missing, so it is found.
+            guard let s = sections.firstIndex(where: { $0.id == .pinned }) else { return false }
             let moving = Set(ordered)
             let remaining = sections[s].nodes.count(where: { node in
                 if case let .workspace(ws) = node { return !moving.contains(ws.id) }
@@ -244,7 +260,9 @@ public nonisolated enum SidebarEdits {
         let pinnedIDs = Set(sections[pinnedIndex].workspaces.map(\.id))
         let unpinning = ordered.filter { pinnedIDs.contains($0) }
         var changed = false
-        let byMachine = Dictionary(grouping: unpinning) { workspace($0, in: sections)!.machineID }
+        // Every pinned id resolves to its workspace; one that does not stays where it is.
+        let located = unpinning.compactMap { id in workspace(id, in: sections).map { (id: id, machine: $0.machineID) } }
+        let byMachine = Dictionary(grouping: located, by: \.machine).mapValues { $0.map(\.id) }
         for (machine, machineIDs) in byMachine.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             changed = reorder(machineIDs, to: DropPosition(section: .machine(machine), index: 0), in: &sections) || changed
         }
@@ -274,7 +292,7 @@ public nonisolated enum SidebarEdits {
         return removed
     }
 
-    static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
+    public static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
         guard let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
         if let group = position.group,
            let n = sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),

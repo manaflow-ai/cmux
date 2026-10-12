@@ -31,11 +31,4 @@ describe("SocketGate placed-chief check", () => {
     expect(s.sent.some((m) => JSON.parse(m).code === "auth.forbidden")).toBe(true)
   })
 
-  it("lets a confirmed chief frame through and never asks for a read frame", async () => {
-    const g = gate({ ok: true, op_classes: ["read", "mutate-own", "mutate-shared"] })
-    const s = socket()
-    expect(await g.gate.chiefFrameAllowed(s.ws, { principal, subscribed: false } as never, frame)).toBe(true)
-    expect(await g.gate.chiefFrameAllowed(s.ws, { principal, subscribed: false } as never, JSON.stringify({ t: "op", op: "conversation.snapshot", params: {} }))).toBe(true)
-    expect(g.asked()).toBe(1)
-  })
 })

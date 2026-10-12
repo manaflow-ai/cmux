@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -24,7 +25,11 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
+    /// Key-window observers of the current window (`observeKeyWindow()`).
+    var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
+    /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
+    private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
@@ -37,6 +42,14 @@ public final class LayoutRootView: NSView {
     /// The zone hit the drop preview shows now; the next hit test holds it
     /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
     var tabDropHit: DropTarget?
+    /// The pane the current drag empties, as the last preview decided the
+    /// split room with it: the drop decides with the same pane (cx-ohle).
+    var tabDragRemoving: PaneID?
+    /// The pane edge the drag is over and since when; it splits once held for the dwell.
+    var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
+    /// When the edge under a held pointer arms (a new split); nil when none is pending. The
+    /// drag session hit-tests again then, so a still pointer sees the split preview.
+    public internal(set) var tabDragDwellDeadline: CFTimeInterval?
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
@@ -50,6 +63,7 @@ public final class LayoutRootView: NSView {
         var style: LayoutStyle
         var gestureActive: Bool
         var centerRequest: ColumnCenterRequest?
+        var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
         var scrollbar: StripScrollbarMode
@@ -81,10 +95,15 @@ public final class LayoutRootView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    isolated deinit {
-        observationTask?.cancel()
-        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
-        driver.detach()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observationTask?.cancel()
+            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
+            driver.detach()
+        }
     }
 
     override public var isFlipped: Bool { true }
@@ -136,6 +155,7 @@ public final class LayoutRootView: NSView {
             style: model.style,
             gestureActive: model.isGestureActive,
             centerRequest: model.centerRequest,
+            revealRequest: model.revealRequest,
             centerMode: model.centerFocusedColumn,
             attention: model.attention,
             scrollbar: model.stripScrollbar
@@ -145,7 +165,7 @@ public final class LayoutRootView: NSView {
     private func observe() {
         let model = model
         observationTask = Task { [weak self] in
-            for await snapshot in Observations({
+            for await snapshot in ObservationStream({
                 Snapshot(
                     screens: model.screens,
                     activeScreen: model.activeScreenID,
@@ -154,6 +174,7 @@ public final class LayoutRootView: NSView {
                     style: model.style,
                     gestureActive: model.isGestureActive,
                     centerRequest: model.centerRequest,
+                    revealRequest: model.revealRequest,
                     centerMode: model.centerFocusedColumn,
                     attention: model.attention,
                     scrollbar: model.stripScrollbar
@@ -210,7 +231,7 @@ public final class LayoutRootView: NSView {
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
             let structureChanged = previous?.screens.first(where: { $0.id == screen.id }).map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
-            if view.update(layout: screen.layout, animated: animated) { needsFrames = true }
+            if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated) { needsFrames = true }
             // The focus ring of a split's new pane appears with the pane.
             view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                               animated: animated && !structureChanged)
@@ -228,6 +249,10 @@ public final class LayoutRootView: NSView {
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
                 needsFrames = true
+            }
+            if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
+                appliedReveal = request
+                if view.center(request.pane, animated: animated, reveal: true) { needsFrames = true }
             }
         }
 
@@ -255,7 +280,7 @@ public final class LayoutRootView: NSView {
             if view.step(dt) { moving = true }
         }
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]!.advance(dt, parameters: Motion.spring(.screen)) { moving = true }
+            if screenFrames[id]?.advance(dt, parameters: Motion.spring(.screen)) == true { moving = true }
         }
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
@@ -345,6 +370,7 @@ public final class LayoutRootView: NSView {
             self.eventMonitor = nil
         }
         driver.detach()
+        observeKeyWindow()
         guard window != nil else {
             updateVisibility()
             return

@@ -7,7 +7,9 @@ use super::*;
 /// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
 /// this parser.
 pub(super) const CMUX_SCOPES: &[&str] = &[
-    "server",
+    // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
+    // `cmux server` is the machine server, routed before this parser.
+    "daemon",
     "workspace",
     "screen",
     "pane",
@@ -52,8 +54,11 @@ impl Surface {
         }
     }
 
+    /// Compares canonical scopes, so `daemon` and the internal lifecycle
+    /// scope name `server` are one scope.
     pub(super) fn accepts(self, scope: &str) -> bool {
-        self.scopes().contains(&scope)
+        let scope = shorthand::scope(scope);
+        self.scopes().iter().any(|known| shorthand::scope(known) == scope)
     }
 }
 

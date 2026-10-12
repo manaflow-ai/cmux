@@ -1,5 +1,4 @@
-// Pure pieces of the diff viewer dev host (plugins.ts), split out so test/dev-server.test.ts can
-// cover them. Dev server only; nothing here ships.
+// Pure pieces of the diff viewer dev host (plugins.ts). Dev server only; nothing here ships.
 import fs from "node:fs";
 import path from "node:path";
 

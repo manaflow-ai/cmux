@@ -47,6 +47,10 @@ public enum BrowserTabIntent {
     /// cancelled it. The host re-creates the tab in the other store with
     /// `url` (plans/cmux-next/remote-localhost.md section 3).
     case rerouteStore(URL)
+    /// The tab handed off a main-frame navigation to the local file `url`
+    /// (`LocalFileHandoff`) and stayed where it was. The host opens the file
+    /// in cmux's markdown page or a WebKit tab.
+    case openLocalFile(URL)
     /// The page did not handle an Escape key down (a popup panel closes on
     /// it; a tab ignores it).
     case unhandledEscape
@@ -57,6 +61,10 @@ public enum BrowserTabIntent {
     /// or Shift-Tab past its first. The host moves focus to the tab's
     /// omnibar.
     case takeFocus(forward: Bool)
+    /// The page showed a web notification its site may show (WebKit:
+    /// `new Notification(...)` with notifications allowed). The host shows
+    /// a banner and runs `notification.click` when it is clicked.
+    case webNotification(BrowserWebNotification)
     /// The page's popup window asked for a new size or position
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.

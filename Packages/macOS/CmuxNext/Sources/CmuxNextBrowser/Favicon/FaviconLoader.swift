@@ -1,6 +1,6 @@
 public import AppKit
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Loads favicons for tabs.
 public protocol BrowserFaviconLoading: AnyObject {
@@ -78,6 +78,15 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         return image
     }
 
+    /// Keeps an icon a tab's engine fetched itself (a Chromium tab's own request context,
+    /// cx-d0d.8), decoded and capped as a fetch here is, so every reader of `url` for
+    /// `profile` gets it without a second, cookieless fetch. Nil when it does not decode.
+    public func store(_ data: Data, at url: URL, profile: BrowserProfileID) -> NSImage? {
+        guard let image = Self.decode(data) else { return nil }
+        caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url)
+        return image
+    }
+
     /// Drops every icon cached for `profile` (a profile deleted, an
     /// incognito session ended).
     public func forget(profile: BrowserProfileID) {
@@ -95,7 +104,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         let width = max(1, Int((CGFloat(best.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(best.height) * scale).rounded()))
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(best, in: CGRect(x: 0, y: 0, width: width, height: height))

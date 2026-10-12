@@ -73,6 +73,35 @@ pub enum Control {
         transfer: u64,
         offset: u64,
     },
+    /// Opens stream `stream` (rd changes C3, C4, C6); sent only when welcome
+    /// lists the `stream.open` cap. The viewer opens upstream media streams
+    /// (`up_audio`, `up_video`, also with `up_media`) after the user's consent
+    /// for that kind; the host answers `stream_opened` or `stream_refused`
+    /// and sends nothing for a stream it did not open.
+    StreamOpen {
+        stream: u16,
+        kind: StreamKind,
+        /// `opus` for audio, `h264` for video.
+        codec: String,
+        /// A tile stream's surface stream (C3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        of: Option<u16>,
+    },
+    /// The peer accepted `stream_open` for `stream`.
+    StreamOpened {
+        stream: u16,
+    },
+    /// The peer refused `stream_open` for `stream` (`caps`, `kind`, `codec`,
+    /// `unsupported`, `in_use`, `too_many`).
+    StreamRefused {
+        stream: u16,
+        reason: String,
+    },
+    /// Closes an opened stream (the viewer revoked the kind's consent, or the
+    /// peer stops it); no answer.
+    StreamClose {
+        stream: u16,
+    },
     Stats {
         kbps: u32,
         frames: u64,
@@ -81,6 +110,39 @@ pub enum Control {
         encode_ms_p50: f64,
         loss_pct: f64,
     },
+}
+
+/// What a stream carries (`stream_open`). A kind this build does not know
+/// parses as `Unknown`, so a newer peer's message does not end the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamKind {
+    Video,
+    Audio,
+    Tiles,
+    Popup,
+    /// Viewer to host: microphone (rd change C4).
+    UpAudio,
+    /// Viewer to host: camera or screen share (rd change C4).
+    UpVideo,
+    #[serde(other)]
+    Unknown,
+}
+
+impl StreamKind {
+    /// Media the viewer sends to the host.
+    pub fn is_upstream(self) -> bool {
+        matches!(self, Self::UpAudio | Self::UpVideo)
+    }
+
+    /// The codec a stream of this kind carries, if fixed.
+    pub fn codec(self) -> Option<&'static str> {
+        match self {
+            Self::Audio | Self::UpAudio => Some("opus"),
+            Self::Video | Self::Popup | Self::UpVideo => Some("h264"),
+            Self::Tiles | Self::Unknown => None,
+        }
+    }
 }
 
 /// A secret in a message; Debug never prints it.

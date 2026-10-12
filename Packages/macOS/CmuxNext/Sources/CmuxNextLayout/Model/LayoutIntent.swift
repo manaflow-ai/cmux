@@ -41,4 +41,7 @@ public nonisolated enum LayoutIntent: Hashable, Sendable {
     case setRowHeights(ColumnID, heights: [RowHeight], fit: Bool)
     /// Daemon `new-row {pane, height_permille}` (`rows-v1`).
     case newRow(below: PaneID, height: Int)
+    /// A divider or column-edge gesture ended with no release (its target
+    /// went away mid-drag): nothing more of `transaction` will be sent.
+    case cancelGesture(LayoutTransactionID)
 }

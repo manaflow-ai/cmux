@@ -189,7 +189,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # gcc-mingw-w64-x86-64 links the Windows GNU check that every
+          # cmux-tui-core or cmux-tui landing runs on the box:
+          # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
+          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
 
       - name: Cache Zig package downloads
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -223,6 +226,10 @@ jobs:
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install the Windows GNU Rust target
+        shell: bash
+        run: rustup target add x86_64-pc-windows-gnu
 
       - name: Fetch Cargo dependencies without compiling
         working-directory: cmux-tui

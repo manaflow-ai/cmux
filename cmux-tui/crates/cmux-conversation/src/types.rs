@@ -117,6 +117,19 @@ pub enum Part {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<DerivedImage>,
     },
+    /// A question an agent asks a person (question.rs). Only agents post
+    /// it; only `question.answer` moves it out of pending, except the
+    /// author's edit that cancels it.
+    Question(crate::question::Question),
+}
+
+impl Part {
+    /// Whether a message with this part is a counted turn for the loop guard
+    /// (budget.rs): text, or a question (an agent asking is a turn). Work
+    /// cards and attachments neither count nor reset the count.
+    pub fn counts_as_turn(&self) -> bool {
+        matches!(self, Self::Text { .. } | Self::Question(_))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +170,17 @@ pub struct Message {
     pub parts: Vec<Part>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<PartRef>,
+    /// The messages this one answers ([`Op::MessageSend`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
+    /// The ids in `answers` whose work still runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers_pending: Vec<String>,
+    /// The root message of the thread this message is a reply in. A root
+    /// has none; a thread has one level. Messages before threads have none
+    /// (their `reply_to` stays as it was).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<String>,
@@ -222,6 +246,18 @@ pub enum Op {
         parts: Vec<Part>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reply_to: Option<PartRef>,
+        /// The ids of the messages this reply answers (an agent's turn
+        /// reply). Old readers ignore it; empty is left off the wire.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        answers: Vec<String>,
+        /// The ids in `answers` whose work (subagents) still runs: more
+        /// replies to them follow.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        answers_pending: Vec<String>,
+        /// The thread root this message replies in: a message of this
+        /// conversation that is not itself in a thread.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_root: Option<String>,
     },
     #[serde(rename = "message.edit")]
     MessageEdit { message_id: String, parts: Vec<Part> },
@@ -237,6 +273,9 @@ pub enum Op {
     ParticipantsAdd { participant: Participant },
     #[serde(rename = "title.set")]
     TitleSet { title: String },
+    /// A person answers the question part at `part_index`.
+    #[serde(rename = "question.answer")]
+    QuestionAnswer { message_id: String, part_index: u32, answer: crate::question::QuestionAnswer },
 }
 
 impl Op {
@@ -246,7 +285,8 @@ impl Op {
             Self::MessageEdit { message_id, .. }
             | Self::MessageRetract { message_id }
             | Self::ReactionAdd { message_id, .. }
-            | Self::ReactionRemove { message_id, .. } => Some(message_id),
+            | Self::ReactionRemove { message_id, .. }
+            | Self::QuestionAnswer { message_id, .. } => Some(message_id),
             Self::MessageSend { .. }
             | Self::ReadCursorSet { .. }
             | Self::ParticipantsAdd { .. }
@@ -258,6 +298,14 @@ impl Op {
     pub fn reply_to(&self) -> Option<&PartRef> {
         match self {
             Self::MessageSend { reply_to, .. } => reply_to.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The thread root a `message.send` replies in, which the host loads.
+    pub fn thread_root(&self) -> Option<&str> {
+        match self {
+            Self::MessageSend { thread_root, .. } => thread_root.as_deref(),
             _ => None,
         }
     }

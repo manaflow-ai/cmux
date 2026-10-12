@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
@@ -34,11 +36,56 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// The scopes whose theme this coordinator set.
+    private let themed = NSHashTable<ThemeScope>.weakObjects()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore) {
         self.services = services
         self.terminalThemes = terminalThemes
-        resolver.onChange = { [weak self] in self?.apply(forceSurfaces: true) }
+        resolver.onChange = { [weak self] in
+            self?.apply(forceSurfaces: true)
+            self?.applyChromeTheme()
+        }
+    }
+
+    // MARK: App theme (appearance.appTheme)
+
+    /// `appearance.appTheme` as last read; nil follows the terminal theme.
+    private var chromeTheme: String?
+    private var chromeObservation: Task<Void, Never>?
+    private var accentObservation: Task<Void, Never>?
+
+    /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
+    /// resolved like the other theme levels (the variant for the system appearance, the user's
+    /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    func followChromeTheme(_ settings: SettingsController) {
+        // `applied`: a live preview (a theme picker's highlighted row) shows too.
+        chromeTheme = settings.applied.chromeTheme
+        ThemeStore.shared.setAccent(settings.applied.accent)
+        applyChromeTheme()
+        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        accentObservation = Task { [weak self] in
+            for await accent in ObservationStream({ settings.applied.accent }) {
+                guard let self, ThemeStore.shared.setAccent(accent) else { continue }
+                self.applyChromeTheme()
+            }
+        }
+        chromeObservation = Task { [weak self] in
+            for await theme in ObservationStream({ settings.applied.chromeTheme }) {
+                guard let self, theme != self.chromeTheme else { continue }
+                self.chromeTheme = theme
+                self.applyChromeTheme()
+            }
+        }
+    }
+
+    private func applyChromeTheme() {
+        let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
+        ThemeStore.shared.setAppTheme(resolved.map {
+            var input = $0.input
+            input.accent = ThemeStore.shared.accent
+            return AppTheme.derive(from: input)
+        })
     }
 
     func start() {
@@ -47,8 +94,20 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
-        catalog.load()
         let catalog = catalog
+        // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
+        ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }
+        // File accents arrive with the catalog's colors, which no config reload reports; only a
+        // change in them re-derives (and re-applies the surfaces).
+        var fileAccents: [String: ThemeRGB] = [:]
+        catalog.onRead = { [weak self] in
+            let read = catalog.colors.compactMapValues(\.accent)
+            guard read != fileAccents else { return }
+            fileAccents = read
+            ThemeBridge.refresh()
+            self?.resolver.changed()
+        }
+        catalog.load()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
         }
@@ -56,17 +115,17 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
-        Task {
+        Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
-            for await loaded in Observations({ local.store.isLoaded }) where loaded {
-                self.pruneTerminalThemes()
+            for await loaded in ObservationStream({ local.store.isLoaded }) where loaded {
+                self?.pruneTerminalThemes()
                 return
             }
         }
         observation = Task { [weak self] in
-            for await _ in Observations({ () -> [String?] in
+            for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
@@ -135,11 +194,11 @@ final class ThemeCoordinator {
     /// Re-reads every theme. `forceSurfaces` re-applies surface configs
     /// even when unchanged (after a Ghostty config reload reset them).
     func apply(forceSurfaces: Bool = false) {
-        for controller in services.windows?.controllers ?? [] {
+        for controller in services.windows.controllers {
             windowDidChange(controller)
             for content in controller.mountedContents { contentDidShow(content) }
         }
-        for entry in services.cache?.terminals.values.map({ $0 }) ?? [] {
+        for entry in services.cache.terminals.values.map({ $0 }) {
             entry.themeBinding.coordinator = self
             setTheme(of: entry.themeScope, to: terminalTheme(entry.themeKey))
             if forceSurfaces { entry.themeBinding.syncSurface(force: true) }
@@ -148,6 +207,10 @@ final class ThemeCoordinator {
 
     private func setTheme(of scope: ThemeScope, to text: String?) {
         let resolved = resolver.resolve(text.flatMap(ThemeSpec.init))
+        // Re-resolves run on every Ghostty config reload in the process; a
+        // theme this coordinator never set is not its to clear.
+        guard resolved != nil || themed.contains(scope) else { return }
+        if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
     }
 
@@ -228,6 +291,10 @@ final class TerminalThemeBinding: ThemeResponsive {
     weak var coordinator: ThemeCoordinator?
     private unowned let scope: ThemeScope
     private weak var session: TerminalSession?
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     init(scope: ThemeScope, session: TerminalSession) {
         self.scope = scope

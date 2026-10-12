@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 public import Foundation
 import UniformTypeIdentifiers
 
@@ -166,7 +167,7 @@ public actor MockHomeSource: HomeSource {
             replay.replayed = true
             return replay
         }
-        if case .sendMessage(_, let parts) = intent.op {
+        if case .sendMessage(_, let parts, _) = intent.op {
             for case .attachment(let ref) in parts {
                 guard let left = forgetOnSubmit[ref.hash] else { continue }
                 blobs[ref.hash] = nil
@@ -181,7 +182,7 @@ public actor MockHomeSource: HomeSource {
             throw rejection
         }
         ledger[intent.key] = (intent.op, .success(result))
-        if case .sendMessage(let conversation, _) = intent.op { scheduleReplies(in: conversation) }
+        if case .sendMessage(let conversation, _, _) = intent.op { scheduleReplies(in: conversation) }
         return result
     }
 
@@ -444,7 +445,7 @@ public actor MockHomeSource: HomeSource {
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
         switch intent.op {
-        case .sendMessage(let conversation, let parts):
+        case .sendMessage(let conversation, let parts, let threadRoot):
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
             // The owner's checkAttachments: a recorded hash, and the part's
@@ -457,8 +458,30 @@ public actor MockHomeSource: HomeSource {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }
-            let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key)
+            if let threadRoot, stored[conversation]?.contains(where: { $0.id == threadRoot }) != true {
+                throw HomeRejection.invalid("unknown_reply_target")
+            }
+            let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot)
             return HomeOpResult(rev: rev, conversation: conversation)
+        case .editMessage(let messageID, let conversation, let parts):
+            return try updateOwnMessage(messageID, in: conversation) {
+                $0.parts = parts
+                $0.editedAt = Date()
+            }
+        case .retractMessage(let messageID, let conversation):
+            return try updateOwnMessage(messageID, in: conversation) {
+                $0.parts = []
+                $0.retractedAt = Date()
+            }
+        case .removeReaction(let messageID, let conversation, let kind, let partIndex):
+            guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+                  var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
+            list[index].reactions.removeAll { $0 == Reaction(author: me.id, partIndex: partIndex, kind: kind) }
+            stored[conversation] = list
+            summary.rev += 1
+            conversations[conversation] = summary
+            publish(.message(list[index], rev: summary.rev))
+            return HomeOpResult(rev: summary.rev)
         case .setReadCursor(let conversation, let seq):
             guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
             let current = summary.readCursors[me.id] ?? 0
@@ -525,6 +548,26 @@ public actor MockHomeSource: HomeSource {
             conversations[conversation] = summary
             publish(.message(list[index], rev: summary.rev))
             return HomeOpResult(rev: summary.rev)
+        case .answerQuestion(let messageID, let conversation, let partIndex, let answer):
+            guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+                  var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
+            guard list[index].parts.indices.contains(partIndex), case .question(let question) = list[index].parts[partIndex] else {
+                throw HomeRejection.invalid("invalid_part_index")
+            }
+            let respondent = AgentQuestionAnswer.Respondent(participant: me.id.rawValue, displayName: me.displayName)
+            do {
+                let answered = try question.answering(answer, respondent: respondent, atMs: Int64(Date().timeIntervalSince1970 * 1000))
+                list[index].parts[partIndex] = .question(answered)
+            } catch AgentQuestionAnswer.Problem.notPending {
+                throw HomeRejection.invalid("question_closed")
+            } catch {
+                throw HomeRejection.invalid("invalid_answer")
+            }
+            stored[conversation] = list
+            summary.rev += 1
+            conversations[conversation] = summary
+            publish(.message(list[index], rev: summary.rev))
+            return HomeOpResult(rev: summary.rev)
         }
     }
 
@@ -538,11 +581,29 @@ public actor MockHomeSource: HomeSource {
     }
 
     @discardableResult
-    private func commitMessage(in conversation: ConversationID, author: ParticipantID, parts: [MessagePart], key: IdempotencyKey) throws -> Revision {
+    /// The owner's edit and retract: only the author changes a message, and a retracted one stays retracted.
+    private func updateOwnMessage(_ messageID: MessageID, in conversation: ConversationID,
+                                  _ change: (inout Message) -> Void) throws -> HomeOpResult {
+        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+              var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
+        guard list[index].author == me.id else { throw HomeRejection.notAuthorized }
+        guard list[index].retractedAt == nil else { throw HomeRejection.invalid("message_retracted") }
+        change(&list[index])
+        stored[conversation] = list
+        summary.rev += 1
+        if summary.lastMessage?.id == messageID { summary.lastMessage = list[index] }
+        conversations[conversation] = summary
+        publish(.message(list[index], rev: summary.rev))
+        return HomeOpResult(rev: summary.rev)
+    }
+
+    private func commitMessage(in conversation: ConversationID, author: ParticipantID, parts: [MessagePart], key: IdempotencyKey,
+                               threadRoot: MessageID? = nil) throws -> Revision {
         guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
         guard summary.participants.contains(where: { $0.id == author }) else { throw HomeRejection.notAuthorized }
         let message = Message(id: MessageID("msg_\(mintID())"), conversation: conversation, seq: summary.lastSeq + 1,
-                              clientMessageID: key, author: author, parts: parts, createdAt: Date())
+                              clientMessageID: key, author: author, parts: parts, createdAt: Date(),
+                              replyTo: threadRoot.map { PartRef(message: $0) }, threadRoot: threadRoot)
         stored[conversation, default: []].append(message)
         summary.lastSeq = message.seq
         summary.lastMessage = message

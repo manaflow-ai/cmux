@@ -43,6 +43,12 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
     /// screen); ScrollPrefetcher sets them from the velocity.
     var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// Rows the AppKit host's lift pacing still shows behind the offset (its translation; 0 at rest).
+    var paceOverscanTop: CGFloat = 0 { didSet { if paceOverscanTop != oldValue { setNeedsLayout() } } }
+    var paceOverscanBottom: CGFloat = 0 { didSet { if paceOverscanBottom != oldValue { setNeedsLayout() } } }
+    /// Until this time (`clock`) a page motion runs (WindowView.addPageMotion): the offset jumped a
+    /// page at once, which is not a scroll, so the prefetcher adds no lead and reads no velocity.
+    var pageJumpUntil: CFTimeInterval = 0
     /// The transcript's clock (seconds; the window view sets its engine clock).
     var clock: () -> CFTimeInterval = { CACurrentMediaTime() }
     let prefetcher = ScrollPrefetcher()
@@ -63,7 +69,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
-        index[ObjectIdentifier(cell)].map { IndexPath(item: $0, section: 0) }
+        index.value(for: ObjectIdentifier(cell)).map { /* dictionary read */ IndexPath(item: $0, section: 0) }
     }
 
     /// All rows may have changed: reconfigure every visible cell on the next pass.
@@ -90,7 +96,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
         // The visible rect plus where rows are still animating in from
         // (`overscan`): a row on screen during a transaction's motion keeps
         // its cell even when its final place is outside the visible rect.
-        let top = max(overscanTop, leadTop), bottom = max(overscanBottom, leadBottom)
+        let top = max(overscanTop, leadTop, paceOverscanTop), bottom = max(overscanBottom, leadBottom, paceOverscanBottom)
         let rect = CGRect(x: bounds.minX, y: bounds.minY - top, width: bounds.width, height: bounds.height + top + bottom)
         let attrs = (layout.layoutAttributesForElements(in: rect) ?? []).filter { $0.indexPath.item < n }
         var next: [String: RowCell] = [:]
@@ -113,7 +119,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
             }
             if cell.frame != a.frame { cell.frame = a.frame }
             cell.layer.zPosition = CGFloat(a.zIndex)
-            next[k] = cell
+            next.updateValue(cell, forKey: k)
             newIndex[ObjectIdentifier(cell)] = i
         }
         // Rows that left the rect: back to the pool (hidden, not removed), in row order: the
@@ -130,8 +136,30 @@ final class RowRecycler: UIScrollView, TranscriptList {
         for (c, i) in fresh { configure(c, i) }
         // Long text rows: tiles follow the viewport inside the row (TiledBubble.swift).
         for c in next.values where c.tiled?.isActive == true { c.tiled?.update(c) }
+        // Hosted rows follow their cells (CustomRows.swift).
+        CustomRows.host?.didLayout(self)
         // Media: bitmaps and thumbnails ahead in the scroll direction (MediaCache.swift).
         prefetcher.update(self)
+    }
+
+    /// Cells made ahead of need: hidden in the view tree, so their creation and first commit are
+    /// not in the frame that needs them (the first fold of a long message: one viewport of rows
+    /// above slides in, and new cells were made in that frame). At most `batch` per call.
+    /// Returns true while more are needed.
+    @discardableResult
+    func reserve(_ total: Int, batch: Int = 12) -> Bool {
+        let need = total - (visible.count + pool.count)
+        guard need > 0 else { return false }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for _ in 0..<min(need, batch) {
+            let c = RowCell(frame: .zero)
+            poolSize += 1
+            addSubview(c)
+            c.isHidden = true
+            pool.insert(c, at: 0)
+        }
+        CATransaction.commit()
+        return need > batch
     }
 
     private func take() -> RowCell {

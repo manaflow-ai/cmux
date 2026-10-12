@@ -14,6 +14,9 @@ extension SidebarRegionMetrics {
             cardPadding: Metrics.space1, tileMinWidth: Metrics.sidebarRowHeight * 1.5,
             tileHeight: Metrics.sidebarRowHeight + Metrics.space2, tileGap: Metrics.space2,
             iconButtonWidth: Metrics.sidebarRowHeight + Metrics.space2, lineWidth: Metrics.dividerThickness,
-            favoriteHeight: Metrics.sidebarRowHeight * 2 + Metrics.space2)
+            favoriteHeight: Metrics.sidebarRowHeight * 2 + Metrics.space2,
+            // A row glyph's center from a line's leading edge (the line
+            // starts at the inset; the row glyph at twice the inset).
+            glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconBox / 2)
     }
 }

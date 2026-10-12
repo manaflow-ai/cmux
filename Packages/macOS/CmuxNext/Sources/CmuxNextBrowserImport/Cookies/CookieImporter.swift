@@ -33,6 +33,11 @@ public struct CookieImporter: Sendable {
     /// Reads (and decrypts) the cookies of one profile. Blocks on the
     /// Keychain prompt for Chromium browsers.
     static func read(_ profile: BrowserSourceProfile, keys: any SafeStorageKeyProviding, now: Date) throws -> CookieReadResult {
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_COOKIE_IMPORT
+        // The cx-f58x notary test builds read no other browser's cookie files
+        // (CMUX_NO_COOKIE_IMPORT is the cookies-only notary bisect build).
+        throw CookieImportError.refused
+        #else
         let browser = profile.browser
         if browser.refusesSessionData { throw CookieImportError.refused }
         switch browser.family {
@@ -55,8 +60,9 @@ public struct CookieImporter: Sendable {
             case .missing: return CookieReadResult(cookies: [])
             case .readable: return try SafariBinaryCookies().parse(Data(contentsOf: file), now: now)
             }
-        case .webkit:
+        case .webkit, .other:
             throw CookieImportError.malformed(browser.displayName)
         }
+        #endif
     }
 }

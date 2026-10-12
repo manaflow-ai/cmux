@@ -10,6 +10,8 @@ public import Foundation
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
 /// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
 ///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
+/// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
+///   (``AgentPaneMediaGrants``). Passive.
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
@@ -17,17 +19,19 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
     case loadImage(String)
+    case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "browser.list", "browser.openIn"]
+    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn"]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path"],
         "image.load": ["src"],
+        "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
     ]
@@ -40,7 +44,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia: true
         case .openPath, .openIn: false
         }
     }
@@ -74,6 +78,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadImage(src)
+        case "media.load":
+            guard let src = text("src", Self.maximumURL) else { return nil }
+            self = .loadMedia(src)
         case "browser.list":
             self = .listBrowsers
         case "browser.openIn":

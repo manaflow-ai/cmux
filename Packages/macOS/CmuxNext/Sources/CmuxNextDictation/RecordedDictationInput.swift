@@ -44,6 +44,7 @@ enum RecordedDictationInput {
     }
 }
 
+@available(macOS 26, *)
 extension SpeechAnalyzerDictationTranscriber {
     /// Hear `url` instead of the microphone; call before ``transcribe(locale:)``.
     func hear(_ url: URL) { recordedInput = url }

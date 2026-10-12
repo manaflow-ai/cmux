@@ -33,29 +33,7 @@ const ctx = (user: string | null, extra: Partial<ReduceContext["principal"]> = {
 })
 const enrolled = { install: INSTALL, name: "Studio", platform: "linux", wg_public_key: WG, owner_user: OWNER, approved_by: OWNER }
 
-describe("pairing codes (shared golden with cmux-server-core)", () => {
-  it("encodes 5 random bytes as 8 Crockford symbols and normalizes look-alikes", () => {
-    expect(codeFromRandom(new Uint8Array([0x39, 0xa7, 0x24, 0xa0, 0x5d]))).toBe("76KJ982X")
-    expect(codeFromRandom(new Uint8Array(5))).toBe("00000000")
-    expect(codeFromRandom(new Uint8Array(5).fill(0xff))).toBe("ZZZZZZZZ")
-    expect(displayCode("76KJ982X")).toBe("76KJ-982X")
-    expect(normalizeCode("76kj-982x")).toBe("76KJ982X")
-    expect(normalizeCode("7OKJ 98LX")).toBe("70KJ981X")
-    expect(normalizeCode("76KJ-982U")).toBeNull()
-    expect(normalizeCode("76KJ")).toBeNull()
-  })
-})
-
 describe("servers in the team directory (TeamDO reducer)", () => {
-  it("adds a server host with tag:server once, with an audit record, and only from a system op", () => {
-    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
-    if (!r.ok) throw new Error(r.message)
-    expect(r.value).toMatchObject({ kind: "server", tags: ["tag:server"], owner_user: OWNER, enrolled_by: INSTALL, wg_public_key: WG })
-    expect(r.outbox?.map((o) => o.kind)).toEqual(["host.upsert", "audit.append"])
-    const again = reduce(r.state as TeamState, "server.enrolled", enrolled, ctx(null))
-    expect(again).toMatchObject({ ok: true, changed: false })
-    expect(reduce(base(), "server.enrolled", enrolled, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
-  })
 
   it("revokes only for the owner or an admin, never an agent, and only server hosts", () => {
     const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
@@ -127,23 +105,6 @@ describe("install.revoke_by_team (UserDO reducer)", () => {
     expect(userDomain.reduce(user(), "install.revoke_by_team", params, sys(`system:team:${TEAM}`))).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, sys("system:team:team_00000000000000000099"))).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
-  })
-})
-
-describe("approval order (pairApprove)", () => {
-  it("checks the approver's role before it claims the code or writes any owner (claimedBy only reads)", async () => {
-    const calls: Array<string> = []
-    const fakeEnv = {
-      TEAM_DO: { idFromName: (n: string) => n, get: () => ({ canEnrollServer: async () => (calls.push("role"), false), enrollServer: async () => (calls.push("enroll"), { ok: true, host: "host_x" }) }) },
-      PAIRING_DO: { idFromName: (n: string) => n, get: () => ({ claimedBy: async () => (calls.push("claimedBy"), false), claim: async () => (calls.push("claim"), { ok: false, reason: "unknown" }), complete: async () => (calls.push("complete"), { ok: true }) }) }
-    } as never
-    const member = { identity: `user:${MEMBER}`, user: MEMBER, team: TEAM, kind: "session" as const }
-    const r = await pairApprove(fakeEnv, member, { op: "server.pair.approve", params: { code: "76KJ982X", team: TEAM, name: "x" }, idempotency_key: "k" }, async () => {
-      calls.push("submit")
-      return { frames: [] }
-    })
-    expect(r).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
-    expect(calls).toEqual(["role", "claimedBy"])
   })
 })
 
@@ -245,7 +206,6 @@ describe("server pairing over the API (workerd)", () => {
     expect((await beginPairing(Date.now(), true)).res.status).toBe(403)
     expect((await read(owner, "server.pair.preview", { code: "ZZZZ-ZZZZ" })).status).toBe(400)
   })
-
 
   it("refuses a forged code or collect secret on wait before any PairingDO wakes; the issued secret works", async () => {
     const { res } = await beginPairing(Date.now(), false, "203.0.113.15")

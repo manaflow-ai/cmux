@@ -109,7 +109,7 @@ Data owners today:
 | page | Swift app | `BrowserProfiles/<profile>/History.sqlite` (`BrowserVisitLog`, `HistorySQLite`), 90 days, 100k visits |
 | location | Swift app (`LocationTrailService`, client view state) | daemon personal projection `history.trail` |
 | closed | daemon (`closed.list`, `closed.reopen`, `state-resources-v1`) | daemon; Swift in-memory fallback trackers for old daemons |
-| command | daemon journal `shell.command.finished` (`terminal-command-journal-v1`) | Swift folds in memory (`TerminalCommandFold`) |
+| command | daemon registry rows (`list-terminal-commands`, `terminal-command-history-v1`), deletable, with a retention | Swift mirrors the rows (`TerminalCommandMirror`) |
 | agent | daemon journal `agent.session.*`, `agent.turn.*` (`session-journal-v1`) | Swift folds in memory (`AgentSessionFold`) |
 | hidden | Swift writes projection `history.hidden` | daemon projection |
 
@@ -188,7 +188,7 @@ browser dev loop; H2 and H3 run in parallel; the page becomes the default when H
 
 ### 3.1 Today (Swift)
 
-Page UI (delete at parity): `CmuxNextApps/Store/AppStoreWindowController.swift`, `Views/AppStoreRootView`,
+Page UI (delete at parity): `CmuxNextApps/Store/AppStoreContentView.swift`, `Views/AppStoreRootView`,
 `AppDiscoverView`, `AppListingViews`, `AppListingDetailView`, `AppInstalledView`, `AppGrantsView`,
 `AppLivePreview`, `AppIconView`; models `AppStoreModel`, `AppStorePages`, `AppStoreCatalog`,
 `AppStoreListing`, `AppPreviewSink`. Shared, stays native: `AppSectionFrame`, `Render/*`, `Scene/*`

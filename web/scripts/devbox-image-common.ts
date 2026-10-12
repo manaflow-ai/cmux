@@ -1484,6 +1484,40 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
 }
 
 /**
+ * Source digests that landed without their bake: the defaults still run the
+ * sources before them. Each entry excuses exactly one drift, the defaults
+ * baked from `baked` against this checkout's `current`, so any further source
+ * change or another ladder still fails; tests/vm-image-manifest.test.ts fails
+ * once an entry is not needed. Promotion stays strict (promote-devbox-image.ts
+ * calls devboxSourceDriftProblems directly). The desktop sources moved in
+ * 0174c116d4db, 0c91f5f55662 and 219015401324 (cx-6so.49 L1, the devbox
+ * metadata service) after the freestyle-cmux-devbox-20261003-130941 ladder
+ * was baked: delete the entry with the promotion that bakes them.
+ */
+export const DEVBOX_AWAITING_REBAKE = [
+  {
+    layers: "desktop",
+    schema: 2,
+    baked: "082484bccc9a",
+    current: "4b22f8bbeb1b8dcf1b86077ae1e2730144569615203b49fbd14d93b431bf7d76",
+  },
+] as const;
+
+export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+
+/** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
+export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {
+  return problem.includes(
+    `baked from devbox sources ${pending.baked}… (schema ${pending.schema}), this checkout's ${pending.layers} sources are ${pending.current.slice(0, 12)}…;`,
+  );
+}
+
+/** Whether DEVBOX_AWAITING_REBAKE excuses a devboxSourceDriftProblems message (the checked-in manifest's checks). */
+export function devboxDriftAwaitingRebake(problem: string): boolean {
+  return DEVBOX_AWAITING_REBAKE.some((pending) => isAwaitingRebake(problem, pending));
+}
+
+/**
  * The invariant that makes the checked-in manifest describe the machine
  * users get: every default of `provider` was baked at the Dockerfile's
  * current CMUX_IMAGE_EPOCH (a bumped epoch without a promotion, or a
@@ -1541,4 +1575,42 @@ export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
+}
+
+/**
+ * The devbox daemon unit: cmux-devbox-boot supervises the cmux-tui daemon
+ * (build-devbox-freestyle.ts header). Its argv and environment are a contract
+ * with running machines (docs/cloud-guest-upgrades.md): add, never rename.
+ */
+export function devboxDaemonUnit(): string {
+  return [
+    "[Unit]",
+    "Description=cmux-tui session daemon supervisor",
+    "After=network.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "User=root",
+    // Freestyle machines are reached at a private VPC address by default, or
+    // their stable public IPv6 on the legacy public-network path, so the daemon
+    // listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+    // defaults to 0.0.0.0 for the container providers, whose runtimes may have
+    // IPv6 disabled entirely.
+    "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    // Each terminal host gets its own transient scope (cmux-tui host_scope.rs),
+    // so a stop or restart of this unit keeps every terminal for re-adoption.
+    "Environment=CMUX_TUI_HOST_SCOPES=systemd",
+    // The browser host the daemon supervises refuses metadata, link-local and
+    // private ranges to every caller (cmux-browser-host egress_scope.rs).
+    "Environment=CMUX_BROWSER_HOST_EGRESS=isolated",
+    // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
+    // and every pinned agent as symlinks, so no login shell is needed.
+    "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "ExecStart=/usr/local/bin/cmux-devbox-boot",
+    "Restart=always",
+    "RestartSec=2",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n");
 }

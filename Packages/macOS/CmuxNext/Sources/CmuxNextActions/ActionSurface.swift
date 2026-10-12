@@ -75,6 +75,9 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// (the daemon's `room create` for Rooms); the app action is its GUI
     /// form, and the CLI runs the owner's operation.
     case ownerVerb
+    /// The object's menu is a short list Lawrence fixed (the space menu,
+    /// SIDEBAR-FOOTER-AND-SPACE-MENU F3); the palette and the CLI offer it.
+    case minimalMenu
 }
 
 /// A surface decision: offered, or exempt with a reason.

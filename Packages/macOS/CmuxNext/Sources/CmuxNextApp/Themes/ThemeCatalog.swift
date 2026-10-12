@@ -17,26 +17,51 @@ final class ThemeCatalog {
     private(set) var names: [String] = []
     /// Each theme's swatch strip (`ThemeSwatch`), read after the names.
     private(set) var strips: [String: [ThemeRGB]] = [:]
+    /// Each theme's colors (the Settings page's preview and swatches), read with the strips.
+    private(set) var colors: [String: ThemeFileColors] = [:]
     @ObservationIgnored private var known: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
+    /// Called after each read of the colors (a theme file's `# cmux-accent` is in them).
+    @ObservationIgnored var onRead: (() -> Void)?
 
     func load() {
         guard loading == nil else { return }
         loading = Task { [weak self] in
-            let listed = await Task.detached(priority: .utility) {
-                Self.list(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
-                          environment: ProcessInfo.processInfo.environment)
-            }.value
-            self?.names = listed
-            self?.known = Set(listed)
-            // The strips after the names, so pickers list themes first; a
-            // strip-less row draws its symbol until then.
-            let strips = await Task.detached(priority: .utility) {
-                Self.strips(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
-                            environment: ProcessInfo.processInfo.environment)
-            }.value
-            self?.strips = strips
+            guard let self else { return }
+            await self.refresh()
         }
+    }
+
+    /// Lists and reads the themes again (a theme file saved or imported, cx-wqn5.1); returns once
+    /// the names and colors include it.
+    func reload() async {
+        // Each reload runs after the one before it, so an older list never lands last.
+        let previous = loading
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            await self.refresh()
+        }
+        loading = task
+        await task.value
+    }
+
+    private func refresh() async {
+        let listed = await Task.detached(priority: .utility) {
+            Self.list(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
+                      environment: ProcessInfo.processInfo.environment)
+        }.value
+        names = listed
+        known = Set(listed)
+        // The strips after the names, so pickers list themes first; a
+        // strip-less row draws its symbol until then.
+        let read = await Task.detached(priority: .utility) {
+            Self.read(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
+                      environment: ProcessInfo.processInfo.environment)
+        }.value
+        strips = read.strips
+        colors = read.colors
+        onRead?()
     }
 
     /// Whether Ghostty accepts `text` as a theme spec: a spec whose every
@@ -60,14 +85,24 @@ final class ThemeCatalog {
 
     /// Every theme's swatch strip, the user's file winning on a name clash.
     nonisolated static func strips(resources: String?, home: URL, environment: [String: String]) -> [String: [ThemeRGB]] {
+        read(resources: resources, home: home, environment: environment).strips
+    }
+
+    /// Every theme's swatch strip and colors from one read of its file, the user's file winning
+    /// on a name clash.
+    nonisolated static func read(resources: String?, home: URL, environment: [String: String])
+        -> (strips: [String: [ThemeRGB]], colors: [String: ThemeFileColors]) {
         var strips: [String: [ThemeRGB]] = [:]
+        var colors: [String: ThemeFileColors] = [:]
         // Shipped themes first, so the user's folder replaces a clash.
         for (name, file) in themeFiles(resources: resources, home: home, environment: environment) {
             // concurrency-allow: nonisolated, called from a detached task at launch
             guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count <= maximumThemeFileBytes else { continue }
-            strips[name] = ThemeSwatch.strip(themeFile: String(decoding: data, as: UTF8.self))
+            let text = String(decoding: data, as: UTF8.self)
+            strips[name] = ThemeSwatch.strip(themeFile: text)
+            colors[name] = ThemeFileColors(name: name, themeFile: text)
         }
-        return strips
+        return (strips, colors)
     }
 
     nonisolated static func list(resources: String?, home: URL, environment: [String: String]) -> [String] {
@@ -82,9 +117,8 @@ final class ThemeCatalog {
     /// Every theme file: the resources folder's, then the user's.
     private nonisolated static func themeFiles(resources: String?, home: URL,
                                                environment: [String: String]) -> [(name: String, file: URL)] {
-        let configHome = environment["XDG_CONFIG_HOME"].map { URL(fileURLWithPath: $0) } ?? home.appending(path: ".config")
         let folders = [resources.map { URL(fileURLWithPath: $0).appending(path: "themes") },
-                       configHome.appending(path: "ghostty").appending(path: "themes")].compactMap(\.self)
+                       GhosttyThemeFiles.userFolder(home: home, environment: environment)].compactMap(\.self)
         return folders.flatMap { folder in
             // concurrency-allow: nonisolated, called from a detached task at launch
             let entries = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []

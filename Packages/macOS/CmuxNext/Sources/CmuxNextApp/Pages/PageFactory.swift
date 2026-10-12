@@ -1,8 +1,11 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTerminal
 import Foundation
+import UniformTypeIdentifiers
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
 /// that type's line budget is frozen).
@@ -13,8 +16,11 @@ struct PageFactory {
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
     func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web,
-              let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
+        guard PageTunables.history.value == .web else { return nil }
+        let routes = pageRoutes(for: .history)
+        guard let page = services.pageHostPool.claim(.history, routes: routes,
+                                                      window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .history, routes: routes) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
@@ -49,8 +55,8 @@ struct PageFactory {
             guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
-            return try await AppOperationRouter.control(router, method, params)
-        })
+            return try await router.appControl(method, params)
+        }, pageShapes: true)
         let registry = services.registry
         let provider = CodeRouterPageProvider(ops: ops, connect: { id in
             registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
@@ -74,8 +80,11 @@ struct PageFactory {
         let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .cloud, routes: routes,
-                               documentAttributes: ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue])
+        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
+        let page = services.pageHostPool.claim(.cloud, routes: routes,
+                                               documentAttributes: attributes,
+                                               window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .cloud, routes: routes, documentAttributes: attributes)
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
         return page
@@ -87,7 +96,7 @@ struct PageFactory {
     func settingsPage(route: String?) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
+            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
@@ -99,8 +108,22 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        provider.agents = services.agentHarnesses
+        let harnesses = SettingsHarnesses(
+            environment: { [weak services] in services.flatMap(QuitAgents.environment) },
+            openTerminal: { [weak services] line in
+                guard let pane = services?.windows.active?.focusedPane else { return }
+                pane.newTerminalTab(typing: line + "\r")
+            }
+        )
+        provider.harnessesState = { harnesses.state }
+        provider.harnessesRun = { params in try await harnesses.run(params) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.themeColors = { [weak services] in
+            guard let catalog = services?.themes.catalog else { return [] }
+            return catalog.names.compactMap { catalog.colors[$0] }
+        }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
@@ -118,12 +141,38 @@ struct PageFactory {
                 return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
             }
         }
+        provider.themeFiles = SettingsThemeFiles(
+            folders: {
+                .init(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
+                      environment: ProcessInfo.processInfo.environment)
+            },
+            reload: { [weak services] in await services?.themes.catalog.reload() },
+            pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
+        provider.backdropImages = SettingsWindowService.userImages.map { images in
+            SettingsBackdropImages(images: images) { [weak services] in
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+            }
+        }
+        let museumArt = MuseumArtSession()
+        provider.museumArt = museumArt
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
-                               dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
+        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
+                                                          userImages: SettingsWindowService.userImages, museum: museumArt)
+        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources,
+                                               window: services.windows.active?.window, focus: false)
+            ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
+                           dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
+        // An image dropped on Settings becomes the background (cx-t2x.8), while the picker shows.
+        page?.fileDrop = PageFileDrop(accepts: { [weak services] url in
+            services?.settings?.snapshot.experimentalAppearance == true && BackdropUserImages.isImage(url)
+        }) { [weak provider] url in
+            // task-owner: one short copy and settings write per drop; a failed one changes nothing
+            Task { try? await provider?.useBackdropImage(url) }
+        }
         return page
     }
 

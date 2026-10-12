@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// A floating panel that shows one popup page (`window.open` with window
@@ -31,10 +32,10 @@ final class BrowserPopupPanel: NSPanel {
         becomesKeyOnlyIfNeeded = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        standardWindowButton(.closeButton)?.toolTip = Strings.popupCloseHelp
+        standardWindowButton(.closeButton)?.themedToolTip = Strings.popupCloseHelp
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
-        animationBehavior = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .none : .utilityWindow
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         tabbingMode = .disallowed
         // Kind `.browserPopup`: only the close button, the one surface
         // background; the opener's scope is adopted when it opens.
@@ -46,7 +47,7 @@ final class BrowserPopupPanel: NSPanel {
     private func observeTitle() {
         let page = page
         observation = Task { [weak self] in
-            for await state in Observations({ page.state }) {
+            for await state in ObservationStream({ page.state }) {
                 self?.show(title: state.title, url: state.url)
             }
         }

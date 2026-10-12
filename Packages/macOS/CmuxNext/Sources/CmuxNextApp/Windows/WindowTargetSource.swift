@@ -45,7 +45,7 @@ final class WindowTargetSource: PaletteTargetSource {
     }
 
     private func windows() -> [PaletteTargetOption] {
-        let windows = services.windows!
+        let windows = services.windows
         let active = windows.active?.state.id
         let options = windows.controllers.enumerated().map { index, controller in
             let name = controller.state.workspaceID.flatMap { services.workspace(id: $0)?.displayName }

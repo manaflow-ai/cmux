@@ -65,16 +65,31 @@ enum Action {
     case appendPage([Message])
     /// Drop messages far from the viewport (bounded memory).
     case evict(top: Int, bottom: Int)
-    /// Jump: replace the loaded window.
-    case replaceWindow([Message], start: Int)
+    /// Replace the loaded window: `msgs` are messages [start, start + msgs.count) of a history
+    /// of `total`. nil: the window ends at the newest message (a host without a pager: its
+    /// window is all it has). The total is set with the window, never kept from before: a
+    /// total left ahead of the window's end kept `atNewest` false, and every later receive
+    /// stayed hidden (cmux Home, cx-7nf0). A total below the window's end is raised to it.
+    case replaceWindow([Message], start: Int, total: Int? = nil)
+    /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
+    /// written through; a height change animates like any row change.
+    case setCustomPart(ID, Int, CustomPart)
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
+    /// Hosted rows of these messages measure again (no state change). `animated` false: an
+    /// estimate correction (no motion; the first visible row keeps its place).
+    case remeasureCustom([ID], animated: Bool)
 }
 
 enum Reducer {
+    /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
+    /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
+    static func canSend(_ d: Draft) -> Bool {
+        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
         let stamp = Instant.format(now)
@@ -83,8 +98,8 @@ enum Reducer {
             s.ui.draft.text = text
         case .send:
             let d = s.ui.draft
+            guard canSend(d) else { return nil }
             let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty || !d.attachments.isEmpty else { return nil }
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
             let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
@@ -97,15 +112,18 @@ enum Reducer {
         case let .react(ref, kind, by):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == ref.messageId }) else { break }
             let actor = by ?? s.me
-            var rs = s.conversation.messages[i].reactions
-            let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
-            if let mine, rs[mine].kind == kind {
-                rs.remove(at: mine)                          // toggle off
-            } else {
-                if let mine { rs.remove(at: mine) }          // one tapback per person per part
-                rs.append(Reaction(senderId: actor, partIndex: ref.partIndex, kind: kind, at: stamp))
+            // in-place checked update.
+            s.conversation.messages.update(at: i) { m in
+                var rs = m.reactions
+                let mine = rs.firstIndex { $0.senderId == actor && $0.partIndex == ref.partIndex }
+                if let mine, rs[checked: mine]?.kind == kind {
+                    rs.remove(at: mine)                          // toggle off
+                } else {
+                    if let mine { rs.remove(at: mine) }          // one tapback per person per part
+                    rs.append(Reaction(senderId: actor, partIndex: ref.partIndex, kind: kind, at: stamp))
+                }
+                m.reactions = rs
             }
-            s.conversation.messages[i].reactions = rs
         case let .reply(ref):
             let root = s.message(ref.messageId)?.replyTo ?? ref      // replies store the root
             s.ui.openThread = root
@@ -114,20 +132,22 @@ enum Reducer {
             s.ui.openThread = nil
             s.ui.draft.replyTo = nil
         case let .edit(id, text):
+            // checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
-                  let pi = s.conversation.messages[i].parts.firstIndex(where: { $0.plainText != nil }),
-                  let old = s.conversation.messages[i].parts[pi].plainText, old != text, !text.isEmpty else { break }
-            s.conversation.messages[i].edits = (s.conversation.messages[i].edits ?? []) + [.init(text: old, at: stamp)]
-            s.conversation.messages[i].parts[pi] = TextParts.parts(for: text)[0]
+                  let parts = s.conversation.messages[checked: i]?.parts,
+                  let pi = parts.firstIndex(where: { $0.plainText != nil }),
+                  let old = parts[checked: pi]?.plainText, old != text, !text.isEmpty,
+                  let edited = TextParts.parts(for: text).first else { break }
+            s.conversation.messages.update(at: i) { m in
+                m.edits = (m.edits ?? []) + [.init(text: old, at: stamp)]
+                m.parts.update(at: pi) { $0 = edited }
+            }
         case let .unsend(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages[i].parts = []
-            s.conversation.messages[i].reactions = []
-            s.conversation.messages[i].retractedAt = stamp
+            s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // checked
         case let .delete(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
-            s.conversation.messages[i].deletedAt = stamp
-            s.conversation.messages[i].reactions = []
+            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // checked
             if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
         case let .attach(a):
             s.ui.draft.attachments.append(a)
@@ -141,18 +161,22 @@ enum Reducer {
             if s.atNewest { s.conversation.messages.append(m) }
             s.total += 1
         case let .status(id, st):
-            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages[i].status = st }
+            if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages.update(at: i) { $0.status = st } }
         case let .appendText(id, more):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
-                  let pi = s.conversation.messages[i].parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
-                  case let .text(t, runs) = s.conversation.messages[i].parts[pi] else { break }
-            s.conversation.messages[i].parts[pi] = .text(t + more, runs: runs)
+                  let parts = s.conversation.messages[checked: i]?.parts, // checked
+                  let pi = parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
+                  case let .text(t, runs)? = parts[checked: pi] else { break }
+            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .text(t + more, runs: runs) } }
         case let .linkMetadata(url, title, site, image):
-            for i in s.conversation.messages.indices {
-                for (pi, p) in s.conversation.messages[i].parts.enumerated() {
-                    guard case let .link(u, t, sn, img, theme) = p, u == url else { continue }
-                    s.conversation.messages[i].parts[pi] = .link(url: u, title: title ?? t, siteName: site ?? sn, image: image ?? img, theme: theme)
+            // no index math.
+            s.conversation.messages = s.conversation.messages.map { m in
+                var m = m
+                m.parts = m.parts.map { p in
+                    guard case let .link(u, t, sn, img, theme) = p, u == url else { return p }
+                    return .link(url: u, title: title ?? t, siteName: site ?? sn, image: image ?? img, theme: theme)
                 }
+                return m
             }
         case let .setScroll(offset, pinned):
             s.ui.scroll = .init(pinnedToBottom: pinned, offset: pinned ? 0 : offset)
@@ -163,19 +187,26 @@ enum Reducer {
             s.conversation.messages.append(contentsOf: page)
         case let .evict(top, bottom):
             let n = s.conversation.messages.count
-            let t = min(top, n), b = min(bottom, n - t)
+            let t = min(max(0, top), n), b = min(max(0, bottom), n - t) // a negative count does not trap
             s.conversation.messages.removeFirst(t)
             s.conversation.messages.removeLast(b)
             s.windowStart += t
-        case let .replaceWindow(msgs, start):
+        case let .replaceWindow(msgs, start, total):
             s.conversation.messages = msgs
             s.windowStart = start
+            s.total = max(total ?? 0, start + msgs.count)
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
+        case let .setCustomPart(id, pi, part):
+            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
+                  case .custom? = s.conversation.messages[checked: i]?.parts[checked: pi] else { break } // checked
+            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .custom(part) } }
+        case .remeasureCustom:
+            break
         case let .cmuxSetAttachment(id, a):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
-                  let pi = s.conversation.messages[i].parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
-            else { break }
-            s.conversation.messages[i].parts[pi] = .attachment(a)
+                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
+            else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
         case let .cmuxNotice(text):  // cmux
             s.ui.notice = text
         }
@@ -192,14 +223,16 @@ enum Reducer {
 /// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
 /// without metadata, the domain card (title = site = host) replaces it.
 enum TextParts {
-    private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    // optional, no try! ; without it no link is detected.
+    static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     static func host(_ url: URL) -> String {
         url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
     }
     static func linkRuns(_ text: String) -> [TextRun] {
         let ns = text as NSString
-        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
-            guard let url = m.url else { return nil }
+        return (detector?.matches(in: text, range: NSRange(location: 0, length: ns.length)) ?? []).compactMap { m in
+            // Plain text is untrusted too: only links the markdown link policy allows.
+            guard let url = m.url, MarkdownLinkPolicy.allows(url) else { return nil }
             return TextRun(start: m.range.location, length: m.range.length, style: nil, link: url.absoluteString, mention: nil, detected: nil)
         }
     }
@@ -207,9 +240,9 @@ enum TextParts {
     static func soleURL(_ line: String) -> URL? {
         let t = line.trimmingCharacters(in: .whitespaces)
         let ns = t as NSString
-        guard ns.length > 0, let m = detector.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
+        guard ns.length > 0, let m = detector?.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
               m.range.location == 0, m.range.length == ns.length, let url = m.url,
-              url.scheme == "http" || url.scheme == "https" else { return nil }
+              url.scheme == "http" || url.scheme == "https", MarkdownLinkPolicy.allows(url) else { return nil }
         return url
     }
     static func parts(for text: String) -> [Part] {
@@ -226,8 +259,15 @@ enum TextParts {
             parts.append(.text(block, runs: linkRuns(block)))
             pending = []
         }
+        // Markdown: a URL line inside a code fence stays code (no card splits the block).
+        var fence: Character?
         for line in text.components(separatedBy: "\n") {
-            if let url = soleURL(line) {
+            let lead = line.prefix { $0 == " " }.count
+            let body = line.drop { $0 == " " }
+            if lead < 4, let c = body.first, c == "`" || c == "~", body.hasPrefix(String(repeating: c, count: 3)) {
+                if fence == nil { fence = c } else if fence == c { fence = nil }
+            }
+            if fence == nil, lead < 4, let url = soleURL(line) {
                 flush()
                 // Pending (no title, no site): Messages' grey placeholder until the
                 // metadata or the domain fallback arrives (Store.apply).
@@ -264,7 +304,7 @@ extension Reducer {
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
-        case let .edit(id, _), let .unsend(id), let .delete(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .setCustomPart(id, _, _):
             if let m = s.message(id) { w.update(m) }
         case let .linkMetadata(url, _, _, _):
             for m in s.conversation.messages where m.parts.contains(where: { if case let .link(u, _, _, _, _) = $0 { return u == url }; return false }) { w.update(m) }
@@ -314,7 +354,8 @@ final class Store {
     init(conversation: Conversation, baseDate: Date, windowStart: Int = 0, total: Int? = nil) {
         state = AppState(conversation: conversation)
         state.windowStart = windowStart
-        state.total = total ?? conversation.messages.count
+        // nil: the window ends at the newest message (as `.replaceWindow`).
+        state.total = max(total ?? 0, windowStart + conversation.messages.count)
         self.baseDate = baseDate
     }
 
@@ -381,6 +422,10 @@ final class Store {
     private func apply(_ action: Action, at t: Double) {
         let old = state
         let sent = Reducer.reduce(&state, action, now: date(at: t), newID: { makeID("local") })
+        // A rejected send (Return on an empty field) changed nothing and is not committed: the
+        // window ran the field's send flash and started the send morph again on my last message.
+        // Messages shows nothing for it.
+        if case .send = action, sent == nil { return }
         if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }
@@ -418,7 +463,8 @@ struct SeededRandom {
     mutating func unit() -> Double { Double(next() >> 11) / Double(UInt64(1) << 53) }
     mutating func range(_ lo: Double, _ hi: Double) -> Double { lo + (hi - lo) * unit() }
     mutating func chance(_ p: Double) -> Bool { unit() < p }
-    mutating func pick<T>(_ xs: [T]) -> T { xs[Int(next() % UInt64(xs.count))] }
+    /// the fixture lists are non-empty literals; an empty list still traps at `xs[0]`.
+    mutating func pick<T>(_ xs: [T]) -> T { xs[checked: Int(truncatingIfNeeded: next() % UInt64(clamping: max(1, xs.count)))] ?? xs[0] }
 }
 
 /// Instinct, the agent on the other side of the chat (shared/THREADS.md):
@@ -597,7 +643,7 @@ final class DefaultResponder: Responder {
         // I wrote it inside a thread: answer in that thread (a reply stores the root).
         if let root = target.replyTo { return root }
         guard let i = log.firstIndex(where: { $0.id == target.id }) else { return nil }
-        let newer = log[(i + 1)...].contains { e in
+        let newer = log.dropFirst(i + 1).contains { e in // no range subscript
             e.mine && !e.filler && s.message(e.id)?.retractedAt == nil
         }
         guard newer else { return nil }
@@ -846,7 +892,7 @@ final class BenchResponder: Responder {
         guard pending > 0 else { replying = false; return }
         pending -= 1
         let who = store.state.conversation.participants.first { !$0.isMe }?.id ?? "instinct"
-        let text = lines[cycle % lines.count]
+        guard let text = lines[checked: cycle % max(1, lines.count)] else { replying = false; return } // checked
         cycle += 1
         store.dispatch(.typing(who, true))
         let typed = 0.4 + 0.025 * Double(text.count)
@@ -863,7 +909,7 @@ enum Responders {
     /// `--responder bench|realistic`; without it, `--bench` runs use the bench
     /// responder and every other run the realistic one.
     static func make(arguments: [String] = ProcessInfo.processInfo.arguments, seed: UInt64 = 1) -> Responder {
-        let choice = arguments.firstIndex(of: "--responder").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        let choice = arguments.firstIndex(of: "--responder").flatMap { arguments.dropFirst($0 + 1).first } // no index math
         if choice == "bench" || choice == nil && arguments.contains("--bench") { return BenchResponder() }
         return DefaultResponder(seed: seed)
     }

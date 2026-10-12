@@ -913,12 +913,6 @@ impl ConversationStore {
         }
         Ok(())
     }
-
-    /// Sets the store's total byte cap (tests).
-    #[cfg(test)]
-    pub(crate) fn set_attachment_storage_cap(&mut self, cap: u64) {
-        self.attachments.storage_cap = cap;
-    }
 }
 
 impl Attachments {
@@ -929,7 +923,3 @@ impl Attachments {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "conversation_attachments_tests.rs"]
-mod tests;

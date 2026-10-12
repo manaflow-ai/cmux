@@ -9,11 +9,14 @@ import Foundation
 ///
 /// - older messages before the first shown one: `.prependPage`
 /// - a new message: `.receive` (theirs: the receive transition; mine from
-///   another client, Chief or the CLI: MessagesLab's external insert)
+///   another client, Chief or the CLI: MessagesLab's external insert); a
+///   thread reply carries its root as `replyTo` (HomeMapping.replyTo), so it
+///   arrives as MessagesLab's thread reply
 /// - a send this view started is already in the projection (`aliases`): its
 ///   echo only updates the status
 /// - status (delivered, read, not delivered): `.status`, the newest change only
-/// - tapbacks: `.react` per participant and part (the reducer toggles)
+/// - tapbacks: `.react` per participant and part (the reducer toggles); mine
+///   with no author, MessagesLab's own tapback (its badge pops, Springs.tapback)
 /// - retracted: `.unsend`; edited (editedAt moved): `.edit`
 /// - typing: `.typing` on and off
 /// - anything MessagesLab has no action for (a removed message, content that
@@ -33,33 +36,37 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: HomeMapping.Media = { _ in nil }, links: HomeMapping.Links = { _ in nil }) -> HomeDiff {
+                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil }) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links) }
+        let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
+        let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
         var head = 0
         if let first = old.first, let k = new.firstIndex(where: { $0.key == first.key }) { head = k }
-        let page = new[..<head].filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
+        let page = new.prefix(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
         if !page.isEmpty { d.actions.append(.prependPage(page.map(msg))) }
 
-        let added = new[head...].filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
+        let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
         if added.count > bulk { d.rebuild = true; return d }
 
-        for item in new[head...] {
-            if let oi = oldIndex[item.key] {
-                guard changes(from: old[oi], to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
+        for item in new.dropFirst(head) { // // crash program: no range subscripts
+            if let oi = oldIndex[item.key], let was = old[checked: oi] {
+                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
+                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
+                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
             } else if aliases[item.key] != nil {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
-                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), into: &d) }
+                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
             } else {
                 d.actions.append(.receive(msg(item)))
             }
@@ -74,7 +81,7 @@ struct HomeDiff: Equatable {
     /// change, so only the newest status change is a transition. The older
     /// ones change nothing visible (a rebuild maps every status).
     private mutating func keepNewestStatus() {
-        let statuses = actions.indices.filter { if case .status = actions[$0] { true } else { false } }
+        let statuses = actions.enumerated().filter { if case .status = $0.element { true } else { false } }.map(\.offset) // // crash program: no index math
         for i in statuses.dropLast().reversed() { actions.remove(at: i) }
     }
 
@@ -92,28 +99,32 @@ struct HomeDiff: Equatable {
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
-        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), into: &d) }
+        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
         return true
     }
 
     /// One tapback per participant and part: the reducer replaces a changed
-    /// one and toggles a removed one off.
+    /// one and toggles a removed one off. Mine has no author (`by: nil`), as
+    /// MessagesLab dispatches the user's own tapback: the reducer's actor is
+    /// then `me` all the same, and the window view pops its badge and times it
+    /// as a tapback (from the menu's input when chosen there, PaneTapback.swift).
     /// Which HomeStore part each MessagesLab part shows (`HomeMapping.projectedParts`).
     private static func owners(_ item: TranscriptItem, _ summary: ConversationSummary?) -> [Int] {
         HomeMapping.projectedParts(item, summary: summary).owners
     }
 
     private static func react(from old: [CmuxHomeCore.Reaction], to new: [CmuxHomeCore.Reaction], id: ID, owners: [Int],
-                              into d: inout HomeDiff) {
+                              me: ParticipantID, into d: inout HomeDiff) {
         struct Slot: Hashable { var author: ParticipantID; var part: Int }
         let before = Dictionary(old.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         let after = Dictionary(new.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         for slot in Set(before.keys).union(after.keys).sorted(by: { ($0.author.rawValue, $0.part) < ($1.author.rawValue, $1.part) }) {
-            let a = before[slot], b = after[slot]
+            let a = before.value(for: slot), b = after.value(for: slot) // // crash program: dictionary reads
             guard a != b else { continue }
             let ref = PartRef(messageId: id, partIndex: HomeMapping.projectedIndex(slot.part, owners))
-            if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: slot.author.rawValue)) }
-            else if let a { d.actions.append(.react(ref, HomeMapping.kind(a), by: slot.author.rawValue)) }
+            let by = slot.author == me ? nil : slot.author.rawValue
+            if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: by)) }
+            else if let a { d.actions.append(.react(ref, HomeMapping.kind(a), by: by)) }
         }
     }
 

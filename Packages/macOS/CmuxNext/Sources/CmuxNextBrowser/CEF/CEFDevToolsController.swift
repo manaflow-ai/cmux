@@ -81,7 +81,7 @@ final class CEFDevToolsController {
             // Between dock sides: the same DevTools window, a new frame.
             tab.devTools.dock = dock
             views?.divider.needsDisplay = true
-            views?.divider.window?.invalidateCursorRects(for: views!.divider)
+            if let divider = views?.divider { divider.window?.invalidateCursorRects(for: divider) }
             tab.container.layoutContent()
             return
         }

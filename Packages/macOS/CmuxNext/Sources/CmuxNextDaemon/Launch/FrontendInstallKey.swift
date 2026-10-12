@@ -91,15 +91,13 @@ fileprivate extension Data {
 
     /// Exactly an even number of hex digits, else nil.
     init?(hex: String) {
-        let digits = Array(hex.utf8)
-        guard digits.count.isMultiple(of: 2) else { return nil }
+        guard hex.utf8.count.isMultiple(of: 2) else { return nil }
         var bytes = [UInt8]()
-        bytes.reserveCapacity(digits.count / 2)
-        var index = 0
-        while index < digits.count {
-            guard let high = Self.nibble(digits[index]), let low = Self.nibble(digits[index + 1]) else { return nil }
+        bytes.reserveCapacity(hex.utf8.count / 2)
+        var digits = hex.utf8.makeIterator()
+        while let first = digits.next() {
+            guard let second = digits.next(), let high = Self.nibble(first), let low = Self.nibble(second) else { return nil }
             bytes.append(high << 4 | low)
-            index += 2
         }
         self.init(bytes)
     }

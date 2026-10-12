@@ -48,7 +48,10 @@ fi
 rm "$RESOURCES_PATH/bin/unmapped-helper"
 
 # A mapped Mach-O passes only when the repository notices carry its section.
-printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01' > "$RESOURCES_PATH/bin/cmux"
+# The server helper needs first-party notices only; bin/cmux also needs the
+# Rust and Zig standard library notices, which a fixture Mach-O cannot name.
+mkdir -p "$RESOURCES_PATH/libexec"
+printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01' > "$RESOURCES_PATH/libexec/cmux-server-helper"
 "$VERIFIER" "$APP_PATH"
 
 # A bundled Ghostty license tree must verify (bundle-map.json resources entry).

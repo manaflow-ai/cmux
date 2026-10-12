@@ -3,7 +3,9 @@
    user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  max-height: 40vh;
+  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
+     leaves the transcript and location shelf anchored while the draft grows. */
+  max-height: calc(22px * 8 + 23px);
   overflow-y: auto;
   padding: 15px 16px 8px;
   font-size: 15px;
@@ -26,7 +28,7 @@
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
-  caret-color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
 }
 .acpmux-md > * {
   margin: 0;
@@ -97,7 +99,7 @@
   color: var(--agent-text);
   position: relative;
   outline: none;
-  caret-color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
 }
 .acpmux-md p {
   margin-top: 0;

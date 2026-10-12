@@ -17,15 +17,17 @@ import CmuxNextTerminal
 /// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
 /// agent pane records the user's gesture. Never touches another app.
+/// With `sequence`, raw key transitions through the app's event queue
+/// instead (`DebugKey+Sequence`); with `last`, the router's last interception.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
-        "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
+        "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
         "l": ("l", 37), "w": ("w", 13), "t": ("t", 17), "h": ("h", 4), "j": ("j", 38), "k": ("k", 40),
-        "left": (String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123), "right": (String(UnicodeScalar(NSRightArrowFunctionKey)!), 124),
-        "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
-        "pageup": (String(UnicodeScalar(NSPageUpFunctionKey)!), 116), "pagedown": (String(UnicodeScalar(NSPageDownFunctionKey)!), 121),
-        "home": (String(UnicodeScalar(NSHomeFunctionKey)!), 115), "end": (String(UnicodeScalar(NSEndFunctionKey)!), 119),
-        "delete": ("\u{7f}", 51), "forwarddelete": (String(UnicodeScalar(NSDeleteFunctionKey)!), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
+        "left": (Shortcut.leftArrowKey, 123), "right": (Shortcut.rightArrowKey, 124),
+        "down": (Shortcut.downArrowKey, 125), "up": (Shortcut.upArrowKey, 126),
+        "pageup": (FunctionKeyCharacter.string(NSPageUpFunctionKey), 116), "pagedown": (FunctionKeyCharacter.string(NSPageDownFunctionKey), 121),
+        "home": (FunctionKeyCharacter.string(NSHomeFunctionKey), 115), "end": (FunctionKeyCharacter.string(NSEndFunctionKey), 119),
+        "delete": ("\u{7f}", 51), "forwarddelete": (FunctionKeyCharacter.string(NSDeleteFunctionKey), 117), "a": ("a", 0), "n": ("n", 45), "b": ("b", 11),
     ]
 
     /// ANSI virtual key codes, so Chromium accelerators (extension commands
@@ -34,17 +36,36 @@ enum DebugKey {
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12,
         "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
         "9": 25, "7": 26, "8": 28, "0": 29, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40,
-        "n": 45, "m": 46, " ": 49,
+        "n": 45, "m": 46, " ": 49, "-": 27, "=": 24, "[": 33, "]": 30, "\\": 42, ";": 41, "'": 39, ",": 43,
+        ".": 47, "/": 44, "`": 50,
+    ]
+
+    /// A shifted symbol's base key on a US keyboard (":" is Shift-";").
+    private static let shiftedSymbols: [String: String] = [
+        "~": "`", "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+        "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/",
     ]
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let steps = params["sequence"]?.arrayValue { return sendSequence(steps) }
+        // `last`: the action the router last took a key for (a real key's too), whether it ran,
+        // and a count that changes with every interception.
+        if params["last"]?.boolValue == true {
+            let router = services.keyRouter
+            return .object(["count": JSONValue(router.interceptions),
+                            "action": router.lastInterception.map { .string($0.action.rawValue) } ?? .null,
+                            "ran": router.lastInterception.map { .bool($0.ran) } ?? .null])
+        }
         let windowID = params["window"]?.stringValue
-        guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
-              let shell = controller.window else { return .object(["error": .string("no window")]) }
+        let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
+        // The palette opens with no main window (after Close All Windows), so its keys need none:
+        // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
+        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
+        guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let page = pageWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let page = pageWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no Chromium page window for pane")])
             }
             window = page
@@ -57,8 +78,8 @@ enum DebugKey {
             }
             window = debugWindow
         } else if params["target"]?.stringValue == "devtools" {
-            let pane = params["pane"]?.stringValue ?? controller.focus.state.pane
-            guard let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
+            let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
+            guard let controller, let pane, let devTools = devToolsWindow(of: pane, in: controller) else {
                 return .object(["error": .string("no docked DevTools window for pane")])
             }
             window = devTools
@@ -69,6 +90,19 @@ enum DebugKey {
                                            windowNumber: window.windowNumber, context: nil, characters: press.characters,
                                            charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
         else { return .object(["error": .string("bad key")]) }
+        // `dry_run`: what the key router would do with this key in the shell window's focus, run
+        // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
+        // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
+        if params["dry_run"]?.boolValue == true {
+            guard let controller, window === shell else { return .object(["error": .string("dry_run needs the shell window")]) }
+            let router = services.keyRouter
+            let decision = router.decide(event, focus: controller.focus.state, keyWindow: .content,
+                                         facts: router.facts(in: window, controller: controller))
+            var action: JSONValue = .null
+            if case .run(let candidate) = decision { action = .string(candidate.id.rawValue) }
+            return .object(["decision": .string(String(describing: decision)), "action": action,
+                            "focus": .string(String(describing: controller.focus.state.resolved))])
+        }
         let registry = services.registry
         let previous = registry.isDispatchingKeyDown
         registry.isDispatchingKeyDown = { true }
@@ -106,9 +140,11 @@ enum DebugKey {
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
             // notice, and key-downs that reached the system beep.
-            let palette = services.palette!
+            let palette = services.palette
             return .object([
-                "handled_by": .string(handledBy == "page" ? "palette" : handledBy), "action": action, "window_kind": .string("palette"),
+                // With no main window the palette is the dispatch's only window.
+                "handled_by": .string(handledBy == "page" || (controller == nil && ["window", "responder"].contains(handledBy)) ? "palette" : handledBy),
+                "action": action, "window_kind": .string("palette"),
                 "palette_open": .bool(palette.isVisible), "palette_page": .string(palette.model.pageTitle),
                 "palette_text_input": .bool(palette.model.isTextInput),
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
@@ -145,9 +181,12 @@ enum DebugKey {
     static func keyPress(_ name: String, modifiers: [String]) -> (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) {
         let lower = name.lowercased()
         let capital = name.count == 1 && name != lower && name.uppercased() == name
+        let shiftedBase = shiftedSymbols[name]
         let key: (characters: String, keyCode: UInt16) =
-            capital ? (name, ansiKeyCodes[lower] ?? 0) : named[lower] ?? (name, ansiKeyCodes[lower] ?? 0)
-        var flags: NSEvent.ModifierFlags = capital ? .shift : []
+            if capital { (name, ansiKeyCodes[lower] ?? 0) }
+            else if let shiftedBase { (name, ansiKeyCodes[shiftedBase] ?? 0) }
+            else { named[lower] ?? (name, ansiKeyCodes[lower] ?? 0) }
+        var flags: NSEvent.ModifierFlags = capital || shiftedBase != nil ? .shift : []
         for modifier in modifiers {
             switch modifier {
             case "cmd", "command": flags.insert(.command)

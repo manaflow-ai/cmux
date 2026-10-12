@@ -147,7 +147,7 @@ final class ComposeLayer {
         var row = 0
         for (i, l) in tl.lines.enumerated() where loc >= l.range.location { row = i }
         let ns = editor.text as NSString
-        let start = row < tl.lines.count ? tl.lines[row].range.location : 0
+        let start = tl.lines.dropFirst(row).first?.range.location ?? 0
         let prefix = loc >= start && loc <= ns.length ? ns.substring(with: NSRange(location: start, length: loc - start)) : ""
         let x = f.minX + 12 + TextDraw.width(prefix.replacingOccurrences(of: "\n", with: ""), font: Style.bodyFont, kern: Style.bodyKern)
         let base = f.minY + Self.firstBaseline

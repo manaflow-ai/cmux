@@ -18,10 +18,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::JournalSubject;
+pub(crate) mod blobs;
 use super::presentation_store::{
-    append_presentation_record, validate_presentation_color, validate_presentation_icon,
-    validate_presentation_text, validate_workspace_group_id,
+    append_presentation_record, validate_presentation_color, validate_presentation_text,
+    validate_workspace_group_id,
 };
+pub(crate) use blobs::require_icon_asset;
 
 /// The built-in room. It always exists and cannot be deleted.
 pub const DEFAULT_PROFILE_ID: &str = "default";
@@ -90,6 +92,23 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
          );",
     )?;
     add_group_top_position(transaction)?;
+    add_group_column(transaction, "icon", "TEXT")?;
+    add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
+    Ok(())
+}
+
+/// Adds an additive column to `personal_groups` in place when an older
+/// registry lacks it (no schema version bump; older binaries name their
+/// columns, so they keep reading and writing the table).
+fn add_group_column(connection: &Connection, name: &str, declaration: &str) -> anyhow::Result<()> {
+    let present = connection
+        .prepare("SELECT 1 FROM pragma_table_info('personal_groups') WHERE name = ?1")?
+        .exists([name])?;
+    if !present {
+        connection.execute_batch(&format!(
+            "ALTER TABLE personal_groups ADD COLUMN {name} {declaration}"
+        ))?;
+    }
     Ok(())
 }
 
@@ -120,6 +139,7 @@ pub(crate) fn migrate_personal_v1(
     create_personal_schema(&tx)?;
     super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
     super::personal_bookmarks::create_bookmark_schema(&tx)?;
+    blobs::open_blob_store(&tx)?;
     tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     let migrated = tx
         .query_row("SELECT 1 FROM meta WHERE key = ?1", [MIGRATED_META_KEY], |_| Ok(()))
@@ -221,6 +241,12 @@ pub struct PersonalGroup {
     /// workspace on the same slot). None: after every loose workspace, the
     /// order before mixed order.
     pub top_index: Option<usize>,
+    /// The group's icon (`workspace-group-icon-v1`): the shared icon string,
+    /// one emoji or an SF Symbol name (`validate_presentation_icon`).
+    pub icon: Option<String>,
+    /// Pinned (saved) group (`workspace-group-pin-v1`): it stays when its
+    /// workspaces close; clients keep it as an empty saved group.
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -376,7 +402,7 @@ pub(crate) fn validate_appearance(color: Option<&str>, icon: Option<&str>) -> an
         validate_presentation_color(color)?;
     }
     if let Some(icon) = icon {
-        validate_presentation_icon(icon)?;
+        super::presentation_store::validate_icon_value(icon)?;
     }
     Ok(())
 }
@@ -521,7 +547,8 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
     let mut statement = connection.prepare(
         "SELECT group_id, profile_id, name, color, collapsed,
                 CASE WHEN top_position IS NULL THEN NULL ELSE
-                  (SELECT COUNT(*) FROM personal_workspaces AS w WHERE w.position < g.top_position) END
+                  (SELECT COUNT(*) FROM personal_workspaces AS w WHERE w.position < g.top_position) END,
+                icon, pinned
          FROM personal_groups AS g
          ORDER BY position ASC, group_id ASC",
     )?;
@@ -533,11 +560,13 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             row.get::<_, Option<String>>(3)?,
             row.get::<_, i64>(4)?,
             row.get::<_, Option<i64>>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, i64>(7)?,
         ))
     })?;
     let mut groups = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (id, profile, name, color, collapsed, top) = row?;
+        let (id, profile, name, color, collapsed, top, icon, pinned) = row?;
         let top_index = top.map(usize::try_from).transpose()?;
         groups.push(PersonalGroup {
             id,
@@ -547,6 +576,8 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             collapsed: collapsed != 0,
             index,
             top_index,
+            icon,
+            pinned: pinned != 0,
         });
     }
     Ok(groups)

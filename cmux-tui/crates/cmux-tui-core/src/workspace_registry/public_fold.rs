@@ -89,6 +89,11 @@ impl WorkspaceRegistry {
         Ok(Value::Array(kept))
     }
 
+    /// Whether the fold holds a complete topology to prune against.
+    pub(crate) fn public_fold_seeded(&self) -> bool {
+        self.public_fold.is_some()
+    }
+
     /// Record a committed resource revision whose journaled changes were
     /// `journaled`. When they are the unpruned changes of a full topology
     /// projection (`full_projection`), they are the complete live set and
@@ -100,6 +105,22 @@ impl WorkspaceRegistry {
         journaled: &Value,
         full_projection: bool,
     ) {
+        // The fold holds what the journal states: the journal decorates every
+        // upsert with the state rows (pins, groups, zoom; state/values.rs)
+        // when it writes it, so the fold folds the same decorated values.
+        // Folding the raw deltas made it state a pinned screen without its
+        // pin after a restart reseeded it (#19079's cross-check).
+        let mut decorated = journaled.clone();
+        if let Err(error) =
+            crate::state::values::decorate_changes(&self.connection.get(), &mut decorated)
+        {
+            eprintln!(
+                "cmux-tui: public fold: decorating the journaled changes failed, reseeding: {error:#}"
+            );
+            self.public_fold = None;
+            return;
+        }
+        let journaled = &decorated;
         match self.public_fold.as_mut() {
             Some(fold) if fold.revision == previous_revision => {
                 fold.apply(journaled);
@@ -121,7 +142,7 @@ impl WorkspaceRegistry {
         let Some(mut fold) = self.public_fold.take() else { return };
         let caught_up = (|| -> anyhow::Result<bool> {
             loop {
-                let head = current_resource_revision(&self.connection)?;
+                let head = current_resource_revision(&self.connection.get())?;
                 if fold.revision == head {
                     return Ok(true);
                 }
@@ -144,6 +165,16 @@ impl WorkspaceRegistry {
         if matches!(caught_up, Ok(true)) {
             self.public_fold = Some(fold);
         }
+    }
+
+    /// The value the journal states for one topology resource, or `None`
+    /// when the fold is unseeded or behind the store (no catch-up: callers
+    /// hold only a shared registry borrow).
+    pub(crate) fn stated_topology_value(&self, resource: &str, id: &str) -> Option<Option<Value>> {
+        let fold = self.public_fold.as_ref()?;
+        let head = current_resource_revision(&self.connection.get()).ok()?;
+        (fold.revision == head)
+            .then(|| fold.values.get(&(resource.to_string(), id.to_string())).cloned())
     }
 
     /// The value the journal states for one topology resource, after

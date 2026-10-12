@@ -80,18 +80,34 @@ export function useStreamReveal(
 
 /// An assistant reply, revealed over frames while it streams. A reply that fails to draw falls
 /// back to its plain text (MessageBoundary), never taking the pane with it.
-export function RevealedMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+export function RevealedMarkdown({
+  text,
+  streaming,
+  githubRepository,
+}: {
+  text: string;
+  streaming: boolean;
+  githubRepository?: string;
+}) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} />
+      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} />
     </MessageBoundary>
   );
 }
 
-function Revealed({ text, streaming }: { text: string; streaming: boolean }) {
+function Revealed({
+  text,
+  streaming,
+  githubRepository,
+}: {
+  text: string;
+  streaming: boolean;
+  githubRepository?: string;
+}) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled}>
+    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
       {visible}
     </Markdown>
   );

@@ -5,6 +5,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
+import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 
@@ -36,6 +37,7 @@ export type AcpmuxDebug = {
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
   newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
+  pickFolder(cwd: string): Record<string, unknown>;
   selectSession(sessionId: string): Record<string, unknown>;
   answerPermission(options?: {
     optionId?: string;
@@ -47,11 +49,36 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
+  loadSeed(turns?: number): Promise<Record<string, unknown>>;
+  /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
+  loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
 
 const WARMUP_FRAMES = 30;
+
+/** The open menu's rows: how many, how many show whole in the page, and whether it went past the window. */
+function openMenuRows(
+  popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1) ?? null,
+): Record<string, unknown> | null {
+  if (!popup) return null;
+  const rows = [...popup.querySelectorAll('[role^="menuitem"],[role=option]')];
+  const frame = popup.getBoundingClientRect();
+  const top = Math.max(0, frame.top);
+  const bottom = Math.min(innerHeight, frame.bottom);
+  const whole = rows.filter((row) => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
+  });
+  return {
+    rows: rows.length,
+    shown_in_page: whole.length,
+    // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
+    escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
+  };
+}
 
 function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
@@ -172,13 +199,33 @@ export function createAcpmuxDebug(
 
     // Not a measurement, so it leaves acpmuxPerf off.
     async openMenu(label) {
+      // "/" or "@query" types into the prompt, as key presses do: the commands list or the file
+      // list opens (the file list once its results arrive).
+      if (label.startsWith("/") || label.startsWith("@")) {
+        const prompt = document.querySelector<HTMLElement>(
+          ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']",
+        );
+        if (!prompt) return { error: "no prompt" };
+        prompt.focus();
+        document.execCommand("insertText", false, label);
+        const id = label.startsWith("/") ? "acpmux-slash-menu" : "acpmux-mention-menu";
+        for (let frame = 0; frame < 300; frame += 1) {
+          if (document.querySelector(`#${id} [role=option]`)) break;
+          await nextFrame();
+        }
+        for (let frame = 0; frame < 4; frame += 1) await nextFrame();
+        return { opened: label, menu: openMenuRows(document.getElementById(id)) };
+      }
       if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
       await nextFrame();
       await nextFrame();
       const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
         (node) => node.dataset.menu === label,
       );
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
+      // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
+      await nextFrame();
+      await nextFrame();
+      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
     },
 
     acpLog(options = {}) {
@@ -200,6 +247,9 @@ export function createAcpmuxDebug(
     async newChat(harness, cwd) {
       return host.automation ? automation.newChat(host.automation, harness, cwd) : NO_AUTOMATION;
     },
+    pickFolder(cwd) {
+      return host.automation ? automation.pickFolder(host.automation, String(cwd ?? "")) : NO_AUTOMATION;
+    },
     selectSession(sessionId) {
       return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;
     },
@@ -219,6 +269,14 @@ export function createAcpmuxDebug(
     },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
+    },
+    loadSeed(turns = 5000) {
+      const automationHost = host.automation;
+      if (!automationHost) return Promise.resolve(NO_AUTOMATION);
+      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns);
+    },
+    loadRun(options = {}) {
+      return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
 }

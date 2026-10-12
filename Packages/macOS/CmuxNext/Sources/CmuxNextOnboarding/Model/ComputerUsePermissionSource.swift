@@ -15,4 +15,7 @@ public protocol ComputerUsePermissionSource: AnyObject {
     func permissions() -> AsyncStream<ComputerUsePermissions>
     /// Opens the pane in System Settings.
     func openSettings(_ pane: ComputerUsePermissionPane)
+    /// Turns Computer Use on (Allow while the grants report `isOff`), so
+    /// the helper starts and its grants can be read.
+    func enable()
 }

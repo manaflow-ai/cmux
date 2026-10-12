@@ -40,6 +40,9 @@ public actor WindowStateStore {
         while true {
             var next = document
             change(&next)
+            // Nothing to store: no durable write (a no-op focus or selection
+            // action answers without a daemon round trip).
+            if next == document { return next }
             do {
                 let stored = try await connection.putFrontendProjection(
                     subject: subject, schemaVersion: WindowStateDocument.schemaVersion,

@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -39,6 +39,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
+| `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -84,6 +86,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `status` | subscribe | session | protocol 5 internal status line |
 | `empty` | subscribe | session | protocol 5 |
 | `agent-changed` | subscribe | `surface` | protocol 11; `agent` is optional since protocol 12 |
+| `agent-presence-changed` | subscribe | `surface` | protocol 12 additive extension; capability `agent-presence-v1` |
 | `vt-state` | byte attach | `surface` | protocol 5 |
 | `resized` | byte attach | `surface` | protocol 6 |
 | `output` | byte attach | `surface` | protocol 5 |
@@ -396,6 +399,44 @@ commits a change. The payload is
 interested frontends refetch `list-bookmarks` for that browser profile. An
 unchanged retry publishes nothing. Bookmarks advance neither
 `personal_revision` nor `workspace_revision`.
+### history-changed
+
+| Field | Value |
+| --- | --- |
+| event | `history-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `history-v1` |
+
+Published by the session's history module when the merged history changes:
+a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
+`history.restore`, `history.visit.record`, `history.visit.title` or
+`history.visit.remove` that changed something, or agent and command journal
+records the module newly folded. The payload is
+`{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
+names the entry kinds that changed (`page`, `command`, `agent`); interested
+frontends re-read `history.entries.list`. A replayed mutation publishes
+nothing. Changes of closed items and of the app's location trail are
+announced by their owners' events, not by this one. Page visits are shared
+by the sessions of a machine; the event goes to the session that served the
+change.
+
+### settings-changed
+
+| Field | Value |
+| --- | --- |
+| event | `settings-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `settings-v1` |
+
+Published by the daemon's settings owner after a `settings.*` mutation that
+changed something, and after it found a change in the settings file
+(`cmux-next.json`) or a managed layer on disk (a hand edit, an MDM profile).
+The payload is `{event:"settings-changed", revision:uint64, keys:[string],
+origin:string}`: `revision` advances once per change, `keys` lists the dotted
+keys whose effective or file value changed (empty when only diagnostics
+changed), and `origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or
+`file` (found on disk). A comment-only edit or an unchanged write publishes
+nothing. Clients refetch `settings.snapshot`.
 ### conversation-changed
 
 | Field | Value |
@@ -686,6 +727,8 @@ Meaning: The workspace, screen, pane, tab, active selection, names, split layout
 
 Protocol v7 retains this event in two negotiated roles. A `tree_events:"coarse"` subscription receives the exact protocol-v6 behavior: `tree-changed` is emitted wherever v6 emits it, and no lifecycle deltas are emitted. A `tree_events:"deltas"` subscription receives it only as an authoritative resync fallback under churn, for a mutation not represented by the delta set, or when coalescing makes an exact delta ambiguous. A delta client MUST NOT rely on `tree-changed` for ordinary mutations, but it must handle the fallback by re-fetching the tree and may discard buffered deltas older than the replacement snapshot. The server may emit it after earlier deltas when a later mutation invalidates them.
 
+Resource API v2 content mutations that add or move a tab (`terminal.project`, `terminal.move`) emit it on both subscription kinds once their commit lands (not on an idempotent replay), because the delta set has no entry for them; before, only resource API v2 subscribers learned about the new tab.
+
 Example:
 
 ```json
@@ -886,10 +929,10 @@ Example:
 Payload:
 
 ```text
-object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon"}
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon",desktop?:boolean,reply?:boolean}
 ```
 
-Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
+Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. With `notification-desktop-v1`, `desktop` is false when the poster asked for no desktop banner (`notification.create` `desktop: false`, `cmux notify --desktop false`); the sidebar marker still shows. With `notification-reply-v1`, `reply` is true when the poster asked for a typed reply (`notification.create` `reply: true`, `cmux notify --reply`): the app's banner takes text and pastes it into the notifying terminal, then submits it. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
 
 Example:
 
@@ -1419,7 +1462,9 @@ Meaning: A terminal's shared sizing state changed. The server emits it to
 every subscriber and on every legacy attach stream of each placement of the
 terminal, only for connections that sent `shared-sizing-v1` through
 `set-client-info`. `self_participant` is the receiving connection's own view
-id when that view participates. `generation` increases by one per change;
+id when that view participates. `device_kind` is `linux` or `windows` only for
+connections that sent `open-device-kinds-v1`; others receive `unknown` for
+them. `generation` increases by one per change;
 deliveries on different routes may interleave, so ignore a state whose
 generation is not newer than the last one applied.
 
@@ -1463,6 +1508,49 @@ Example:
 
 The earlier draft name `agent-state-changed` is not emitted. Clients must
 subscribe to `agent-changed`.
+
+### agent-presence-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-presence-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-presence-v1` |
+
+Payload:
+
+```text
+object{
+  event:"agent-presence-changed",
+  surface:Id,
+  activity:"thinking"|"editing"|"reading"|"running"|"browsing"|"computer_use"|"waiting"|null,
+  agent:string|null,
+  session:string|null,
+  tool:string|null,
+  path:string|null,
+  line:uint64|null,
+  updated_at_ms:uint64|null
+}
+```
+
+Meaning: What the agent in a surface's terminal is touching right now,
+reduced from its committed hook events. A pre-tool event sets `activity`,
+`tool`, and the `path` and `line` the tool input names (the only part of the
+tool input the journal keeps). A post-tool event keeps the target with
+`activity:"thinking"`. An approval, question or plan review sets
+`"waiting"`. Turn end, session start or end, terminal close, and the
+surface's agent going idle or done by any path clear it:
+`activity` and every other field are `null`. Presence is live-only. It is
+not persisted, replayed journal commits do not emit it, a hook event that
+commits after a newer one for the same terminal is ignored, and there is no
+snapshot, so a client that reconnects waits for the next event. A client
+should fade a presence that has not updated for a while.
+
+Example:
+
+```json
+{"event":"agent-presence-changed","surface":1,"activity":"editing","agent":"claude","session":"abc","tool":"Edit","path":"/repo/src/app.rs","line":null,"updated_at_ms":1710000000000}
+```
 
 ## Proposed Events
 

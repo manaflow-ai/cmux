@@ -31,7 +31,7 @@ enum WindowMembershipHandlers {
     /// when it is part of a multi-selection there.
     static func workspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let id = try context.workspace(invocation).model.id
-        let windows = context.services.windows!
+        let windows = context.services.windows
         guard let owner = windows.registry.value.owner(of: id), let controller = windows.controller(for: owner) else { return [id] }
         let selection = controller.sidebar.model.orderedSelection.map(\.rawValue)
         return selection.count > 1 && selection.contains(id) ? selection : [id]
@@ -59,7 +59,7 @@ enum WindowMembershipHandlers {
     /// every workspace of that window, the window itself moves there (like
     /// dragging them out): no second window opens and none closes.
     static func toNewWindow(_ ids: [String], _ context: AppActionContext) {
-        let windows = context.services.windows!
+        let windows = context.services.windows
         let source = ids.first.flatMap { windows.registry.value.owner(of: $0) }.flatMap(windows.controller(for:))
         let frame = source?.window?.frame.offsetBy(dx: 28, dy: -28)
         if let source, let frame, Set(ids) == Set(windows.registry.members(of: source.state.id)) {

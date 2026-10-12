@@ -8,7 +8,31 @@ import Testing
 @Suite(.serialized)
 struct KeychainStackTokenStoreTests {
     #if canImport(Security)
-    @Test func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {
+    /// Whether this process can write the login keychain. A CI step on a
+    /// host with no GUI login session gets -60008 (errAuthorizationInternal)
+    /// from every SecItemAdd, so the test runs only where a keychain exists
+    /// (developer Macs, the GUI build host); it exercises the real keychain
+    /// query scope, which an in-memory double would not.
+    static let keychainWritable: Bool = {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "cmux-test-probe-\(UUID().uuidString)",
+            kSecAttrAccount as String: "probe",
+            kSecValueData as String: Data("probe".utf8),
+            // The same attributes as the test's insert, and never a prompt:
+            // a locked keychain without a GUI session fails instead of
+            // waiting for a password dialog nobody can answer.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+        ]
+        let status = SecItemAdd(query as CFDictionary, nil)
+        let keys: Set<String> = [kSecClass as String, kSecAttrService as String, kSecAttrAccount as String]
+        _ = SecItemDelete(query.filter { keys.contains($0.key) } as CFDictionary)
+        return status == errSecSuccess
+    }()
+
+    @Test(.enabled(if: keychainWritable, "no writable keychain (no GUI login session)"))
+    func clearingLegacyTokensPreservesSameAccountInAnotherService() async throws {
         let projectID = UUID().uuidString
         let account = "stack-auth-access-\(projectID)"
         let unrelatedService = "cmux-test-unrelated-\(UUID().uuidString)"

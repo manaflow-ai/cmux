@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR af2b63afd5b6fadf0bbf64b43e17101ac3697fe4e74dd7c1dccd8bd2ec32d28a.
+// cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -26,6 +26,26 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentPresenceChangedEvent {
+    /// What the agent is doing now; null clears the surface's presence and every other field is then null.
+    pub activity: Nullable<T::AgentPresenceActivity>,
+    /// Adapter identity (claude, codex, ...).
+    pub agent: Nullable<String>,
+    /// The 1-based line the tool call targets, when the tool input names one.
+    pub line: Nullable<u64>,
+    /// The file the tool call targets, when the tool input names one.
+    pub path: Nullable<String>,
+    /// The agent's portable session id, a stable identity for colour.
+    pub session: Nullable<String>,
+    pub surface: T::Id,
+    /// The native tool name of the current or last tool call.
+    pub tool: Nullable<String>,
+    /// When the hook observed the event; null on clear.
+    pub updated_at_ms: Nullable<u64>,
 }
 
 #[rustfmt::skip]
@@ -149,6 +169,24 @@ pub struct CloudInboxResetEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxResyncedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub pending: Nullable<T::JsonValue>,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudMuxWakeEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub seq: u64,
+    pub wakes: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSessionNeededEvent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expires_at: Optional<u64>,
@@ -201,6 +239,14 @@ pub struct ConversationChangedEvent {
     pub conversation: String,
     pub rev: u64,
     pub transaction: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationDraftEvent {
+    pub conversation: String,
+    pub item: T::JsonValue,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -289,6 +335,13 @@ pub struct GraphicsStatusEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryChangedEvent {
+    pub kinds: Vec<String>,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
 }
@@ -303,8 +356,12 @@ pub struct MachineUsageChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotificationEvent {
     pub body: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<bool>,
     pub level: T::NotificationLevel,
     pub notification: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub reply: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub source: Option<T::NotificationSource>,
     pub surface: Nullable<T::Id>,
@@ -468,6 +525,33 @@ pub struct ScrollChangedEvent {
     pub at_bottom: bool,
     pub offset: u64,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettingsChangedEvent {
+    pub keys: Vec<String>,
+    pub origin: SettingsChangedEventOrigin,
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -726,6 +810,7 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -737,11 +822,14 @@ pub enum Event {
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
+    CloudMuxResynced(CloudMuxResyncedEvent),
+    CloudMuxWake(CloudMuxWakeEvent),
     CloudSessionNeeded(CloudSessionNeededEvent),
     CloudSubscriptionState(CloudSubscriptionStateEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
+    ConversationDraft(ConversationDraftEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -749,6 +837,7 @@ pub enum Event {
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
+    HistoryChanged(HistoryChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
@@ -767,6 +856,7 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
     SurfaceExited(SurfaceExitedEvent),
@@ -800,6 +890,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -811,11 +902,14 @@ impl Event {
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
+            Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
+            Self::CloudMuxWake(_) => Some("cloud-mux-wake"),
             Self::CloudSessionNeeded(_) => Some("cloud-session-needed"),
             Self::CloudSubscriptionState(_) => Some("cloud-subscription-state"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
+            Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -823,6 +917,7 @@ impl Event {
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
+            Self::HistoryChanged(_) => Some("history-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
@@ -841,6 +936,7 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
             Self::SurfaceExited(_) => Some("surface-exited"),
@@ -873,6 +969,7 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -884,11 +981,14 @@ impl Event {
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
+            Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
+            Self::CloudMuxWake(_) => Some(&CLOUD_MUX_WAKE_EVENT_METADATA),
             Self::CloudSessionNeeded(_) => Some(&CLOUD_SESSION_NEEDED_EVENT_METADATA),
             Self::CloudSubscriptionState(_) => Some(&CLOUD_SUBSCRIPTION_STATE_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -896,6 +996,7 @@ impl Event {
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
+            Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
@@ -914,6 +1015,7 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
@@ -957,6 +1059,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentPresenceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1051,6 +1161,22 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-mux-resynced") => match serde_json::from_value::<CloudMuxResyncedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudMuxResynced(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-mux-wake") => match serde_json::from_value::<CloudMuxWakeEvent>(raw.clone()) {
+            Ok(event) => Event::CloudMuxWake(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("cloud-session-needed") => match serde_json::from_value::<CloudSessionNeededEvent>(raw.clone()) {
             Ok(event) => Event::CloudSessionNeeded(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1085,6 +1211,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-changed") => match serde_json::from_value::<ConversationChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationDraft(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1141,6 +1275,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("graphics-status") => match serde_json::from_value::<GraphicsStatusEvent>(raw.clone()) {
             Ok(event) => Event::GraphicsStatus(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("history-changed") => match serde_json::from_value::<HistoryChangedEvent>(raw.clone()) {
+            Ok(event) => Event::HistoryChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1285,6 +1427,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("scroll-changed") => match serde_json::from_value::<ScrollChangedEvent>(raw.clone()) {
             Ok(event) => Event::ScrollChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

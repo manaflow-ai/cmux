@@ -20,18 +20,13 @@ extension TabStripView {
         guard let window else { return 0 }
         let host = window as? TitlebarAccessoryHosting
         return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window), accessory: host?.titlebarAccessoryFrame,
-                                        padding: metrics.stripHorizontalPadding, collapsed: host?.windowControlsCollapsed ?? false,
-                                        sidebarHidden: host?.sidebarHidden ?? false)
+                                        padding: metrics.stripHorizontalPadding)
     }
 
     /// Leading points a strip at `strip` (window coordinates) keeps clear of
-    /// the traffic lights and the window's titlebar accessory (pure); 0 while they are collapsed.
-    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat, collapsed: Bool = false,
-                                     sidebarHidden: Bool = false) -> CGFloat {
-        // The corner reveal makes the traffic lights visible while the sidebar is hidden. Keep
-        // the strip anchored during that hover; the controls' fade must not reflow its tabs.
-        guard !sidebarHidden else { return 0 }
-        let obstacles = (collapsed ? [] : [lights, accessory]).compactMap { $0 }.filter { frame in
+    /// the traffic lights and the window's titlebar accessory (pure).
+    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat) -> CGFloat {
+        let obstacles = [lights, accessory].compactMap { $0 }.filter { frame in
             strip.minY < frame.maxY && strip.maxY > frame.minY && strip.minX < frame.maxX && strip.maxX > frame.minX
         }
         guard let right = obstacles.map(\.maxX).max() else { return 0 }

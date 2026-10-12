@@ -570,7 +570,7 @@ public struct DiagnosticEventPresentation: Sendable {
             }
             return Field(key: "duration", value: duration(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
-            return Field(key: "keyboard_height", value: pointCount(Int(raw)))
+            return Field(key: "keyboard_height", value: pointCount(Int(clamping: raw)))
         default:
             return Field(key: "duration", value: duration(raw))
         }
@@ -1289,11 +1289,11 @@ public struct DiagnosticEventPresentation: Sendable {
         guard milliseconds >= 1_000 else {
             return localized(
                 "diagnostics.duration.milliseconds",
-                defaultValue: "\(Int(milliseconds)) ms"
+                defaultValue: "\(Int(clamping: milliseconds)) ms"
             )
         }
         if milliseconds.isMultiple(of: 1_000) {
-            return secondCount(Int(milliseconds / 1_000))
+            return secondCount(Int(clamping: milliseconds / 1_000))
         }
         let seconds = milliseconds / 1_000
         let remainder = milliseconds % 1_000

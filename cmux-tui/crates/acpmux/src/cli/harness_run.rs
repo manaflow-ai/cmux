@@ -43,7 +43,7 @@ pub fn run_plan(
     let profile: HarnessProfile = match cfg.profile(id) {
         Some(p) => p.clone(),
         None => match folder_profiles::resolve_for_session(cfg, id, cwd, false) {
-            Some(found) => found.map_err(|e| anyhow!(e))?.0,
+            Some(found) => found.map_err(|e| anyhow!(e.message))?.0,
             None => bail!("unknown harness {id:?}; see `cmux harness list`"),
         },
     };
@@ -78,6 +78,7 @@ fn profiles_resolve(env: &mut BTreeMap<String, String>, lookups: &Lookups<'_>) -
 }
 
 /// `cmux harness run`: replace this process with the harness.
+#[cfg(unix)]
 pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let cfg = Config::load()?;
@@ -97,6 +98,9 @@ pub fn run_cmd(id: &str, cwd: Option<PathBuf>, model: Option<String>) -> Result<
     Err(anyhow!("cannot start {}: {error}", plan.argv[0]))
 }
 
-#[cfg(test)]
-#[path = "harness_run_tests.rs"]
-mod tests;
+/// Windows port: Windows has no exec; `cmux harness run` comes in a later
+/// landing.
+#[cfg(not(unix))]
+pub fn run_cmd(_id: &str, _cwd: Option<PathBuf>, _model: Option<String>) -> Result<()> {
+    Err(crate::platform::unsupported("cmux harness run"))
+}

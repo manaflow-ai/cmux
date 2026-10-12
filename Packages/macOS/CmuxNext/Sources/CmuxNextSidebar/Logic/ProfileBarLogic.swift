@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
@@ -14,12 +15,52 @@ public nonisolated enum ProfileBarLogic {
         return target == index ? nil : order[target]
     }
 
-    /// Leading x of each room's slot, centered as a group in `width`, then
-    /// the "+" slot right after the last room. The "+" shows only on hover,
-    /// so it must not shift the dots.
-    public static func slotXs(count: Int, slot: Double, width: Double) -> [Double] {
-        let x0 = (width - slot * Double(count)) / 2
-        return (0...count).map { x0 + Double($0) * slot }
+    /// The strip of spaces in a bar `width` wide (cx-5k3r, Lawrence
+    /// 2026-10-08: "center spaces in bottom; spaces should show better").
+    /// The dots are centered on `center` (the sidebar's middle, in bar
+    /// coordinates) and clamped into the bar, never starting before
+    /// `minLeading` and never reaching the trailing `plus` slot, so the "+"
+    /// (shown on hover at the bar's trailing edge) never moves them. When the
+    /// spaces do not fit at `slot` each, every slot narrows to fit down to
+    /// `fullMinimum`; below that the strip turns compact: the active space
+    /// keeps a full slot and the others share the rest as small dots, at least
+    /// `compactMinimum` each (a strip that still does not fit is clipped).
+    public static func strip(count: Int, active: Int?, width: Double, center: Double, minLeading: Double = 0,
+                             slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double) -> SpaceStrip {
+        let plusX = max(minLeading, width - plus)
+        guard count > 0 else { return SpaceStrip(slots: [], plus: (plusX, plus), compact: false) }
+        let room = max(0, plusX - minLeading)
+        var widths = Array(repeating: slot, count: count)
+        var compact = false
+        if Double(count) * slot > room {
+            let even = room / Double(count)
+            if even >= fullMinimum {
+                widths = Array(repeating: even, count: count)
+            } else if let active, widths.indices.contains(active), count > 1 {
+                compact = true
+                let rest = max(compactMinimum, (room - slot) / Double(count - 1))
+                widths = widths.indices.map { $0 == active ? slot : rest }
+            } else {
+                widths = Array(repeating: max(compactMinimum, even), count: count)
+                compact = even < fullMinimum
+            }
+        }
+        let total = widths.reduce(0, +)
+        let start = max(minLeading, min(center - total / 2, plusX - total))
+        var x = start
+        let slots = widths.map { width -> (x: Double, width: Double) in
+            defer { x += width }
+            return (x, width)
+        }
+        return SpaceStrip(slots: slots, plus: (plusX, plus), compact: compact)
+    }
+
+    /// The hover background of a space (F2): its slot inset by `inset` on
+    /// every side, at most as tall as it is wide, centered in the slot.
+    public static func chipRect(slot: CGRect, inset: CGFloat) -> CGRect {
+        let width = max(0, slot.width - inset * 2)
+        let height = min(width, max(0, slot.height - inset * 2))
+        return CGRect(x: slot.midX - width / 2, y: slot.midY - height / 2, width: width, height: height)
     }
 
     /// Insertion index (the `move-workspace` rule: an index into the list
@@ -35,6 +76,23 @@ public nonisolated enum ProfileBarLogic {
         let target = index > from ? index - 1 : index
         let clamped = min(max(target, 0), max(count - 1, 0))
         return clamped == from ? nil : clamped
+    }
+}
+
+/// Where each space and the "+" sit in the bar (`ProfileBarLogic.strip`).
+public nonisolated struct SpaceStrip: Sendable {
+    /// One slot per space, in order: its leading x and width.
+    public var slots: [(x: Double, width: Double)]
+    /// The "+" slot at the bar's trailing edge.
+    public var plus: (x: Double, width: Double)
+    /// The spaces are too many for full slots: the inactive ones draw as
+    /// small dots and the active one keeps its full mark.
+    public var compact: Bool
+
+    /// The strip's horizontal middle (the dots only, not the "+").
+    public var midX: Double? {
+        guard let first = slots.first, let last = slots.last else { return nil }
+        return (first.x + last.x + last.width) / 2
     }
 }
 

@@ -87,6 +87,8 @@ public final class MockBrowserTab: BrowserTab {
     /// Engine page captures (`snapshot()`) so far; not a command, so it never
     /// changes a test's command list.
     @ObservationIgnored public private(set) var snapshotCount = 0
+    /// `thumbnail()` calls (each also counts as a snapshot).
+    @ObservationIgnored public private(set) var thumbnailCount = 0
 
     /// Page text used by `find`.
     public var pageText = ""
@@ -145,19 +147,6 @@ public final class MockBrowserTab: BrowserTab {
         return BrowserNavigationID(rawValue: nextNavigation)
     }
 
-    /// Queues a prompt as if the page asked for it.
-    @discardableResult
-    public func presentPrompt(_ kind: BrowserPromptKind, origin: String) async -> BrowserPromptResponse {
-        await withCheckedContinuation { continuation in
-            var prompt: BrowserPrompt!
-            prompt = BrowserPrompt(kind: kind, origin: origin) { [weak self] response in
-                self?.pendingPrompts.removeAll { $0 === prompt }
-                continuation.resume(returning: response)
-            }
-            pendingPrompts.append(prompt)
-        }
-    }
-
     func record(_ command: Command) { commands.append(command) }
 
     public func emit(_ intent: BrowserTabIntent) {
@@ -204,13 +193,18 @@ public final class MockBrowserTab: BrowserTab {
 
     public func setContentVisible(_ visible: Bool) { commands.append(.occlude(!visible)) }
 
+    public func thumbnail() async throws -> CGImage {
+        thumbnailCount += 1
+        return try await snapshot()
+    }
+
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
         let size = 4
         let context = CGContext(
             data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
         context?.setFillColor(gray: 0.5, alpha: 1)

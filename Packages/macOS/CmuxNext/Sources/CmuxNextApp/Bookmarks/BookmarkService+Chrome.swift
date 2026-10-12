@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSettings
@@ -129,10 +130,23 @@ final class BookmarkBarSourceAdapter: BookmarksBarSource {
 
     private var profile: String { service?.profile(ofTab: tabKey) ?? BrowserProfileRecord.defaultID }
 
-    func bookmarkChildren(of parent: String) -> [BookmarkNode] { service?.tree(profile).children(of: parent) ?? [] }
+    func bookmarkChildren(of parent: String) -> [BookmarkNode] {
+        // A bar build reads the children, then each icon: it waits again only if an icon does.
+        if parent == BookmarkRoot.bar.rawValue { awaitsFavicons = false }
+        return service?.tree(profile).children(of: parent) ?? []
+    }
+
+    /// True when the last build drew a stand-in for an icon still loading: the service
+    /// reloads this bar when an icon lands (``BookmarkService/followFavicons()``).
+    private(set) var awaitsFavicons = false
 
     func favicon(for node: BookmarkNode) -> NSImage? {
-        NSImage.icon(node.isFolder ? .folder : .browser, size: Metrics.smallIconSize)
+        let side = Metrics.smallIconSize
+        if let image = service?.favicon(of: node, tabKey: tabKey) {
+            return NSImage(cgImage: image.cgImage, size: NSSize(width: side, height: side))
+        }
+        if service?.isFetchingFavicon(of: node, tabKey: tabKey) == true { awaitsFavicons = true }
+        return NSImage.icon(node.isFolder ? .folder : .browser, size: side)
     }
 
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
@@ -166,9 +180,10 @@ extension BookmarkService {
     func follow(_ settings: SettingsController) {
         // task-owner: lives as long as the service; event-driven (Observation)
         barObservation = Task { [weak self] in
-            for await shown in Observations({ settings.snapshot.browserShowBookmarksBar }) {
+            for await shown in ObservationStream({ settings.snapshot.browserShowBookmarksBar }) {
                 self?.setBarShown(shown)
             }
         }
+        followFavicons()
     }
 }

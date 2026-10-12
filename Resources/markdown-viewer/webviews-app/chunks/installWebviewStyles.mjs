@@ -1,1 +1,0 @@
-function e(e,t){if(document.head.querySelector(`style[data-cmux-webview-style="${e}"]`))return;let n=document.createElement(`style`);n.dataset.cmuxWebviewStyle=e,n.textContent=t,document.head.append(n)}export{e as t};

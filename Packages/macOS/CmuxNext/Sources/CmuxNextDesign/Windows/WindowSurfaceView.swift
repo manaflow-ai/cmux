@@ -12,6 +12,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The window's one material and tint.
     public let backdropView = WindowMaterialView(frame: .zero)
     private let reduceTransparency: @MainActor () -> Bool
+    private var displayOptionsObserver: (any NSObjectProtocol)?
 
     public init(content: NSView,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
@@ -25,8 +26,21 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         content.frame = bounds
         content.autoresizingMask = [.width, .height]
         addSubview(content)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
-                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        // queue: .main: the workspace center may post off main; a selector
+        // into this main-actor view trapped there.
+        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.repaint() } // main-proof: observer on queue: .main
+        }
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+        }
     }
 
     @available(*, unavailable)
@@ -54,8 +68,6 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         super.viewDidChangeEffectiveAppearance()
         repaint()
     }
-
-    @objc private func displayOptionsChanged() { repaint() }
 
     private func repaint() {
         if let window { paintWindowSurface(of: window) }

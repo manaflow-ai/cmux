@@ -58,7 +58,7 @@ final class RemoteInputCaptureView: NSView {
             // A window that stops being key takes the keyboard with it: release held keys.
             keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
                 NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.updateActive() }
+                    MainActor.assumeIsolated { self?.updateActive() } // main-proof: observer on queue: .main
                 }
             }
         }

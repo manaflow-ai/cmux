@@ -42,8 +42,7 @@ After=network-online.target
 [Service]
 Type=notify
 NotifyAccess=main
-ExecStart={exec} host run
-Environment=CMUX_SERVER_MODE=user
+ExecStart={exec} host run --mode user
 Restart=always
 RestartSec=2
 # The session host keeps its terminal hosts across a restart: stop only the
@@ -74,8 +73,7 @@ Type=notify
 NotifyAccess=main
 User={SERVICE_USER}
 Group={SERVICE_USER}
-ExecStart={exec} host run
-Environment=CMUX_SERVER_MODE=system
+ExecStart={exec} host run --mode system
 Restart=always
 RestartSec=2
 KillMode=process

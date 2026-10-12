@@ -6,11 +6,11 @@ use super::*;
 pub(crate) fn wait_for_process_and_group_absent(pid: libc::pid_t) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let process_exists = process_exists(pid);
+        let process_is_running = process_running(pid);
         // SAFETY: same signal-0 probe for the positive process-group id.
         let group_exists = unsafe { libc::killpg(pid, 0) } == 0
             || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied;
-        if !process_exists && !group_exists {
+        if !process_is_running && !group_exists {
             return;
         }
         assert!(Instant::now() < deadline, "terminated PTY process/group {pid} remained alive");
@@ -18,10 +18,46 @@ pub(crate) fn wait_for_process_and_group_absent(pid: libc::pid_t) {
     }
 }
 
+#[path = "session_cleanup.rs"]
+mod session_cleanup;
+
 pub(crate) fn process_exists(pid: libc::pid_t) -> bool {
     // SAFETY: signal 0 performs existence/permission checks only.
     (unsafe { libc::kill(pid, 0) }) == 0
         || std::io::Error::last_os_error().kind() == std::io::ErrorKind::PermissionDenied
+}
+
+/// A signal-0 hit can be a zombie that is still waiting for its parent to
+/// reap it. Cleanup assertions care about a live process, so filter that
+/// state on Linux and macOS while retaining the signal-0 probe elsewhere.
+pub(crate) fn process_running(pid: libc::pid_t) -> bool {
+    if !process_exists(pid) {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat"))
+        && stat.rsplit_once(')').is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+    {
+        return false;
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(output) =
+        Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+        && output.status.success()
+        && String::from_utf8_lossy(&output.stdout).trim_start().starts_with('Z')
+    {
+        return false;
+    }
+    // The process can disappear between the first probe and the state read.
+    process_exists(pid)
+}
+
+pub(crate) fn wait_for_process_stopped(pid: libc::pid_t) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while process_running(pid) {
+        assert!(Instant::now() < deadline, "terminated fixture process {pid} remained alive");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 pub(crate) fn wait_for_terminal_host_dead(path: &Path, record: &TerminalHostRecord) {
@@ -52,6 +88,12 @@ pub(crate) fn wait_for_pid_file(path: &Path) -> libc::pid_t {
 // R81 spare host tests live beside these waits (the root file is at its size limit).
 #[path = "standby_host.rs"]
 mod standby_host;
+
+#[path = "split_client_keys.rs"]
+mod split_client_keys;
+
+#[path = "remote_terminal_tabs.rs"]
+mod remote_terminal_tabs;
 
 pub(crate) fn wait_for_no_host_records(root: &Path) {
     if let Some((records, exits)) = host_records_left_after_close(root) {

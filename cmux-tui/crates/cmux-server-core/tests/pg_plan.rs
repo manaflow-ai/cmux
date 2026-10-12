@@ -355,3 +355,46 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn database_url_and_env_carry_no_password() {
+    let plan = PgPlan::new(linux_spec(InstallMode::User)).unwrap();
+    let notes = app("notes", DbMode::Database, false);
+    assert_eq!(
+        plan.database_url(&notes),
+        "postgresql://app_notes@/app_notes?host=/home/ana/.local/state/cmux/server/postgres/run&port=17274"
+    );
+    let crm = app("crm", DbMode::Schema, true);
+    assert_eq!(plan.database_url(&crm), "postgresql://app_crm@127.0.0.1:17274/cmux_apps");
+    let env = plan.app_env(&notes);
+    let names: Vec<&str> = env.iter().map(|(k, _)| *k).collect();
+    assert_eq!(names, ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "DATABASE_URL"]);
+    assert_eq!(env[0].1, "/home/ana/.local/state/cmux/server/postgres/run");
+    assert!(env.iter().all(|(k, _)| !k.contains("PASS")));
+    // A socket directory with a space (a macOS state path) is percent-encoded.
+    let mut spec = linux_spec(InstallMode::User);
+    spec.socket_dir = p(Platform::Linux, "/tmp/a b/pg");
+    let plan = PgPlan::new(spec).unwrap();
+    assert!(plan.database_url(&notes).contains("host=/tmp/a%20b/pg&"));
+    let windows = PgPlan::new(windows_spec()).unwrap();
+    assert_eq!(windows.database_url(&notes), "postgresql://app_notes@127.0.0.1:17274/app_notes");
+}
+
+#[test]
+fn app_sql_is_role_then_objects_and_password_reset_needs_scram() {
+    let plan = PgPlan::new(linux_spec(InstallMode::User)).unwrap();
+    let notes = app("notes", DbMode::Database, false);
+    let limits = AppLimits::default();
+    let v = scram_verifier("p", &[7u8; 16], 4096).unwrap();
+    let all = plan.app_sql(&notes, &limits, Some(&v)).unwrap();
+    let mut split = vec![plan.app_role_sql(&notes, &limits, Some(&v)).unwrap()];
+    split.extend(plan.app_objects_sql(&notes, &limits));
+    assert_eq!(all, split);
+    let reset = plan.set_password_sql(&notes, &v).unwrap();
+    assert!(reset.sql.starts_with("ALTER ROLE \"app_notes\" PASSWORD 'SCRAM-SHA-256$4096:"));
+    assert_eq!(reset.database, "postgres");
+    assert_eq!(plan.set_password_sql(&notes, "plain"), Err(PgError::BadVerifier));
+    // Linux system mode: peer only, so no password may be set.
+    let system = PgPlan::new(linux_spec(InstallMode::System)).unwrap();
+    assert_eq!(system.set_password_sql(&notes, &v), Err(PgError::BadVerifier));
+}

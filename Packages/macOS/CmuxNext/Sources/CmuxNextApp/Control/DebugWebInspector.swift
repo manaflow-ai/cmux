@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextBrowser
+import CmuxNextWakeups
 
 /// `debug.webkit_inspector` (DEBUG builds): the WebKit page view of each
 /// shown WebKit tab, its superview's subviews (WebKit puts an attached Web
@@ -26,7 +27,7 @@ enum DebugWebInspector {
                 view.postsFrameChangedNotifications = true
                 let id = ObjectIdentifier(view)
                 observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
-                    MainActor.assumeIsolated { counts[id, default: 0] += 1 }
+                    MainDelivery().run { counts[id, default: 0] += 1 }
                 })
             }
         }

@@ -15,21 +15,11 @@ nonisolated enum AppPermissionsStrings {
         }
     }
 
-    static var unverifiedWarning: String { t("tier.unverified.warning", "Not reviewed by cmux. Only install apps you trust.") }
-
     static func profile(_ profile: AppSandboxProfile) -> String {
         switch profile {
         case .standard: t("profile.standard", "Standard")
         case .contained: t("profile.contained", "Contained")
         case .completeSandbox: t("profile.completeSandbox", "Complete sandbox")
-        }
-    }
-
-    static func profileDetail(_ profile: AppSandboxProfile) -> String {
-        switch profile {
-        case .standard: t("profile.standard.detail", "Uses what you allow below.")
-        case .contained: t("profile.contained.detail", "No files. Asks before network, commands and sending.")
-        case .completeSandbox: t("profile.completeSandbox.detail", "No network, no files. Only what you turn on.")
         }
     }
 
@@ -41,16 +31,6 @@ nonisolated enum AppPermissionsStrings {
         case .perSession: t("approval.perSession", "Ask once per session")
         case .perCall: t("approval.perCall", "Ask every time")
         case .denied: t("approval.denied", "Off")
-        }
-    }
-
-    /// Column heads of the capability matrix.
-    static func approvalShort(_ approval: AppScopeApproval) -> String {
-        switch approval {
-        case .always: t("approval.short.always", "Always")
-        case .perSession: t("approval.short.perSession", "Session")
-        case .perCall: t("approval.short.perCall", "Each time")
-        case .denied: t("approval.short.denied", "Off")
         }
     }
 
@@ -77,7 +57,6 @@ nonisolated enum AppPermissionsStrings {
     static var folders: String { t("files.title", "Folders") }
     static var addFolder: String { t("files.add", "Add Folder…") }
     static var remove: String { t("files.remove", "Remove") }
-    static var noFolders: String { t("files.none", "No folders") }
     static var writable: String { t("files.writable", "Can change files") }
 
     static var reach: String { t("reach.title", "Reach") }
@@ -87,7 +66,6 @@ nonisolated enum AppPermissionsStrings {
     static func selectedCount(_ count: Int) -> String { String(format: t("reach.selected", "%lld selected"), count) }
 
     static var activity: String { t("activity.title", "Activity") }
-    static var noActivity: String { t("activity.none", "No calls in the last 7 days") }
 
     static func result(_ result: AppActivityResult) -> String {
         switch result {

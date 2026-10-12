@@ -1,5 +1,6 @@
 //! Splits one encoded frame into `cmux.rd/1` datagrams: data shards sized to
-//! the session's `max_datagram`, then parity shards of the same size.
+//! the session's `max_datagram`, then parity shards of the same size. A frame
+//! of one shard without parity is not padded.
 
 use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, HEADER_LEN, MAX_FRAME_SHARDS};
 
@@ -88,7 +89,12 @@ impl Packetizer {
         if shards.is_empty() {
             shards.push(Vec::new());
         }
-        if let Some(last) = shards.last_mut() {
+        // Shards of one frame share one length (the reassembler refuses
+        // others, and parity needs it); a lone shard without parity keeps its
+        // own length, so a small frame (an Opus packet) costs its bytes only.
+        if (shards.len() > 1 || parity > 0)
+            && let Some(last) = shards.last_mut()
+        {
             last.resize(shard_len, 0);
         }
         let parity_shards = if parity == 0 {

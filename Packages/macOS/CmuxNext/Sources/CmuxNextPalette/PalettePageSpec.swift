@@ -28,6 +28,11 @@ public struct PalettePageSpec {
     /// providers' order (the picker's Finder order: `c2` before `c10`), then
     /// the other matches by score.
     public var ranksPrefixFirst: Bool
+    /// While typing, every row joins one untitled list ranked best first,
+    /// instead of staying in its section (the root: a section ordered by
+    /// its best row put all its weak matches above the next section's best
+    /// row; plans/cmux-next/palette-ranking.md section 5.1).
+    public var mergesSectionsWhenTyping = false
     /// The row selected when the page shows its empty-query list, clamped
     /// to the rows (Search Tabs selects the tab used before the current
     /// one, so Return switches back).

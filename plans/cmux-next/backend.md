@@ -15,7 +15,7 @@ Resume after the Oct 4 reset. Branch for stage B code: `backend-home-routes` (of
 4. Lane 15 security follow-ups: per-account phone link limits (5/day, 2 numbers/day) with one uniform answer; link page rules (home-messaging.md section 19); SendBlue fetch-by-handle before acting on a webhook; relink notice to the previous account.
 5. Stage-A P3 leftovers: readInbox checks installActive; inbox prune slack; bind entity only after auth.
 
-Stage C (after B): MailerDO (wrangler tag v8) and the mail path for `mail.security_notice`; FeedDO accepts feed.post notices from UserDO; AddressDO sends (vCard first, text after SENT/DELIVERED, allow list fail-closed, HOME_INVITES_SEND kill switch, every staging send logged and reported).
+Stage C (after B): the mail path for `mail.security_notice` (no MailerDO class: the owner's outbox drain sends through Resend, cx-44j.2); FeedDO accepts feed.post notices from the owner's UserDO; AddressDO sends (vCard first, text after SENT/DELIVERED, allow list fail-closed, HOME_INVITES_SEND kill switch, every staging send logged and reported).
 
 Other open items: shared teams after stage C (plan in enterprise.md); verify the OIDC callback's Stack server calls on staging the next time auth changes; Effect 4.0.0 bump after 2026-10-08; integrations gateway after stage C.
 
@@ -54,7 +54,7 @@ New projection tables that search reads need the same GRANT.
    the backend:apply-migrations gate; a test proves the Drizzle schema equals today's database
    (introspect the scratch Postgres after all migrations and diff); raw SQL only where Drizzle is
    poor (home.search). Starts after conversation.import and the chief records (both done).
-2. Stage C: MailerDO (tag at landing), AddressDO sends (vCard first, allow list fail-closed, kill
+2. Stage C: security mail through the outbox drain (done, no MailerDO), AddressDO sends (vCard first, allow list fail-closed, kill
    switch, logged staging sends), invite limits, lane 15 phone-link rules, and
    `install.enroll_local` (the daemon enrolls as its own install per ownership-v2, with a
    narrowed grant: read and mutate-own on its own host objects, no send-external, money or
@@ -118,7 +118,12 @@ Today SchedulerDO is JSON mode: `automations` (up to 100, each with `instruction
 2. The head keeps owner, settings, deploy and rate counters, chains, and counts: `automation_count`, `open_runs` (id list, at most the concurrency limit) and `finished_count`. MAX_AUTOMATIONS and the concurrency checks read the counts; `cancelQueued` reads open runs by id; prune deletes the oldest finished run rows past 200 (keyset on a `finished/<finished_at>/<id>` index row).
 3. Body rows are written when an automation version or a run first references them and deleted when no automation and no kept run references them (reference count in the body row, adjusted in the same commit). A started run keeps its body hash, so later edits never change it.
 4. Reads: `automation.list {cursor?, limit<=100}` and `run.list {automation?, state?, cursor?, limit<=100}` (keyset on id / finished_at), plus `automation.get` and `run.get` that join the body. The live UI list stays the first page.
-5. Migration on wake, system op `scheduler.rows_migrate` (key carries the head seq, like (f)): writes automations, runs and bodies as rows and drops the maps in one commit. Forward-fix only; a rollback build must keep the row lookups (recipe to follow the (f) one).
+5. Migration on wake, system op `scheduler.rows_migrate` (key carries the head seq, like (f)): writes automations, runs and bodies as rows and drops the maps in one commit. Until it commits, ops and reads answer the retryable `owner.migrating`. SchedulerDO is roll-forward only after (g1) lands. A head that holds maps while rows exist (refilled by a restore or a rollback build) migrates by merge: the maps win per id, rows the maps lack stay, every body reference count is recounted. A merge can bring back a record that only the maps deleted; it never drops a row created after the first migration. `automation.list` keeps `automation_count` and `next_cursor` optional while an old Worker can answer.
+   Recovery when a pre-(g1) build meets a migrated head: that build reads `state.automations` and `state.runs`, finds no maps and throws, so every SchedulerDO op and alarm of a migrated team fails closed (no run fires; the rows and bodies stay untouched). The operator does this:
+   1. Do not write the head by hand and do not delete rows. Roll forward: deploy the newest build that has (g1) (`bash scripts/deploy-worker.sh <env>` from a commit that contains "SchedulerDO row mode"), or, when the rollback is for another defect, build the rollback target plus the (g1) commits (cherry-pick "automations, runs and bodies in rows, keyset paging, live migration (g1)" and its review fix; resolve in favor of `domains/scheduler-rows.ts` and `domains/scheduler-store.ts`; keep `rowMode` and `redact` in the SchedulerDO constructor).
+   2. Gates as in the (f) recipe step 3, plus `test/scheduler-rows.test.ts` and `test/scheduler-rows-do.test.ts`.
+   3. Deploy it. The next bind or alarm of each team runs `scheduler.rows_migrate` only if the head holds maps again (merge, above); otherwise the rows serve at once.
+   4. Check one migrated team: `automation.list` answers with `automation_count` and the expected automations, and `run.list` pages its runs.
 6. Finished-run history (g2, separate change): the terminal transition emits an outbox item to PlanetScale `automation_runs` (do-audit 5.4 DDL, ON CONFLICT DO NOTHING), and `run.list` pages runs older than the kept 200 from the replica. This needs a `cmux-next` schema migration (development and staging first).
 7. `run_inputs` already leave the head (side table, deleted after the run ends); no change.
 8. Tests first: 100 automations with 20,000-character instructions and 450 runs commit with a head under 100 KB; a body shared by an automation and its runs is stored once and survives an edit until the last run that uses it is pruned; paging is stable under inserts; the migration is idempotent on a live DO; cancel on disable and delete still covers every queued run.

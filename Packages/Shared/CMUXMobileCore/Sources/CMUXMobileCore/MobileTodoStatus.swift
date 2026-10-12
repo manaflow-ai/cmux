@@ -14,7 +14,8 @@ public enum MobileTodoStatus: String, Codable, CaseIterable, Sendable {
     /// The next status in the same cycle used by the Mac todo controls.
     public var next: MobileTodoStatus {
         let statuses = Self.allCases
-        guard let index = statuses.firstIndex(of: self) else { return .todo }
-        return statuses[(index + 1) % statuses.count]
+        guard statuses.contains(self) else { return .todo }
+        // The status after this one, wrapping from the last to the first.
+        return statuses.drop { $0 != self }.dropFirst().first ?? statuses.first ?? .todo
     }
 }

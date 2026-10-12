@@ -1004,6 +1004,10 @@ check_no_github_hosted_runners() {
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"
+    # Compare-only x86_64 run-time check of the Linux-built macOS binaries
+    # (continue-on-error, so a billing block cannot stop CI).
+    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1747,6 +1751,9 @@ check_background_macos_lane() {
   # The Intel compatibility leg needs a hosted image that no paid provider
   # offers. Exact lines only. macos-14 is retired (#17068).
   local -a hosted_exceptions=(
+    # Compare-only x86_64 run-time check of the Linux-built Mac binaries.
+    "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
   )
   local failed=0 probe
 

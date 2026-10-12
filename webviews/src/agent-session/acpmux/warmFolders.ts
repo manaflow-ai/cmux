@@ -3,26 +3,11 @@
 // home folder, "/", or a folder in a location macOS guards with a privacy prompt. The daemon refuses
 // the same folders after resolving symlinks; this check is by spelling, before the request goes out.
 
-/// The locations macOS guards, relative to the home folder.
-const GUARDED_IN_HOME = [
-  "Desktop",
-  "Documents",
-  "Downloads",
-  "Pictures",
-  "Music",
-  "Movies",
-  "Library/Mobile Documents",
-  "Library/CloudStorage",
-  "Library/Containers",
-  "Library/Group Containers",
-  "Library/Mail",
-  "Library/Messages",
-  "Library/Safari",
-  "Library/Calendars",
-];
+import { PROTECTED_IN_HOME, PROTECTED_ROOTS } from "./protectedFolders.generated";
 
-/// Guarded locations outside any home folder: other and network volumes.
-const GUARDED_ROOTS = ["/Volumes", "/Network", "/net"];
+/// The one protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json, generated copy).
+const GUARDED_IN_HOME = PROTECTED_IN_HOME.map((entry) => entry.path);
+const GUARDED_ROOTS = PROTECTED_ROOTS.map((entry) => entry.path);
 
 /// The home folder `path` is in (`/Users/<name>` or `/home/<name>`), if any.
 export function homeOf(path: string): string | undefined {

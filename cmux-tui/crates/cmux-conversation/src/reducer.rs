@@ -19,7 +19,8 @@ pub enum Reject {
     NotAuthor,
     /// The target or reply-to message does not exist in this conversation.
     UnknownMessage,
-    /// Parts are empty, too many, too long, or malformed.
+    /// Parts are empty, too many, too long, or malformed, or the
+    /// `answers` lists are.
     InvalidParts,
     /// The idempotency key was used before with a different request.
     IdempotencyConflict,
@@ -60,10 +61,20 @@ pub enum Reject {
     /// An attachment part's type, size, poster or preview differs from the
     /// conversation's record of its hash. The host checks it.
     AttachmentMismatch,
+    /// Only a human answers a question; an agent never does.
+    HumanOnly,
+    /// The question was already answered or cancelled.
+    QuestionClosed,
+    /// The answer misses an item, names an unknown option, chooses too many,
+    /// or types Other where the item does not allow it.
+    InvalidAnswer,
+    /// `thread_root` names no message of this conversation, or a message
+    /// that is itself in a thread (a thread has one level).
+    InvalidThreadRoot,
 }
 
 impl Reject {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 26] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -86,6 +97,10 @@ impl Reject {
         Self::ActorMismatch,
         Self::UnknownAttachment,
         Self::AttachmentMismatch,
+        Self::HumanOnly,
+        Self::QuestionClosed,
+        Self::InvalidAnswer,
+        Self::InvalidThreadRoot,
     ];
 
     pub fn code(self) -> &'static str {
@@ -112,6 +127,10 @@ impl Reject {
             Self::ActorMismatch => "actor_mismatch",
             Self::UnknownAttachment => "unknown_attachment",
             Self::AttachmentMismatch => "attachment_mismatch",
+            Self::HumanOnly => "human_only",
+            Self::QuestionClosed => "question_closed",
+            Self::InvalidAnswer => "invalid_answer",
+            Self::InvalidThreadRoot => "invalid_thread_root",
         }
     }
 }
@@ -135,7 +154,8 @@ pub struct Commit {
 
 /// One op and the stored rows it needs. The host loads `target` for ops that
 /// name a message ([`Op::target_message_id`]), `reply_target` for a send with
-/// `reply_to` ([`Op::reply_to`]), and the conversation's last message.
+/// `reply_to` ([`Op::reply_to`]), `thread_target` for a send with
+/// `thread_root` ([`Op::thread_root`]), and the conversation's last message.
 #[derive(Debug, Clone, Copy)]
 pub struct OpRequest<'a> {
     pub actor: &'a str,
@@ -147,6 +167,7 @@ pub struct OpRequest<'a> {
     pub new_message_id: &'a str,
     pub target: Option<&'a Message>,
     pub reply_target: Option<&'a Message>,
+    pub thread_target: Option<&'a Message>,
     pub last_message: Option<&'a Message>,
 }
 
@@ -219,11 +240,30 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
     next.rev = head.rev + 1;
     let now = request.now;
     let (message, change) = match request.op {
-        Op::MessageSend { client_msg_id, parts, reply_to } => {
+        Op::MessageSend {
+            client_msg_id,
+            parts,
+            reply_to,
+            answers,
+            answers_pending,
+            thread_root,
+        } => {
             if client_msg_id != request.idempotency_key || !valid_token(client_msg_id) {
                 return Err(Reject::InvalidClientMsgId);
             }
             validate_parts(parts)?;
+            validate_answers(answers, answers_pending)?;
+            let is_agent =
+                head.participant(request.actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
+            let bad_question = |part: &Part| match part {
+                Part::Question(question) => {
+                    !is_agent || question.state != crate::question::QuestionState::Pending
+                }
+                _ => false,
+            };
+            if parts.iter().any(bad_question) {
+                return Err(Reject::InvalidParts);
+            }
             if let Some(reply_to) = reply_to {
                 let replied = request
                     .reply_target
@@ -235,10 +275,20 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                     return Err(Reject::InvalidPartIndex);
                 }
             }
+            if let Some(thread_root) = thread_root {
+                request
+                    .thread_target
+                    .filter(|root| {
+                        root.id == *thread_root
+                            && root.conversation == head.id
+                            && root.thread_root.is_none()
+                    })
+                    .ok_or(Reject::InvalidThreadRoot)?;
+            }
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
-            if parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+            if parts.iter().any(Part::counts_as_turn) {
                 let author = head.participant(request.actor);
                 if author.is_some_and(|p| p.kind == ParticipantKind::Agent) {
                     next.agent_text_streak = head.agent_text_streak.saturating_add(1);
@@ -255,12 +305,23 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 author: request.actor.to_string(),
                 parts: parts.clone(),
                 reply_to: reply_to.clone(),
+                answers: answers.clone(),
+                answers_pending: answers_pending.clone(),
+                thread_root: thread_root.clone(),
                 created_at: now.to_string(),
                 edited_at: None,
                 retracted_at: None,
                 reactions: Vec::new(),
                 origin: None,
             };
+            // A sender that had read everything before its send has read its
+            // own message too, for every client of this owner. One that had
+            // not keeps its cursor, so a message it never read (an agent's
+            // unhandled turn) stays unread. The change stays `message`;
+            // clients read the cursor from the head (corpus notes, cx-59n8.4).
+            if head.read_cursors.get(request.actor).copied().unwrap_or(0) >= head.last_seq {
+                next.read_cursors.insert(request.actor.to_string(), next.last_seq);
+            }
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
         }
@@ -276,6 +337,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::Retracted);
             }
             validate_parts(parts)?;
+            crate::question::check_edit(&message.parts, parts)?;
             message.parts = parts.clone();
             message.edited_at = Some(now.to_string());
             let part_count = message.parts.len();
@@ -362,6 +424,20 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             let conversation = Box::new(summary(&next, request.last_message));
             (None, Change::Conversation { conversation })
         }
+        Op::QuestionAnswer { message_id, part_index, answer } => {
+            let mut message = target(head, request, message_id)?;
+            if message.retracted_at.is_some() {
+                return Err(Reject::Retracted);
+            }
+            let actor = head.participant(request.actor).ok_or(Reject::NotParticipant)?;
+            let Some(Part::Question(question)) = message.parts.get_mut(*part_index as usize) else {
+                return Err(Reject::InvalidPartIndex);
+            };
+            crate::question::answer(question, answer, actor, now)?;
+            // A person's answer is a human turn: the agent may go on.
+            next.agent_text_streak = 0;
+            updated(message)
+        }
         Op::TitleSet { title } => {
             validate_title(title)?;
             next.title = title.clone();
@@ -396,6 +472,23 @@ fn require_participant(head: &ConversationHead, actor: &str) -> Result<(), Rejec
 
 /// An opaque client token (idempotency key, `client_msg_id`): 1 to 128
 /// printable ASCII characters.
+/// `answers` names at most [`MAX_ANSWERS`] distinct message ids, and
+/// `answers_pending` only ids of `answers`. The ids are not looked up: a
+/// reply may answer a message the owner already trimmed.
+fn validate_answers(answers: &[String], pending: &[String]) -> Result<(), Reject> {
+    let distinct = |ids: &[String]| {
+        ids.iter().enumerate().all(|(i, id)| valid_token(id) && !ids[..i].contains(id))
+    };
+    if answers.len() > crate::MAX_ANSWERS
+        || !distinct(answers)
+        || !distinct(pending)
+        || pending.iter().any(|id| !answers.contains(id))
+    {
+        return Err(Reject::InvalidParts);
+    }
+    Ok(())
+}
+
 pub fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 128 && token.bytes().all(|byte| byte.is_ascii_graphic())
 }
@@ -522,6 +615,7 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::Question(question) => crate::question::validate(question)?,
         }
     }
     Ok(())

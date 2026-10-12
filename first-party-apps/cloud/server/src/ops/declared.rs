@@ -156,6 +156,22 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ("cloud.vm.event.emit", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
 ];
 
+/// Codes the G8 approval path adds (cx-wb5.65): an install's money or
+/// destructive op waits for the person's approval in the feed.
+const APPROVAL: &[&str] =
+    &["approval.denied", "approval.expired", "approval.pending", "approval.too_many_pending"];
+
+/// Ops the approval gate holds for an install (backend `domains/cloud.ts`
+/// `CLOUD_APPROVAL_OPS`).
+const APPROVAL_OPS: &[&str] = &[
+    "cloud.machine.create",
+    "cloud.machine.resize",
+    "cloud.machine.delete",
+    "cloud.snapshot.create",
+    "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
+];
+
 /// Ops whose provider call can fail for now or be cut off.
 const PROVIDER_OPS: &[&str] = &[
     "cloud.machine.create",
@@ -184,8 +200,14 @@ pub fn declared_errors(op: &str) -> Option<&'static [&'static str]> {
         OPS.iter()
             .map(|(name, base, own)| {
                 let provider: &[&str] = if PROVIDER_OPS.contains(name) { PROVIDER } else { &[] };
-                let mut codes: Vec<&'static str> =
-                    base.iter().chain(own.iter()).chain(provider.iter()).copied().collect();
+                let approval: &[&str] = if APPROVAL_OPS.contains(name) { APPROVAL } else { &[] };
+                let mut codes: Vec<&'static str> = base
+                    .iter()
+                    .chain(own.iter())
+                    .chain(provider.iter())
+                    .chain(approval.iter())
+                    .copied()
+                    .collect();
                 codes.sort_unstable();
                 codes.dedup();
                 (*name, codes)

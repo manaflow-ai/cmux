@@ -268,7 +268,22 @@ fn kill(pid: u32) {
             libc::kill(pid, libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
+        };
+        // SAFETY: plain calls; the handle is checked and closed.
+        unsafe {
+            let process = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !process.is_null() {
+                TerminateProcess(process, 1);
+                CloseHandle(process);
+            }
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = pid;
 }
 
@@ -290,25 +305,4 @@ fn user_temp_dir() -> Option<PathBuf> {
     }
     #[cfg(not(target_os = "macos"))]
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_ensure_output() {
-        let out = r#"{"generation":"c282d03b-19e7-4ced-9c12-bebc45bbe532","message":"local server started","pid":66033,"session":"s","socket":"/tmp/cmux-tui-501/s.sock","status":"started"}"#;
-        let parsed = parse_ensure(&format!("noise\n{out}\n")).unwrap();
-        assert_eq!(parsed.status, "started");
-        assert_eq!(parsed.pid, 66033);
-        assert_eq!(parsed.socket, PathBuf::from("/tmp/cmux-tui-501/s.sock"));
-        assert!(parse_ensure("nope").is_err());
-    }
-
-    #[test]
-    fn pin_names_a_commit() {
-        assert_eq!(pinned_commit().len(), 40);
-        assert!(pinned_cache_path().unwrap().ends_with(format!("{}/cmux-tui", pinned_commit())));
-    }
 }

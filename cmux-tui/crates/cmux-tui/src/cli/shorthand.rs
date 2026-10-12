@@ -87,7 +87,9 @@ pub(super) fn scope(word: &str) -> &str {
         "p" => "pane",
         "term" => "terminal",
         "notif" => "notification",
-        "srv" => "server",
+        // The session daemon's lifecycle; internally the scope is `server`
+        // (on `cmux`, the word `server` itself is the machine server).
+        "srv" | "daemon" => "server",
         _ => word,
     }
 }
@@ -401,6 +403,6 @@ pub(super) fn help(messages: &crate::localization::LocalServerMessages) -> Strin
             alias_path(alias, Surface::current()).join(" ").replace('@', "<target>")
         ));
     }
-    out.push_str("\n  ws => workspace; win/window => screen; p => pane; term => terminal\n  notif => notification; srv => server\n  ls => list; new => create; get => show; rm => close; select => focus\n");
+    out.push_str("\n  ws => workspace; win/window => screen; p => pane; term => terminal\n  notif => notification; srv => server (cmux-tui only)\n  ls => list; new => create; get => show; rm => close; select => focus\n");
     out
 }

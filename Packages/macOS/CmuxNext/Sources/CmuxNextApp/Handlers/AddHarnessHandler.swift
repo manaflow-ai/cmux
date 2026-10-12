@@ -1,0 +1,32 @@
+import CmuxNextActions
+import CmuxNextAgentPane
+
+/// Integrate a Harness… (BRING-YOUR-OWN-HARNESS H3, cx-uj5g8): the palette and the File menu run
+/// this action. It opens an agent tab in the focused pane on its Harnesses page: the harnesses on
+/// this Mac with their state and Start Chat, Sign In or Install…, and Custom harness…, which starts the
+/// `cmux harness guide` chat in that tab. The model picker's + shows the same page in place.
+enum AddHarnessHandler {
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bind("palette.addHarness", run: { invocation in
+            // A new tab takes the focus: automation runs `cmux harness guide` itself.
+            guard invocation.allowsViewChange else { return context.refuse(AddHarnessStrings.needsFocus) }
+            // The same pane path as New Agent Chat: from Home or a settling workspace it makes the
+            // first pane, then opens the chat there.
+            AgentHandlers.withAgentPane(invocation, context: context) { pane in
+                if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
+                pane.openAgentTab(seed: AgentPaneSeedSource(seed))
+            }
+        })
+    }
+
+    /// The tab's seed: no folder (the relay fills the pane's chat folder), on the Harnesses page.
+    static var seed: AgentPaneSeed { AgentPaneSeed(showsHarnesses: true) }
+}
+
+enum AddHarnessStrings {
+    static var needsFocus: String {
+        String(localized: "handlers.agent.addHarness.needsFocus",
+               defaultValue: "Add Harness… opens the Harnesses page from the palette or the menu. Automation runs cmux harness guide instead.",
+               table: "MiscHandlers", bundle: .module)
+    }
+}

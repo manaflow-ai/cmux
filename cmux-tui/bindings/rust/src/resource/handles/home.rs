@@ -9,12 +9,6 @@ use super::super::*;
 /// a browser tab on every read path (`session.snapshot`, `session.events`).
 pub const CONVERSATION_TABS_CAPABILITY: &str = "conversation-tabs-v1";
 
-/// At most this many capabilities per declaration (catalog
-/// `client.metadata.update.capabilities`).
-const CAPABILITIES_MAX: usize = 64;
-/// Bytes per capability name.
-const CAPABILITY_MAX_BYTES: usize = 128;
-
 impl Session {
     /// The session's home workspace (`extra.kind == "home"`) with a fresh
     /// idempotency key. The store creates it on the first call and names the
@@ -41,34 +35,31 @@ impl ConnectedClient {
     /// (`client.metadata.update {capabilities}`, as raw `set-client-info`),
     /// for example [`CONVERSATION_TABS_CAPABILITY`]. Only the requesting
     /// connection may declare them, so the selector must name this
-    /// connection (`Selector::current()`). Declare before `session.snapshot`
-    /// and `session.events` so both read the same form.
+    /// connection (`Selector::current()`). The client declares them again on
+    /// every connection it opens later (each stream, a reconnect), as
+    /// [`Config::with_capabilities`](crate::Config::with_capabilities) does from the start. Declare before
+    /// `session.snapshot` and `session.events` so both read the same form.
     pub fn declare_capabilities<I, S>(&self, capabilities: I) -> Result<ClientSnapshot>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
         let capabilities: Vec<String> = capabilities.into_iter().map(Into::into).collect();
-        if capabilities.is_empty() || capabilities.len() > CAPABILITIES_MAX {
-            return Err(Error::InvalidArgument(format!(
-                "declare 1 to {CAPABILITIES_MAX} capabilities"
-            )));
+        if capabilities.is_empty() {
+            return Err(Error::InvalidArgument("declare 1 to 64 capabilities".to_string()));
         }
-        if let Some(bad) = capabilities
-            .iter()
-            .find(|capability| capability.is_empty() || capability.len() > CAPABILITY_MAX_BYTES)
-        {
-            return Err(Error::InvalidArgument(format!(
-                "capability {bad:?} must have 1 to {CAPABILITY_MAX_BYTES} bytes"
-            )));
-        }
+        crate::resource::client::validate_capabilities(&capabilities)?;
         let params = self.params().value(
             "capabilities",
-            Value::Array(capabilities.into_iter().map(Value::String).collect()),
+            Value::Array(capabilities.iter().cloned().map(Value::String).collect()),
         );
-        wire::decode_exact(
+        let declared: ClientSnapshot = wire::decode_exact(
             &self.session.client.connection_control(ops::CLIENT_METADATA_UPDATE, params)?,
             "client capability declaration result",
-        )
+        )?;
+        // Every connection the client opens from now on declares them too
+        // (the event stream and a reconnect each have their own).
+        self.session.client.remember_capabilities(&capabilities);
+        Ok(declared)
     }
 }

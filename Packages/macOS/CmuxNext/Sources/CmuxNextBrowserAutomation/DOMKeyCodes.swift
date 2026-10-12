@@ -38,7 +38,7 @@ nonisolated enum DOMKeyCodes {
         "AltLeft": .option, "AltRight": .option, "MetaLeft": .command, "MetaRight": .command, "CapsLock": .capsLock,
     ]
 
-    private static func function(_ value: Int) -> String { String(Character(UnicodeScalar(UInt32(value))!)) }
+    private static func function(_ value: Int) -> String { String(Character(UnicodeScalar(UInt32(value)) ?? UnicodeScalar(0))) }
 
     /// Characters AppKit puts on named keys (NSEvent function-key range).
     static let namedCharacters: [String: String] = {

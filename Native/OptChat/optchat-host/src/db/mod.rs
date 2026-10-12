@@ -60,6 +60,9 @@ pub struct NewMessage<'a> {
     /// Its ISO (RFC 3339) time when it was first written (an imported
     /// message keeps its own); None: now. The caller checks the format.
     pub date: Option<&'a str>,
+    /// Imported from another chat or an older system (section 10): its
+    /// lines never hold a turn (`Memory::turn_ready`).
+    pub imported: bool,
 }
 
 impl<'a> NewMessage<'a> {
@@ -69,8 +72,34 @@ impl<'a> NewMessage<'a> {
             text,
             key: None,
             date: None,
+            imported: false,
         }
     }
+}
+
+/// The state key of the imported messages' id ranges (`[[from, to], ...]`).
+pub const IMPORTED_KEY: &str = "memory/imported";
+
+pub fn encode_imported(ranges: &[(u64, u64)]) -> String {
+    serde_json::Value::from(
+        ranges
+            .iter()
+            .map(|(a, b)| serde_json::json!([a, b]))
+            .collect::<Vec<_>>(),
+    )
+    .to_string()
+}
+
+/// The saved ranges; an unreadable value counts as none (a turn then waits
+/// for every line, as before the ranges were saved).
+pub fn decode_imported(text: &str) -> Vec<(u64, u64)> {
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str(text) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|r| Some((r.get(0)?.as_u64()?, r.get(1)?.as_u64()?)))
+        .collect()
 }
 
 /// One state write: a key and its new JSON value, or None to delete it.

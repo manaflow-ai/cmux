@@ -25,7 +25,7 @@ final class ChatLayout {
 
     /// Row i's layer frame (content coordinates), with the drawing margin.
     func frame(for i: Int) -> CGRect {
-        let h = model.rows[i].spec.height
+        let h = model.rows[checked: i]?.spec.height ?? 0
         return CGRect(x: 0, y: contentTop(i) - Style.rowMargin, width: width, height: h + 2 * Style.rowMargin)
     }
 

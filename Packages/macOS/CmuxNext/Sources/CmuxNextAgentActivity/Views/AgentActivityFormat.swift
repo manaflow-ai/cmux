@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 enum AgentActivityFormat {
@@ -12,26 +13,26 @@ enum AgentActivityFormat {
         date.formatted(date: .omitted, time: .standard)
     }
 
-    static func symbol(_ event: AgentActivityEvent) -> String {
-        if !event.ok { return "exclamationmark.triangle.fill" }
+    static func icon(_ event: AgentActivityEvent) -> IconName {
+        if !event.ok { return .statusError }
         switch event.kind {
-        case .sessionStart: return "play.circle"
-        case .sessionEnd: return "checkmark.circle"
-        case .sessionStop: return "stop.circle"
-        case .sessionPause: return "pause.circle"
-        case .sessionResume: return "play.circle"
-        case .sessionIdle: return "moon"
-        case .observe: return "eye"
-        case .policyReject: return "hand.raised"
-        case .consentRequest, .consentDecide: return "person.badge.shield.checkmark"
-        case .error: return "exclamationmark.triangle"
+        case .sessionStart: return .actionResume
+        case .sessionEnd: return .statusSuccess
+        case .sessionStop: return .actionStop
+        case .sessionPause: return .actionPause
+        case .sessionResume: return .actionResume
+        case .sessionIdle: return .stateIdle
+        case .observe: return .computeruseObserve
+        case .policyReject: return .policyReject
+        case .consentRequest, .consentDecide: return .permissionConsent
+        case .error: return .statusWarning
         case .act:
             switch event.tool {
-            case "type_text", "set_value": return "keyboard"
-            case "press_key", "hotkey": return "command"
-            case "scroll": return "scroll"
-            case "drag": return "hand.draw"
-            default: return "cursorarrow.click"
+            case "type_text", "set_value": return .keyboard
+            case "press_key", "hotkey": return .keyboardHotkey
+            case "scroll": return .computeruseScroll
+            case "drag": return .computeruseDrag
+            default: return .computeruseClick
             }
         }
     }

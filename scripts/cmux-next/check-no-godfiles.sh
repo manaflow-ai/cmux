@@ -29,18 +29,34 @@
 # request. A pull request passes its merge commit's first parent (HEAD^1). An
 # unknown REF checks every file, as without --base.
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [package-root]
+# --file PATH (repeatable, repository-relative) measures only those files: a
+# Rust or Swift file's own limits, and each Swift type of the named Swift
+# files' modules (a type spans all its extensions in its module). safe-push
+# passes the files a push changes; CI scans everything.
+#
+# GODFILES_WARN_SLACK=PCT (CI: 20) is the warning tier: an entry over its
+# allowance (its baseline, else its budget) by at most PCT% of its budget is
+# ratchet debt, printed as a `::warning title=ratchet debt::` annotation, and
+# passes; over that hard ceiling (a new type: 1200 lines at 20) it fails. The
+# top-level type count per Swift file has no slack. --update-baseline ignores it.
+#
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [--file PATH]... [package-root]
 set -euo pipefail
 
 update=0
 only=all
 base_ref=""
+files=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --update-baseline) update=1; shift ;;
     --base)
       [[ -n "${2:-}" ]] || { echo "--base takes a commit" >&2; exit 2; }
       base_ref="$2"
+      shift 2 ;;
+    --file)
+      [[ -n "${2:-}" ]] || { echo "--file takes a repository-relative path" >&2; exit 2; }
+      files+="$2"$'\n'
       shift 2 ;;
     --only)
       case "${2:-}" in
@@ -51,8 +67,8 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
-if (( update )) && [[ "$only" != all || -n "$base_ref" ]]; then
-  echo "--update-baseline rewrites every entry; run it without --only or --base" >&2
+if (( update )) && [[ "$only" != all || -n "$base_ref" || -n "$files" ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only, --base or --file" >&2
   exit 2
 fi
 check_swift=0; check_rust=0
@@ -74,12 +90,46 @@ rust_test_fn_limit=120
 rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]'
 
 status=0
+slack="${GODFILES_WARN_SLACK:-0}"
+[[ "$slack" =~ ^[0-9]+$ ]] || { echo "GODFILES_WARN_SLACK takes a whole percentage, got '$slack'" >&2; exit 2; }
+(( update )) && slack=0
 
 # Measure ROOT's package and REPO's cmux-tui. REV names the tree the files come
 # from when they are an archive of a commit (ls-tree), not a checkout (ls-files).
 # Rows: "kind<TAB>key<TAB>lines<TAB>fns<TAB>line-limit<TAB>fn-limit"; for a
 # swift-file row, fns is its top-level type count and fn-limit the type limit
 # (0: no type limit, in tests).
+# --file scoping. in_files keeps the stdin paths that are named (all without --file).
+pkg_rel() { # root repo -> the package path relative to the repository (symlinks resolved)
+  local r p
+  r="$(cd "$1" && pwd -P)"; p="$(cd "$2" && pwd -P)"
+  echo "${r#"$p"/}"
+}
+in_files() { if [[ -z "$files" ]]; then cat; else grep -xF -f <(printf '%s' "$files") || true; fi; }
+swift_files() { # root repo -> NUL-separated Swift files to measure
+  local root="$1" repo="$2" pkg rel
+  if [[ -z "$files" ]]; then
+    find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null
+    return 0
+  fi
+  pkg="$(pkg_rel "$root" "$repo")"
+  while IFS= read -r rel; do
+    [[ "$rel" == "$pkg"/Sources/*.swift || "$rel" == "$pkg"/Tests/*.swift ]] || continue
+    [[ -f "$repo/$rel" ]] && printf '%s\0' "$repo/$rel"
+  done <<<"$files"
+  return 0
+}
+type_dirs() { # root repo -> module directories whose types to measure
+  local root="$1" repo="$2" pkg rel module
+  if [[ -z "$files" ]]; then echo "$root/Sources"; return 0; fi
+  pkg="$(pkg_rel "$root" "$repo")"
+  while IFS= read -r rel; do
+    [[ "$rel" == "$pkg"/Sources/*.swift ]] || continue
+    module="${rel#"$pkg"/Sources/}"; module="${module%%/*}"
+    [[ -d "$root/Sources/$module" ]] && echo "$root/Sources/$module"
+  done <<<"$files" | sort -u
+  return 0
+}
 measure() {
   local root="$1" repo="$2" rev="${3:-}" file lines limit types tlimit rel fns
   # 1. Swift files: absolute limits.
@@ -91,12 +141,12 @@ measure() {
     # Top-level primary declarations (extensions and small nested helpers are fine).
     types=$(grep -cE '^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
     printf 'swift-file\t%s\t%d\t%d\t%d\t%d\n' "${file#"$root"/}" "$lines" "$types" "$limit" "$tlimit"
-  done < <(find "$root/Sources" "$root/Tests" -name '*.swift' -print0 2>/dev/null)
+  done < <(swift_files "$root" "$repo")
 
   # 2. Ratcheted entries. Swift types: a top-level declaration starts at column 0
   # and ends at the next line that starts with "}" (the package is formatted that way).
-  if (( check_swift )) && [[ -d "$root/Sources" ]]; then
-    find "$root/Sources" -name '*.swift' -print0 | xargs -0 awk '
+  if (( check_swift )) && [[ -d "$root/Sources" ]] && [[ -n "$(type_dirs "$root" "$repo")" ]]; then
+    type_dirs "$root" "$repo" | tr '\n' '\0' | xargs -0 -I{} find {} -name '*.swift' -print0 | xargs -0 awk '
       FNR == 1 {
         in_decl = 0
         module = FILENAME
@@ -141,7 +191,7 @@ measure() {
       printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_file_limit" "$rust_fn_limit"
     fi
   done < <(if [[ -n "$rev" ]]; then git -C "$script_repo" ls-tree -r --name-only "$rev" -- cmux-tui; else git -C "$repo" ls-files 'cmux-tui/*.rs'; fi \
-    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)')
+    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)' | in_files)
   return 0
 }
 
@@ -157,7 +207,15 @@ measure "$root" "$repo" > "$measurements"
 # (ARGV[2]; empty until it is measured). A swift-file row's fns is its type count.
 [[ -f "$baseline" ]] || : > "$baseline"
 evaluate() { # scoped (0 or 1) -> report lines
-  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" '
+  awk -F'\t' -v update="$update" -v only="$only" -v scoped="$1" -v filescoped="${files:+1}" -v slack="$slack" '
+  # The warning tier: within the hard ceiling (allowance + slack% of the budget) a
+  # failure is ratchet debt (WARN); over it, the failure names the ceiling.
+  function verdict(kind, key, msg, lines, fns, allow_l, allow_f, llim, flim,   cl, cf) {
+    if (slack <= 0) { printf "FAIL\t%s\t%s\t%s\n", kind, key, msg; return }
+    cl = allow_l + int(llim * slack / 100); cf = allow_f + int(flim * slack / 100)
+    if (lines <= cl && (flim <= 0 || fns <= cf)) printf "WARN\t%s\t%s\t%s\n", kind, key, msg
+    else printf "FAIL\t%s\t%s\t%s (over the hard ceiling of %d lines%s)\n", kind, key, msg, cl, (flim > 0 ? sprintf(", %d fns", cf) : "")
+  }
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
     if (only == "swift" && $1 != "swift-type") next
@@ -176,7 +234,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       if (scoped && (key in was_lines) && was_lines[key] >= lines)
         printf "NOTE\t%s has %d lines (limit %d), over budget on the base too; this change did not grow it\n", $2, lines, limit
       else
-        printf "FAIL\tswift-file\t%s\tgod file: %s has %d lines (limit %d)\n", $2, $2, lines, limit
+        verdict("swift-file", $2, sprintf("god file: %s has %d lines (limit %d)", $2, lines, limit), lines, 0, limit, 0, limit, 0)
     }
     if (tlimit > 0 && types > tlimit) {
       if (scoped && (key in was_fns) && was_fns[key] >= types)
@@ -197,7 +255,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       if (over && kept) {
         printf "NOTE\t%s: %d lines, %d fns, over budget on the base too; this change did not grow it\n", $2, lines, fns
       } else if (over) {
-        printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)\n", $1, $2, what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
+        verdict($1, $2, sprintf("%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)", what, unit, lines, fns, llim, (flim > 0 ? flim : "no")), lines, fns, llim, flim, llim, flim)
       }
       next
     }
@@ -207,7 +265,7 @@ evaluate() { # scoped (0 or 1) -> report lines
       printf "NOTE\t%s: %d lines, %d fns, over its baseline on the base too; this change did not grow it\n", $2, lines, fns
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (lines > bl || fns > bf) {
-      printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)\n", $1, $2, what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)
+      verdict($1, $2, sprintf("%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)", what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)), lines, fns, bl, bf, llim, flim)
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (!over) {
       printf "NOTE\t%s now meets the budget; run --update-baseline to drop it\n", $2
@@ -217,7 +275,7 @@ evaluate() { # scoped (0 or 1) -> report lines
     }
   }
   END {
-    for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
+    if (!filescoped) for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
     if (update) for (key in keep_lines) printf "KEEP\t%s\t%d\t%d\n", key, keep_lines[key], keep_fns[key]
   }
 ' "$baseline" "$base_measurements" "$measurements"
@@ -273,6 +331,10 @@ grower() { # key allowed_lines allowed_fns
     echo "unknown"
   fi
 }
+# Warning tier: ratchet debt annotations; they never fail the check.
+while IFS=$'\t' read -r _ _ _ message; do
+  echo "::warning title=ratchet debt::$message"
+done < <(grep '^WARN' <<<"$report" || true)
 if grep -q '^FAIL' <<<"$report"; then
   while IFS=$'\t' read -r _ kind key message; do
     if [[ "$kind" == rust-file ]]; then

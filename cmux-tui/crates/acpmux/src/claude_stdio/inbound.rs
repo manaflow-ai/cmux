@@ -7,7 +7,15 @@ impl Translator {
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        let sid = self.acp_session_id.clone();
+        // A subagent's lines carry its Agent tool call's id and stream under
+        // its own session (ACP draft #1992).
+        let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
+        let mut sid = self.acp_session_id.clone();
+        if let Some(p) = parent
+            && let Some(child) = self.subagents.lock().await.get(p)
+        {
+            sid = child.clone();
+        }
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -44,12 +52,17 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
             }
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
                 match ev.get("type").and_then(Value::as_str) {
+                    Some("message_start") if parent.is_none() => {
+                        if let Some(m) = ev.pointer("/message/model").and_then(Value::as_str) {
+                            *self.loop_model.lock().await = m.to_owned();
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -73,8 +86,13 @@ impl Translator {
                                     .and_then(Value::as_u64)
                                     .unwrap_or(0)
                                 + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // A subagent's usage is its own context, not the chat's.
+                            if parent.is_none() {
+                                self.context_used.store(used, Ordering::SeqCst);
+                            }
+                            let size = self.context_window.load(Ordering::SeqCst);
                             out.push(upd(
-                                json!({"sessionUpdate": "usage_update", "used": used, "size": 0}),
+                                json!({"sessionUpdate": "usage_update", "used": used, "size": size}),
                             ));
                         }
                     }
@@ -91,7 +109,37 @@ impl Translator {
                     if c.get("type").and_then(Value::as_str) == Some("tool_use") {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
-                        out.push(upd(json!({
+                        // A subagent comes before its Agent tool call, so a client
+                        // that draws subagents can leave the call out.
+                        if let ("Task" | "Agent", Some(id)) =
+                            (name, c.get("id").and_then(Value::as_str))
+                        {
+                            out.push(upd(self.spawn_subagent(id, &input).await));
+                        }
+                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
+                        // draw it as a checklist.
+                        if name == "TodoWrite"
+                            && let Some(plan) = todo_plan(&input)
+                        {
+                            out.push(upd(plan));
+                        }
+                        // Every shell, so one moved to the background later
+                        // keeps its command (cx-ncc.84).
+                        if name == "Bash"
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            let command =
+                                input.get("command").and_then(Value::as_str).unwrap_or("");
+                            let shell = BackgroundShell {
+                                sid: sid.clone(),
+                                command: command.to_owned(),
+                                task: None,
+                                background: input.get("run_in_background")
+                                    == Some(&Value::Bool(true)),
+                            };
+                            self.background_shells.lock().await.insert(id.to_owned(), shell);
+                        }
+                        let mut call = json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
                             "title": tool_title(name, &input),
@@ -99,7 +147,41 @@ impl Translator {
                             "status": "in_progress",
                             "rawInput": input,
                             "_meta": {"claude": {"tool": name}}
-                        })));
+                        });
+                        with_edit(&mut call, name, &input);
+                        if let (Some(diffs), Some(id)) =
+                            (call.get("content"), c.get("id").and_then(Value::as_str))
+                        {
+                            self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        out.push(upd(call));
+                    }
+                }
+            }
+            // Claude Code's echo of a user line it read (`--replay-user-messages`):
+            // first the turn's prompt, then each steered line in order.
+            // Matched by the line's uuid; an echo of anything else is ignored.
+            "user" if line.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+                let uuid = line.get("uuid").and_then(Value::as_str).unwrap_or("");
+                let mut prompt = self.prompt_echo.lock().await;
+                if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
+                    *prompt = None;
+                    return out;
+                }
+                drop(prompt);
+                let mut steers = self.steers.lock().await;
+                if let Some(at) = steers.iter().position(|(u, _)| !uuid.is_empty() && u == uuid)
+                    && let Some((_, k)) = steers.remove(at)
+                {
+                    drop(steers);
+                    let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                    out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                    // A turn the client stopped: Claude Code runs a line it
+                    // read after the stop as one more turn, so that turn is
+                    // stopped too, and the prompt ends cancelled.
+                    if self.cancelled.load(Ordering::SeqCst) {
+                        let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+                        self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}));
                     }
                 }
             }
@@ -121,12 +203,44 @@ impl Translator {
                             _ => String::new(),
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                        let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        // A failed launch never ran; a foreground shell no task
+                        // named is done.
+                        {
+                            let mut shells = self.background_shells.lock().await;
+                            if shells
+                                .get(tool)
+                                .is_some_and(|s| is_err || (!s.background && s.task.is_none()))
+                            {
+                                shells.remove(tool);
+                            }
+                        }
+                        // ACP content replaces the call's content: a finished edit
+                        // keeps its diff, and a failed one says why.
+                        let content = match self.edits.lock().await.remove(tool) {
+                            Some(diffs) if !is_err => diffs,
+                            _ => {
+                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                            }
+                        };
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call_update",
                             "toolCallId": c.get("tool_use_id"),
                             "status": if is_err { "failed" } else { "completed" },
-                            "content": [{"type": "content", "content": {"type": "text", "text": text}}],
+                            "content": content,
                         })));
+                        // A background subagent's result is only its launch.
+                        if self.background_subagents.lock().await.contains(tool) {
+                            continue;
+                        }
+                        if let Some(child) = self.subagents.lock().await.remove(tool) {
+                            self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
+                            out.push(upd(json!({
+                                "sessionUpdate": "subagent_state_update",
+                                "subagentSessionId": child,
+                                "state": if is_err { "failed" } else { "completed" },
+                            })));
+                        }
                     }
                 }
             }
@@ -151,18 +265,24 @@ impl Translator {
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
-                        out.push(Message::request(acp_id, method::SESSION_REQUEST_PERMISSION, json!({
-                            "sessionId": sid,
-                            "toolCall": {
-                                "toolCallId": req.get("tool_use_id"),
-                                "title": tool_title(name, &input),
-                                "kind": tool_kind(name),
-                                "status": "pending",
-                                "rawInput": input,
-                                "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
-                            },
-                            "options": options,
-                        })));
+                        let mut call = json!({
+                            "toolCallId": req.get("tool_use_id"),
+                            "title": tool_title(name, &input),
+                            "kind": tool_kind(name),
+                            "status": "pending",
+                            "rawInput": input,
+                            "_meta": {"claude": {"tool": name, "interactive": interactive, "suggestions": req.get("permission_suggestions"), "description": req.get("description")}}
+                        });
+                        with_edit(&mut call, name, &input);
+                        out.push(Message::request(
+                            acp_id,
+                            method::SESSION_REQUEST_PERMISSION,
+                            json!({
+                                "sessionId": sid,
+                                "toolCall": call,
+                                "options": options,
+                            }),
+                        ));
                     }
                     other => {
                         // Anything else (hook_callback, mcp_message) is declined
@@ -207,7 +327,7 @@ impl Translator {
                         "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
-                        "_meta": {"steering": {"supported": false}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
+                        "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
                     if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
                         let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
@@ -223,6 +343,7 @@ impl Translator {
                                 Setting::Mode => *self.mode.lock().await = value,
                                 Setting::Model => *self.model.lock().await = value,
                                 Setting::Effort => *self.effort.lock().await = value,
+                                Setting::Fast => *self.fast.lock().await = value == "on",
                             }
                         }
                         let mode = self.mode.lock().await.clone();
@@ -259,6 +380,27 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // The window Claude Code reports for the chat's model: the pane's
+                // context ring fills by used over it (cx-ncc.79).
+                if let Some(window) = self.result_context_window(line).await {
+                    self.context_window.store(window, Ordering::SeqCst);
+                    let used = self.context_used.load(Ordering::SeqCst);
+                    if used > 0 && parent.is_none() {
+                        out.push(upd(
+                            json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
+                        ));
+                    }
+                }
+                // A steered line Claude Code has not read yet: it runs it as
+                // one more turn of this prompt, whose result ends it (when
+                // echoes come at all; without them the steer fails below).
+                // A stop stays in force for that turn (`cancelled` is kept).
+                let unread = !self.steers.lock().await.is_empty();
+                if unread && self.prompt_echo.lock().await.is_none() {
+                    return out;
+                }
+                out.extend(self.fail_steers().await);
+                *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
                 let waiting: Vec<String> = self
                     .pending
@@ -281,6 +423,27 @@ impl Translator {
                 } else {
                     "end_turn"
                 };
+                // An interrupted turn stops its foreground subagents;
+                // background ones run on until their task_notification.
+                if stop == "cancelled" {
+                    let background = self.background_subagents.lock().await;
+                    let mut subagents = self.subagents.lock().await;
+                    let mut ended: Vec<String> = subagents
+                        .iter()
+                        .filter(|(tool, _)| !background.contains(*tool))
+                        .map(|(_, child)| child.clone())
+                        .collect();
+                    subagents.retain(|tool, _| background.contains(tool));
+                    drop((subagents, background));
+                    ended.sort();
+                    for child in ended {
+                        out.push(upd(json!({
+                            "sessionUpdate": "subagent_state_update",
+                            "subagentSessionId": child,
+                            "state": "cancelled",
+                        })));
+                    }
+                }
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
@@ -301,8 +464,218 @@ impl Translator {
                     }
                 }
             }
+            // A compaction left the context smaller than the last message held:
+            // the ring waits for the next message rather than refill (cx-ncc.79).
+            "system" if sub == "compact_boundary" && parent.is_none() => {
+                let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
+                self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+            }
+            "system" if sub.starts_with("task_") => {
+                if let Some(ended) = self.background_shell_task(sub, line, &sid).await {
+                    out.push(ended);
+                }
+                if let Some(ended) = self.subagent_task(sub, line).await {
+                    out.push(upd(ended));
+                }
+            }
             _ => {}
         }
         out
     }
+
+    /// A result's context window for the chat's model (`modelUsage`, keyed by
+    /// model id and cumulative over the session): the entry of the model the
+    /// main loop last ran, else of the configured one. None keeps the last
+    /// window: another entry may be a subagent's or an earlier model's.
+    async fn result_context_window(&self, line: &Value) -> Option<u64> {
+        let usage = line.get("modelUsage")?.as_object()?;
+        let window =
+            |entry: &Value| entry.get("contextWindow").and_then(Value::as_u64).filter(|w| *w > 0);
+        let looped = self.loop_model.lock().await.clone();
+        let configured = self.model.lock().await.clone();
+        usage.get(&looped).and_then(window).or_else(|| usage.get(&configured).and_then(window))
+    }
+
+    /// Claude's task events for a shell (cx-ncc.84): a `local_bash`
+    /// task_started names its task and says whether it runs in the background,
+    /// a task_updated may move it there, and a background one's
+    /// `task_notification` returns a `background_task_update`
+    /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
+    /// reason or summary when it gave one. The update goes to the session the
+    /// shell's Bash call ran in, a subagent's too.
+    async fn background_shell_task(&self, sub: &str, line: &Value, sid: &str) -> Option<Message> {
+        let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = text("task_id");
+        let mut shells = self.background_shells.lock().await;
+        // A task_updated or notification may name only the task.
+        let tool = match text("tool_use_id") {
+            Some(tool) => tool.to_owned(),
+            None => {
+                let task = task?;
+                shells.iter().find(|(_, s)| s.task.as_deref() == Some(task))?.0.clone()
+            }
+        };
+        let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
+        match sub {
+            "task_started" if text("task_type") == Some("local_bash") => {
+                let shell = shells.entry(tool).or_insert_with(|| BackgroundShell {
+                    sid: sid.to_owned(),
+                    command: text("description").unwrap_or("").to_owned(),
+                    task: None,
+                    background: false,
+                });
+                shell.task = task.map(str::to_owned).or(shell.task.take());
+                shell.background |= backgrounded(line.get("is_backgrounded"));
+                return None;
+            }
+            "task_updated" => {
+                if let Some(shell) = shells.get_mut(&tool) {
+                    shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                }
+                return None;
+            }
+            "task_notification" => {}
+            _ => return None,
+        }
+        let shell = shells.remove(&tool).filter(|s| s.background)?;
+        let state = match text("status") {
+            Some("failed") => "failed",
+            Some("killed" | "stopped") => "stopped",
+            _ => "completed",
+        };
+        let mut update = background_task_update(&tool, &shell, state);
+        if let Some(task) = task {
+            update["taskId"] = json!(task);
+        }
+        for key in ["reason", "summary"] {
+            if let Some(value) = text(key) {
+                update[key] = json!(value);
+            }
+        }
+        Some(shell_update(&shell, update))
+    }
+
+    /// The background shells still running when Claude's stdout closed: they
+    /// ended with its process, so each is reported `stopped`.
+    pub async fn end_background_shells(&self) -> Vec<Message> {
+        let mut shells: Vec<_> =
+            self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
+        shells.sort_by(|a, b| a.0.cmp(&b.0));
+        shells
+            .into_iter()
+            .map(|(tool, shell)| {
+                shell_update(&shell, background_task_update(&tool, &shell, "stopped"))
+            })
+            .collect()
+    }
+
+    /// Claude's task events for a subagent: `task_started` or `task_updated`
+    /// moves it to the background, and `task_notification` ends a background
+    /// one (its Agent tool call returned at launch). Returns the subagent's
+    /// `subagent_state_update` when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+        let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
+        let tool = match line.get("tool_use_id").and_then(Value::as_str) {
+            Some(tool) => tool.to_owned(),
+            None => self.subagent_tasks.lock().await.get(task)?.clone(),
+        };
+        if !self.subagents.lock().await.contains_key(&tool) {
+            return None;
+        }
+        if !task.is_empty() {
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool.clone());
+        }
+        let backgrounded = match sub {
+            "task_started" => line.get("is_backgrounded"),
+            "task_updated" => line.pointer("/patch/is_backgrounded"),
+            _ => None,
+        };
+        if backgrounded == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool);
+            return None;
+        }
+        if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
+            return None;
+        }
+        self.subagent_tasks.lock().await.remove(task);
+        let child = self.subagents.lock().await.remove(&tool)?;
+        let state = match line.get("status").and_then(Value::as_str) {
+            Some("failed") => "failed",
+            Some("stopped") => "cancelled",
+            _ => "completed",
+        };
+        Some(json!({
+            "sessionUpdate": "subagent_state_update",
+            "subagentSessionId": child,
+            "state": state,
+        }))
+    }
+
+    /// Records a new Agent tool call as a subagent session and returns its
+    /// `subagent_spawned` update. Claude's short `description` names it.
+    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
+        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+            self.background_subagents.lock().await.insert(tool_use_id.to_owned());
+        }
+        let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        json!({
+            "sessionUpdate": "subagent_spawned",
+            "subagentSessionId": child,
+            "name": s("name").unwrap_or(task),
+            "task": task,
+            "prompt": input.get("prompt"),
+            "capabilities": {},
+            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+        })
+    }
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
+    }
+}
+
+/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
+/// (pending, in_progress or completed, as ACP names them). Nil for input
+/// that is not a todo list.
+fn todo_plan(input: &Value) -> Option<Value> {
+    let entries: Vec<Value> = input
+        .get("todos")?
+        .as_array()?
+        .iter()
+        .filter_map(|todo| {
+            let content = todo.get("content").and_then(Value::as_str)?;
+            let status = todo
+                .get("status")
+                .and_then(Value::as_str)
+                .filter(|status| matches!(*status, "in_progress" | "completed"))
+                .unwrap_or("pending");
+            Some(json!({"content": content, "status": status, "priority": "medium"}))
+        })
+        .collect();
+    Some(json!({"sessionUpdate": "plan", "entries": entries}))
+}
+
+/// A `background_task_update` for one shell.
+fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
+    json!({
+        "sessionUpdate": "background_task_update",
+        "taskId": shell.task.as_deref().unwrap_or(""),
+        "toolCallId": tool,
+        "command": shell.command,
+        "state": state,
+    })
+}
+
+/// `update` as a session update in the shell's session.
+fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
+    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
 }

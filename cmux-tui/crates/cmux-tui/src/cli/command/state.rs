@@ -13,8 +13,8 @@ use serde_json::{Map, Number, Value};
 
 use super::{
     CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
-    insert_optional_clearable_string, insert_optional_string, insert_u32, parse_bool,
-    parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
+    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_u32,
+    parse_bool, parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
 };
 
 const GROUP_COLORS: &[&str] =
@@ -81,10 +81,18 @@ impl Params {
     }
 }
 
-/// `--color` for a tab or screen group: one of the fixed group colors.
+/// `--color` for a tab or screen group: one of the fixed group colors or `#RRGGBB`.
 fn group_color(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
     if let Some(color) = flags.take("color") {
-        validate_one_of("--color", &color, GROUP_COLORS)?;
+        let hex = color.len() == 7
+            && color.starts_with('#')
+            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex && !GROUP_COLORS.contains(&color.as_str()) {
+            return Err(UsageError::new(format!(
+                "--color must be one of {} or #RRGGBB",
+                GROUP_COLORS.join(", ")
+            )));
+        }
         params.insert("color", Value::String(color));
     }
     Ok(())
@@ -267,6 +275,7 @@ pub(super) fn parse_workspace_status(
             }
             insert_optional_string(&mut params.fields, flags, "icon", "icon");
             insert_optional_string(&mut params.fields, flags, "color", "color");
+            status_flags::insert(&mut params.fields, flags, caller_terminal())?;
             Op::WorkspaceStatusSet
         }
         ("status", ["clear"]) => Op::WorkspaceStatusClear,
@@ -382,6 +391,10 @@ pub(super) fn parse_workspace_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     nullable(&mut params, flags, "color", "color")?;
+                    nullable(&mut params, flags, "icon", "icon")?;
+                    if let Some(pinned) = flags.take("pinned") {
+                        params.insert("pinned", Value::Bool(parse_bool("--pinned", &pinned)?));
+                    }
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
                     top_index(&mut params, flags)?;
@@ -409,7 +422,27 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
+/// `tab <tab_…> restart`: the private `restart-tab`
+/// (`tab-restart-v1`), which restarts a terminal tab whose shell ended under
+/// the same terminal id. One request, like the tab group commands, so it
+/// works against a headless daemon with no app running.
+fn tab_restart(rest: &[&str], selectors: &Selectors) -> Result<CommandPlan, UsageError> {
+    if !rest.is_empty() {
+        return usage("tab restart");
+    }
+    let tab = selectors.values.get("tab").map(String::as_str).unwrap_or_default();
+    if !tab.starts_with("tab_") {
+        return Err(UsageError::new("tab restart needs a tab id (tab_…)"));
+    }
+    let mut request = Map::new();
+    request.insert("tab".into(), Value::String(tab.to_string()));
+    Ok(group_raw_plan("restart-tab", request))
+}
+
+/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update|restart`.
+///
+/// `update --icon <value>|--clear-icon` sets or clears the tab's user icon
+/// (`tab.update {icon}`), which the daemon owns for every tab kind.
 ///
 /// Zoom is a terminal's font zoom, which the daemon owns (`tab.update`). A
 /// browser tab's page zoom belongs to the app that hosts the page, so the CLI
@@ -422,6 +455,9 @@ pub(super) fn tab_change(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
+    if action == "restart" {
+        return tab_restart(rest, selectors);
+    }
     let mut params = Params::default();
     let operation = match (action, rest) {
         ("pin", []) => Op::TabPin,
@@ -443,23 +479,38 @@ pub(super) fn tab_change(
             Op::TabUpdate
         }
         ("update", []) => {
+            // The icon is the daemon's field on every tab kind. A browser
+            // tab's page zoom is an app action, so one request cannot carry
+            // both: an icon with a zoom flag is a usage error.
+            nullable(&mut params, flags, "icon", "icon")?;
             let step = match (flags.take("zoom"), flags.boolean("clear-zoom")) {
                 (Some(_), true) => {
                     return Err(UsageError::new("--zoom and --clear-zoom are mutually exclusive"));
                 }
                 (Some(value), false) => {
                     params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?);
-                    ZoomStep::Value
+                    Some(ZoomStep::Value)
                 }
                 (None, true) => {
                     params.insert("zoom", Value::Null);
-                    ZoomStep::Reset
+                    Some(ZoomStep::Reset)
                 }
-                (None, false) => {
-                    return Err(UsageError::new("tab update needs --zoom or --clear-zoom"));
-                }
+                (None, false) => None,
             };
-            params.resolve.push(Resolve::TabZoom { step });
+            match step {
+                Some(_) if params.fields.contains_key("icon") => {
+                    return Err(UsageError::new(
+                        "tab update sets the icon or the zoom, not both; run two commands",
+                    ));
+                }
+                Some(step) => params.resolve.push(Resolve::TabZoom { step }),
+                None if params.fields.contains_key("icon") => {}
+                None => {
+                    return Err(UsageError::new(
+                        "tab update needs --zoom, --clear-zoom, --icon or --clear-icon",
+                    ));
+                }
+            }
             Op::TabUpdate
         }
         _ => return usage("tab action"),
@@ -707,8 +758,9 @@ pub(super) fn parse_screen_group(
 // closed
 
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
-/// (the newest group of that window: Cmd-Shift-T) and
-/// `closed <id> reopen [--members 0,2]`: the closed groups of the session.
+/// (the newest group of that window: Cmd-Shift-T),
+/// `closed <id> reopen [--members 0,2]`, `closed <id> delete [--members]`
+/// and `closed clear [--since-ms T]`: the closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     let mut params = Params::default();
@@ -723,6 +775,26 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
         ["reopen"] => {
             insert_optional_string(&mut params.fields, flags, "window", "window");
             Op::ClosedReopen
+        }
+        ["clear"] => {
+            params.insert("all", Value::Bool(true));
+            if let Some(since) = flags.take("since-ms") {
+                if since.is_empty() || !since.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(UsageError::new("--since-ms must be a Unix time in milliseconds"));
+                }
+                params.insert("since_ms", Value::String(since));
+            }
+            Op::ClosedDelete
+        }
+        [closed, "delete"] => {
+            if closed.is_empty() || closed.len() > 64 {
+                return Err(UsageError::new("closed id must contain 1 to 64 UTF-8 bytes"));
+            }
+            params.insert("closed", Value::String((*closed).into()));
+            if let Some(members) = flags.take("members") {
+                params.insert("members", closed_members(&members)?);
+            }
+            Op::ClosedDelete
         }
         [closed, "reopen"] => {
             if closed.is_empty() || closed.len() > 64 {
@@ -749,6 +821,8 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
         .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
     Ok(Value::Array(members))
 }
+
+mod status_flags;
 
 #[cfg(test)]
 mod tests;

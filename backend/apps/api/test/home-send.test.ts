@@ -7,6 +7,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /** Stage C invite email sends from AddressDO: once, fail-closed switch, allow list, nothing printed but ids. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

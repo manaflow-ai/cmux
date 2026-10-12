@@ -37,9 +37,7 @@ public struct SavedHostsDocument: Codable, Sendable, Hashable {
     /// Replaces the host's transport (keeping its place and entry time) or
     /// appends it, dropping the oldest past ``limit``.
     public mutating func upsert(id: String, transport: [String: String], nowMs: UInt64) {
-        if let index = hosts.firstIndex(where: { $0.id == id }) {
-            hosts[index].transport = transport
-        } else {
+        if !hosts.modifyFirst(where: { $0.id == id }, { $0.transport = transport }) {
             hosts.append(Host(id: id, transport: transport, addedMs: nowMs))
             if hosts.count > Self.limit { hosts.removeFirst(hosts.count - Self.limit) }
         }

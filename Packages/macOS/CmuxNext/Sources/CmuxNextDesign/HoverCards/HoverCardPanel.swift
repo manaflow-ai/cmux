@@ -12,7 +12,7 @@ public enum HoverCardPlacement: Sendable {
 
 /// The one hover card window of the app: a borderless, non-activating,
 /// click-through child window holding a glass card (opaque under Reduce
-/// Transparency, `OverlaySurfaceView`). The coordinator owns
+/// Transparency, `OverlaySurfaceView`) in the popup style (`PopupStyle`). The coordinator owns
 /// the only instance and swaps the card's body (a tab card or a workspace
 /// card view, each reused) into it.
 @MainActor
@@ -31,26 +31,31 @@ final class HoverCardPanel: NSPanel {
     private weak var adoptedScope: ThemeScope?
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         Self.liveInstances += 1
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
+        adoptPopupStyle(card: glass)
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
         hidesOnDeactivate = !WindowPlacement.noActivate
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        contentView = glass
     }
 
-    isolated deinit { Self.liveInstances -= 1 }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            Self.liveInstances -= 1
+        }
+    }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// The card's frame on screen: the window less its shadow band.
+    var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: frame) }
 
     /// The card is on screen (fading in or shown), not fading out.
     var isShowingCard: Bool { isVisible && parentWindowRef != nil && !isDismissing }
@@ -59,7 +64,7 @@ final class HoverCardPanel: NSPanel {
     /// Shows `body` at `anchor` (screen) as a child of `parent`. `themeAnchor`
     /// is the view the card describes; the card draws in its theme scope.
     /// `sliding` (a retarget of a visible card) moves it in the same frame
-    /// like any other placement; only a first show fades in.
+    /// like any other placement; every show is at full strength on the first frame.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
@@ -98,11 +103,14 @@ final class HoverCardPanel: NSPanel {
         self.anchor = anchor
         self.placement = placement
         place()
-        // A fade-out in flight (hide and show in one turn) is replaced by a fade-in.
+        // The card shows on the first frame at full strength; a fade-out in flight (hide and
+        // show in one turn) is replaced at once.
         if !isVisible || alphaValue < 1 || wasDismissing {
-            if !isVisible { alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                animator().alphaValue = 1
+            }
             orderFront(nil)
-            Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
         }
     }
 
@@ -137,7 +145,7 @@ final class HoverCardPanel: NSPanel {
         }
         // R131: a retarget moves the card in the same frame (Chrome); a
         // window-frame slide restarted on every tab trailed the pointer.
-        setFrame(CGRect(origin: origin, size: size), display: true)
+        setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
     }
 
     func dismiss() {

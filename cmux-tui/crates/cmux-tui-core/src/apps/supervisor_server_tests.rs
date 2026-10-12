@@ -233,45 +233,6 @@ fn server_ops_need_their_scope_and_required_gestures_need_the_user() {
     assert_eq!(run_server_op_as(&f, "cmux/gate", "gate.wipe", Origin::User).unwrap(), served);
 }
 
-#[test]
-fn servers_get_only_the_allowlisted_environment() {
-    let root = temp_dir();
-    let marker = root.0.join("envy.marker");
-    let state = root.0.join("state");
-    write_fake_server(&root.0.join("servers"));
-    let mut server = native_server(&marker, json!({ "start": "always" }));
-    server["data"] = json!([{ "name": "keep", "class": "durable" }, { "name": "scratch", "class": "ephemeral" }]);
-    write_server_app(&root.0.join("bundled"), "envy", server);
-    let f = fixture_with(&[], Duration::from_secs(60), root);
-    f.install("cmux/envy");
-    let env_file = marker.with_extension("marker.env");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let env = loop {
-        let env = std::fs::read_to_string(&env_file).unwrap_or_default();
-        if env.contains("cargo=") {
-            break env;
-        }
-        assert!(Instant::now() < deadline, "no environment written");
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let data = state.join("apps-data/cmux.envy");
-    let tmp = state.join("apps-tmp/cmux.envy");
-    assert_eq!(
-        env.lines().collect::<Vec<_>>(),
-        [
-            "id=cmux/envy".to_string(),
-            format!("data={}", data.display()),
-            format!("tmp={}", tmp.display()),
-            "home=".to_string(),
-            "cargo=".to_string(),
-        ]
-    );
-    assert!(data.join("keep").is_dir() && data.join("scratch").is_dir() && tmp.is_dir());
-    f.set("rm", "cmux/envy", Origin::User, |o| o.installed = Some(false)).unwrap();
-    wait_marker(&marker, &["start", "stop"]);
-    assert!(!data.exists() && !tmp.exists(), "uninstall removes the server's directories");
-}
-
 fn probe_server(out: &Path, op: &str, scoped: bool) -> Value {
     let mut server = json!({
         "kind": "native",
@@ -321,7 +282,25 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     // The link lane registers the hub socket; until then it is null.
     assert_eq!(value["hub_socket"], Value::Null);
     assert_eq!(value["state_dir"], json!(state.join("apps-data/cmux.linked/link")));
-    assert_eq!(value["socket_dir"], json!(state.join("apps-tmp/cmux.linked")));
+    // The app's temporary and socket folder (cx-wmd8x, server_tmp.rs): on macOS
+    // `<per-user temp dir>/cmux-apps/<12 hex>`, 71 bytes; elsewhere the old path, which fits here.
+    let socket_dir = PathBuf::from(value["socket_dir"].as_str().unwrap());
+    #[cfg(target_os = "macos")]
+    {
+        let text = socket_dir.to_str().unwrap();
+        let leaf = socket_dir.file_name().unwrap().to_str().unwrap();
+        assert_eq!(text.len(), 71, "{text}");
+        assert!(text.starts_with("/var/folders/") && text.contains("/T/cmux-apps/"), "{text}");
+        assert!(leaf.len() == 12 && leaf.chars().all(|c| c.is_ascii_hexdigit()), "{text}");
+    }
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(socket_dir, state.join("apps-tmp/cmux.linked"));
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+        assert!(meta.is_dir() && !meta.file_type().is_symlink());
+        assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+    }
     assert!(value["device_name"].as_str().is_some_and(|n| !n.is_empty()));
     // A server without the scope gets host.error; the relay is not wired yet.
     let refused = &frames(&unscoped, 1)[0];
@@ -515,3 +494,6 @@ mod cancel;
 
 #[path = "terminal_ops_tests.rs"]
 mod terminal_ops_tests;
+
+#[path = "supervisor_relay_tests.rs"]
+mod relay;

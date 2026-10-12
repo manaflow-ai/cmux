@@ -11,7 +11,7 @@ enum PageCommandHandlers {
         let services = context.services
         for (action, command) in MarkdownPageCommand.forAction {
             registry.bind(ActionID(rawValue: action), run: { _ in
-                guard let controller = services.windows.active, let router = services.keyRouter,
+                guard let controller = services.windows.active, case let router = services.keyRouter,
                       let page = router.focusedPage(in: controller), page.descriptor.commands.contains(command),
                       page.send(command: command) else {
                     throw ActionFailure(message: FilePageStrings.noFilePage)

@@ -16,6 +16,7 @@ public struct AccountsPalette: Sendable, Equatable {
     var danger: Color
     var success: Color
     var attention: Color
+    let isDark: Bool
 
     public init(tokens: ThemeTokens) {
         func color(_ rgb: ThemeRGB) -> Color { Color(nsColor: rgb.nsColor) }
@@ -29,6 +30,7 @@ public struct AccountsPalette: Sendable, Equatable {
         danger = color(tokens.danger)
         success = color(tokens.success)
         attention = color(tokens.attention)
+        isDark = tokens.isDark
     }
 
     /// The app scope's colors (the Ghostty config theme).

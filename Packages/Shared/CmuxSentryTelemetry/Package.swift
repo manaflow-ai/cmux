@@ -49,7 +49,12 @@ let package = Package(
             dependencies: [
                 "CmuxSentryScrubbing",
                 "CMUXMobileCore",
-                .product(name: "Sentry", package: "sentry-cocoa"),
+                // macOS links the dynamic SDK: a static Sentry adds the
+                // Objective-C personality routine to the cmux-next app image,
+                // one more than compact unwind encodes (C++, iroh-ffi and
+                // CCmuxAppFFI already use the three; check-app-personalities.sh).
+                .product(name: "Sentry", package: "sentry-cocoa", condition: .when(platforms: [.iOS])),
+                .product(name: "Sentry-Dynamic", package: "sentry-cocoa", condition: .when(platforms: [.macOS])),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

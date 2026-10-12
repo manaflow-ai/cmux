@@ -9,6 +9,10 @@ mod picture;
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
 pub mod openh264;
 
+/// The host installer's step that downloads Cisco's OpenH264 from Cisco.
+#[cfg(feature = "openh264-download")]
+pub mod cisco;
+
 #[cfg(target_os = "macos")]
 pub mod videotoolbox;
 

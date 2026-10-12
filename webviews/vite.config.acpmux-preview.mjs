@@ -12,7 +12,8 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 4175,
-    fs: { allow: ["../..", "../../.."] },
+    // The repository root: the agent question gallery reads the shared fixtures in Packages/Shared.
+    fs: { allow: ["../..", "../../..", "../../../.."] },
     watch: {
       usePolling: true,
       interval: 250,

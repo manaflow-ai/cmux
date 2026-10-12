@@ -21,7 +21,7 @@ extension TabContentCache {
         if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
-        if captureIfMissing, let entry = browsers[key], let image = try? await entry.tab.snapshot() {
+        if captureIfMissing, let entry = browsers[key], let image = try? await entry.tab.thumbnail() {
             return await TabPreviewFitting.fit(image, maxPixelSize)
         }
         return nil
@@ -38,7 +38,7 @@ extension TabContentCache {
         let budget = pageCaptureDeadline
         Task { [weak self] in
             let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget) { @MainActor in
-                try await page.snapshot()
+                try await page.thumbnail()
             }
             guard let image else { return }
             let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)

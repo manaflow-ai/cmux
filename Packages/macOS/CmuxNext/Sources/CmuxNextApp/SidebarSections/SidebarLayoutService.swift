@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
@@ -11,7 +12,10 @@ import os
 /// written only by the owner's replies and fetches, and one ordered log of
 /// pending intents; the visible `document` is the mirror with the pending
 /// intents applied by the same reducer (OWNERSHIP-PRINCIPLES "clients are
-/// projections"). An intent leaves the log on its reply or reject; a
+/// projections"). Intents go to the owner one at a time in log order (an
+/// op can depend on the one before it: a section add, then an item add into
+/// it; Add Home, then its undo), so the owner applies them in the order the
+/// person made them. An intent leaves the log on its reply or reject; a
 /// disconnect keeps it, and it is resent with its key on reconnect. While
 /// the owner is unreachable, edits are refused (nothing queues), except in
 /// DEV with Debug Settings `sidebar.sections.localPrototype`, which edits an
@@ -26,16 +30,23 @@ final class SidebarLayoutService {
     private(set) var document: SidebarLayoutDocument = .defaults
     /// The owner's confirmed layout.
     @ObservationIgnored private(set) var mirror: SidebarLayoutDocument = .defaults
-    /// Ops sent (or to resend) in order, each with its idempotency key.
+    /// Ops to send in order, each with its idempotency key; at most the first is in flight.
     @ObservationIgnored private(set) var pending: [(key: String, op: SidebarLayoutOp, inFlight: Bool)] = []
     @ObservationIgnored private var prototype = SidebarLayoutMemoryOwner()
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
-    @ObservationIgnored private let remote: (any SidebarLayoutRemote)?
+    @ObservationIgnored let remote: (any SidebarLayoutRemote)?
     @ObservationIgnored private let onRefused: @MainActor (String) -> Void
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var legacyObservation: Task<Void, Never>?
+    /// The owner's layout has been read once (migrations plan against it).
+    @ObservationIgnored private var fetched = false
     /// The sections migration went out this session (at most once, so an
     /// owner that refuses it is not asked again on every fetch).
     @ObservationIgnored private var migrationSent = false
+    /// Sessions whose legacy pins went out as tiles this run (`migrateLegacyPins`).
+    @ObservationIgnored var legacyPinsSent: Set<String> = []
+    /// Sessions whose legacy flags were cleared this run (`migrateLegacyPins`).
+    @ObservationIgnored var legacyPinsCleared: Set<String> = []
     /// This Mac added Recents to the layout, or saw it there, once.
     @ObservationIgnored private let recentsOffered: UserDefaults
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
@@ -51,8 +62,13 @@ final class SidebarLayoutService {
         self.recentsOffered = recentsOffered
     }
 
-    isolated deinit {
-        observation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            legacyObservation?.cancel()
+        }
     }
 
     /// Follows the owner: fetch when it becomes reachable and after each
@@ -61,15 +77,20 @@ final class SidebarLayoutService {
         guard let remote, observation == nil else { return }
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
-            for await (available, _) in Observations({ (remote.isAvailable, remote.changeToken) }) {
+            for await (available, _) in ObservationStream({ (remote.isAvailable, remote.changeToken) }) {
                 guard let self, available else { continue }
                 self.refresh()
                 self.resendInterrupted()
             }
         }
+        // task-owner: the service (cancelled in deinit); event-driven (Observation).
+        // A session tree that loads, or a legacy pin that changes, re-runs the one-time pin move.
+        legacyObservation = Task { [weak self] in
+            for await _ in ObservationStream({ remote.legacyPins }) { self?.migrateIfNeeded() }
+        }
     }
 
-    private var usesOwner: Bool { remote?.isAvailable ?? false }
+    var usesOwner: Bool { remote?.isAvailable ?? false }
 
     /// Why edits are refused now, or nil when they apply.
     var unavailableReason: String? {
@@ -86,9 +107,9 @@ final class SidebarLayoutService {
             throw ActionFailure(message: SidebarSectionStrings.rejected(reject.rawValue))
         }
         let key = "sidebar-layout-" + UUID().uuidString.lowercased()
-        pending.append((key, op, true))
+        pending.append((key, op, false))
         recompute()
-        dispatch(key, op)
+        sendNext()
     }
 
     private func sendToPrototype(_ op: SidebarLayoutOp) throws {
@@ -115,29 +136,35 @@ final class SidebarLayoutService {
                 } else {
                     self.settle(key, confirmed: nil)
                     Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
-                    self.onRefused(String(describing: error))
+                    self.onRefused(RefusalStrings.describe(error))
                 }
             }
         }
     }
 
-    /// The intent's reply (or reject, with nil) arrived.
+    /// The intent's reply (or reject, with nil) arrived; the next one goes out.
     func settle(_ key: String, confirmed: SidebarLayoutDocument?) {
         pending.removeAll { $0.key == key }
         if let confirmed { adopt(confirmed) }
         recompute()
+        sendNext()
     }
 
+    /// Sends the oldest intent when none is in flight (one at a time, in log order).
+    private func sendNext() {
+        guard remote != nil, !pending.contains(where: \.inFlight), let first = pending.first else { return }
+        pending[0].inFlight = true
+        dispatch(first.key, first.op)
+    }
+
+    /// A disconnect: the intent stays first in the log and waits for the reconnect.
     private func markInterrupted(_ key: String) {
         guard let index = pending.firstIndex(where: { $0.key == key }) else { return }
         pending[index].inFlight = false
     }
 
     private func resendInterrupted() {
-        for index in pending.indices where !pending[index].inFlight {
-            pending[index].inFlight = true
-            dispatch(pending[index].key, pending[index].op)
-        }
+        sendNext()
     }
 
     /// Fetches the owner's layout.
@@ -146,6 +173,7 @@ final class SidebarLayoutService {
         // task-owner: one sidebar_layout.get
         Task { [weak self] in
             guard let confirmed = try? await remote.get() else { return }
+            self?.fetched = true
             self?.adopt(confirmed)
             self?.recompute()
             self?.migrateIfNeeded()
@@ -159,8 +187,14 @@ final class SidebarLayoutService {
     /// layout the user changed is never touched. Waits for a quiet log, so
     /// it reads the owner's layout rather than one with the user's edits in
     /// flight.
-    private func migrateIfNeeded() {
-        guard !migrationSent, pending.isEmpty else { return }
+    func migrateIfNeeded() {
+        guard fetched, usesOwner, pending.isEmpty else { return }
+        migrateSections()
+        if pending.isEmpty { migrateLegacyPins() }
+    }
+
+    private func migrateSections() {
+        guard !migrationSent else { return }
         // Recents is added once per Mac: a layout without it after that is one the user removed it from.
         let offered = recentsOffered.bool(forKey: Self.recentsOfferedKey)
         let ops = mirror.layoutMigrationOps(offeringRecents: !offered)

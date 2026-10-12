@@ -1,5 +1,5 @@
 // Page side of the proposed web pane bridge (interfaces/web-bridge.ts).
-// Identical in first-party-apps/{monaco,codemirror}/src/shared.
+// Identical in first-party-apps/codemirror/src/shared.
 //
 // `createBridge(transport)` gives the page a small `cmux`-like client: call an
 // op, subscribe to a stream, emit interface events, finish host commands. The

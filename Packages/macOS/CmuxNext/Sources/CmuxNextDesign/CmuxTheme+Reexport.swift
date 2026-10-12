@@ -11,3 +11,9 @@ public typealias ThemeRGB = CmuxTheme.ThemeRGB
 public typealias ThemeInput = CmuxTheme.ThemeInput
 /// The chrome colors derived from a terminal theme; see ``CmuxTheme/ThemeTokens``.
 public typealias ThemeTokens = CmuxTheme.ThemeTokens
+/// The app theme's contract tokens from a terminal palette; see ``CmuxTheme/AppTheme``.
+public typealias AppTheme = CmuxTheme.AppTheme
+/// Where the chrome's accent comes from; see ``CmuxTheme/ThemeAccent``.
+public typealias ThemeAccent = CmuxTheme.ThemeAccent
+/// One Ghostty theme file's colors; see ``CmuxTheme/ThemeFileColors``.
+public typealias ThemeFileColors = CmuxTheme.ThemeFileColors

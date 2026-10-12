@@ -9,14 +9,16 @@
 //! The id is the server's own (any JSON value), echoed back.
 //! - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
 //!   socket_dir, device_name}` from the daemon's own values (see
-//!   [`Supervisor::host_link`]; `hub_socket` is `null` until the link
-//!   lane's registration exists); event `cmux.host.link.changed` with the
-//!   same value. Needs server scope `op:cmux.host.link.get` and a
+//!   [`Supervisor::host_link`]; `hub_socket` is the live link
+//!   registration's socket, else `null`); event `cmux.host.link.changed`
+//!   with the same value. `socket_dir` is checked on every answer
+//!   (server_tmp.rs): a folder that is no longer the user's private folder
+//!   answers `host.error` `apps.socket_dir_unsafe`. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
-//! - `cmux.credential.relay` answers `host.error` `unavailable` until the
-//!   Mac provider side exists (APP-R1): the supervisor will forward the
-//!   request params over the provider channel and the Mac app answers
-//!   through its host capabilities; no user credential enters the daemon.
+//! - `cmux.credential.relay` as a `host.request` answers `host.error`
+//!   `unavailable`: the relay is served for the server's `relay.op` and
+//!   `relay.session` lines (`relay.rs`), which the scope
+//!   `op:cmux.credential.relay` allows; no user credential enters the daemon.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
 use serde_json::{Value, json};
@@ -30,28 +32,31 @@ impl Supervisor {
     /// hub socket, a link state directory in the app's data directory, the
     /// app's temporary directory for link sockets, and this machine's name.
     ///
-    /// `hub_socket` is always `null` for now. The link lane (lane 12: the
-    /// WireGuard engine and the `cmux link` agent) owns that socket; the
-    /// daemon neither spawns it nor reads it from its launch environment. It
-    /// will come from the link agent's registration file at a well-known
-    /// path under the daemon state directory, which lane 12 defines. Until
-    /// then the Cloud server answers `link_unavailable`.
-    pub(super) fn host_link(&self, app: &str) -> Value {
-        let (data, tmp) = self.server_dirs(app);
+    /// `hub_socket` comes from the link agent's registration (lane 12,
+    /// `<daemon state dir>/link.json`, `cmux_link::registration`) and is set
+    /// only while that link runs (its pid is alive and its socket accepts);
+    /// otherwise `null`, and the Cloud server answers `link_unavailable`.
+    /// The daemon never spawns the link and never reads it from its launch
+    /// environment.
+    /// The socket folder is checked on every answer (cx-wmd8x, server_tmp.rs):
+    /// one that is no longer this user's private folder refuses.
+    pub(super) fn host_link(&self, app: &str) -> Result<Value, String> {
+        let (data, tmp) = self.server_dirs(app)?;
+        super::server_tmp::check_server_tmp(&tmp)?;
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
-        json!({
+        Ok(json!({
             "binary": std::env::current_exe().ok(),
-            "hub_socket": Value::Null,
+            "hub_socket": hub_socket(),
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
-        })
+        }))
     }
 
     /// Whether `app` may call the host op `op`: a first-party app whose
     /// manifest declares the server scope `op:<op>`.
-    fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
+    pub(super) fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.tier == Tier::FirstParty
                 && package
@@ -62,44 +67,109 @@ impl Supervisor {
         })
     }
 
-    /// Answers one `host.request` frame of `app`'s server.
-    pub(super) fn host_request_locked(&self, inner: &Inner, app: &str, request: &Value) -> Value {
+    /// Answers one `host.request` frame of `app`'s server, outside the supervisor lock
+    /// (`allowed`: the server holds `op:cmux.host.link.get`, read under the lock). The
+    /// second value is set when the socket folder failed its check (cx-wmd8x): the caller
+    /// stops that server, so it never keeps binding in a folder that is no longer private.
+    pub(super) fn host_request(
+        &self,
+        app: &str,
+        allowed: bool,
+        request: &Value,
+    ) -> (Value, Option<String>) {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         let error = |code: &str, message: &str, retryable: bool| json!({ "t": "host.error", "id": id, "code": code, "message": message, "retryable": retryable });
         match request["op"].as_str().unwrap_or_default() {
-            op @ "cmux.host.link.get" => {
-                if Self::host_op_allowed(inner, app, op) {
-                    json!({ "t": "host.result", "id": id, "value": self.host_link(app) })
-                } else {
-                    error(
-                        "apps.scope_missing",
-                        "the server does not declare op:cmux.host.link.get",
-                        false,
-                    )
+            "cmux.host.link.get" => {
+                if !allowed {
+                    return (
+                        error(
+                            "apps.scope_missing",
+                            "the server does not declare op:cmux.host.link.get",
+                            false,
+                        ),
+                        None,
+                    );
+                }
+                match self.host_link(app) {
+                    Ok(value) => (json!({ "t": "host.result", "id": id, "value": value }), None),
+                    Err(message) => {
+                        (error("apps.socket_dir_unsafe", &message, false), Some(message))
+                    }
                 }
             }
             "cmux.credential.relay" => {
-                error("unavailable", "the cmux credential relay is not available yet", true)
+                (error("unavailable", "the cmux credential relay is not available yet", true), None)
             }
-            op => error("apps.op.unknown", &format!("the host has no op {op}"), false),
+            op => (error("apps.op.unknown", &format!("the host has no op {op}"), false), None),
         }
     }
 
+    /// Stops `app`'s server after its socket folder failed a check (cx-wmd8x).
+    pub(super) fn stop_for_unsafe_folder(&self, app: &str, reason: &str) {
+        let outs = {
+            let mut inner = self.inner.lock().unwrap();
+            let mut outs = self.log_locked(&mut inner, app, "error", reason.to_string());
+            outs.extend(self.stop_server_locked(
+                &mut inner,
+                app,
+                "its socket folder failed its check",
+            ));
+            outs
+        };
+        self.emit(outs);
+    }
+
     /// Sends `cmux.host.link.changed` to every running server that may read
-    /// the link. Nothing changes the daemon's link values during its life
-    /// yet; the daemon calls this when the link agent's registration (lane
-    /// 12) appears or changes.
+    /// the link. No watch on the link registration calls it yet (a watch
+    /// needs a file-notify dependency in this crate); until then a server
+    /// asks `cmux.host.link.get` again, which reads the registration live.
+    /// The servers are read under the lock; the folder checks run after it is
+    /// released, and a server whose folder fails is stopped (cx-wmd8x).
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn host_link_changed(&self) {
-        let inner = self.inner.lock().unwrap();
-        for (app, server) in &inner.servers {
-            if !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get") {
-                server.process.send(line(&json!({
-                    "t": "host.event", "op": "cmux.host.link.changed", "data": self.host_link(app),
-                })));
+        let servers: Vec<(String, std::sync::Arc<super::servers::ServerProcess>)> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .servers
+                .iter()
+                .filter(|(app, server)| {
+                    !server.stopping && Self::host_op_allowed(&inner, app, "cmux.host.link.get")
+                })
+                .map(|(app, server)| (app.clone(), server.process.clone()))
+                .collect()
+        };
+        for (app, process) in servers {
+            match self.host_link(&app) {
+                Ok(data) => process.send(line(&json!({
+                    "t": "host.event", "op": "cmux.host.link.changed", "data": data,
+                }))),
+                Err(reason) => self.stop_for_unsafe_folder(&app, &reason),
             }
         }
     }
+}
+
+/// How long the liveness probe of the link registration may take: the
+/// caller holds the supervisor lock, and a link with a full accept backlog
+/// would block a plain connect.
+const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The live link registration's socket, if a link runs: `link.json` in the
+/// daemon state directory, the directory the link agent registers in (the
+/// parent of its own `link` directory). A probe that does not finish within
+/// [`LINK_PROBE`] counts as no link.
+fn hub_socket() -> Option<std::path::PathBuf> {
+    let dir = crate::platform::workspace_state_dir()?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("cmux-apps-link-probe".into())
+        .spawn(move || {
+            let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
+            let _ = sender.send(live);
+        })
+        .ok()?;
+    receiver.recv_timeout(LINK_PROBE).ok().flatten()
 }
 
 /// This machine's name, or `cmux`.

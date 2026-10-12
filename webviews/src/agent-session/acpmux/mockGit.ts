@@ -18,9 +18,16 @@ export function manifestFor(name: string, files: string[]): Manifest {
 }
 `;
 
-/// A file's change as git reports it: counts and the patch from its first `@@` on.
-function changed(path: string, status: ChangedFile["status"], before: string | undefined, after: string): ChangedFile {
-  const hunks = diffHunks(diffLines(before, after));
+/// A file's change as git reports it: counts and the patch from its first `@@` on, with
+/// `context` unchanged lines around each change (`git diff --unified`).
+function changed(
+  path: string,
+  status: ChangedFile["status"],
+  before: string | undefined,
+  after: string,
+  context?: number,
+): ChangedFile & { before?: string; after: string } {
+  const hunks = diffHunks(diffLines(before, after), 1, context);
   const file: TurnFile = { path, displayPath: path, edits: [], additions: 0, deletions: 0, created: before == null };
   const patch = editPatch(file, { toolId: "git", hunks, numbered: true }).split("\n").slice(3).join("\n");
   const lines = hunks.flatMap((hunk) => hunk.lines);
@@ -30,6 +37,8 @@ function changed(path: string, status: ChangedFile["status"], before: string | u
     additions: lines.filter((line) => line.type === "add").length,
     deletions: lines.filter((line) => line.type === "del").length,
     patch,
+    before,
+    after,
   };
 }
 
@@ -40,7 +49,7 @@ const unstaged = [
   changed(test.path, "modified", test.before, test.after),
 ];
 const committed = [changed("Sources/Fleet/manifest.ts", "modified", manifestBefore, manifestAfter)];
-const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ChangedFile[]> = {
+const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ReturnType<typeof changed>[]> = {
   uncommitted: [...staged, ...unstaged],
   unstaged,
   staged,
@@ -54,11 +63,20 @@ const outsideGit = new Set(mockSessions.filter((session) => session.cwd === "~/c
 const rootOf = (sessionId: string) =>
   mockSessions.find((session) => session.sessionId === sessionId)?.cwd ?? workedSources.root;
 
-/// A GitDiffResult: patches only when asked for, as the session host does.
-export function mockGitDiff(sessionId: string, scope: ChangeScope, includePatch: boolean) {
+/// A GitDiffResult: patches only when asked for, as the session host does; `narrow` keeps only
+/// `paths` and reads them with `context` unchanged lines (Show more lines, changes/wholeFile.ts).
+export function mockGitDiff(
+  sessionId: string,
+  scope: ChangeScope,
+  includePatch: boolean,
+  narrow: { paths?: string[]; context?: number } = {},
+) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
   if (!Object.hasOwn(workedScopes, scope)) throw new Error(`Unknown scope ${scope}`);
-  const files = sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [];
+  const { paths, context } = narrow;
+  const files = (sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [])
+    .filter((file) => !paths || paths.includes(file.path))
+    .map((file) => (context === undefined ? file : changed(file.path, file.status, file.before, file.after, context)));
   // The compared commit: the merge base for branch, HEAD's first parent for committed.
   const base = scope === "branch" ? "origin/main" : scope === "committed" ? "4be1c2e~1" : undefined;
   return {
@@ -88,13 +106,102 @@ export function mockGitStatus(sessionId: string) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
   const session = mockSessions.find((entry) => entry.sessionId === sessionId);
   const branch = session?.branch ?? "main";
+  const state = repo(sessionId);
   return {
     root: rootOf(sessionId),
     detached: false,
     branch,
+    head: state.head,
     upstream: "origin/main",
     base: "origin/main",
-    ahead: 1,
+    ahead: state.ahead,
     behind: 0,
   };
+}
+
+/// Each session's HEAD and how far it is ahead of origin/main, as the mock's commits and pushes
+/// leave them; and each key's first result, so a retry replays it as the session host does.
+const repos = new Map<string, { head: string; ahead: number; made: number }>();
+const replies = new Map<string, unknown>();
+const repo = (sessionId: string) => {
+  let state = repos.get(sessionId);
+  if (!state) repos.set(sessionId, (state = { head: "4be1c2e9a0f1b2c3d4e5f60718293a4b5c6d7e8f", ahead: 1, made: 0 }));
+  return state;
+};
+
+/// A refusal as the session host words it: `operation.failed` with the machine reason.
+function refused(operation: string, reason: string, output?: string) {
+  return Object.assign(new Error(reason), {
+    code: "operation.failed",
+    details: { operation, reason, extra: { message: reason, ...(output ? { output } : {}) } },
+  });
+}
+
+function keyed(sessionId: string, key: unknown, run: () => unknown) {
+  const id = `${sessionId}\u0000${String(key)}`;
+  const first = replies.get(id);
+  if (first) return { ...(first as object), replayed: true };
+  const result = run();
+  replies.set(id, result);
+  return result;
+}
+
+/// `git.commit`: a message `fail:<reason>` is refused with that reason, so every failure state
+/// can be shown in mock mode; anything else commits and puts the branch one more commit ahead.
+export function mockGitCommit(sessionId: string, params: Record<string, unknown>) {
+  if (outsideGit.has(sessionId)) throw refused("git.commit", "not_a_repository");
+  return keyed(sessionId, params.idempotency_key, () => {
+    const state = repo(sessionId);
+    const message = typeof params.message === "string" ? params.message : "";
+    const failure = /^fail:(\w+)/.exec(message)?.[1];
+    if (failure) throw refused("git.commit", failure, "hook output\nline 2");
+    if (typeof params.expected_head === "string" && params.expected_head !== state.head)
+      throw refused("git.commit", "head_moved");
+    const parent = state.head;
+    state.made += 1;
+    state.head = `${state.made.toString(16).padStart(8, "0")}${parent.slice(8)}`;
+    state.ahead += 1;
+    const files = params.all === true ? workedScopes.uncommitted : workedScopes.staged;
+    return {
+      value: {
+        root: rootOf(sessionId),
+        commit: state.head,
+        branch: mockSessions.find((entry) => entry.sessionId === sessionId)?.branch ?? "main",
+        parent,
+        summary: message.split("\n")[0] ?? "",
+        files_changed: files.length,
+        additions: files.reduce((sum, file) => sum + file.additions, 0),
+        deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+      },
+      generation: "mock",
+      revision: state.made,
+      replayed: false,
+    };
+  });
+}
+
+/// `git.push`: sends the branch to origin/main; a branch already there is up to date.
+export function mockGitPush(sessionId: string, params: Record<string, unknown>) {
+  if (outsideGit.has(sessionId)) throw refused("git.push", "not_a_repository");
+  return keyed(sessionId, params.idempotency_key, () => {
+    const state = repo(sessionId);
+    if (typeof params.expected_head === "string" && params.expected_head !== state.head)
+      throw refused("git.push", "head_moved");
+    const upToDate = state.ahead === 0;
+    state.ahead = 0;
+    return {
+      value: {
+        root: rootOf(sessionId),
+        remote: "origin",
+        branch: mockSessions.find((entry) => entry.sessionId === sessionId)?.branch ?? "main",
+        upstream: "origin/main",
+        pushed_commit: state.head,
+        created_upstream: false,
+        up_to_date: upToDate,
+      },
+      generation: "mock",
+      revision: state.made,
+      replayed: false,
+    };
+  });
 }

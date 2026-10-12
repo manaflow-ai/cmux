@@ -1,9 +1,16 @@
-// Generated from Resources/Localizable.xcstrings by scripts/pages/gen-strings.mjs.
-import table from "./pages/diff/generated/strings.json";
-import { createStrings, resolveLanguage } from "./pages/shared/i18n";
+// Strings come from pages/diff/Localizable.xcstrings through scripts/pages/gen-strings.mjs.
+import english from "./pages/diff/generated/locales/en.json";
+import { diffLocaleLoaders } from "./pages/diff/generated/localeLoaders";
+import { resolveLanguage } from "./pages/shared/i18n";
+import { DiffLabelCatalog } from "./diff/labelCatalog";
 
-type CatalogKey = keyof typeof table.en;
-export type DiffViewerLabelKey = CatalogKey extends `diffViewer.${infer Key}` ? Key : never;
+const catalog = new DiffLabelCatalog(diffLocaleLoaders);
+const availableLanguages = ["en", ...Object.keys(diffLocaleLoaders)];
+
+type CatalogKey = keyof typeof english;
+/** Distributes over the catalog's keys: the table also holds the changes view's git strings. */
+type ViewerKey<K> = K extends `diffViewer.${infer Key}` ? Key : never;
+export type DiffViewerLabelKey = ViewerKey<CatalogKey>;
 export type DiffViewerLabelResolver = (key: DiffViewerLabelKey) => string;
 export type DiffViewerLanguage = string;
 
@@ -11,19 +18,34 @@ export type DiffViewerLanguage = string;
 export function diffViewerLanguage(
   languages: readonly string[] = globalThis.navigator?.languages ?? [],
 ): DiffViewerLanguage {
-  return resolveLanguage(languages, Object.keys(table));
+  return resolveLanguage(languages, availableLanguages);
 }
 
 /** Unprefixed labels for protocol callers that still supply an override table. */
 export function diffViewerLabelsFor(language: DiffViewerLanguage): Record<DiffViewerLabelKey, string> {
-  const strings = (table as Record<string, Record<string, string>>)[language] ?? table.en;
+  const strings = catalog.strings(language);
   return Object.fromEntries(
-    Object.entries(strings).map(([key, value]) => [key.slice("diffViewer.".length), value]),
+    viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), strings.t(key)]),
   ) as Record<DiffViewerLabelKey, string>;
 }
 
-export const DEFAULT_DIFF_VIEWER_LABELS = diffViewerLabelsFor("en");
-export const JAPANESE_DIFF_VIEWER_LABELS = diffViewerLabelsFor("ja");
+/** The viewer's own keys; the table also carries the changes view's git strings (diff-viewer/git.ts). */
+const viewerKeys = (keys: string[]) => keys.filter((key) => key.startsWith("diffViewer."));
+
+export const DEFAULT_DIFF_VIEWER_LABELS = Object.fromEntries(
+  viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), english[key as CatalogKey]]),
+) as Record<DiffViewerLabelKey, string>;
+
+/** The loaded table's changes view strings in `language` and English, for the reused Stage, Commit and Push. */
+export function diffGitStrings(language: DiffViewerLanguage): Record<string, Record<string, string>> {
+  const pick = (table: Record<string, string>) =>
+    Object.fromEntries(Object.entries(table).filter(([key]) => !key.startsWith("diffViewer.")));
+  return { en: pick(english), [language]: pick(catalog.table(language)) };
+}
+/** Resolves before any diff UI is rendered; a failed locale fetch never paints English first. */
+export function loadDiffViewerLabels(language: DiffViewerLanguage = diffViewerLanguage()): Promise<void> {
+  return catalog.load(language);
+}
 
 type LabelResolverOptions = {
   assertMissing?: boolean;
@@ -39,7 +61,7 @@ export function createDiffViewerLabelResolver(
   labels: Record<string, string> | undefined,
   options: LabelResolverOptions = {},
 ): DiffViewerLabelResolver {
-  const strings = createStrings(table, options.language ? [options.language] : undefined);
+  const strings = catalog.strings(options.language ?? diffViewerLanguage());
   const missingKeys = new Set<DiffViewerLabelKey>();
   return (key) => {
     // Classic hosts may customize labels; the page host does not need to send any.

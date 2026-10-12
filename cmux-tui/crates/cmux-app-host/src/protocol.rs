@@ -11,6 +11,15 @@ use serde_json::Value;
 /// Largest line either side accepts (scene batches dominate).
 pub const MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
 
+/// `cmux-app-host --profile script`: a script session
+/// (plans/cmux-next/scripting-runtime.md) instead of an app.
+pub const SCRIPT_PROFILE: &str = "script";
+/// Engine memory of a script session.
+pub const SCRIPT_MEMORY_BYTES: usize = 64 * 1024 * 1024;
+/// How long one script step (an entry point plus its job queue) may run
+/// without yielding. The wall time of a cell is the caller's timeout.
+pub const SCRIPT_STEP_MS: u64 = 2_000;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub id: String,

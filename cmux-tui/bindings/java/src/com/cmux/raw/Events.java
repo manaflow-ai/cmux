@@ -13,6 +13,7 @@ public final class Events {
 
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
+    public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
     public static final EventMetadata BROWSER_STATE = new EventMetadata("browser-state", 6, null, List.of("attach-browser"), true);
@@ -24,11 +25,14 @@ public final class Events {
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_MUX_RESYNCED = new EventMetadata("cloud-mux-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_MUX_WAKE = new EventMetadata("cloud-mux-wake", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_SESSION_NEEDED = new EventMetadata("cloud-session-needed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_SUBSCRIPTION_STATE = new EventMetadata("cloud-subscription-state", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_DRAFT = new EventMetadata("conversation-draft", 12, "conversation-draft-events-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
@@ -36,6 +40,7 @@ public final class Events {
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
+    public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
@@ -54,6 +59,7 @@ public final class Events {
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
@@ -84,6 +90,7 @@ public final class Events {
         LinkedHashMap<String, EventMetadata> values = new LinkedHashMap<>();
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
+        values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
         values.put("browser-state", BROWSER_STATE);
@@ -95,11 +102,14 @@ public final class Events {
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
         values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
         values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
+        values.put("cloud-mux-resynced", CLOUD_MUX_RESYNCED);
+        values.put("cloud-mux-wake", CLOUD_MUX_WAKE);
         values.put("cloud-session-needed", CLOUD_SESSION_NEEDED);
         values.put("cloud-subscription-state", CLOUD_SUBSCRIPTION_STATE);
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);
+        values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
@@ -107,6 +117,7 @@ public final class Events {
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
+        values.put("history-changed", HISTORY_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);
@@ -125,6 +136,7 @@ public final class Events {
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
         values.put("surface-exited", SURFACE_EXITED);

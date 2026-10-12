@@ -22,23 +22,39 @@ public nonisolated struct ContextMenuCatalog: Sendable {
     public static let shared = Self(descriptors: ActionCatalog.all)
 
     private let menus: [ActionMenuContext: [ContextMenuEntry]]
+    private let labels: [ActionMenuContext: [ActionID: String]]
 
     public init(descriptors: [ActionDescriptor]) {
         var rows: [ActionMenuContext: [Row]] = [:]
+        var labels: [ActionMenuContext: [ActionID: String]] = [:]
         for (index, descriptor) in descriptors.enumerated() {
             for placement in descriptor.surfacePlan.contextMenus {
                 rows[placement.context, default: []].append(Row(id: descriptor.id, placement: placement, index: index))
+                if let label = placement.label { labels[placement.context, default: [:]][descriptor.id] = label }
             }
         }
-        menus = rows.mapValues { Self.topLevel($0) }
+        menus = Dictionary(uniqueKeysWithValues: rows.map { context, rows in
+            let entries = Self.topLevel(rows)
+            return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
+        })
+        self.labels = labels
     }
 
     public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
         menus[context] ?? []
     }
 
+    /// The menu-only row titles of `context` (``ContextMenuPlacement/label``).
+    public func labels(for context: ActionMenuContext) -> [ActionID: String] {
+        labels[context] ?? [:]
+    }
+
     /// Every action ID an entry list references, submenus included.
     public func referencedIDs(_ entries: [ContextMenuEntry]) -> [ActionID] {
+        Self.referencedIDs(entries)
+    }
+
+    static func referencedIDs(_ entries: [ContextMenuEntry]) -> [ActionID] {
         entries.flatMap { entry -> [ActionID] in
             switch entry {
             case .action(let id): [id]

@@ -8,9 +8,11 @@ extension TabCell: StatusIndicatorConfigClient {
     /// The plan the tab's indicator draws now (hidden when not busy or the
     /// style is `none`).
     var spinnerPlan: StatusIndicatorPlan {
-        guard item.indicator.isLoading else { return .hidden }
+        guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
-        return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops)
+        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops, set: config.iconSet)
+        if item.isWaiting, plan.animation == .spin { plan.animation = .spinBackward }
+        return plan
     }
 
     /// Creates, updates or removes the indicator for the current item and
@@ -30,6 +32,7 @@ extension TabCell: StatusIndicatorConfigClient {
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
+        if item.status != .none { updateStatusGlyph() }
         guard item.isBusy else { return }
         updateSpinner()
         updateColors(animated: false)

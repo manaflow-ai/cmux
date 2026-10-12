@@ -32,6 +32,7 @@ mkdir -p "$ws/scripts/ci"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$ws/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$ws/scripts/cmux-next/"
 echo reducer > "$ws/scripts/cmux-next/build-layout-reducer-ffi.sh"
+"$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$ws"
 echo one > "$ws/cmux-tui/a"
 git_q -C "$ws" submodule add "$TMP/ghostty-src" ghostty-next
 git_q -C "$ws" add -A

@@ -60,7 +60,7 @@ extension ActionRegistry {
             } catch let failure as ActionFailure where failure.isQuiet {
                 self?.refuse(failure.message, quiet: true)
             } catch {
-                self?.refuse(String(describing: error))
+                self?.refuse(RefusalStrings.describe(error))
             }
         })
     }

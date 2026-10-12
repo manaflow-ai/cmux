@@ -1,4 +1,4 @@
-//! The MCP server's switch: `mcp.enabled` in cmux.json, owned by the config
+//! The MCP server's switch: `mcp.enabled` in the settings file, owned by the config
 //! layer (the app writes the file; this only reads it). Off unless the file
 //! says `true`.
 
@@ -6,28 +6,15 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-/// Environment variable that names another settings file, as in the app
-/// (`CmuxConfigFile.overrideKey`), so test launches never read the user's.
-pub(super) const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
+pub(super) use cmux_tui_core::user_settings::strip_jsonc;
+#[cfg(test)]
+pub(super) use cmux_tui_core::user_settings::{CONFIG_OVERRIDE, path_from};
 
-/// The settings file: `CMUX_NEXT_CONFIG_FILE`, else
-/// `$HOME/.config/cmux/cmux.json`.
+/// The settings file the app writes: `CMUX_NEXT_CONFIG_FILE`, else
+/// `~/.config/cmux/cmux-next.json` (classic `cmux.json` before the app's
+/// first launch).
 pub(super) fn path() -> PathBuf {
-    path_from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
-}
-
-pub(super) fn path_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
-    if let Some(path) = env(CONFIG_OVERRIDE) {
-        let path = PathBuf::from(path);
-        if let Ok(rest) = path.strip_prefix("~")
-            && let Some(home) = env("HOME")
-        {
-            return PathBuf::from(home).join(rest);
-        }
-        return path;
-    }
-    let home = env("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(".config/cmux/cmux.json")
+    cmux_tui_core::user_settings::config_path()
 }
 
 /// Whether `mcp.enabled` is `true`. A missing file, a missing key and
@@ -53,93 +40,4 @@ pub(super) fn enabled_in(text: &str) -> Result<bool, String> {
         Some(Value::Bool(enabled)) => Ok(*enabled),
         Some(_) => Err("mcp.enabled must be true or false".into()),
     }
-}
-
-/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
-/// outside strings (the dialect the app's `JSONC` parser reads).
-pub(super) fn strip_jsonc(text: &str) -> String {
-    drop_trailing_commas(&drop_comments(text))
-}
-
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
-        }
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
-
-/// Removes a comma whose next non-space byte closes an object or array.
-fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
 }

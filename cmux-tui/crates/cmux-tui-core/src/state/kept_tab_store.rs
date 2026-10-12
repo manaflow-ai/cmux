@@ -192,7 +192,8 @@ pub(crate) fn delete_kept_tabs(
 impl WorkspaceRegistry {
     /// Whether any of `tab_ids` is a kept tab.
     pub fn any_kept_tab(&self, tab_ids: &[String]) -> anyhow::Result<bool> {
-        let mut statement = self.connection.prepare("SELECT 1 FROM kept_tabs WHERE tab_id = ?1")?;
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT 1 FROM kept_tabs WHERE tab_id = ?1")?;
         for tab_id in tab_ids {
             if statement.exists([tab_id])? {
                 return Ok(true);

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
@@ -12,8 +13,9 @@ import os
 ///
 /// Show/Hide All Windows registers only while `app.globalHotKey` is on
 /// (off by default, coordinator decision 2026-10-06: a system-wide key is
-/// taken from every other app only when the user asks for it); turning the
-/// setting off releases it.
+/// taken from every other app only when the user asks for it), and Start
+/// Agent from Any App only while `app.startAgentGlobalHotKey` is on
+/// (cx-hkat); turning a setting off releases its key.
 @Observable
 final class GlobalHotKeyService {
     /// Actions whose key is not registered: another app holds it, or
@@ -25,6 +27,8 @@ final class GlobalHotKeyService {
     @ObservationIgnored private let layout: @MainActor () -> KeyCodeLayout
     /// `app.globalHotKey`, read on every apply (observed, so a change applies).
     @ObservationIgnored private let showHideEnabled: @MainActor () -> Bool
+    /// `app.startAgentGlobalHotKey`, read the same way.
+    @ObservationIgnored private let startAgentEnabled: @MainActor () -> Bool
     @ObservationIgnored private var registered: [ActionID: Registration] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -40,22 +44,27 @@ final class GlobalHotKeyService {
         registry: ActionRegistry,
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
         layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current,
-        showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyFallback }
+        showHideEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.globalHotKeyFallback },
+        startAgentEnabled: @escaping @MainActor () -> Bool = { CmuxConfigSnapshot.startAgentGlobalHotKeyFallback }
     ) {
         self.registry = registry
         self.registrar = registrar
         self.layout = layout
         self.showHideEnabled = showHideEnabled
+        self.startAgentEnabled = startAgentEnabled
     }
 
     /// The action `app.globalHotKey` gates.
     static let gatedAction: ActionID = "showHideAllWindows"
+    /// The action `app.startAgentGlobalHotKey` gates.
+    static let startAgentAction: ActionID = "palette.startAgentFromAnyApp"
 
     /// The global hot keys that may register now: the catalog's, without
-    /// Show/Hide All Windows while `app.globalHotKey` is off.
+    /// each gated action whose setting is off.
     private func allowedHotKeys() -> [ActionID: Shortcut] {
         var keys = registry.globalHotKeys()
         if !showHideEnabled() { keys[Self.gatedAction] = nil }
+        if !startAgentEnabled() { keys[Self.startAgentAction] = nil }
         return keys
     }
 
@@ -66,12 +75,14 @@ final class GlobalHotKeyService {
         apply()
         let registry = registry
         let showHideEnabled = showHideEnabled
+        let startAgentEnabled = startAgentEnabled
         tasks.append(Task { [weak self] in
             // Suspension reads the whole focus context, so skip the changes
             // that move neither the keys nor the suspension.
-            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool)?
-            for await next in Observations({
-                (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled())
+            var last: (keys: [ActionID: Shortcut], suspended: Bool, enabled: Bool, startAgent: Bool)?
+            for await next in ObservationStream({
+                (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
+                 startAgent: startAgentEnabled())
             }) {
                 if let last, last == next { continue }
                 last = next

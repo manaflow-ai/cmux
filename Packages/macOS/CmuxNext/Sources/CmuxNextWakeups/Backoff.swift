@@ -15,14 +15,17 @@ public struct Backoff: Sendable {
     public private(set) var attempt = 0
     private var random: @Sendable () -> Double
 
-    /// `random` returns a value in 0..<1 (tests inject a constant).
+    /// `random` returns a value in 0..<1 (tests inject a constant). Out-of-range
+    /// values are corrected, not trapped: an `initial` that is not positive becomes
+    /// 100 ms, `maximum` is at least `initial`, `multiplier` at least 1, and
+    /// `jitter` is clamped to 0...1 (NaN: 0).
     public init(initial: Duration = .milliseconds(100), maximum: Duration = .seconds(30), multiplier: Double = 2,
                 jitter: Double = 0.2, random: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
-        precondition(initial > .zero && maximum >= initial && multiplier >= 1 && (0...1).contains(jitter))
+        let initial = initial > .zero ? initial : .milliseconds(100)
         self.initial = initial
-        self.maximum = maximum
-        self.multiplier = multiplier
-        self.jitter = jitter
+        self.maximum = max(maximum, initial)
+        self.multiplier = multiplier >= 1 ? multiplier : 1
+        self.jitter = jitter.isNaN ? 0 : min(max(jitter, 0), 1)
         self.random = random
     }
 

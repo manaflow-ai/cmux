@@ -1,6 +1,7 @@
 import AppKit
 public import CmuxNextDictation
 import Foundation
+import CmuxNextCompat
 
 /// A dictation request from the page's mic button or keys.
 public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
@@ -43,7 +44,7 @@ final class AgentPaneDictation {
     /// Delivers an update to the page (a script on the old host, an event on the page host).
     private let send: (DictationUpdate) -> Void
     /// Opens a URL (System Settings).
-    var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
     /// The held shortcut while hold-to-talk may still apply: a press that
     /// lasts longer than ``holdThreshold`` stops on release; a quick press
@@ -124,7 +125,7 @@ final class AgentPaneDictation {
             return event
         }
         resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endHold() }
+            MainActor.assumeIsolated { self?.endHold() } // main-proof: observer on queue: .main
         }
     }
 
@@ -187,7 +188,7 @@ final class AgentPaneDictation {
         activeSession().start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.session?.stop() }
+                MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
             }
         }
     }

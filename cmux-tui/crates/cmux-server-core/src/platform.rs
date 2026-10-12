@@ -76,6 +76,19 @@ impl HostPath {
         Some(HostPath { platform, path })
     }
 
+    /// A Unix path that is absolute by construction: a literal that starts
+    /// with `/`, or `/` followed by literals and numeric ids. Skips the
+    /// `Option` of [`HostPath::new`]; `debug_assert` and the layout tests
+    /// check that `new` would accept it unchanged.
+    pub(crate) fn unix_absolute(platform: Platform, path: String) -> HostPath {
+        debug_assert!(
+            platform != Platform::Windows
+                && HostPath::new(platform, &path).is_some_and(|checked| checked.path == path),
+            "not a clean absolute Unix path: {path:?}"
+        );
+        HostPath { platform, path }
+    }
+
     pub fn platform(&self) -> Platform {
         self.platform
     }

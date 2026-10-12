@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -39,7 +40,10 @@ extension TabHandlers {
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            let windows = ctx.services.windows!
+            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+                return ctx.registry.refuse(reason)
+            }
+            let windows = ctx.services.windows
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: whether this run may change the view,
             // and the window it acts in.
@@ -57,7 +61,10 @@ extension TabHandlers {
         })
         registry.bind("tab.moveToNewWindow", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            let windows = ctx.services.windows!
+            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+                return ctx.registry.refuse(reason)
+            }
+            let windows = ctx.services.windows
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: a run this client's user did not start
             // opens the window behind, never key.
@@ -72,7 +79,12 @@ extension TabHandlers {
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.shared.notificationAck), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported("tab-mark-unread")) }
+            // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
+            if !tab.hasUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
+                Task { if await !AgentPaneMarkUnread(view.model).run() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                return
+            }
+            guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported) }
             let surface = tab.surface
             ctx.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
         })
@@ -84,7 +96,7 @@ extension TabHandlers {
             entry.chrome.perform(.reload)
         })
         registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
-        registry.bindUnavailable("toggleTabAudioMute", reason: RefusalStrings.audioMuteUnported)
+        registry.bind("toggleTabAudioMute", invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
         registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }
 

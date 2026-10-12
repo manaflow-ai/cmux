@@ -1,0 +1,788 @@
+/*
+ * Settings layout and looks (SETTINGS-PAGE-FIRST-PRINCIPLES P1-P5), after styles.css.
+ * P1: the categories stay at the window's left; the content is one centered column of at most
+ * 720 px, in slightly smaller type and rows than before. Two looks; mount.tsx SHIPPED_LOOK picks:
+ *   quiet (shipped): grouped rows in hairline-outlined cards, as macOS System Settings groups them;
+ *   dense (:root[data-settings-look="dense"], a gallery variant): no cards, hairline rows, tighter type.
+ * The render rule holds: containers stay transparent; only controls and interaction states fill,
+ * with --input-bg, --accent-soft, or --accent for an on control (a switch, a default button).
+ * The accent is --cmux-accent: neutral by default (the no-blue rule: the theme's text color), the
+ * theme's own hue with appearance.accent; the knob on it is --cmux-on-accent.
+ */
+:root {
+  --accent: var(--cmux-accent, var(--text));
+  /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
+  --row-focus: var(--cmux-row-focus, var(--accent-soft));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
+  --accent-text: var(--text);
+  --column: 720px;
+  --row-pad-y: 3px;
+  --row-pad-x: 12px;
+  --row-min: 28px;
+  --card-radius: 10px;
+  --sidebar-width: 208px;
+  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
+     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
+     own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-hover, 80ms);
+  --motion-focus: var(--cmux-motion-focus, 100ms);
+  --motion-in: var(--cmux-motion-in, 120ms);
+  --motion-out: var(--cmux-motion-out, 80ms);
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  font-size: 12.5px;
+}
+
+:root[data-settings-look="dense"] {
+  --row-pad-y: 2px;
+  --row-pad-x: 2px;
+  --row-min: 26px;
+  --card-radius: 0;
+  --sidebar-width: 188px;
+  font-size: 12px;
+}
+
+.settings {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.sidebar {
+  gap: 12px;
+  padding: 12px 10px;
+}
+
+.content {
+  padding: 26px 32px 56px;
+}
+
+.column {
+  max-width: var(--column);
+  margin: 0 auto;
+}
+
+/* P5: search across every setting, at the top of the sidebar; the changed filter at its end. */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-bar .search {
+  flex: 1;
+  min-width: 0;
+}
+
+.search .search-input {
+  border-radius: 7px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.filter-button {
+  position: relative;
+  gap: 2px;
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.filter-button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.filter-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.section-link {
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--text);
+}
+
+.section-icon {
+  display: inline-flex;
+  color: var(--muted-text);
+}
+
+.section-link[aria-current] .section-icon {
+  color: var(--accent-text);
+}
+
+.section-link[aria-current] .section-name {
+  font-weight: 500;
+}
+
+:root[data-settings-look="dense"] .section-link {
+  padding: 3px 7px;
+  border-radius: 5px;
+}
+
+.section-title {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 20px;
+}
+
+:root[data-settings-look="dense"] .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.result-section-title {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--muted-text);
+}
+
+.group {
+  margin-bottom: 22px;
+}
+
+.group-title {
+  margin: 0 0 7px 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+
+:root[data-settings-look="dense"] .group {
+  margin-bottom: 16px;
+}
+
+:root[data-settings-look="dense"] .group-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
+
+/* Quiet: one outlined card per group, rows divided by hairlines inset from the card's edge. */
+.rows {
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
+}
+
+.row {
+  min-height: var(--row-min);
+  padding: var(--row-pad-y) var(--row-pad-x);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 var(--border);
+  border-radius: 0;
+}
+
+.rows > .row:last-child {
+  box-shadow: none;
+}
+
+.rows > .row:first-child {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
+}
+
+.rows > .row:last-child {
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
+}
+
+:root[data-settings-look="dense"] .rows {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+:root[data-settings-look="dense"] .rows > .row:last-child {
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.row-main {
+  gap: 20px;
+}
+
+.row-title {
+  font-weight: 400;
+}
+
+.row-help,
+.row-key {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+:root[data-settings-look="dense"] .row-help {
+  font-size: 11px;
+}
+
+/* P4: a scope override or an MDM lock, inline on its setting. */
+.row-managed {
+  display: inline-flex;
+  margin-top: 3px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.row.row-note {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  font-size: 11.5px;
+  color: var(--muted-text);
+}
+
+.row-note-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-note .link-button {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+.field {
+  border-radius: 6px;
+}
+
+/* Native switch: the accent track when on, a light knob on a quiet track when off. */
+.switch {
+  width: 28px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.switch .knob {
+  top: 1px;
+  left: 1px;
+  border-width: 6px;
+  border-color: var(--muted-text);
+}
+
+.switch[aria-checked="true"] {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.switch[aria-checked="true"] .knob {
+  border-color: var(--on-accent);
+  transform: translateX(12px);
+}
+
+.button {
+  border-color: var(--border);
+  background: var(--input-bg);
+  border-radius: 6px;
+  padding: 2px 10px;
+}
+
+/* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
+.button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
+/* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
+.group > .row-help {
+  margin-bottom: 8px;
+  white-space: normal;
+}
+
+.link-button {
+  color: var(--accent-text);
+}
+
+/* P3: the Theme section. */
+.theme-studio {
+  margin-bottom: 4px;
+}
+
+.theme-hero {
+  margin: 0 0 24px;
+}
+
+.theme-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The theme's colors (ThemeTokens): 16 ANSI swatches in two rows, then the four named colors.
+   Each swatch is a button that opens its tuner; an edited one carries a dot. */
+/* Both are fieldsets (the swatch groups), without the fieldset's own frame. */
+.theme-tokens,
+.token-tuner-snaps {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.theme-tokens {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.theme-tokens-row,
+.theme-tokens-named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-named {
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 4px;
+}
+
+.theme-tokens-label {
+  width: 52px;
+  flex: none;
+}
+
+.theme-tokens-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-hex,
+.token-tuner-hex {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-caption);
+}
+
+.theme-tokens-hex {
+  opacity: 0.8;
+}
+
+.theme-token {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.theme-token:not(:disabled) {
+  cursor: pointer;
+}
+
+.theme-token:not(:disabled):hover {
+  box-shadow: 0 0 0 2px var(--row-focus);
+}
+
+/* The edited dot: a border-drawn disc in the text color, ringed in the page surface. */
+.theme-token[data-edited]::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 0;
+  height: 0;
+  border: 3.5px solid var(--text);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-solid, Canvas);
+}
+
+.token-tuner-body {
+  display: grid;
+  gap: 10px;
+  width: 248px;
+  padding: 10px;
+}
+
+.token-tuner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.token-tuner-swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.token-tuner-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.token-tuner-hex {
+  width: 78px;
+}
+
+.token-tuner-slider {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.token-tuner-slider input {
+  height: 10px;
+  margin: 0;
+  border-radius: 5px;
+  appearance: none;
+}
+
+.token-tuner-slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--cmux-surface-solid, Canvas);
+  border-radius: 50%;
+  background: var(--accent);
+  appearance: none;
+}
+
+.token-tuner-snaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.token-tuner-snap {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.token-tuner-contrast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.token-tuner-contrast[data-contrast-low] {
+  color: var(--warning);
+}
+
+.token-tuner-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.theme-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--muted-text);
+}
+
+.theme-caption-name {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Save as Ghostty Theme and Import Theme File, with their inline name and replace prompts. */
+.theme-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theme-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.theme-files-row .field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+/* The Theme section's help explains a choice; it wraps instead of truncating. */
+.theme-studio .row-help {
+  white-space: normal;
+}
+
+.theme-caption-contrast {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-caption-contrast .icon {
+  color: var(--accent-text);
+}
+
+.theme-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 280px;
+  padding: 2px 6px 2px 3px;
+}
+
+.theme-button-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-button .icon {
+  color: var(--muted-text);
+}
+
+.theme-ball {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.theme-ball-empty {
+  display: inline-block;
+  box-sizing: border-box;
+  border: 1px dashed var(--border-strong);
+  border-radius: 50%;
+}
+
+.theme-popover {
+  width: 320px;
+  padding: 6px;
+}
+
+.theme-popover .theme-search {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.theme-list {
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.theme-option {
+  padding: 3px 6px;
+  border-radius: 5px;
+}
+
+.theme-option[data-highlighted] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
+}
+
+/* The right-clicked (pinned) preview: its ball is ringed in the text color while the app shows it. */
+.theme-option-row[data-previewing] .theme-ball {
+  border-radius: 50%;
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
+}
+
+.theme-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-option-check {
+  color: var(--accent-text);
+}
+
+.theme-empty {
+  padding: 6px;
+  font-size: var(--text-detail);
+}
+
+.theme-count {
+  padding: 6px 6px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted-text);
+}
+
+/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+.reset-slot {
+  display: inline-flex;
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.reset-button {
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--motion-out) var(--motion-ease),
+    transform var(--motion-out) var(--motion-ease),
+    background var(--motion-hover);
+}
+
+.reset-slot[data-shown] .reset-button {
+  opacity: 1;
+  transform: none;
+  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+}
+
+/* A category fades in when it opens; a transform never moves anything else. */
+@keyframes settings-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes settings-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+.section,
+.host-form,
+.domain-panel {
+  animation: settings-enter var(--motion-in) var(--motion-ease) both;
+}
+
+/* Inline override notes, MDM locks, section badges and the changed count arrive, not appear. */
+.row-note,
+.row-managed,
+.badge,
+.filter-count {
+  animation: settings-pop var(--motion-in) var(--motion-ease) both;
+}
+
+/* Search and Show Only Changed: rows outside the filter collapse in place (their own height and
+   opacity), so the list never jumps between keystrokes. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--motion-out) var(--motion-ease),
+    opacity var(--motion-out) var(--motion-ease),
+    margin var(--motion-out) var(--motion-ease);
+}
+
+.collapse[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition-duration: var(--motion-in);
+}
+
+.collapse-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group.collapse:not([data-open]),
+.result-section.collapse:not([data-open]),
+.empty.collapse:not([data-open]) {
+  margin-bottom: 0;
+}
+
+.empty.collapse {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+  }
+}
+
+/* A narrow pane: the search and the categories stack over one column, the categories as one
+   horizontal strip that scrolls, so no category is cut off and nothing overlaps (layout.test.ts).
+   This block must stay after the two-column grid above. */
+@media (max-width: 600px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    max-height: none;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-list {
+    flex-direction: row;
+    gap: 2px;
+    overflow-x: auto;
+  }
+
+  .section-link {
+    flex: none;
+    width: auto;
+    white-space: nowrap;
+    padding: 4px 8px;
+  }
+
+  .content {
+    padding: 14px 16px 40px;
+    --content-fade-top: 12px;
+  }
+}

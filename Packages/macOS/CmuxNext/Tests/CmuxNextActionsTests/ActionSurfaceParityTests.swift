@@ -39,7 +39,9 @@ import Testing
             }
             for placement in plan.contextMenus {
                 if placement.style == .choices {
-                    let hasChoices = descriptor.arguments.contains { ActionRegistry.menuChoices($0) != nil }
+                    let hasChoices = descriptor.arguments.contains {
+                        ActionRegistry.menuChoices($0) != nil || ActionTargetChoices.kind(of: $0, in: descriptor) != nil
+                    }
                     #expect(hasChoices, "\(id): choices needs an argument with menu choices")
                 }
                 if let parent = placement.parent {
@@ -155,7 +157,10 @@ import Testing
     /// the catalog: surfaces, title and its localization key, default
     /// shortcut and chord. A changed title or shortcut fails here.
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
-    @Test func exportIsFresh() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func exportIsFresh() throws {
         let url = Self.planURL("action-surfaces.json")
         let current = ActionSurfaceExport.json(catalog, titles: try Self.titleCatalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
@@ -168,7 +173,10 @@ import Testing
     /// The generated block of plans/cmux-next/actions.md (counts, every
     /// menu in order, every exemption) matches the catalog, so menu order
     /// changes and new exemptions are reviewed as text.
-    @Test func reportIsFresh() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
         let current = ActionSurfaceReport(catalog, menus: .shared).markdown

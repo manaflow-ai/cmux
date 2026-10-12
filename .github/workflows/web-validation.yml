@@ -34,6 +34,8 @@ jobs:
           persist-credentials: false
       - name: Test routing and result enforcement
         run: python3 tests/test_web_validation.py
+      - name: Validate the per-file webviews test runner
+        run: python3 tests/test_webviews_tests_per_file.py
       - name: Select web validation
         id: route
         env:

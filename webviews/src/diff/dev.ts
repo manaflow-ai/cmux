@@ -9,7 +9,6 @@
 // DESKTOP-FEEL (R139): the shared desktop layer loads first, as on the shipped diff page.
 import "../pages/shared/desktop";
 import "../styles.css";
-import { diffViewerLabelsFor, diffViewerLanguage } from "../labels";
 import type { DiffViewerConfig } from "../types";
 import "../viewer-empty/styles.css";
 import "../ui/ui.css";
@@ -31,10 +30,6 @@ async function loadConfig(): Promise<DiffViewerConfig> {
 }
 
 const config = await loadConfig();
-config.payload = {
-  ...config.payload,
-  labels: { ...diffViewerLabelsFor(diffViewerLanguage()), ...config.payload?.labels },
-};
 const element = document.createElement("script");
 element.type = "application/json";
 element.id = "cmux-diff-viewer-config";

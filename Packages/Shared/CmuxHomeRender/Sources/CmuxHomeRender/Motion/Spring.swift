@@ -82,7 +82,8 @@ struct SpringElement: Hashable, Sendable {
 
     func share(_ i: Int) -> Double {
         let total = components.reduce(0) { $0 + $1.delta }
-        return abs(total) < 1e-9 ? 0 : components[i].delta / total
+        guard let component = components[checked: i] else { return 0 }
+        return abs(total) < 1e-9 ? 0 : component.delta / total
     }
 
     /// Value at `tau` after the event for a move from `a` to `b` (a pulse: `a`

@@ -10,8 +10,8 @@ import Speech
 /// a given language downloads the on-device model (the session's
 /// ``DictationPhase/starting`` phase), later sessions start immediately.
 /// Volatile results stream as ``DictationTranscriptionEvent/partial(_:)`` and
-/// finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition
-/// stays on device.
+/// finalized runs as ``DictationTranscriptionEvent/final(_:)``; recognition stays on device.
+@available(macOS 26, *) // OnDeviceDictationTranscriber uses SFSpeechDictationTranscriber below 26.
 public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     let inputBox = AnalyzerInputBox()
     private var analyzer: SpeechAnalyzer?

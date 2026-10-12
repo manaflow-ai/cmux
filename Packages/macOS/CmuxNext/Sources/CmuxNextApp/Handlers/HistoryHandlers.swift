@@ -85,7 +85,7 @@ enum HistoryHandlers {
         registry.bind("layout.undo", run: { invocation in
             guard let pane = context.paneController(invocation) else { throw ActionFailure(message: HistoryAppStrings.noPane) }
             let daemon = context.services.daemon(for: pane.pane)
-            guard daemon.supports("layout-undo-v1") else { throw ActionFailure.needsDaemonCapability("layout-undo-v1") }
+            guard daemon.supports("layout-undo-v1") else { throw ActionFailure(message: daemon.missingCapabilityMessage("layout-undo-v1")) }
             guard let connection = daemon.connection else { throw ActionFailure(message: HistoryAppStrings.machineOffline) }
             let handle = pane.pane.handle
             let confirming = pending.revision

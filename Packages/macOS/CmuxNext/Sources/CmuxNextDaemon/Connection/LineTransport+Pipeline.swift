@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One request for `LineTransport.pipeline`: its command name (for errors)
 /// and its encoder, which receives the allocated id.

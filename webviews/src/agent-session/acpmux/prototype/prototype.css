@@ -380,7 +380,7 @@ body {
   inset: 0 0 0 52px;
   border: 0;
   padding: 0;
-  background: rgb(0 0 0 / 18%);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
 }
 .proto-history {
   position: absolute;
@@ -473,25 +473,68 @@ body {
   border-bottom: 0.5px solid var(--agent-border);
 }
 .proto-tab {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
   max-width: 260px;
   height: 28px;
-  padding: 0 10px;
-  border: 0;
   border-radius: 7px;
   background: none;
   color: var(--agent-muted) !important;
 }
-.proto-tab span {
+.proto-tab-select {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 100%;
+  padding-inline-start: 10px;
+  padding-inline-end: 6px;
+  border: 0;
+  border-radius: 7px 0 0 7px;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.proto-tab.has-close .proto-tab-select {
+  padding-inline-end: 30px;
+}
+.proto-tab-select span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.proto-tab[aria-selected="true"] {
+.proto-tab.is-active {
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-text) !important;
+}
+.proto-tab-close {
+  position: absolute;
+  inset-inline-end: 3px;
+  top: 2px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  opacity: 0;
+  pointer-events: none;
+}
+.proto-tab:hover .proto-tab-close,
+.proto-tab:focus-within .proto-tab-close,
+.proto-tab-close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.proto-tab-close:hover,
+.proto-tab-close:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
 }
 .proto-body {
   position: relative;

@@ -330,14 +330,14 @@ final class CEFRuntime {
         // Chromium never opens a window (fork API 8) nor focuses a page of its own.
         shim.setWindowRequestHandler(cefWindowRequestCallback)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
-        let ok = switchStorage.withUnsafeBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
+        let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
+            buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 )
-            }
+            } ?? 0
         }
         guard ok == 1 else {
             pump.stop()
@@ -347,7 +347,7 @@ final class CEFRuntime {
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 // The App shuts CEF down from applicationShouldTerminate. Reaching
                 // willTerminate with CEF live means that path was skipped; never
                 // spin the run loop here (architecture.md 5a), just let helpers

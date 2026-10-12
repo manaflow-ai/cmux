@@ -59,6 +59,8 @@ export default defineConfig({
           LINEAR_CLIENT_ID: "lin-client",
           LINEAR_CLIENT_SECRET: "lin-secret",
           LINEAR_WEBHOOK_SECRET: "lin-webhook-secret",
+          // Stack (Svix) webhook endpoint secret, test-only: whsec_ + base64 key bytes.
+          STACK_WEBHOOK_SECRET: `whsec_${Buffer.from("test-stack-webhook-secret-0001").toString("base64")}`,
           SLACK_CLIENT_ID: "slack-client",
           SLACK_CLIENT_SECRET: "slack-secret",
           SLACK_SIGNING_SECRET: "slack-signing-secret",
@@ -68,6 +70,8 @@ export default defineConfig({
           GOOGLE_RESTRICTED_SCOPES: "testing",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
+          // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).
+          TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
           CLOUD_API_ORIGIN: "https://api.test",

@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Synchronization
+import CmuxNextCompat
 
 /// Recent `action.run` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///
@@ -59,7 +59,7 @@ public final class ControlIdempotencyCache: Sendable {
                 if let outcome = entry.outcome { return .finished(outcome) }
                 return .join(Joiner(cache: self, key: key))
             }
-            state.entries[key] = Entry(fingerprint: fingerprint)
+            state.entries.updateValue(Entry(fingerprint: fingerprint), forKey: key)
             state.order.append(key)
             // Oldest finished entry first. An in-flight entry stays until its
             // run calls `finish` or `forget`: those carry only the key, so a
@@ -80,7 +80,7 @@ public final class ControlIdempotencyCache: Sendable {
             entry.outcome = outcome
             let waiters = entry.waiters
             entry.waiters = []
-            state.entries[key] = entry
+            state.entries.updateValue(entry, forKey: key)
             return waiters
         }
         for waiter in waiters { waiter.resume(returning: outcome) }
@@ -100,7 +100,7 @@ public final class ControlIdempotencyCache: Sendable {
             guard var entry = state.entries[key] else { return .some(nil) }
             if let outcome = entry.outcome { return .some(outcome) }
             entry.waiters.append(waiter)
-            state.entries[key] = entry
+            state.entries.updateValue(entry, forKey: key)
             return .none
         }
         if case .some(let outcome) = ready { waiter.resume(returning: outcome) }

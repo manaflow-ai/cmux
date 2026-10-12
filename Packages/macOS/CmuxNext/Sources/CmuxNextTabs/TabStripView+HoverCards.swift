@@ -21,7 +21,8 @@ extension TabStripView {
             let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
             return (.groupChip(group), metrics.minInactiveTabWidth, anchor)
         }
-        guard let id = tabID(at: point), let cell = cells[id] else { return nil }
+        // A New Tab page's card would only repeat its title (Leo 2026-10-11).
+        guard let id = tabID(at: point), let cell = cells[id], model.tab(id)?.isNewTabPage != true else { return nil }
         return (id, cell.frame.width, window.convertToScreen(tabsClip.convert(cell.frame, to: nil)))
     }
 
@@ -50,15 +51,15 @@ extension TabStripView {
 
     /// Content moved under a possibly still pointer (layout, scroll,
     /// animation frame, the pane moved in its window): hover follows what
-    /// is under the pointer now, and the coordinator re-hit-tests.
+    /// is under the pointer now, and the coordinator re-hit-tests. Outside
+    /// the visible strip (its visible rect can pass its bounds) is an exit (cx-3wu5).
     func geometryDidChange() {
         guard let window else { return }
         let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
-        if bounds.contains(point) {
-            if buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil { updateHover(at: point, moved: false) }
-        } else if hoveredID != nil || groups.hoveredChip != nil {
-            clearHover()
-        }
+        let lit = buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil
+        if bounds.intersection(visibleRect).contains(point), !isHiddenOrHasHiddenAncestor {
+            if lit { updateHover(at: point, moved: false) }
+        } else if lit || newTabButton.isHovered || closingModeWidth != nil { pointerLeft() }
         hoverCards.geometryChanged(in: window)
     }
 

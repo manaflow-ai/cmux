@@ -55,4 +55,9 @@ fi
 if [[ -d "$SRCROOT/Resources/shell-integration" ]]; then
   sync_dir "$SRCROOT/Resources/shell-integration" "$dest/shell-integration"
 fi
+# Keeps the bundled `cmux` first on PATH after the user's startup files
+# (BundledCLIEnvironment.swift).
+if [[ -d "$SRCROOT/Resources/cmux-cli-path" ]]; then
+  sync_dir "$SRCROOT/Resources/cmux-cli-path" "$dest/cmux-cli-path"
+fi
 echo "bundled Ghostty resources into $dest"

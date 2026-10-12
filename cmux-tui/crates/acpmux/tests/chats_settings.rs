@@ -25,7 +25,9 @@ impl Drop for Home {
 }
 
 fn home(tag: &str) -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-chatset-{tag}-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-chatset-{tag}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -86,6 +88,20 @@ impl Client {
         }
     }
 
+    /// The next notification named `method`.
+    async fn notification(&mut self, method: &str) -> Value {
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .expect("a message within 20 s")
+                .expect("connection open");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["method"] == method {
+                return v["params"].clone();
+            }
+        }
+    }
+
     async fn ok(&mut self, m: &str, params: Value) -> Value {
         let reply = self.call(m, params).await;
         assert!(reply.get("error").is_none(), "{m}: {reply}");
@@ -121,6 +137,7 @@ async fn turning_chats_off_hides_every_chat_and_survives_a_restart() {
     assert_eq!((off["enabled"].clone(), keys(&off)), (json!(false), Vec::<String>::new()));
 
     // The settings are in the daemon's file (owner-only), so a restart keeps them.
+    #[cfg(unix)]
     let file = h.0.join(".acpmux/chat-settings.json");
     #[cfg(unix)]
     {
@@ -220,4 +237,22 @@ async fn chat_settings_reject_bad_params_and_remote_callers() {
     let mut web = Client::new(&hub, Origin::Web);
     let reply = web.call("_acpmux/chat_settings", json!({"enabled": false})).await;
     assert_eq!(reply["error"]["code"], -32601, "{reply}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_watch_that_arrives_before_the_index_starts_is_served_once_it_starts() {
+    let h = home("early");
+    claude_session(&h.0.join(".claude"), A, "fix the build");
+    let hub = hub();
+    // The app connects at launch, before the daemon has started its index.
+    let mut c = Client::new(&hub, Origin::Local);
+    let early = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert_eq!(early["ready"], false, "{early}");
+    hub.start_chats(sources(&h.0)).await.unwrap();
+    // The waiting watch is told to list again, then gets live changes.
+    c.notification("_acpmux/chats_lagged").await;
+    assert_eq!(keys(&c.ok("_acpmux/chats", json!({})).await), vec![format!("claude-code:{A}")]);
+    claude_session(&h.0.join(".claude"), B, "write docs");
+    let changed = c.notification("_acpmux/chat_changed").await;
+    assert_eq!(changed["key"], format!("claude-code:{B}"), "{changed}");
 }

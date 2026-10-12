@@ -813,12 +813,18 @@ async fn run_client(
         let daemon_public_key = connection.daemon_public_key();
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         let socket = socket_preparation.bind()?;
+        // The SSH route behind this socket, so a CLI at a version-skew dead
+        // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
+        let route_record = write_tunnel_route(&local_socket, &route);
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
             let mut socket = socket;
             serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
             let _ = socket.unlink();
+            if let Some(record) = route_record {
+                let _ = fs::remove_file(record);
+            }
         });
         let mut fatal = multiplexer.subscribe_fatal();
         ready
@@ -1155,6 +1161,7 @@ async fn bootstrap_initial_ssh_route(
     config.extra_args = ssh.extra_args.clone();
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
+    config.required_capabilities = ssh.required_remote_capabilities();
     let bootstrap = SshBootstrapper::new(config)?;
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
@@ -1487,6 +1494,34 @@ async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
 }
 
+/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
+/// to. Only SSH routes are recorded (no credential is in them); the CLI only
+/// prints it, never runs it.
+pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
+    let mut path = socket.as_os_str().to_owned();
+    path.push(".route");
+    PathBuf::from(path)
+}
+
+fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
+    if !route.starts_with("ssh://") {
+        return None;
+    }
+    let record = tunnel_route_record(socket);
+    let _ = fs::remove_file(&record);
+    #[cfg(unix)]
+    {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file =
+            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
+        file.write_all(route.as_bytes()).ok()?;
+    }
+    #[cfg(not(unix))]
+    fs::write(&record, route).ok()?;
+    Some(record)
+}
+
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {
     loop {
         if let Some(message) = fatal.borrow().clone() {
@@ -1702,7 +1737,7 @@ fn validate_client_socket_directory(
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
 
     let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
@@ -1943,7 +1978,7 @@ pub fn daemon_paths(
 }
 
 #[cfg(unix)]
-fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
+pub(crate) fn daemon_runtime_socket_paths(state: &Path) -> anyhow::Result<(PathBuf, PathBuf)> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
     daemon_runtime_socket_paths_in(state, runtime.as_deref(), Path::new("/tmp"))
 }
@@ -3082,6 +3117,9 @@ mod tests {
     use cmux_remote::daemon::RemoteDaemon;
 
     use super::*;
+
+    #[cfg(unix)]
+    mod initial_route_budget;
 
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
@@ -5537,96 +5575,6 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn initial_provider_timeout_falls_back_to_next_route() {
-        let directory = tempfile::tempdir().unwrap();
-        let daemon_auth =
-            AuthDatabase::load_or_create(directory.path().join("daemon"), "dial-timeout", true)
-                .unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
-        let unix_path = directory.path().join("daemon.sock");
-        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers.register(Arc::new(HangingStartupProvider { calls: calls.clone() })).unwrap();
-        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
-        let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-startup://daemon").unwrap(), unix_test_route(&unix_path)]
-            .into_iter()
-            .map(|route| {
-                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
-            })
-            .collect();
-        let mut options = reconnect_test_options(routes);
-        options.providers = providers;
-        options.auth = ClientAuthMode::Carrier;
-        options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
-        options.reconnect.full_jitter = false;
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let (connection, selected) = tokio::time::timeout(
-            instrumented_test_timeout(Duration::from_millis(500)),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled provider monopolized initial route selection")
-        .expect("the next initial route did not connect");
-
-        assert_eq!(calls.load(Ordering::Acquire), 1);
-        assert_eq!(selected, format!("unix://{}", unix_path.display()));
-        connection.close().await.unwrap();
-        server.shutdown().await.unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn initial_link_timeout_closes_group_and_falls_back_to_next_route() {
-        let directory = tempfile::tempdir().unwrap();
-        let daemon_auth =
-            AuthDatabase::load_or_create(directory.path().join("daemon"), "link-timeout", true)
-                .unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(daemon_auth, SessionLimits::default());
-        let unix_path = directory.path().join("daemon.sock");
-        let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
-
-        let close_calls = Arc::new(AtomicUsize::new(0));
-        let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers
-            .register(Arc::new(HangingOpenProvider { close_calls: close_calls.clone() }))
-            .unwrap();
-        providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
-        let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-open://daemon").unwrap(), unix_test_route(&unix_path)]
-            .into_iter()
-            .map(|route| {
-                ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
-            })
-            .collect();
-        let mut options = reconnect_test_options(routes);
-        options.providers = providers;
-        options.auth = ClientAuthMode::Carrier;
-        options.reconnect.maximum_attempts = Some(1);
-        options.reconnect.attempt_timeout = instrumented_test_timeout(Duration::from_millis(20));
-        options.reconnect.full_jitter = false;
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        let (connection, selected) = tokio::time::timeout(
-            instrumented_test_timeout(Duration::from_millis(500)),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled physical link monopolized initial route selection")
-        .expect("the next initial route did not connect");
-
-        assert_eq!(close_calls.load(Ordering::Acquire), 1);
-        assert_eq!(selected, format!("unix://{}", unix_path.display()));
-        connection.close().await.unwrap();
-        server.shutdown().await.unwrap();
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
     async fn initial_client_connection_respects_one_attempt_policy() {
         let directory = tempfile::tempdir().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -5795,6 +5743,7 @@ mod tests {
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
             arch: "test".into(),
+            capabilities: Vec::new(),
         };
         write_executable(
             &script,

@@ -23,7 +23,7 @@ extension TabContentCache {
     func rebuildForAgent(_ key: String) {
         guard let page = browsers[key]?.tab else { return }
         // A page with no URL yet starts over blank.
-        reroute(key, to: page.state.url ?? URL(string: "about:blank")!)
+        reroute(key, to: page.state.url ?? StaticURL.blank.url)
         // `reroute` makes nothing while a page is already being made, or
         // without a record; the old page goes regardless.
         if let entry = browsers.removeValue(forKey: key) {

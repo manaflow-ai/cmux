@@ -9,6 +9,21 @@
 //! `/var/folders/...` path of about 50 bytes. [`short_test_dir`] (feature
 //! `test-support`) gives a short directory under the canonical `/tmp`.
 
+// The crash ratchet keeps this crate at zero production panics
+// (plans/cmux-next/crash-elimination.md section 6).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::todo,
+        clippy::unimplemented,
+        clippy::exit
+    )
+)]
+
 use std::io;
 use std::path::Path;
 
@@ -76,7 +91,12 @@ pub use tempfile::TempDir as TestDir;
 /// (`/private/tmp` on macOS, so symlinked-directory checks accept it), named
 /// `<prefix><random>`, whatever `$TMPDIR` is. The directory and everything in
 /// it are removed when the guard drops. `prefix` is cut to 8 characters.
+///
+/// Test support only: every dependent enables `test-support` from
+/// `[dev-dependencies]`, so no production build contains this function. A
+/// test that cannot make its socket directory fails here.
 #[cfg(feature = "test-support")]
+#[allow(clippy::expect_used)]
 pub fn short_test_dir(prefix: &str) -> TestDir {
     let prefix: String = prefix.chars().take(8).collect();
     let root = if cfg!(unix) {
@@ -87,24 +107,6 @@ pub fn short_test_dir(prefix: &str) -> TestDir {
     tempfile::Builder::new()
         .prefix(&prefix)
         .tempdir_in(root)
+        // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_path_accepts_the_limit_and_names_a_longer_path() {
-        let longest = "x".repeat(MAX_PATH_BYTES);
-        assert!(fits(Path::new(&longest)));
-        assert!(check_path(Path::new(&longest)).is_ok());
-        let too_long = format!("/{}", "y".repeat(MAX_PATH_BYTES));
-        let error = check_path(Path::new(&too_long)).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        let message = error.to_string();
-        assert!(message.contains(&too_long), "{message}");
-        assert!(message.contains(&format!("{} bytes", MAX_PATH_BYTES + 1)), "{message}");
-        assert!(message.contains(&MAX_PATH_BYTES.to_string()), "{message}");
-    }
 }

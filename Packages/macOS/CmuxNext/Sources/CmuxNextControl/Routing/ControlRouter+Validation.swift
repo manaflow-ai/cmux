@@ -65,10 +65,10 @@ extension ControlRouter {
                     data: ["valid": .array(action.arguments.map { .string($0.name) })]
                 )
             }
-            request.arguments[name] = try value(raw, for: argument, action: action.id, knownKinds: knownKinds)
+            request.arguments.updateValue(try value(raw, for: argument, action: action.id, knownKinds: knownKinds), forKey: name)
         }
         let interactive = params["interactive"]?.boolValue ?? false
-        let missing = action.arguments.filter { $0.isRequired && request.arguments[$0.name] == nil }.map(\.name)
+        let missing = action.arguments.filter { $0.isRequired && request.arguments.index(forKey: $0.name) == nil }.map(\.name)
         if !missing.isEmpty, !interactive {
             throw ControlError.invalidParams(
                 ControlStrings.format("control.error.missingArguments", "%1$@ requires %2$@", action.id, missing.map { "--\($0)" }.joined(separator: ", ")),
@@ -93,7 +93,7 @@ extension ControlRouter {
             default: throw fail("a string")
             }
         case .int:
-            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            let number = raw.intValue ?? raw.stringValue.flatMap { Int($0.trimmingCharacters(in: .whitespaces), radix: 10) }
             guard let number else { throw fail("an integer") }
             if let range = argument.range, !range.contains(number) { throw fail("an integer in \(range.lowerBound)...\(range.upperBound)") }
             return .int(number)
@@ -125,12 +125,12 @@ extension ControlRouter {
         switch raw {
         case .string(let text):
             let trimmed = text.trimmingCharacters(in: .whitespaces)
-            let colon = trimmed.firstIndex(of: ":")
-            let prefix = colon.map { String(trimmed[..<$0]) } ?? ""
-            if let colon, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
+            let parts = trimmed.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let prefix = parts.count == 2 ? String(parts.first ?? "") : ""
+            if parts.count == 2, knownKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) })
                 || allowedKinds.contains(where: { normalizedKind($0) == normalizedKind(prefix) }) {
                 kindText = prefix
-                id = String(trimmed[trimmed.index(after: colon)...])
+                id = String(parts.last ?? "")
             } else {
                 kindText = nil
                 id = trimmed

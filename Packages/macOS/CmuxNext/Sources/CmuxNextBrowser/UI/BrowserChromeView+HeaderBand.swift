@@ -66,6 +66,7 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     override public func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         headerBandReattachIfInstalled()
+        syncPageOverlays() // a move to another pane in the same window
     }
 
     func headerBandReattachIfInstalled() {

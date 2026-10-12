@@ -20,14 +20,25 @@ enum ViewerHandlers {
         viewers.diffPages.chooser = PickerDiffFolderChooser(viewers: viewers)
         registry.bind("openDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
-            guard let folder = ViewerService.folder(of: pane) else { return try showPicker(viewers.diffPickerPage(for: pane), context, invocation) }
-            let focus = invocation.allowsViewChange
+            // `path`: that folder's repository; else the pane's folder.
+            let given = invocation["path"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            guard let folder = given ?? ViewerService.folder(of: pane) else {
+                return try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
+            }
+            let focus = invocation.allowsViewChange && !invocation.besideCaller
+            // An agent's diff beside its chat: selected in the column right of it, or moved into a new one.
+            let created = invocation.besideCaller ? AgentBesidePlacement.placed(invocation, in: pane, then: nil) : nil
             // No repository at the pane's folder: the picker asks for one (only when the run may
-            // change the view; an agent or the CLI without focus gets needsFocus).
+            // change the view, as a person's click on the chat header's Changes may; an agent or
+            // the CLI without focus gets needsFocus).
             registry.track(Task { @MainActor in
-                do { try await viewers.openDiff(folder, in: pane, focus: focus) } catch {
-                    guard focus else { return backgroundPickerRefusal() }
-                    context.services.palette.show(page: viewers.diffPickerPage(for: pane), relativeTo: context.activeWindow?.window)
+                do { try await viewers.openDiff(folder, in: pane, focus: focus, created: created) } catch {
+                    guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
+                    // The header's pick still opens beside the chat, as its diff would have.
+                    let page = invocation.besideCaller
+                        ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.placed(invocation, in: pane, then: nil) })
+                        : viewers.diffPickerPage(for: pane)
+                    context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
                 }
                 return nil
             })

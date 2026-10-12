@@ -8,6 +8,7 @@
  * conversation and follows the Rust rules exactly; a head with `kind` is a
  * cloud (or self-hosted) conversation and adds the cloud rules.
  */
+import type { QuestionAnswer, QuestionPart } from "./question.ts"
 
 export type ParticipantKind = "human" | "agent" | "address"
 export type AgentClass = "mux" | "agent"
@@ -102,6 +103,8 @@ export type Part =
       readonly status: WorkStatus
       readonly preview?: string
     }
+  /** A question an agent asks a person (question.ts). Only agents post it; only `question.answer` or the author's cancel moves it out of pending. */
+  | QuestionPart
 
 export type Tapback = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question"
 export const TAPBACKS: ReadonlyArray<Tapback> = ["love", "like", "dislike", "laugh", "emphasize", "question"]
@@ -125,6 +128,8 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
+  /** The root of the thread this message replies in; a root has none (one level). */
+  readonly thread_root?: string
   readonly created_at: string
   readonly edited_at?: string
   readonly retracted_at?: string
@@ -258,9 +263,9 @@ export interface Summary {
   readonly retention_days?: number
 }
 
-/** The local subset: the ops of the Rust crate. */
+/** The local subset: the ops of the Rust crate (also valid on a cloud head). */
 export type LocalOp =
-  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef }
+  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef; readonly thread_root?: string }
   | { readonly kind: "message.edit"; readonly message_id: string; readonly parts: ReadonlyArray<Part> }
   | { readonly kind: "message.retract"; readonly message_id: string }
   | { readonly kind: "reaction.add"; readonly message_id: string; readonly part_index: number; readonly reaction: ReactionKind }
@@ -268,6 +273,8 @@ export type LocalOp =
   | { readonly kind: "read_cursor.set"; readonly seq: number }
   | { readonly kind: "participants.add"; readonly participant: Participant }
   | { readonly kind: "title.set"; readonly title: string }
+  /** A person answers the question part at `part_index`; only `answer.selections` is read. */
+  | { readonly kind: "question.answer"; readonly message_id: string; readonly part_index: number; readonly answer: QuestionAnswer }
 
 export interface InviteCreateParams {
   readonly kind: "invite.create"

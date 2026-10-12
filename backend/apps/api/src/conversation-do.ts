@@ -10,6 +10,7 @@ import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
 import * as gc from "./home-attachment-gc.ts"
 import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
+import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -252,24 +253,39 @@ export class ConversationDO extends OwnerDO<Head> {
     }
   }
 
-  /** conversation.history {before_seq?, limit?}: older messages, honoring history_visible. */
+  /** snapshot, history {before_seq?, limit?} and thread, honoring history_visible; pages carry root stats (`threads`, cx-59n8.6). */
   protected read(state: Head, op: string, params: unknown, principal: Principal): ReadResult {
     const me = state ? this.member(state, principal) : undefined
     if (!state || !me) return { ok: false, code: "auth.forbidden", message: "not a participant" }
+    const engine = this.boundEngine!
     if (op === "conversation.snapshot") {
-      const engine = this.boundEngine!
       const tail = typeof (params as { tail?: unknown } | null)?.tail === "number" ? (params as { tail: number }).tail : 50
-      const snap = this.subscriberSnapshot(engine.snapshot(principal.identity, []), principal) as { rows?: { table: string; rows: Array<unknown> } }
-      return { ok: true, value: snap.rows ? { ...snap, rows: { ...snap.rows, rows: snap.rows.rows.slice(Math.max(0, snap.rows.rows.length - tail)) } } : snap, revision: String(engine.currentSeq) }
+      const snap = this.subscriberSnapshot(engine.snapshot(principal.identity, []), principal) as { rows?: { table: string; rows: Array<{ row: unknown }> } }
+      if (!snap.rows) return { ok: true, value: snap, revision: String(engine.currentSeq) }
+      const rows = snap.rows.rows.slice(Math.max(0, snap.rows.rows.length - tail))
+      return { ok: true, value: { ...snap, rows: { ...snap.rows, rows }, threads: threadsOf(this.sqlStore, rows.map((r) => r.row)) }, revision: String(engine.currentSeq) }
     }
+    const floor = this.floor(state, me)
+    if (op === "conversation.thread") return this.readThread(params, floor)
     if (op !== "conversation.history") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     const q = (params ?? {}) as { before_seq?: unknown; limit?: unknown }
     const limit = typeof q.limit === "number" && q.limit > 0 ? Math.min(q.limit, MAX_HISTORY_PAGE) : 50
     const before = typeof q.before_seq === "number" ? q.before_seq : undefined
-    const floor = this.floor(state, me)
-    const engine = this.boundEngine!
     const rows = engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { ...(before === undefined ? {} : { before }), after: floor, limit, desc: true })
-    return { ok: true, value: { messages: rows.reverse().map((r) => r.row), has_more: rows.length === limit }, revision: "" }
+    const messages = rows.reverse().map((r) => r.row)
+    return { ok: true, value: { messages, threads: threadsOf(this.sqlStore, messages), has_more: rows.length === limit }, revision: "" }
+  }
+
+  /** One thread: a root the member may see (not a reply, above its floor) and its replies after after_seq. */
+  private readThread(params: unknown, floor: number): ReadResult {
+    const q = (params ?? {}) as { root?: unknown; after_seq?: unknown; limit?: unknown }
+    if (typeof q.root !== "string") return { ok: false, code: "validation.invalid", message: "conversation.thread needs a root message id" }
+    const limit = typeof q.limit === "number" && q.limit > 0 ? Math.min(Math.floor(q.limit), MAX_THREAD_PAGE) : 50
+    const after = typeof q.after_seq === "number" && q.after_seq > 0 ? q.after_seq : 0
+    const root = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, q.root)?.row
+    // One code for unknown, a reply, and below the floor: no existence probe.
+    if (!root || root.thread_root !== undefined || root.seq <= floor) return { ok: false, code: "unknown_message", message: "no such thread root in this conversation" }
+    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root.id) }, revision: "" }
   }
 
   /**

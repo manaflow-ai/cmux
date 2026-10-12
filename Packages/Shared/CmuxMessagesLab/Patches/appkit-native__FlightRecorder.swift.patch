@@ -35,7 +35,7 @@
          }
      }
  
-@@ -196,7 +202,7 @@
+@@ -208,7 +214,7 @@
                  if d > FlightRecorder.verifyMax { FlightRecorder.verifyMax = d; FlightRecorder.verifyWorst = "container \(d)" }
              }
          }
@@ -44,7 +44,7 @@
          let base = slot * FlightRecorder.maxRows
          var n = 0
          // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
-@@ -429,10 +435,11 @@
+@@ -450,10 +456,11 @@
          guard let c else { return }
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
@@ -57,9 +57,9 @@
 +        screenName = c.window?.screen?.localizedName ?? "?"  // cmux: the pane's window is optional
 +        screenHz = c.window?.screen?.maximumFramesPerSecond ?? 0
          let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
-         let t0 = order.first.map { self.samples[$0].t } ?? CACurrentMediaTime()
+         let t0 = order.first.flatMap { self.samples[checked: $0]?.t } ?? CACurrentMediaTime() // checked
          // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
-@@ -459,20 +466,23 @@
+@@ -481,20 +488,23 @@
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
          }
@@ -75,7 +75,7 @@
 +                                     "frame": c.window.map { NSStringFromRect($0.frame) } ?? ""],
 +                          "load": HomeFlightRecorder.loadAverage, "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
                           dir + "/meta.json")
-         FileHandle.standardError.write("MessagesLab flight recorder: \(reason) -> \(dir)\n".data(using: .utf8)!)
+         FileHandle.standardError.write(Data("MessagesLab flight recorder: \(reason) -> \(dir)\n".utf8)) // no force unwrap
          dumps.append(dir)
 -        burst(dir, c, count: 30)
 +        // cmux: window captures only with their own opt-in (HomeFlightRecorder.capturesWindow).
@@ -84,13 +84,13 @@
  
      /// About 0.5 s of window captures, one per display frame, off the main thread.
      private func burst(_ dir: String, _ c: ChatController, count: Int) {
--        let wid = UInt32(c.window.windowNumber)
+-        guard let wid = UInt32(exactly: c.window.windowNumber) else { return } // no trapping conversion
 +        guard let window = c.window else { return }  // cmux: the pane's window is optional
-+        let wid = UInt32(window.windowNumber)
++        guard let wid = UInt32(exactly: window.windowNumber) else { return } // no trapping conversion
          let q = DispatchQueue(label: "flight.burst", qos: .utility)
          let start = CACurrentMediaTime()
          var i = 0
-@@ -480,7 +490,8 @@
+@@ -502,7 +512,8 @@
          timer.schedule(deadline: .now(), repeating: 1.0 / 60)
          timer.setEventHandler {
              let t = CACurrentMediaTime() - start

@@ -149,7 +149,8 @@ final class HomeScene {
     func visibleAnchor() -> (key: String, y: CGFloat)? {
         guard !pinned, model.count > 0 else { return nil }
         let i = firstVisibleRow
-        return (model.rows[i].spec.key, windowY(contentY: layout.contentTop(i)))
+        guard let key = model.rows[checked: i]?.spec.key else { return nil }
+        return (key, windowY(contentY: layout.contentTop(i)))
     }
 
     func restore(_ anchor: (key: String, y: CGFloat)?) {
@@ -215,7 +216,7 @@ final class HomeScene {
         let all = dirty
         dirty = false
         for i in indices {
-            let key = model.rows[i].spec.key
+            guard let key = model.rows[checked: i]?.spec.key else { continue }
             let row: RowLayer
             if let r = visible.removeValue(forKey: key) {
                 row = r
@@ -230,7 +231,7 @@ final class HomeScene {
                 row.content.frame = row.layer.bounds
             }
             row.layer.zPosition = CGFloat(i)
-            next[key] = row
+            next.updateValue(row, forKey: key)
             newIndex[ObjectIdentifier(row)] = i
         }
         for (key, r) in visible {
@@ -256,8 +257,7 @@ final class HomeScene {
     private func prefetchNearViewport() {
         let m = metrics
         for i in prefetchIndices() {
-            let spec = model.rows[i].spec
-            guard visible[spec.key] == nil else { continue }
+            guard let spec = model.rows[checked: i]?.spec, visible[spec.key] == nil else { continue }
             bitmaps.prefetch(spec, size: RowArt.frame(spec, metrics: m).size)
         }
     }
@@ -284,7 +284,7 @@ final class HomeScene {
 
     /// Configures a row layer for row i and adds the row's live ledger components.
     func decorate(_ row: RowLayer, _ i: Int) {
-        let r = model.rows[i]
+        guard let r = model.rows[checked: i] else { return }
         row.configure(r.spec, metrics: metrics, bitmaps: bitmaps, viewportHeight: size.height)
         row.content.opacity = r.ghost ? Animate.hiddenOpacity : 1
         row.windowY = windowY(contentY: layout.frame(for: i).minY)
@@ -326,11 +326,11 @@ final class HomeScene {
         guard model.count > 0 else { return 0 }
         let top = offset + topInset + 8 - layout.rowsTop
         let r = model.range(top, top + 1)
-        let first = r.first { model.contentTop($0) + model.rows[$0].spec.height > top } ?? r.lowerBound
+        let first = r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound
         return min(model.count - 1, first)
     }
 
-    var firstVisibleKey: String? { model.count > 0 ? model.rows[firstVisibleRow].spec.key : nil }
+    var firstVisibleKey: String? { model.count > 0 ? model.rows[checked: firstVisibleRow]?.spec.key : nil }
 
     /// Something is still animating or waiting for cleanup.
     var isAnimating: Bool { !ledger.isEmpty || !morphs.isEmpty || model.hasGhosts || crossFade != nil }

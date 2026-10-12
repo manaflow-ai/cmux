@@ -7,9 +7,6 @@ public nonisolated enum DockEdge: String, Hashable, Sendable, CaseIterable {
 
     /// Top and bottom: the dock is a horizontal band.
     public var isBand: Bool { self == .top || self == .bottom }
-
-    /// Left and top: the dock sits before the strip on its axis.
-    public var isLeading: Bool { self == .left || self == .top }
 }
 
 /// How a docked column shares the viewport with the scrolling strip.
@@ -27,9 +24,11 @@ public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
 public nonisolated struct DockColumn: Hashable, Sendable {
     public var edge: DockEdge
     public var mode: DockMode
+    public var role: DockRole?
 
-    public init(edge: DockEdge = .right, mode: DockMode = .docked) {
+    public init(edge: DockEdge = .right, mode: DockMode = .docked, role: DockRole? = nil) {
         self.edge = edge
         self.mode = mode
+        self.role = role
     }
 }

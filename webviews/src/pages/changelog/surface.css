@@ -1,0 +1,15 @@
+/* An update surface document (surface.tsx): no page background (the host draws the material) and
+   no page padding; the root wraps the one component so its height is the content's. */
+html[data-surface] {
+  background: transparent;
+}
+html[data-surface] body {
+  overflow: hidden;
+}
+html[data-surface] #root {
+  display: flow-root;
+}
+/* The host gives the width (300 pt, which is fewer CSS px when the interface scale zooms the page). */
+html[data-surface] .wn-pop {
+  width: auto;
+}

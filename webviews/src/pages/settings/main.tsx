@@ -8,6 +8,8 @@ import { createPageClient } from "../shared/pageClient";
 import { createMockClient } from "./mockProvider";
 import { mountSettingsPage } from "./mount";
 import "./styles.css";
+import "./layout.css";
+import "./tailwind.css";
 import { installCatalog } from "./strings";
 
 // The dev server has no locales/*.js: install the full table there. The production bundle drops

@@ -50,6 +50,10 @@ pub struct ProviderDriver {
     /// Each session's request filter and the CEF tabs it applies to
     /// (`crate::provider_engine`), by subscription id.
     pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_source::SessionFilter>>,
+    /// Downloads the app reported (`download.path` of provider sessions).
+    pub(crate) downloads: Arc<crate::provider_downloads::ProviderDownloads>,
+    /// Tabs agent sessions kept (`tab.keep`): deliverables later sessions list.
+    pub(crate) kept_tabs: Mutex<std::collections::BTreeSet<String>>,
 }
 
 pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
@@ -105,6 +109,8 @@ impl ProviderDriver {
         let (thread_waiters, thread_closed, thread_tabs) =
             (waiters.clone(), closed.clone(), tabs.clone());
         let cef_tabs: CefTabs = Arc::new(Mutex::new(HashMap::new()));
+        let downloads: Arc<crate::provider_downloads::ProviderDownloads> = Arc::default();
+        let thread_downloads = downloads.clone();
         let writer: SharedWriter = Arc::new(Mutex::new(Box::new(writer)));
         let leases: Leases = Arc::default();
         let (thread_writer, thread_leases) = (writer.clone(), leases.clone());
@@ -114,6 +120,9 @@ impl ProviderDriver {
             let reason = loop {
                 match read_frame(&mut reader) {
                     Ok(Some(Frame::Event { name, payload })) => {
+                        if name == "download.finished" {
+                            thread_downloads.record(&payload);
+                        }
                         thread_tabs
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
@@ -234,6 +243,8 @@ impl ProviderDriver {
             cef_tabs,
             attach_lock: Mutex::new(()),
             request_filters: Mutex::new(HashMap::new()),
+            downloads,
+            kept_tabs: Mutex::default(),
             leases,
         }))
     }

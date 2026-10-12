@@ -186,7 +186,7 @@ class IrTests(unittest.TestCase):
             "new-pane-right": {
                 "since": 9,
                 "capability": "viewport-splits-v1",
-                "result": "SurfaceResult",
+                "result": "PaneSurfaceResult",
                 "fields": {
                     "pane": ("ref", "Id", "required", False, False, None, None, None),
                     "width": (
@@ -291,12 +291,33 @@ class IrTests(unittest.TestCase):
                         12,
                         "pane-browser-kind-v1",
                     ),
+                    # split-client-keys-v1: client-minted pane and tab ids.
+                    "pane_id": (
+                        "scalar",
+                        "string",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        12,
+                        "split-client-keys-v1",
+                    ),
+                    "tab_id": (
+                        "scalar",
+                        "string",
+                        "optional",
+                        True,
+                        True,
+                        None,
+                        12,
+                        "split-client-keys-v1",
+                    ),
                 },
             },
             "set-viewport-pane-width": {
                 "since": 9,
                 "capability": "viewport-column-resize-v1",
-                "result": "EmptyResult",
+                "result": "ViewportPaneWidthResult",
                 "fields": {
                     "pane": ("ref", "Id", "required", False, False, None, None, None),
                     "width": (

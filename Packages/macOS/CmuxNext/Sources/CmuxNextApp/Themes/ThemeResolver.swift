@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// Turns a theme spec (room, workspace or terminal) into colors for the
 /// chrome and a Ghostty config for the surfaces, resolved like the global
@@ -27,8 +28,9 @@ final class ThemeResolver {
 
     init() {
         isDark = Self.systemIsDark()
-        appearanceObservation = NSApp?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.appearanceDidChange() }
+        // KVO calls back on the changing thread: inline on main, a hop from anywhere else.
+        appearanceObservation = NSApp?.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] _, _ in
+            MainDelivery().run { self?.appearanceDidChange() }
         }
         let runtime = GhosttyRuntime.shared
         let previous = runtime.onConfigChange
@@ -41,9 +43,10 @@ final class ThemeResolver {
     /// Colors and config for `spec`; nil for no spec, or when libghostty
     /// cannot build a config (the level then inherits).
     func resolve(_ spec: ThemeSpec?) -> Resolved? {
-        guard let spec, let config = GhosttyRuntime.shared.themeConfig(named: spec.name(isDark: isDark)),
+        guard let spec, case let name = spec.name(isDark: isDark), let config = GhosttyRuntime.shared.themeConfig(named: name),
               let colors = config.colors else { return nil }
-        return Resolved(spec: spec, input: ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride), config: config)
+        let input = ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride, accent: ThemeBridge.accent(name))
+        return Resolved(spec: spec, input: input, config: config)
     }
 
     private func appearanceDidChange() {
@@ -53,7 +56,8 @@ final class ThemeResolver {
         changed()
     }
 
-    private func changed() {
+    /// Re-resolves every level (a theme's accent changed, which no config reload reports).
+    func changed() {
         generation += 1
         onChange?()
     }

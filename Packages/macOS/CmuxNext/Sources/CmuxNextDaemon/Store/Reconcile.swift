@@ -26,7 +26,7 @@ func reconcile<Model: AnyObject & Identifiable, Snapshot>(
         } else {
             model = make(snapshot)
         }
-        if !changed, existing[index] !== model { changed = true }
+        if !changed, existing[checked: index].map({ $0 !== model }) ?? true { changed = true }
         result.append(model)
     }
     return changed ? result : nil

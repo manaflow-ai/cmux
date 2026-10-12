@@ -1,7 +1,6 @@
 #[cfg(unix)]
 use std::collections::VecDeque;
 use std::fs;
-#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
@@ -25,9 +24,8 @@ struct HeadlessServer {
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
-    /// The daemon's stderr, drained continuously. An undrained pipe blocks
-    /// every daemon thread that logs once the pipe buffer fills, while that
-    /// thread may hold mux locks; the tail also explains a teardown failure.
+    /// The daemon's stderr, drained continuously. An undrained pipe blocks every daemon thread
+    /// that logs once the buffer fills (it may hold mux locks); the tail explains a failure.
     stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
@@ -71,8 +69,7 @@ impl HeadlessServer {
         Self::start_with_options(name, None, Some(launch_cwd), &[])
     }
 
-    /// Shells launched without Ghostty shell integration emit no OSC 133
-    /// prompt marks, so the terminal sees no prompt boundary.
+    /// Shells launched without Ghostty shell integration emit no OSC 133 prompt marks.
     fn start_without_shell_integration(name: &str) -> Self {
         Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
@@ -279,12 +276,11 @@ impl HeadlessServer {
 }
 
 #[cfg(unix)]
-/// Creates an executable script without this process ever holding a write
-/// descriptor for it. Tests run on many threads, and a sibling test that
-/// forks while such a descriptor is open hands a copy to its child until that
-/// child execs; running the script in that window fails with ETXTBSY ("Text
-/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
-/// own process, so no fork of this process can inherit it.
+/// Creates an executable script without this process ever holding a write descriptor for it.
+/// Tests run on many threads, and a sibling test that forks while such a descriptor is open
+/// hands a copy to its child until that child execs; running the script then fails with
+/// ETXTBSY ("Text file busy"). A short-lived `sh` opens, writes, and closes the file in its own
+/// process, so no fork of this process can inherit it.
 #[cfg(unix)]
 fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
     use std::io::Write as _;
@@ -605,7 +601,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         let output = lifecycle_cli(args);
         assert_success(&output);
         let help = String::from_utf8(output.stdout).unwrap();
-        assert!(help.contains("cmux server"), "{help}");
+        assert!(help.contains("cmux daemon"), "{help}");
         assert!(!help.contains("cmux [OPTIONS]           Start a session"), "{help}");
     }
 
@@ -931,7 +927,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
 }
 
 #[test]
-fn removed_daemon_entrypoint_fails_before_process_work_with_precise_migration() {
+fn bare_daemon_without_an_action_fails_before_process_work() {
     let root = unique_temp_dir("removed-daemon-entrypoint");
     let socket = root.join("must-not-create.sock");
     let state = root.join("must-not-create-state");
@@ -944,10 +940,9 @@ fn removed_daemon_entrypoint_fails_before_process_work_with_precise_migration() 
     ]);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
+    // `daemon` is the lifecycle again (decision D1): no action, usage error.
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(error.contains("`cmux daemon` was renamed to `cmux server start`"), "{error}");
-    assert!(error.contains("cmux server start --help"), "{error}");
-    assert!(!error.contains("START OPTIONS"), "{error}");
+    assert!(!error.is_empty() && !error.contains("START OPTIONS"), "{error}");
     assert!(!socket.exists());
     assert!(!state.exists());
 }
@@ -972,7 +967,7 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_eq!(error["code"], "server.unavailable");
     assert!(!error["message"].as_str().unwrap().contains(socket.to_str().unwrap()));
 
-    // This is the binary-level spelling reached by `uvx cmux server stop`.
+    // This is the binary-level spelling reached by `uvx cmux daemon stop`.
     let human = lifecycle_cli(&[
         "server",
         "stop",
@@ -2964,6 +2959,10 @@ fn plain_launch_attaches_to_existing_local_session() {
 mod session_shutdown;
 
 #[cfg(unix)]
+#[path = "cli/apps_store.rs"]
+mod apps_store;
+
+#[cfg(unix)]
 #[path = "cli/pty_child.rs"]
 mod pty_child;
 #[cfg(unix)]
@@ -3616,9 +3615,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        supports_terminal_metadata: false,
-        supports_clipboard_read: false,
-        supports_viewer_size_priority: false,
+        ..Default::default()
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -3637,9 +3634,14 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
     live_file
 }
 
+/// A directory no other test of this process gets. The clock alone is not enough: macOS reports
+/// microseconds, so two tests that start a daemon of the same name at once got one state dir, and
+/// the second daemon found the session lock held (cx-ebm.58: the chief_pipe tests, 2 of 3 runs).
 fn unique_temp_dir(name: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}", std::process::id()))
+    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}-{n}", std::process::id()))
 }
 
 fn bin() -> &'static str {
@@ -3647,66 +3649,61 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
+#[path = "cli/agent_session_start.rs"]
+mod agent_session_start;
+#[cfg(unix)]
+#[path = "cli/all_sessions_scope.rs"]
+mod all_sessions_scope;
+#[cfg(unix)]
+#[path = "cli/app_workspaces.rs"]
+mod app_workspaces;
+#[cfg(unix)]
+#[path = "cli/chief.rs"]
+mod chief;
+#[path = "cli/closed_delete.rs"]
+mod closed_delete;
+#[cfg(unix)]
+#[path = "cli/cloud_lease_gate.rs"]
+mod cloud_lease_gate;
+#[path = "cli/command_history.rs"]
+mod command_history;
+#[cfg(unix)]
+#[path = "cli/conversation_threads.rs"]
+mod conversation_threads;
+#[cfg(unix)]
+#[path = "cli/explicit_socket.rs"]
+mod explicit_socket;
+#[cfg(unix)]
+#[path = "cli/feed_local.rs"]
+mod feed_local;
+#[path = "cli/git_write.rs"]
+mod git_write;
+#[path = "cli/icon_assets.rs"]
+mod icon_assets;
+#[path = "cli/launch_credential.rs"]
+mod launch_credential;
+#[cfg(unix)]
+#[path = "cli/left_dock_undock.rs"]
+mod left_dock_undock;
+#[path = "cli/lone_width.rs"]
+mod lone_width;
+#[cfg(unix)]
+#[path = "cli/new_terminal_cwd.rs"]
+mod new_terminal_cwd;
+#[cfg(unix)]
+#[path = "cli/settings_owner.rs"]
+mod settings_owner;
+#[path = "cli/state_helpers.rs"]
+mod state_helpers;
+#[cfg(unix)]
+#[path = "cli/status.rs"]
+mod status;
+#[path = "cli/tab_group_hex.rs"]
+mod tab_group_hex;
+#[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-
-/// Runs the CLI against `server` with `--json` and returns its JSON result.
-/// `caller` runs it as a cmux terminal would: routed by `CMUX_TUI_SOCKET`
-/// with `CMUX_TUI_TERMINAL_ID` naming the caller's terminal.
-fn state_cli(server: &HeadlessServer, caller: Option<&str>, args: &[&str]) -> serde_json::Value {
-    let mut command = Command::new(bin());
-    command
-        .arg("--json")
-        .args(args)
-        .env("LC_ALL", "C")
-        .env_remove("CMUX_TUI_TERMINAL_ID")
-        .env_remove("CMUX_SOCKET_PATH")
-        .env_remove("CMUX_BUNDLE_ID")
-        .env_remove("CMUX_TAG");
-    match caller {
-        Some(terminal) => {
-            command.env("CMUX_TUI_SOCKET", &server.socket).env("CMUX_TUI_TERMINAL_ID", terminal);
-        }
-        None => {
-            command.env_remove("CMUX_TUI_SOCKET").arg("--socket").arg(&server.socket);
-        }
-    }
-    let output = command.output().unwrap();
-    assert_success(&output);
-    json_output(&output)
-}
-
-/// Terminal, tab, screen and workspace ids from one session snapshot.
-fn state_cli_topology(server: &HeadlessServer) -> serde_json::Value {
-    state_cli(server, None, &["session", "current", "snapshot"])
-}
-
-fn workspace_of_terminal(snapshot: &serde_json::Value, terminal: &str) -> String {
-    let find = |kind: &str, id: &str| {
-        snapshot[kind]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|item| item["id"] == id)
-            .unwrap_or_else(|| panic!("no {kind} {id}"))
-            .clone()
-    };
-    let tab = find("terminals", terminal)["tab_id"].as_str().unwrap().to_string();
-    let pane = find("tabs", &tab)["pane_id"].as_str().unwrap().to_string();
-    let screen = find("panes", &pane)["screen_id"].as_str().unwrap().to_string();
-    find("screens", &screen)["workspace_id"].as_str().unwrap().to_string()
-}
-
-fn workspace_id_named(server: &HeadlessServer, name: &str) -> String {
-    state_cli(server, None, &["workspace", "list"])
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["name"] == name)
-        .and_then(|workspace| workspace["id"].as_str())
-        .unwrap_or_else(|| panic!("no workspace named {name}"))
-        .to_string()
-}
+use state_helpers::*;
 
 #[cfg(unix)]
 #[test]
@@ -3831,3 +3828,7 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
     state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
     assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
+
+#[cfg(unix)]
+#[path = "cli/history.rs"]
+mod history;

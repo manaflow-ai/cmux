@@ -1,6 +1,6 @@
 import CryptoKit
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///
@@ -163,7 +163,7 @@ public final class DaemonCommandScope: Sendable {
         let ordinal = state.withLock { state -> Int? in
             guard !state.closed else { return nil }
             state.derived[kind, default: 0] += 1
-            return state.derived[kind]
+            return state.derived[kind, default: 0]
         }
         return ordinal.map { Self.derivedUUID(key: key, kind: kind, ordinal: $0) }
     }
@@ -212,5 +212,14 @@ public protocol DaemonCreatingRequest: DaemonRequest {
 extension DaemonCreatingRequest {
     func createdObjects(inAny response: Any) -> [DaemonCreatedObject] {
         (response as? Response).map(createdObjects(in:)) ?? []
+    }
+}
+
+extension DaemonCommandScope {
+    /// Reports what `request` created, when it is a creating request, to
+    /// the ``current`` scope.
+    static func noteCreated(by request: some DaemonRequest, response: Any) {
+        guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
+        scope.noteCreated(creating.createdObjects(inAny: response))
     }
 }

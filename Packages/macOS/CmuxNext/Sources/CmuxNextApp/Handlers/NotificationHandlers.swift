@@ -13,13 +13,12 @@ enum NotificationHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        let daemon = context.daemon
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
         let feedPanel = FeedPanelController(context: context)
         registry.bind("feed.show", run: { _ in feedPanel.toggle() })
         services.pages.register(services.feedPage)
-        registry.bind("clearAllNotifications", requires: ack, daemon: daemon, run: { _ in
+        registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in
                 try await connection.clearNotifications()
@@ -27,18 +26,28 @@ enum NotificationHandlers {
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
-        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: daemon, run: { _ in
+        // The live tab whose agent was prompted last (a closed one is no longer in the tree),
+        // shown as a user jump: its window comes forward and its pane takes focus.
+        registry.bind("jumpToLastPrompt", run: { _ in
+            _ = try context.requireConnection()
+            let store = context.daemon.store
+            let prompted = context.allTabs.compactMap { located in store.agents.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
+            guard let last = prompted.max(by: { $0.1 < $1.1 })?.0 else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
+            guard ActionRunScope.viewChangeAllowed() else { return }
+            context.services.revealTab(last.tab.id)
+        })
+        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
             guard let oldest = tabs.first else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge([oldest.tab.surface], context)
             if tabs.count > 1 { try open(tabs[1], context) }
         })
-        registry.bind("markAllNotificationsRead", requires: ack, daemon: daemon, run: { _ in
+        registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        registry.bind("toggleUnread", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("toggleUnread", requires: ack, daemon: context.daemon, run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
             }
@@ -53,7 +62,7 @@ enum NotificationHandlers {
             try open(located, context)
             panel.close()
         })
-        registry.bind("notificationToggleRead", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationToggleRead", requires: ack, daemon: context.daemon, run: { invocation in
             if let row = try panel.row(invocation) {
                 guard row.unread, let surface = row.surface else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
                 return try acknowledge([surface], context)
@@ -61,11 +70,11 @@ enum NotificationHandlers {
             guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.markUnread) }
             try acknowledge([latest.tab.surface], context)
         })
-        registry.bind("notificationDismiss", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationDismiss", requires: ack, daemon: context.daemon, run: { invocation in
             guard let row = try panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
             try dismiss(row, panel: panel, context)
         })
-        registry.bind("notificationCopy", requires: ack, daemon: daemon, run: { invocation in
+        registry.bind("notificationCopy", requires: ack, daemon: context.daemon, run: { invocation in
             _ = try context.requireConnection()
             if let row = try panel.row(invocation) { return context.copy(row.copyText) }
             context.daemon.send("copy-notification") { connection in
@@ -75,6 +84,7 @@ enum NotificationHandlers {
             }
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
+        AgentChatMuteHandlers.bind(into: registry, context: context)
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes

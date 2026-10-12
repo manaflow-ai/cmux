@@ -97,7 +97,7 @@ impl RemoteMessages {
 }
 
 pub(super) const ENGLISH: RemoteMessages = RemoteMessages {
-    remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux server start` with `cmux server stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+    remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
     remote_stop_unknown_option: "unknown option {option} for cmux remote stop",
     remote_stop_no_positional: "cmux remote stop accepts no positional arguments",
     remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
@@ -105,7 +105,7 @@ pub(super) const ENGLISH: RemoteMessages = RemoteMessages {
     inspect_runtime_metadata: "could not inspect remote daemon runtime metadata ({path})",
     inactive_legacy_needs_migration: "inactive legacy daemon state needs explicit migration; verify that no legacy cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization",
     refuse_live_invalid_lifecycle: "refusing to stop a live daemon without valid lifecycle metadata",
-    embedded_daemon_stop_refused: "cmux remote stop manages only replaceable SSH sidecars; this remote listener belongs to the local server, so use `cmux server stop --session <name>` to stop its owner and workspaces",
+    embedded_daemon_stop_refused: "cmux remote stop manages only replaceable SSH sidecars; this remote listener belongs to the local server, so use `cmux daemon stop --session <name>` to stop its owner and workspaces",
     daemon_shutdown_failed: "daemon shutdown failed",
     observe_daemon_exit: "could not observe remote daemon process exit",
     daemon_stop_timeout: "remote daemon did not stop within 20 seconds",
@@ -162,7 +162,7 @@ pub(super) const ENGLISH: RemoteMessages = RemoteMessages {
 };
 
 pub(super) const JAPANESE: RemoteMessages = RemoteMessages {
-    remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux server start` に組み込まれたリスナーは `cmux server stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+    remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
     remote_stop_unknown_option: "cmux remote stop の不明なオプションです: {option}",
     remote_stop_no_positional: "cmux remote stop に位置引数は指定できません",
     remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",
@@ -170,7 +170,7 @@ pub(super) const JAPANESE: RemoteMessages = RemoteMessages {
     inspect_runtime_metadata: "リモートデーモンのランタイムメタデータを確認できませんでした（{path}）",
     inactive_legacy_needs_migration: "停止中の旧形式デーモン状態には明示的な移行が必要です。旧 cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください",
     refuse_live_invalid_lifecycle: "有効なライフサイクルメタデータがない実行中デーモンの停止を拒否しました",
-    embedded_daemon_stop_refused: "cmux remote stop は置換可能な SSH サイドカーだけを管理します。このリモートリスナーはローカルサーバーに属するため、その所有者とワークスペースを停止するには `cmux server stop --session <名前>` を使用してください",
+    embedded_daemon_stop_refused: "cmux remote stop は置換可能な SSH サイドカーだけを管理します。このリモートリスナーはローカルサーバーに属するため、その所有者とワークスペースを停止するには `cmux daemon stop --session <名前>` を使用してください",
     daemon_shutdown_failed: "デーモンの停止に失敗しました",
     observe_daemon_exit: "リモートデーモンプロセスの終了を確認できませんでした",
     daemon_stop_timeout: "リモートデーモンが 20 秒以内に停止しませんでした",

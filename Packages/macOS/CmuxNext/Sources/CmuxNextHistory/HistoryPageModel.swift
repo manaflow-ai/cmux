@@ -9,6 +9,10 @@ public protocol HistoryPageSource: AnyObject {
     func removeSite(of entry: HistoryEntry)
     func clear(range: HistoryRange)
     func copy(_ text: String)
+    /// The cookie backups agents' clears left (newest first).
+    func cookieBackups() async -> [HistoryCookieBackup]
+    /// Deletes cookie backups for good (the person confirmed).
+    func deleteCookieBackups(_ ids: [String]) async
 }
 
 /// The page's state: query, filter, grouping, loaded groups. Reloads are
@@ -36,6 +40,10 @@ public final class HistoryPageModel {
     public private(set) var groups: [HistoryGrouping.Group] = []
     public private(set) var isLoading = false
     public var selection: String?
+    /// The cookie backups sheet (``showCookieBackups()``).
+    public var showsCookieBackups = false
+    public internal(set) var cookieBackups: [HistoryCookieBackup] = []
+    @ObservationIgnored var cookieBackupsGeneration = 0
 
     @ObservationIgnored public weak var source: (any HistoryPageSource)?
     @ObservationIgnored private var entries: [HistoryEntry] = []
@@ -110,7 +118,8 @@ public final class HistoryPageModel {
 /// The page's address.
 public nonisolated enum HistoryPageAddress {
     public static let string = "cmux://history"
-    public static var url: URL { URL(string: string)! }
+    /// The page address (a literal a test parses; /dev/null stands in rather than a trap).
+    public static let url: URL = URL(string: string) ?? URL(fileURLWithPath: "/dev/null")
 
     /// `cmux://history`, with or without a trailing slash, query or fragment.
     public static func matches(_ url: URL?) -> Bool {

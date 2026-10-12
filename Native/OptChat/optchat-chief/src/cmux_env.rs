@@ -11,9 +11,23 @@
 //! `CMUX_APP_DAEMON_SOCKET` when the app sets it (a host shared by builds,
 //! whose `--daemon-socket` is the Chief's own conversation owner), else
 //! `--daemon-socket` (on a remote brain host, that host's own daemon).
+//!
+//! Without the app (`cmux chief` started the brain), the app's links do not
+//! exist. The CLI then uses `CMUX_CHIEF_OWNER_SOCKET`, the Chief's own owner
+//! daemon, and an app-only command says that it needs the cmux app: one rule
+//! with the CLI, schemas/chief-cmux-target/vectors.json (E17).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// The Chief's own owner daemon, where `cmux` calls go while the app's
+/// control socket or daemon does not exist (a Chief that `cmux chief`
+/// started without the app; schemas/chief-cmux-target/vectors.json).
+pub const OWNER_KEY: &str = "CMUX_CHIEF_OWNER_SOCKET";
+
+/// The CLI a `cmux` shim (dev reload or Homebrew) runs, as in the app's own
+/// terminals: a login shell puts the shims ahead of the bundled CLI again.
+pub const BUNDLED_CLI_KEY: &str = "CMUX_BUNDLED_CLI_PATH";
 
 /// The socket variables the `cmux` CLI reads, first wins.
 pub const SOCKET_KEYS: [&str; 2] = ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"];
@@ -33,7 +47,13 @@ pub fn app_daemon_socket(
 }
 
 /// The env keys a pinned env sets (the socket keys and PATH).
-pub const PINNED_KEYS: [&str; 3] = ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "PATH"];
+pub const PINNED_KEYS: [&str; 5] = [
+    "CMUX_TUI_SOCKET",
+    "CMUX_MUX_SOCKET",
+    OWNER_KEY,
+    BUNDLED_CLI_KEY,
+    "PATH",
+];
 
 /// The directory of the `cmux` CLI bundled next to `exe` (the app's
 /// Contents/Resources/bin), when there is one.
@@ -42,11 +62,24 @@ pub fn bundled_bin(exe: &Path) -> Option<PathBuf> {
     dir.join("cmux").is_file().then(|| dir.to_path_buf())
 }
 
-/// Pins `env` to the daemon at `daemon_socket`: both socket keys name it, and
-/// `bundled_bin` (when known) leads PATH, once.
-pub fn pin(env: &mut BTreeMap<String, String>, daemon_socket: &str, bundled_bin: Option<&Path>) {
+/// Pins `env` to the daemon at `daemon_socket`: both socket keys name it,
+/// `owner_socket` is the daemon without the app, and `bundled_bin` (when
+/// known) leads PATH, once, and is the CLI the shims run.
+pub fn pin(
+    env: &mut BTreeMap<String, String>,
+    daemon_socket: &str,
+    owner_socket: &str,
+    bundled_bin: Option<&Path>,
+) {
     for key in SOCKET_KEYS {
         env.insert(key.to_owned(), daemon_socket.to_owned());
+    }
+    env.insert(OWNER_KEY.to_owned(), owner_socket.to_owned());
+    if let Some(bin) = bundled_bin {
+        env.insert(
+            BUNDLED_CLI_KEY.to_owned(),
+            bin.join("cmux").display().to_string(),
+        );
     }
     let path = env
         .get("PATH")
@@ -69,50 +102,13 @@ pub fn path_with_first(path: &str, first: Option<&Path>) -> String {
         .join(":")
 }
 
-/// The pinned subset of `env` (the keys a child session must carry).
+/// The pinned subset of `env` (the keys a child session must carry): with
+/// the app's control and daemon links, so the child's `cmux` follows the
+/// same rule (schemas/chief-cmux-target).
 pub fn pinned_subset(env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     PINNED_KEYS
         .iter()
-        .chain(["CMUX_SOCKET_PATH"].iter())
+        .chain(["CMUX_SOCKET_PATH", APP_DAEMON_KEY].iter())
         .filter_map(|key| env.get(*key).map(|v| ((*key).to_owned(), v.clone())))
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pin_names_the_daemon_socket_and_puts_the_bundled_cli_first() {
-        let mut env = BTreeMap::new();
-        env.insert("PATH".to_owned(), "/u/bin:/app/bin:/usr/bin".to_owned());
-        env.insert(
-            "CMUX_SOCKET_PATH".to_owned(),
-            "/tmp/cmux-debug-t.sock".to_owned(),
-        );
-        pin(&mut env, "/T/cmux-app-t.sock", Some(Path::new("/app/bin")));
-        assert_eq!(env["CMUX_TUI_SOCKET"], "/T/cmux-app-t.sock");
-        assert_eq!(env["CMUX_MUX_SOCKET"], "/T/cmux-app-t.sock");
-        assert_eq!(env["PATH"], "/app/bin:/u/bin:/usr/bin");
-    }
-
-    #[test]
-    fn pin_without_a_bundled_cli_keeps_path() {
-        let mut env = BTreeMap::new();
-        env.insert("PATH".to_owned(), "/u/bin:/usr/bin".to_owned());
-        pin(&mut env, "/s", None);
-        assert_eq!(env["PATH"], "/u/bin:/usr/bin");
-        assert_eq!(env["CMUX_TUI_SOCKET"], "/s");
-    }
-
-    #[test]
-    fn bundled_bin_needs_a_cmux_next_to_the_exe() {
-        let dir = std::env::temp_dir().join(format!("cmux-env-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join("optchat-chief");
-        assert_eq!(bundled_bin(&exe), None);
-        std::fs::write(dir.join("cmux"), b"").unwrap();
-        assert_eq!(bundled_bin(&exe), Some(dir.clone()));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
 }

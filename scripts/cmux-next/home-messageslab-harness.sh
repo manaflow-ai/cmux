@@ -38,11 +38,9 @@ oracle)
   app="$build/MessagesLabAppKitNative.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   files=( "$src"/appkit-native/Sources/*.swift )
-  for f in Model Engine PagedSource Pager Layout Transcript Recycler RowDrawing Springs Morph Shapes Fixture Header WindowView Replay \
-           ComposeAttachments LinkPreviews LinkGuard LongText TiledBubble MediaCache; do
-    # Later upstream files (ComposeAttachments 2f22022, LinkPreviews cd2bc08, LongText and TiledBubble 2a0805d, LinkGuard and MediaCache 93cf61f).
-    [[ -f "$src/catalyst/Sources/$f.swift" ]] && files+=( "$src/catalyst/Sources/$f.swift" )
-  done
+  # The catalyst files the upstream app builds: appkit-native/project.yml's ../catalyst/Sources list.
+  while IFS= read -r f; do files+=( "$src/catalyst/Sources/$f" ); done \
+    < <(sed -n 's|.*path: \.\./catalyst/Sources/\([A-Za-z0-9_]*\.swift\).*|\1|p' "$src/appkit-native/project.yml")
   files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
   xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 \
     -module-name MessagesLabAppKitNative -o "$app/Contents/MacOS/MessagesLabAppKitNative" "${files[@]}"

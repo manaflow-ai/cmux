@@ -43,6 +43,8 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     public var policy: [String: JSONValue]
     /// The user's file sets a key a policy overrides.
     public var diagnostics: [SettingsDiagnostic]
+    /// Additive administrator roots, including refused paths for locked-row diagnostics.
+    public var managedChatRoots: [String] = []
 
     /// Merges, highest first: MDM forced, team enforced, the user's file,
     /// MDM recommended, team default, product default (an absent key).
@@ -73,7 +75,7 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
             root = root.setting(value, at: path(key))
             managedKeys[key] = .device
         }
-        for key in team.enforced.keys.sorted() {
+        for key in team.enforced.keys.sorted() where !ChatSettings.keys.contains(key) {
             if let device = managed.forced[key], device != team.enforced[key] {
                 diagnostics.append(SettingsDiagnostic(kind: .managedConflict, path: key,
                                                       message: "the team policy value is ignored: the MDM profile manages this key"))
@@ -87,7 +89,9 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
         // Policy keys come from forced values only: non-forced values in the
         // domain can be written by any local user (`defaults write`).
         for (key, value) in managed.forced where !ManagedPreferences.isSettingKey(key) { policy[key] = value }
-        return EffectiveSettings(root: root, fileRoot: file, managedKeys: managedKeys, policy: policy, diagnostics: diagnostics)
+        var effective = EffectiveSettings(root: root, fileRoot: file, managedKeys: managedKeys, policy: policy, diagnostics: diagnostics)
+        effective.mergeChats(managed: managed, team: team)
+        return effective
     }
 
     static func path(_ key: String) -> [String] { CmuxConfigFile.keyPath(from: key) }
@@ -95,7 +99,7 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// Deterministic order, settings keys only (a shorter key first, so a
     /// nested key set later wins over an object set at its parent).
     static func sortedSettingEntries(_ values: [String: JSONValue]) -> [(String, JSONValue)] {
-        values.filter { ManagedPreferences.isSettingKey($0.key) }
+        values.filter { ManagedPreferences.isSettingKey($0.key) && !ChatSettings.keys.contains($0.key) }
             .sorted { ($0.key.count, $0.key) < ($1.key.count, $1.key) }
     }
 }

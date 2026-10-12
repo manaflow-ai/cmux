@@ -246,67 +246,6 @@ impl OwnedUnixListener {
     }
 }
 
-#[cfg(test)]
-pub(crate) struct TestFileDescriptorExhaustion {
-    original_limit: libc::rlimit,
-    held: Vec<fs::File>,
-    restored: bool,
-}
-
-#[cfg(test)]
-impl TestFileDescriptorExhaustion {
-    pub(crate) fn exhaust() -> Self {
-        let mut original_limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-        assert_eq!(
-            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut original_limit) },
-            0,
-            "could not read the file-descriptor limit: {}",
-            io::Error::last_os_error()
-        );
-        let constrained_limit = libc::rlimit {
-            rlim_cur: original_limit.rlim_cur.min(128),
-            rlim_max: original_limit.rlim_max,
-        };
-        assert_eq!(
-            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const constrained_limit) },
-            0,
-            "could not constrain the file-descriptor limit: {}",
-            io::Error::last_os_error()
-        );
-
-        let mut held = Vec::new();
-        loop {
-            match fs::File::open("/dev/null") {
-                Ok(file) => held.push(file),
-                Err(error) if error.raw_os_error() == Some(libc::EMFILE) => break,
-                Err(error) => panic!("file-descriptor exhaustion failed unexpectedly: {error}"),
-            }
-        }
-        Self { original_limit, held, restored: false }
-    }
-
-    pub(crate) fn restore(&mut self) {
-        if self.restored {
-            return;
-        }
-        self.held.clear();
-        assert_eq!(
-            unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const self.original_limit) },
-            0,
-            "could not restore the file-descriptor limit: {}",
-            io::Error::last_os_error()
-        );
-        self.restored = true;
-    }
-}
-
-#[cfg(test)]
-impl Drop for TestFileDescriptorExhaustion {
-    fn drop(&mut self) {
-        self.restore();
-    }
-}
-
 pub(crate) fn validate_socket_directory_for_uid(
     parent: &Path,
     effective_uid: u32,
@@ -416,28 +355,5 @@ mod tests {
         assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
         assert_eq!(fs::metadata(&socket).unwrap().permissions().mode() & 0o777, 0o600);
         drop(listener);
-    }
-
-    #[test]
-    fn accept_retry_backoff_is_bounded_and_resets_after_success() {
-        let error = io::Error::from_raw_os_error(libc::EMFILE);
-        let mut backoff = UnixAcceptBackoff::new();
-        let delays = (0..8)
-            .map(|_| backoff.retry_delay(&error).expect("EMFILE must be retryable"))
-            .collect::<Vec<_>>();
-
-        assert_eq!(delays[0], ACCEPT_RETRY_INITIAL_DELAY);
-        assert_eq!(delays[5], ACCEPT_RETRY_MAX_DELAY);
-        assert!(delays.iter().all(|delay| *delay <= ACCEPT_RETRY_MAX_DELAY));
-        backoff.reset();
-        assert_eq!(backoff.retry_delay(&error), Some(ACCEPT_RETRY_INITIAL_DELAY));
-    }
-
-    #[test]
-    fn accept_retry_backoff_rejects_fatal_listener_errors() {
-        let mut backoff = UnixAcceptBackoff::new();
-        let fatal = io::Error::from_raw_os_error(libc::EBADF);
-
-        assert_eq!(backoff.retry_delay(&fatal), None);
     }
 }

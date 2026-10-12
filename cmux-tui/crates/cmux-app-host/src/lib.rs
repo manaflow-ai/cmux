@@ -49,6 +49,8 @@ pub mod host_loop;
 pub mod protocol;
 #[cfg(feature = "engine")]
 pub mod sandbox;
+#[cfg(unix)]
+pub mod script;
 #[cfg(feature = "engine")]
 pub mod vm;
 

@@ -5,7 +5,7 @@ describe("text confirmation copy", () => {
   it("has every key in all 21 locales with its placeholders", () => {
     const copy = JSON.parse(readFileSync(new URL("../copy/text-confirm-levels.json", import.meta.url), "utf8")) as { strings: Record<string, Record<string, { value: string; state: string }>> }
     const keys = Object.keys(copy.strings)
-    expect(keys).toHaveLength(16)
+    expect(keys).toHaveLength(18)
     for (const key of keys) {
       expect(Object.keys(copy.strings[key]!)).toHaveLength(21)
       for (const [locale, entry] of Object.entries(copy.strings[key]!)) {

@@ -10,7 +10,8 @@ pub const REF_NONE: u32 = u32::MAX;
 ///
 /// Layout: `u32 au_len`, `u64 t_capture_us` (host monotonic microseconds),
 /// `u32 ref_frame`, then `au_len` bytes of H.264 or HEVC access unit. The
-/// shards of a frame carry this body; the last data shard is zero-padded.
+/// shards of a frame carry this body; the last data shard is zero-padded,
+/// unless it is the frame's only shard and the frame has no parity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameBody {
     /// Host monotonic time when the frame's pixels were read back.

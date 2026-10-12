@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// up (`PaneChromeMetrics`), in window points with a top-left origin: the
 /// pane cell, the tab strip, the first tab pill, the content border, and
 /// the terminal's first cell; plus the measured gaps (above and below the
-/// pill, pill left minus border left, first cell minus border).
+/// pill, pill left minus border left, first cell minus border), and the
+/// tab bar's state (`strip_hidden`, `tab_bar_kind`, `tab_bar_choice`).
 enum DebugPaneChrome {
     static func report(services: AppServices) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -35,6 +36,10 @@ enum DebugPaneChrome {
                     "border": rect(border),
                     "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
+                    // The tab bar rule (cx-soza): hidden now, the pane's kind, its own choice.
+                    "strip_hidden": .bool(view.hidesStrip),
+                    "tab_bar_kind": .string(pane.tabBarKind.rawValue),
+                    "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
                 ]
                 if let pill {
                     fields["gap_above"] = .number(Double(pill.minY - cell.minY))
@@ -51,17 +56,14 @@ enum DebugPaneChrome {
                 "scale": .number(Double(window.backingScaleFactor)),
                 "pane_padding": .number(Double(Metrics.panePadding)),
                 "panes": .array(panes),
-                // nxdog41: what decides the collapsed window controls (sidebar hidden, corner hover).
-                "window_controls": {
-                    let corner = controller.root.cornerReveal.state
-                    return .object([
-                        "collapsed": .bool(controller.root.windowControlsCollapsed), "sidebar_hidden": .bool(controller.root.sidebarHidden),
-                        "enabled": .bool(corner.isEnabled), "pointer_inside": .bool(corner.pointerInside),
-                        "focus_inside": .bool(corner.focusInside), "holds": .number(Double(corner.holds)),
-                        "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
-                        "corner": rect(controller.root.cornerRegionFrameInWindow),
-                    ])
-                }(),
+                "window_controls": .object([
+                    "sidebar_hidden": .bool(controller.root.sidebarHidden),
+                    "toggle_symbol": .string(controller.root.toolbarBand.sidebarToggle.symbol),
+                    "toggle_icon": .string(SidebarToggleIcon.tunable.value.rawValue),
+                    "band_presence": .number(Double(controller.root.toolbarBand.presence)),
+                    "band_frame": rect(controller.root.toolbarBand.frame),
+                    "first_responder": .string(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"),
+                ]),
                 // 2026-10-05: the title bar buttons' reveal (top row or sidebar hover) and what is drawn.
                 "titlebar_buttons": {
                     let root = controller.root, reveal = root.titlebarReveal.state, band = root.toolbarBand

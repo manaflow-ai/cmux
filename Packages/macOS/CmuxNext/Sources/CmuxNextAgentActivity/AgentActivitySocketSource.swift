@@ -28,19 +28,29 @@ public final class AgentActivitySocketSource: AgentActivitySource {
             self.machineName = machineName
         }
 
+        /// The socket override and its auth tokens. CMUX_NEXT_ names, because
+        /// the app strips every other inherited CMUX* variable at launch
+        /// (LaunchIdentity); a tagged app and its tests set these to reach a
+        /// tag-scoped cmux-cua socket, never the shared default path.
+        public static let socketEnvironmentKey = "CMUX_NEXT_CUA_SOCKET"
+        public static let authTokenEnvironmentKey = "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"
+        public static let hostAuthTokenEnvironmentKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
+
         /// The default socket with the auth tokens from the environment.
-        public static func standard(machineName: String) -> Configuration {
-            let environment = ProcessInfo.processInfo.environment
-            return Configuration(socketPath: defaultSocketPath(),
-                                 authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-                                 machineName: machineName)
+        public static func standard(machineName: String,
+                                    environment: [String: String] = ProcessInfo.processInfo.environment,
+                                    home: String = NSHomeDirectory()) -> Configuration {
+            Configuration(socketPath: defaultSocketPath(environment: environment, home: home),
+                          authToken: environment[authTokenEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 },
+                          hostAuthToken: environment[hostAuthTokenEnvironmentKey].flatMap { $0.isEmpty ? nil : $0 },
+                          machineName: machineName)
         }
 
         /// The standalone daemon's default socket (cmux-cua `default_socket_path`).
-        public static func defaultSocketPath() -> String {
-            if let path = ProcessInfo.processInfo.environment["CMUX_CUA_SOCKET"], !path.isEmpty { return path }
-            return NSHomeDirectory() + "/Library/Caches/cmux-cua/cmux-cua.sock"
+        public static func defaultSocketPath(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                             home: String = NSHomeDirectory()) -> String {
+            if let path = environment[socketEnvironmentKey], !path.isEmpty { return path }
+            return home + "/Library/Caches/cmux-cua/cmux-cua.sock"
         }
     }
 
@@ -58,10 +68,14 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         config = configuration
     }
 
-    isolated deinit {
-        reconnect?.cancel()
-        subscription?.cancel()
-        directoryWatch?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            reconnect?.cancel()
+            subscription?.cancel()
+            directoryWatch?.cancel()
+        }
     }
 
     public func start(_ sink: @escaping @MainActor (AgentActivityUpdate) -> Void) {
@@ -99,13 +113,19 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let connection = AgentActivityLineConnection(path: config.socketPath)
+        let connection = AgentActivityLineConnection(path: config.socketPath,
+                                                     acceptsServer: CuaHelperIdentity.isHelperServer)
         subscription = connection
         connection.start(
             send: AgentActivityWire.requestLine(method: "activity_subscribe", args: ["sessions": true, "events_for": []],
                                                 authToken: config.authToken, hostAuthToken: config.hostAuthToken),
-            onLine: { [weak self] line in Task { @MainActor in self?.handle(line) } },
-            onClose: { [weak self] in Task { @MainActor in self?.lost(connection) } })
+            // One main-actor batch at a time, never a Task per line (MainActorLineBatch).
+            decode: { $0 }) { [weak self, weak connection] drain in
+                guard let self, let connection, subscription === connection else { return }
+                for line in drain.values { handle(line) }
+                if drain.overflowed, !drain.closed { connection.cancel() }
+                if drain.overflowed || drain.closed { lost(connection) }
+            }
     }
 
     private func handle(_ line: Data) {
@@ -161,7 +181,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() }
+            MainActor.assumeIsolated { self?.connect() } // main-proof: dispatch source on queue: .main
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

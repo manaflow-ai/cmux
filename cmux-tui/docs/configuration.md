@@ -110,6 +110,7 @@ from the sidebar plugin and never replace the sidebar view.
 | `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
+| `agents.screen_detection` | boolean | `true` | Runs the bundled `cmux-agent-screen-detection` beside the daemon (producer `cmux_screen_detection`, Unix only) when `agents.plugin` is unset; `false` turns it off. An explicit `agents.plugin` always replaces it, and an invalid one disables agent plugins without falling back. A config file or `agents` section that fails to parse also keeps it off. Older cmux-tui builds reject the whole `agents` section when it contains this key, so an `agents.plugin` next to it is ignored there |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 
@@ -127,12 +128,12 @@ cmux sidebar plugin use fzf
 the optional build command, and verifies the resolved run command is
 executable. `sidebar plugin use <name>` writes `sidebar.plugin.command` as an absolute
 argv and `sidebar.plugin.cwd` as the plugin directory, preserving unrelated
-cmux-tui config keys. A running TUI applies changes after `cmux server reload-config`;
+cmux-tui config keys. A running TUI applies changes after `cmux daemon reload-config`;
 the reload re-evaluates the path precedence described above using the running process's
 environment and the files that exist. It therefore can switch between the default and
 legacy fallback files when those files appear or disappear. Changing `CMUX_TUI_CONFIG`
 or `CMUX_MUX_CONFIG` in a separate shell does not change the running process environment.
-`sidebar plugin use` does not send this reload; run `cmux server reload-config`
+`sidebar plugin use` does not send this reload; run `cmux daemon reload-config`
 separately for a running local session whose socket is reachable.
 
 Return to the built-in sidebar with:
@@ -153,7 +154,7 @@ Install and select a package with:
 ```bash
 cmux agent plugin install <git-url>
 cmux agent plugin use <name-or-id>
-cmux server reload-config
+cmux daemon reload-config
 ```
 
 The manager stores packages in
@@ -171,6 +172,22 @@ cmux agent plugin list
 cmux agent plugin update <name-or-id>
 cmux agent plugin remove <name-or-id>
 ```
+
+The cmux-next app ships a screen detector beside the daemon. Without an
+`agents.plugin` entry the daemon runs it as producer `cmux_screen_detection`
+(see `agents.screen_detection` above; that ID is reserved). Return to it from
+an installed package with:
+
+```bash
+cmux agent plugin use --builtin
+cmux daemon reload-config
+```
+
+`use --builtin` removes `agents.plugin`; it does not change
+`agents.screen_detection`, so `false` there still keeps the detector off.
+`cmux agent plugin list` shows installed packages only. It runs in the CLI
+process, which may talk to a remote daemon with a different bundle, so it does
+not report the bundled detector; the daemon's agent roster shows its rows.
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
@@ -291,7 +308,7 @@ The cloud connector runs `cmux provider control` and `cmux provider stream` remo
 | `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling, from 0.0 through 2.0 |
 | `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
-The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted when reading older config files but no longer select or launch a browser. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
+The compatibility keys `browser.chrome_binary`, `browser.mode`, `browser.discover`, `browser.discover_ports`, `browser.user_data_dir`, and `browser.ephemeral` are still accepted, with any value, when reading older config files, and are ignored: they never select or launch a browser, and a stale value never discards the live `browser` keys beside them. Production browser tabs wait for cmux-browser's connection-scoped provider lease. `browser.cdp_url` and `CMUX_MUX_CDP_URL` bypass that lease only for explicit development harnesses; neither path performs discovery or process launch.
 
 ## Pane
 
@@ -360,7 +377,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
 | `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
-WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+WebSocket clients pair through a six-digit browser/TUI comparison by default. Approve a pairing with `y` or the Approve button; Enter does not approve. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`, and every handshake keeps the Host and Origin checks: list the names clients use with `--ws-allow-host` and extra browser origins with `--ws-allow-origin`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
 ## Commands
 

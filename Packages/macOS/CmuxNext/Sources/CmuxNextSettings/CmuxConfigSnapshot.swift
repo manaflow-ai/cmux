@@ -42,8 +42,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
+    public var terminalLinkRouting: TerminalLinkRouting = .fallback
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
+    /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
+    public var agentPaneEditedFiles = AgentPaneEditedFilesSetting.fallback
+    public var agentPaneZoom: Double = AgentPaneZoomSetting.fallback
+    public var agentPaneComposer = AgentPaneComposerSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -52,7 +58,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
-    /// `sidebar.*` section settings; defaults when unset or invalid.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
@@ -66,6 +71,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
+    public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
+    public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
+    /// `workspaces.newPlacement` (`WorkspaceListSettings`).
+    public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
@@ -81,10 +91,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
-    /// `appearance.backdropArt`; nil disables the bundled painting.
-    public var backdropArt: BackdropArt?
-    /// `appearance.background`; nil leaves the desktop untouched.
-    public var backdropSelection: BackdropSelection?
+    /// The bundled art of ``backdropSelection``; nil for none or another source.
+    public var backdropArt: BackdropArt? = BackdropSelectionSetting.defaultArt
+    /// `appearance.background`: ``BackdropSelectionSetting/defaultSelection`` (off) when unset,
+    /// nil for `none`.
+    public var backdropSelection: BackdropSelection? = BackdropSelectionSetting.defaultSelection
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -109,6 +120,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `sidebar.side` and `sidebar.spacesPosition` (R109).
     public var sidebarSide: SidebarSide = .left
     public var spacesPosition: SpacesPosition = .bottom
+    /// `sidebar.spacesVisibility` (cx-5k3r); "hover" when unset or invalid.
+    public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
@@ -119,6 +132,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
+    /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
+    public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
+    public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
+    /// `tabs.tabBar.<kind>`; Automatic when unset or invalid.
+    public var paneTabBars = PaneTabBarDefaults()
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -128,6 +147,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
+    /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
+    /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
+    public var chromeTheme: String?
+    /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
+    public var themeEdits = ThemeEdits.none
+    /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
+    public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -138,10 +164,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
+    /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
+    public var commandRetentionDays: Int = CommandRetentionSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
+    /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
+    public var computerUse = ComputerUseSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -152,9 +182,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var retiredKeys: [String] = []
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
-
-    /// Keys under `shortcuts` that are settings, not action IDs.
-    static let reservedShortcutKeys: Set<String> = ["bindings", "tiers", "when", "showModifierHoldHints"]
 
     /// Parses a document. `validDensities` and `validMetrics` come from the
     /// design module so this stays free of main-actor types.
@@ -170,6 +197,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             return snapshot
         }
         snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
+        snapshot.diagnostics += Self.chatDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
@@ -186,15 +214,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
-        snapshot.browserHibernation = hibernation
-        snapshot.diagnostics += hibernationDiagnostics
-        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
-        snapshot.browserLinkClicks = linkClicks
-        snapshot.diagnostics += linkClickDiagnostics
-        let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
-        snapshot.remoteLocalhost = remoteLocalhost
-        snapshot.diagnostics += remoteLocalhostDiagnostics
+        snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
+        snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
+        snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
+        snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics
@@ -214,17 +237,22 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
+        CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
+        CmuxConfigSnapshot.parseWorkspaceList(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
-        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
         snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
+        snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
@@ -251,13 +279,23 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)
-        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
+        snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
+        snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1].compactMap(\.self)
         let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
         snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
+        let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
+        snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
+        if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
+        snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
+        if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
+        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
+        snapshot.paneTabBars = paneTabBars
+        snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -267,17 +305,23 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
-        let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
-        snapshot.recordsTerminalCommands = recordsCommands
-        if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        snapshot.parseTerminalCommandHistory(root)
         snapshot.parseNavigationHistory(root)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
+        let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
+        snapshot.chromeTheme = chromeTheme
+        if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        let (accent, accentDiagnostic) = AccentSetting().parse(root)
+        snapshot.accent = accent
+        if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

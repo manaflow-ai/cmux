@@ -14,6 +14,16 @@ nonisolated enum PasswordStrings {
     static var notFound: String {
         String(localized: "passwords.error.notFound", defaultValue: "This item is no longer saved.", table: "Passwords", bundle: .module)
     }
+    /// Another sign-in of the same site already has the username (fork code -2).
+    static var usernameTaken: String {
+        String(localized: "passwords.username.taken", defaultValue: "Another sign-in for this site already has that username.",
+               table: "Passwords", bundle: .module)
+    }
+    /// A Chromium password store call failed (no detail: errors never carry row data).
+    static var storeFailed: String {
+        String(localized: "passwords.error.storeFailed", defaultValue: "cmux couldn’t change the saved passwords. Try again.",
+               table: "Passwords", bundle: .module)
+    }
     static var authFailed: String {
         String(localized: "passwords.error.authFailed", defaultValue: "cmux could not confirm that it is you.", table: "Passwords", bundle: .module)
     }

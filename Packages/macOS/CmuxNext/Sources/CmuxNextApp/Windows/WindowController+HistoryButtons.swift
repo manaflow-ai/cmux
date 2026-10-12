@@ -5,7 +5,7 @@ import CmuxNextHistory
 /// The titlebar band's Back and Forward (R69): a click runs
 /// focusHistoryBack / focusHistoryForward, the right-click or long-press list
 /// runs `history.goTo {index}`, and each button is enabled only while the
-/// trail has somewhere to go.
+/// shown page's history or the trail has somewhere to go (history.md 4.2b).
 extension WindowController {
     func installHistoryButtons() {
         let band = root.toolbarBand
@@ -19,8 +19,13 @@ extension WindowController {
                 _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
             }
         }
+        // The sidebar toggle's right-click (cx-2lm4): the menu of the sidebar's empty space.
+        band.sidebarToggle.longPressOpensMenu = false
+        band.sidebarToggle.menuProvider = { [weak sidebar] in sidebar?.contextMenu(for: .background) }
         band.describeHistory(back: registry.descriptor(for: "focusHistoryBack")?.title ?? "",
-                             forward: registry.descriptor(for: "focusHistoryForward")?.title ?? "")
+                             forward: registry.descriptor(for: "focusHistoryForward")?.title ?? "",
+                             backShortcut: registry.shortcutDisplay(for: "focusHistoryBack"),
+                             forwardShortcut: registry.shortcutDisplay(for: "focusHistoryForward"))
         // Each window listens for itself; windowWillClose removes it.
         band.historyObserver = services.locationTrail.addObserver { [weak self] in self?.refreshHistoryButtons() }
         refreshHistoryButtons()
@@ -36,6 +41,6 @@ extension WindowController {
     /// Re-reads whether Back and Forward have somewhere to go.
     func refreshHistoryButtons() {
         let trail = services.locationTrail
-        root.toolbarBand.setHistoryEnabled(back: trail.canNavigate(.back), forward: trail.canNavigate(.forward))
+        root.toolbarBand.setHistoryEnabled(back: trail.canNavigate(.back, in: self), forward: trail.canNavigate(.forward, in: self))
     }
 }

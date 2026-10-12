@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One ranked Search Tabs result.
 public nonisolated struct TabSearchMatch: Sendable, Hashable {

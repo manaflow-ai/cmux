@@ -100,5 +100,5 @@ when a notification arrives or is read.
 `debug.notifications` reports unread tabs with their source, each window's attention
 marks, banners asked for, the arrival and dismissal log, and the live preferences;
 `{"action": "click", "surface": N}` runs the banner click path. Unit tests:
-`NotificationPolicyTests`, `NotificationSettingsTests`, `NotificationsPanelTests`, `CompatJournalNotificationTests`,
+`NotificationPolicyTests`, `NotificationsPanelTests`, `CompatJournalNotificationTests`,
 `FocusRingNoShiftTests` (attention ring on and off, no frame change).

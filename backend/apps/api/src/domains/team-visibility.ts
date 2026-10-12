@@ -1,5 +1,5 @@
 import type { EventFrame, Principal, RowReader } from "@cmux/ownership"
-import { roleOf } from "./team-members.ts"
+import { can } from "./team-members.ts"
 import type { TeamState } from "./team.ts"
 
 /**
@@ -8,10 +8,7 @@ import type { TeamState } from "./team.ts"
  * admins see policy history, enrollment tokens, every managed device and the
  * audit chain head. A member sees their own managed installs.
  */
-const isAdmin = (state: TeamState, p: Principal, rows?: RowReader) => {
-  const role = roleOf(state, rows, p.user)
-  return role === "owner" || role === "admin"
-}
+const isAdmin = (state: TeamState, p: Principal, rows?: RowReader) => can(state, rows, p.user, "team.manage")
 
 export const teamSubscriberView = (state: TeamState, principal: Principal, rows?: RowReader): TeamState => {
   if (isAdmin(state, principal, rows)) return state

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Counts as "Bookmarks 1,204 · History 8,311 · Passwords 412", using the
 /// kind names the checkboxes show (no per-language plural rules needed).
@@ -21,7 +22,7 @@ enum ImportCountsText {
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private var toggle: (() -> Void)?
-    private let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
     private let spinner = NSProgressIndicator()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
@@ -59,7 +60,6 @@ final class ImportProfileRow: NSView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
-        mark.symbolConfiguration = .init(pointSize: 13, weight: .medium)
         detail.alignment = .right
         let spinnerSlot = Self.slot(width: 18, containing: spinner)
         let markSlot = Self.slot(width: 18, containing: mark)
@@ -120,7 +120,7 @@ final class ImportProfileRow: NSView {
         avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
         avatar.alphaValue = avatar.image == nil ? 0 : 1
         name.stringValue = profile.browser.displayName
-        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit)
+        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family.isPrivateStore)
         let subtitle = requiresFullDiskAccess ? OnboardingStrings.fullDiskAccessSubtitle : (showsProfile ? profile.displayName : "")
         sub.stringValue = subtitle
         sub.alphaValue = subtitle.isEmpty ? 0 : 1
@@ -163,7 +163,7 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage(systemSymbolName: "globe", accessibilityDescription: nil) ?? NSImage()
+        return NSImage.icon(.browser, size: 16)
     }
 
     @objc private func boxPressed() { toggle?() }
@@ -210,8 +210,8 @@ final class ImportProfileRow: NSView {
         accessButton.alphaValue = showsAccess ? 1 : 0
         var showsBox = false
         var spins = false
-        var symbol: String?
-        detail.toolTip = nil
+        var markIcon: IconName?
+        detail.themedToolTip = nil
         switch state {
         case .idle:
             showsBox = !showsAccess
@@ -223,19 +223,19 @@ final class ImportProfileRow: NSView {
             let running = ImportCountsText.line(counts)
             detail.stringValue = running.isEmpty ? kind.map(OnboardingStrings.kind) ?? "" : running
         case .done(let counts):
-            symbol = "checkmark.circle.fill"
+            markIcon = .statusComplete
             detail.stringValue = ImportCountsText.line(counts)
         case .failed(let reason):
-            symbol = "exclamationmark.triangle.fill"
+            markIcon = .statusError
             detail.stringValue = OnboardingStrings.importRowFailed
-            detail.toolTip = reason
+            detail.themedToolTip = reason
         }
         box.alphaValue = showsBox ? 1 : 0
         if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         spinner.alphaValue = spins ? 1 : 0
-        mark.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        mark.image = markIcon.map { NSImage.icon($0, size: 14) }
         mark.contentTintColor = Palette.textSecondary
-        mark.alphaValue = symbol == nil ? 0 : 1
+        mark.alphaValue = markIcon == nil ? 0 : 1
         alphaValue = showsBox && !checked ? 0.55 : 1
     }
 }

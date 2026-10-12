@@ -19,12 +19,14 @@ agent_port="${CMUX_WEB_DEV_AGENT_PORT:-4176}"
 preview_port="${CMUX_WEB_DEV_PREVIEW_PORT:-4175}"
 settings_port="${CMUX_WEB_DEV_SETTINGS_PORT:-4177}"
 gallery_port="${CMUX_WEB_DEV_GALLERY_PORT:-4178}"
+pages_port="${CMUX_WEB_DEV_PAGES_PORT:-4190}"
 index_port="${CMUX_WEB_DEV_INDEX_PORT:-4199}"
 base_origin="http://127.0.0.1:$base_port"
 agent_origin="http://127.0.0.1:$agent_port"
 preview_origin="http://127.0.0.1:$preview_port"
 settings_origin="http://127.0.0.1:$settings_port"
 gallery_origin="http://127.0.0.1:$gallery_port"
+pages_origin="http://127.0.0.1:$pages_port"
 index_origin="http://127.0.0.1:$index_port"
 
 server_pids=()
@@ -210,6 +212,8 @@ start_vite "webviews" env CMUX_WEBVIEWS_DEV_PORT="$base_port" bun run dev
 start_vite "agent-pane" env CMUX_AGENT_PANE_DEV_PORT="$agent_port" bun run dev:agent-pane
 start_vite "preview" env CMUX_PREVIEW_DEV_PORT="$preview_port" bun run preview:dev
 start_vite "settings" env CMUX_SETTINGS_DEV_PORT="$settings_port" bun run dev:settings
+# Every page for a Debug or tagged app launched with CMUX_NEXT_PAGES_DEV_URL (vite.config.pages-dev.ts).
+start_vite "pages" env CMUX_PAGES_DEV_PORT="$pages_port" bun run dev:pages
 gallery_enabled=0
 # The live gallery dev server (vite.config.gallery-dev.ts) serves /gallery/ on loopback.
 if [[ -f "$webviews_root/vite.config.gallery-dev.ts" ]]; then
@@ -220,6 +224,7 @@ wait_http "$base_origin/"
 wait_http "$agent_origin/"
 wait_http "$preview_origin/"
 wait_http "$settings_origin/"
+wait_http "$pages_origin/history/"
 if [[ "$gallery_enabled" -eq 1 ]]; then wait_http "$gallery_origin/gallery/"; fi
 measure_hmr
 
@@ -243,6 +248,7 @@ cat >"$index_dir/index.html" <<EOF
 $(if [[ "$gallery_enabled" -eq 1 ]]; then printf '  <li><a href="%s/gallery/">Gallery</a> (manual inspection; matrix captures run remotely)</li>\n' "$gallery_origin"; fi)
   <li><a href="$base_origin/history/?mock">History</a> · <a href="$base_origin/apps/?mock">Apps</a> · <a href="$base_origin/cloud/?mock">Cloud</a> · <a href="$base_origin/keybindings/?mock">Keyboard shortcuts</a></li>
 </ul>
+<p>Hot reload inside a Debug or tagged app: <code>CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/ ./scripts/reload.sh --tag &lt;tag&gt;</code></p>
 <p><small>Measured React edit → Vite HMR update: <strong>$hmr_seconds</strong>. ACPMUX iteration: fleet build + artifact fetch <strong>$fleet_seconds</strong>, daemon readiness <strong>$daemon_seconds</strong>.</small></p>
 EOF
 python3 -m http.server "$index_port" --bind 127.0.0.1 --directory "$index_dir" >"$work_dir/index.log" 2>&1 &
@@ -252,6 +258,7 @@ wait_http "$index_origin/"
 echo
 echo "cmux-next web dev ready"
 echo "INDEX_URL=$index_origin/"
+echo "app hot reload: CMUX_NEXT_PAGES_DEV_URL=$pages_origin/ CMUX_NEXT_AGENT_PANE_DEV_URL=$agent_origin/"
 echo "timing: React edit -> Vite HMR update $hmr_seconds (visible change is normally about 1 s)"
 echo "timing: acpmux fleet build + fetch $fleet_seconds; daemon restart/readiness $daemon_seconds"
 echo "Press Ctrl-C to stop Vite, the index server, and this ACPMUX_HOME daemon."

@@ -990,8 +990,10 @@ Backend lead (through the coordinator): the UserDO domain delegates the `user.te
 `user.presence_key.*` ops and keeps `UserConfirmState`; the MuxDO wire route resolves
 `install_kind`; the registration route verifies App Attest attestations; `install.revoke`
 revokes the presence key; one `mux.text_confirm.migrate` pass per existing chief; a mail path for
-outbox items `mail.security_notice` (target class `MailerDO`, which does not exist yet); the feed
-accepts `feed.post` notices from UserDO.
+outbox items `mail.security_notice`: no MailerDO class (coordinator, 2026-10-08, cx-44j.2); the
+owner's outbox drain sends them through Resend to the verified address (target class `Mail`,
+backend/apps/api/src/security-mail.ts), dead-lettered at once when mail is not configured; the
+feed accepts `feed.post` notices only from the feed owner's own UserDO.
 
 Residual risks: a person with the phone and its passcode can still lower the level (the proof
 cannot tell the owner from someone who knows the passcode); the notices make it visible. On

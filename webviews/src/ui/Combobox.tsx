@@ -2,9 +2,10 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { usePortalContainer } from "./UiProvider";
+import { usePopupHost, usePortalContainer } from "./UiProvider";
+import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
@@ -27,9 +28,25 @@ export interface ComboboxProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** With `inline`: the list keeps its tallest height while mounted (until the window resizes), so
+   * narrowing it never resizes the popover and a field above it never moves under the caret
+   * (cx-6k6cg). For a list with no empty-state message of its own after it. */
+  keepHeight?: boolean;
+  /** Keep a multi-control panel open when focus moves to its buttons. */
+  cancelOnBlur?: boolean;
+  /** Disabled rows remain visible but cannot be highlighted or submitted. */
+  isItemDisabled?(value: string): boolean;
+  /** true: the first row highlights while filtering; "always": also before any typing. */
+  autoHighlight?: boolean | "always";
+  /** Handle a shortcut while the Base UI input owns focus. */
+  onCommand?(event: KeyboardEvent<HTMLInputElement>): void;
+  /** Class for the Base UI root when the field and list are laid out together. */
+  rootClassName?: string;
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
+  /** The highlighted suggestion changed (arrows, pointer); undefined when none is. */
+  onHighlight?(value: string | undefined): void;
 }
 
 export function Combobox({
@@ -45,22 +62,70 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  keepHeight = false,
+  cancelOnBlur = true,
+  isItemDisabled,
+  autoHighlight = false,
+  onCommand,
+  rootClassName,
   renderItem,
+  onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
+  // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
+  // The field keeps the focus; the list's highlight is Base UI's data-highlighted.
+  const host = usePopupHost();
+  const [field, setField] = useState<HTMLInputElement | null>(null);
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const attachField = useCallback(
+    (node: HTMLInputElement | null) => {
+      if (typeof inputRef === "function") inputRef(node);
+      else if (inputRef) inputRef.current = node;
+      if (host) setField(node);
+    },
+    [host, inputRef],
+  );
+  useEscapingPopup(inline ? null : host, popup, () => field, {
+    side: "bottom",
+    align: "start",
+    gap: 2,
+    kind: "list",
+    active: "[data-highlighted]",
+    pick: "click",
+    shell: "parent",
+  });
   const [value, setValue] = useState(defaultValue);
   const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
+  const listRef = useRef<HTMLDivElement>(null);
+  const keep = inline && keepHeight;
+  const [tallest, setTallest] = useState(0);
+  useLayoutEffect(() => {
+    if (!keep) return;
+    const height = listRef.current?.getBoundingClientRect().height ?? 0;
+    if (height > tallest + 0.5) setTallest(height);
+  }, [keep, suggestions, tallest]);
+  // A resized window may cap the list lower (max-height from the room left): measure again.
+  useLayoutEffect(() => {
+    if (!keep) return;
+    const reset = () => setTallest(0);
+    window.addEventListener("resize", reset);
+    return () => window.removeEventListener("resize", reset);
+  }, [keep]);
+  const held = keep && tallest > 0;
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
   };
   const onKeyDown = (event: BaseUIKeyEvent) => {
+    onCommand?.(event);
+    if (event.defaultPrevented) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      onSubmit(highlighted ?? typed);
+      const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
+      if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -72,54 +137,85 @@ export function Combobox({
       update(highlighted ?? suggestions[0]);
     }
   };
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
+  const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
+      ref={listRef}
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
-      hidden={suggestions.length === 0}
+      hidden={suggestions.length === 0 && !held}
+      aria-hidden={held && suggestions.length === 0 ? true : undefined}
+      style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      {(item: string) => (
-        <Autocomplete.Item
+      <Autocomplete.Collection>
+        {(item: string) => (
+          <Autocomplete.Item
+            key={item}
+            value={item}
+            className={cx("ui-combobox-item", itemClassName)}
+            render={<li />}
+            onClick={() => onSubmit(item)}
+          >
+            {renderItemContent(item)}
+          </Autocomplete.Item>
+        )}
+      </Autocomplete.Collection>
+      {disabledSuggestions.map((item) => (
+        <li
           key={item}
-          value={item}
+          // The disabled rows stay out of Base UI's collection, but retain listbox semantics.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role, jsx-a11y/prefer-tag-over-role
+          role="option"
+          aria-disabled="true"
+          aria-selected="false"
+          data-disabled
           className={cx("ui-combobox-item", itemClassName)}
-          render={<li />}
-          onClick={() => onSubmit(item)}
         >
-          {renderItem ? renderItem(item) : item}
-        </Autocomplete.Item>
-      )}
+          {renderItemContent(item)}
+        </li>
+      ))}
     </Autocomplete.List>
   );
-  return (
+  const root = (
     <Autocomplete.Root
-      items={suggestions as string[]}
+      items={enabledSuggestions as string[]}
       filter={null}
       value={value}
       onValueChange={(next) => update(next)}
-      open={inline || suggestions.length > 0}
+      open={inline || enabledSuggestions.length > 0}
       inline={inline}
-      onItemHighlighted={(item) => setHighlighted(item as string | undefined)}
+      autoHighlight={autoHighlight}
+      onItemHighlighted={(item) => {
+        setHighlighted(item as string | undefined);
+        onHighlight?.(item as string | undefined);
+      }}
     >
       <Autocomplete.Input
-        ref={inputRef}
+        ref={attachField}
         className={cx("ui-field", inputClassName)}
         aria-label={label}
         placeholder={placeholder}
         spellCheck={false}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
-        onBlur={() => onCancel()}
+        onBlur={() => {
+          if (cancelOnBlur) onCancel();
+        }}
       />
       {inline ? (
         list
       ) : (
         <Autocomplete.Portal container={container}>
           <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup className="ui-popup ui-combobox-popup">{list}</Autocomplete.Popup>
+            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-combobox-popup">
+              {list}
+            </Autocomplete.Popup>
           </Autocomplete.Positioner>
         </Autocomplete.Portal>
       )}
     </Autocomplete.Root>
   );
+  return rootClassName ? <div className={rootClassName}>{root}</div> : root;
 }

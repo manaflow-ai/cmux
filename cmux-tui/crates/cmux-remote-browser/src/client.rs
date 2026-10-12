@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::menu::OpenMenu;
 use crate::proto::{
     Control, CursorShape, Dialog, Disposition, Menu, MenuChoice, Rect, ScreenInfo, SessionState,
 };
@@ -100,7 +101,7 @@ pub enum ClientEffect {
 pub enum ClientNote {
     /// An answer for a menu or dialog that is no longer open.
     StaleAnswer,
-    /// The host cancelled a menu that is no longer open.
+    /// The host cancelled a menu or dialog that is no longer open.
     StaleCancel,
     /// A menu or dialog token that does not increase.
     StaleShow,
@@ -120,6 +121,10 @@ pub enum ClientReject {
     WrongDirection,
     /// `rb.screen_applied` for a seq this viewer never sent.
     UnknownScreenSeq,
+    /// A menu answer the open menu did not offer (an id it did not show,
+    /// a separator or submenu, an index out of range or repeated, several
+    /// indices for a single select, or the other menu kind's choice).
+    InvalidChoice,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -128,7 +133,10 @@ pub struct ClientOutcome {
     pub note: Option<ClientNote>,
 }
 
-/// Viewer state of one remote tab.
+/// Viewer state of one remote tab for one rb session. Make a new `Client`
+/// for each session (each `rb.open`): the host restarts menu and dialog
+/// tokens and the screen seq per session, so a reused client would call a
+/// new session's first menu stale and refuse its first `rb.screen_applied`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Client {
     pub open_menu: Option<u64>,
@@ -137,6 +145,8 @@ pub struct Client {
     pub screen_seq: u32,
     last_menu: u64,
     last_dialog: u64,
+    /// The open menu's answers (checked before a choice is sent).
+    shown_menu: Option<OpenMenu>,
     /// `rb.open_tab` requests the App has not answered.
     pending_tabs: BTreeSet<u64>,
 }
@@ -145,12 +155,17 @@ impl Client {
     pub fn apply(&mut self, input: ClientInput) -> Result<ClientOutcome, ClientReject> {
         match input {
             ClientInput::Host { message } => self.host(message),
-            ClientInput::MenuChosen { token, choice } => Ok(if self.open_menu == Some(token) {
+            ClientInput::MenuChosen { token, choice } => {
+                if self.open_menu != Some(token) {
+                    return Ok(note(ClientNote::StaleAnswer));
+                }
+                if !self.shown_menu.as_ref().is_some_and(|menu| menu.accepts(&choice)) {
+                    return Err(ClientReject::InvalidChoice);
+                }
                 self.open_menu = None;
-                send(Control::MenuResult { token, choice })
-            } else {
-                note(ClientNote::StaleAnswer)
-            }),
+                self.shown_menu = None;
+                Ok(send(Control::MenuResult { token, choice }))
+            }
             ClientInput::DialogAnswered { token, accept, text } => {
                 Ok(if self.open_dialog == Some(token) {
                     self.open_dialog = None;
@@ -184,6 +199,7 @@ impl Client {
                     return Ok(note(ClientNote::StaleShow));
                 }
                 self.last_menu = token;
+                self.shown_menu = Some(OpenMenu::for_menu(token, &menu));
                 let mut effects = Vec::new();
                 if let Some(old) = self.open_menu.replace(token) {
                     effects.push(ClientEffect::CloseMenu { token: old });
@@ -196,6 +212,7 @@ impl Client {
                     return Ok(note(ClientNote::StaleCancel));
                 }
                 self.open_menu = None;
+                self.shown_menu = None;
                 effects_only(vec![ClientEffect::CloseMenu { token }])
             }
             Control::DialogShow { token, dialog } => {
@@ -209,6 +226,13 @@ impl Client {
                 }
                 effects.push(ClientEffect::ShowDialog { token, dialog });
                 effects_only(effects)
+            }
+            Control::DialogCancel { token } => {
+                if self.open_dialog != Some(token) {
+                    return Ok(note(ClientNote::StaleCancel));
+                }
+                self.open_dialog = None;
+                effects_only(vec![ClientEffect::CloseDialog { token }])
             }
             Control::State { state } => self.session(state),
             Control::Closed { .. } => self.session(SessionState::Closed),
@@ -256,6 +280,7 @@ impl Client {
         let mut effects = Vec::new();
         if matches!(state, SessionState::Crashed | SessionState::Closed) {
             if let Some(token) = self.open_menu.take() {
+                self.shown_menu = None;
                 effects.push(ClientEffect::CloseMenu { token });
             }
             if let Some(token) = self.open_dialog.take() {

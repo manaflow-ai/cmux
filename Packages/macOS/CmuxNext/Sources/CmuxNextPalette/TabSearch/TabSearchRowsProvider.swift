@@ -35,6 +35,11 @@ final class TabSearchRowsProvider: PaletteProvider {
         self.rows = rows
     }
 
+    // A palette reset (Cmd-Shift-P reopen) can release this inside an
+    // action's task-local scope or from a search task; teardown must not
+    // need a main-actor hop (RegistryPaletteProvider, #17590).
+    nonisolated deinit {}
+
     var immediateItems: [PaletteItem]? {
         guard let source else { return [] }
         return rows().map { PalettePageSpec.tabSearchItem($0, source: source) }

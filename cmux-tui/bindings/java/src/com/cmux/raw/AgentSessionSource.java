@@ -13,7 +13,7 @@ import java.util.Objects;
 public final class AgentSessionSource implements WireValue {
     /** The agent kind the chat was started with. */
     private final Field<String> harness;
-    /** install: and the stable install id of the machine whose acpmux runs the session. */
+    /** install: and the stable install id of the machine whose acpmux runs the session, or chief: and the 8 lowercase hex digit id of the Chief home whose own acpmux runs it. */
     private final String host;
     /** Display name of the host machine: 1 to 255 bytes, no control characters. */
     private final Field<String> hostName;

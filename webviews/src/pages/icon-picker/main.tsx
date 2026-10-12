@@ -6,6 +6,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountIconPicker, type MountedPicker } from "./mount";
 import { MockIconPickerHost } from "./mockHost";
 import "../shared/pageBase.css";
+import "../../ui/ui.css";
 import "../../icon-picker/styles.css";
 import "./styles.css";
 

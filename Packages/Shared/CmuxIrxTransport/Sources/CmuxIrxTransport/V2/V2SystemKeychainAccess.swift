@@ -24,7 +24,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         accessGroup: String?,
         dataProtection: Bool
     ) throws -> Bool {
-        var query = baseQuery(
+        var query: [String: Any] = baseQuery(
             service: service,
             account: account,
             accessGroup: accessGroup,
@@ -38,7 +38,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         guard status == errSecSuccess, let attributes = result as? NSDictionary else {
             throw V2KeychainAccessError.status(status)
         }
-        return attributes[kSecAttrComment] as? String == Self.migrationMarker
+        return attributes.object(forKey: kSecAttrComment) as? String == Self.migrationMarker
     }
 
     /// Updates only the fixed marker metadata on an existing primary item.
@@ -67,7 +67,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         accessGroup: String?,
         dataProtection: Bool
     ) throws -> Data? {
-        var query = baseQuery(
+        var query: [String: Any] = baseQuery(
             service: service,
             account: account,
             accessGroup: accessGroup,
@@ -92,7 +92,7 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         accessGroup: String?,
         dataProtection: Bool
     ) throws {
-        var query = baseQuery(
+        var query: [String: Any] = baseQuery(
             service: service,
             account: account,
             accessGroup: accessGroup,

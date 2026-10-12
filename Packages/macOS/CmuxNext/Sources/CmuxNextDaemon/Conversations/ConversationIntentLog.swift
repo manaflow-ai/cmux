@@ -56,21 +56,22 @@ public struct ConversationIntentLog: Sendable, Equatable {
 
     /// The owner committed (or replayed) the send at `rev`.
     public mutating func acknowledge(_ clientMsgID: String, rev: UInt64) {
-        guard let index = entries.firstIndex(where: { $0.clientMsgID == clientMsgID }) else { return }
-        entries[index].state = .acknowledged(rev: rev)
+        entries.modifyFirst(where: { $0.clientMsgID == clientMsgID }) { $0.state = .acknowledged(rev: rev) }
     }
 
     public mutating func reject(_ clientMsgID: String, reason: String) {
-        guard let index = entries.firstIndex(where: { $0.clientMsgID == clientMsgID }) else { return }
-        entries[index].state = .failed(reason: reason)
+        entries.modifyFirst(where: { $0.clientMsgID == clientMsgID }) { $0.state = .failed(reason: reason) }
     }
 
     /// A failed draft goes back to sending (retry with the same key).
     @discardableResult
     public mutating func retry(_ clientMsgID: String) -> PendingConversationSend? {
-        guard let index = entries.firstIndex(where: { $0.clientMsgID == clientMsgID }) else { return nil }
-        entries[index].state = .sending
-        return entries[index]
+        var retried: PendingConversationSend?
+        entries.modifyFirst(where: { $0.clientMsgID == clientMsgID }) { entry in
+            entry.state = .sending
+            retried = entry
+        }
+        return retried
     }
 
     public mutating func discard(_ clientMsgID: String) {

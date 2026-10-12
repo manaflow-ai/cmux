@@ -21,16 +21,12 @@ public extension CmxIrohNetworkProfileKey {
     /// not Tailscale's tailnet identifier. This profile therefore means "a
     /// Tailscale tunnel is active on this device." It is routing metadata only;
     /// the Iroh EndpointID remains the peer-authentication authority.
-    static let activeTailscaleTunnel: CmxIrohNetworkProfileKey = {
-        do {
-            return try CmxIrohNetworkProfileKey(
-                source: .tailscale,
-                profileID: "42e59eea27473bde00430ca3d4a0f34a372713f0b90d46ee1ab2802c6d668979"
-            )
-        } catch {
-            preconditionFailure("The built-in Tailscale network profile is invalid: \(error)")
-        }
-    }()
+    /// CmxIrohPrivatePathSynthesizerTests checks the literal against the
+    /// validating initializer.
+    static let activeTailscaleTunnel = CmxIrohNetworkProfileKey(
+        builtInSource: .tailscale,
+        profileID: "42e59eea27473bde00430ca3d4a0f34a372713f0b90d46ee1ab2802c6d668979"
+    )
 }
 
 public extension CmxAttachRoute {

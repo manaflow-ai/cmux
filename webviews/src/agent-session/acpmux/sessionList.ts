@@ -16,6 +16,8 @@ export type AcpmuxSessionEntry = {
   updatedAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
+  indicator?: SessionIndicator;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
   host?: string;
   /** The acpmux peer name for a remote daemon. */
@@ -26,9 +28,18 @@ export type AcpmuxSessionEntry = {
   worktree?: string;
   /** Pinned by the fixture's flag, or tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project. */
   pinned?: boolean;
+  /** Tagged `archived` through `_acpmux/tag` (the chat menu's Archive): off every list, found only by search. */
+  archived?: boolean;
+  /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
+  side?: boolean;
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
+  parentId?: string;
+  forkSeq?: number;
+  /** Completed turns, the copied ones of a fork included. */
+  turnCount?: number;
 };
 
 export type SessionPullRequest = {
@@ -57,6 +68,25 @@ export type SessionGroup = {
 
 /** The tag that pins a session to the top of the list. */
 export const PINNED_TAG = "pinned";
+/** The tag the chat menu's Archive sets. */
+export const ARCHIVED_TAG = "archived";
+/** The tag New side chat sets on its fork (the value is the chat's session). */
+export const SIDE_TAG = "side";
+/** acpmux's tag on the fork a side question (`/btw`) is asked in, while it lives. */
+const ASIDE_TAG = "aside";
+
+/** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
+export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
+
+/** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
+function tagged(tags: unknown, tag: string): boolean {
+  if (Array.isArray(tags)) return tags.includes(tag);
+  return typeof tags === "object" && tags !== null && tag in tags;
+}
+
+/** acpmux's status dots (`SessionSummary.indicator`). */
+export type SessionIndicator = "input" | "working" | "failed" | "lost" | "done";
+const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "done"];
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
@@ -79,14 +109,21 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
-    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
+    pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
+    archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
+    // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
+    side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
+    parentId: text(session.parentId),
+    forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
   };
 }
 
@@ -121,6 +158,14 @@ export function sessionTitle(
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 
+/**
+ * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ */
+export function isAgentHome(cwd: string | undefined): boolean {
+  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
@@ -138,6 +183,11 @@ export function homePath(path: string): string {
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** A stable newest-first view for ungrouped sidebar sections. */
+export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return byRecency(sessions);
 }
 
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
@@ -215,14 +265,15 @@ export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): A
   });
 }
 
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. */
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
 export function sidebarSections(
-  sessions: AcpmuxSessionEntry[],
+  all: AcpmuxSessionEntry[],
   query = "",
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
+  const sessions = all.filter(listed);
   const pinned = byRecency(
     filterSessions(
       sessions.filter((session) => session.pinned),
@@ -243,13 +294,21 @@ export function sidebarSections(
   };
 }
 
-/** The row's mark: a pending permission or a wait for one needs the user; then work in progress, a lost agent, and work that ended unseen. */
+/** The row's mark, from acpmux's `indicator`: a done chat is marked only until the user opens it. */
 export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): SessionMark {
-  if ((session.pendingPermissions ?? 0) > 0 || session.status === "waiting") return "input";
-  if (session.status === "running") return "running";
-  if (session.status === "disconnected" || session.status === "unreachable") return "error";
-  if (session.unread && !selected) return "unread";
-  return undefined;
+  switch (session.indicator) {
+    case "input":
+      return "input";
+    case "working":
+      return "running";
+    case "failed":
+    case "lost":
+      return "error";
+    case "done":
+      return session.unread && !selected ? "unread" : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */

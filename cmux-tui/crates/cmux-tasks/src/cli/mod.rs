@@ -217,6 +217,9 @@ fn serve(owner: &LocalOwner, prefix: &str) -> ExitCode {
         let _ = writeln!(std::io::stderr(), "cmux task: serving {socket}");
     }) {
         Ok(()) => ExitCode::SUCCESS,
+        // Memory is ahead of disk: exit 70 so the supervisor restarts the
+        // owner from disk (crash-only).
+        Err(e @ crate::server::ServeError::LogWrite(_)) => fail(70, &e.to_string()),
         Err(e) => fail(1, &e.to_string()),
     }
 }

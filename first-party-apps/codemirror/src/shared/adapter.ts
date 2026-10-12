@@ -1,5 +1,5 @@
 // What the shared controller needs from an editor library (shared by the
-// editor apps; identical copies in first-party-apps/{monaco,codemirror}).
+// editor apps; identical copies in first-party-apps/codemirror).
 
 import type { EditorCapability, EditorSettings, EditorTheme } from "../interfaces/editor.ts"
 import type { TextEdit } from "../interfaces/document.ts"

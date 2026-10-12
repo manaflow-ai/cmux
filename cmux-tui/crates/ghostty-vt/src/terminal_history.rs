@@ -307,7 +307,3 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
-
-#[cfg(test)]
-#[path = "terminal_history_tests.rs"]
-mod tests;

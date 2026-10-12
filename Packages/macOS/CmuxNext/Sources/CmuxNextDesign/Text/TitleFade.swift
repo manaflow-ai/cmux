@@ -33,9 +33,6 @@ public final class TitleFade {
         mask.actions = ["bounds": NSNull(), "position": NSNull(), "locations": NSNull(), "transform": NSNull()]
     }
 
-    /// The gradient mask while the title is clipped (tests and layer budgets).
-    public var activeMask: CAGradientLayer? { textLayer.mask === mask ? mask : nil }
-
     /// Lays out the title. `frame` is its rest frame in the superlayer: the
     /// first glyph at `minX`, `width` equal to `geometry.span`. Call inside
     /// a transaction with actions disabled. `animated` fades the mask stops
@@ -109,7 +106,7 @@ public final class TitleFade {
         CATransaction.begin()
         // The title keeps its full width until it is back at rest, so its
         // end is never cut while it slides back.
-        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } }
+        CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.restoreWidth() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         Motion.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()

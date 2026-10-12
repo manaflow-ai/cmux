@@ -105,6 +105,9 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     /// Enter loaded the typed text as a URL (what-you-typed or its inline
     /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
     case typedNavigation(URL)
+    /// Enter fixed a top-level-domain typo in this typed host
+    /// (`HostTypoFixup`): remember it, so typing it again loads it as typed.
+    case hostTypoFixed(typedHost: String)
     /// Enter or a click on a calculator row: copy this answer.
     case copyAnswer(String)
     /// An extension keyword session started (`chrome.omnibox.onInputStarted`).

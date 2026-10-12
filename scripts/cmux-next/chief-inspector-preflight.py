@@ -26,6 +26,7 @@ ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
 ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "chief-inspector-preflight"))
 ap.add_argument("--reply-wait", type=int, default=300)
+ap.add_argument("--from-workspace", action="store_true", help="open it from a workspace pane, not from Home")
 opts = ap.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 TAG, APP = opts.tag, opts.app
@@ -131,24 +132,26 @@ def turn_ended():
     return None
 
 
-def browser_tab():
+def browser_tabs():
     try:
         tabs = json.loads(cli("--json", "tab", "list"))
     except ValueError:
-        return None
-    found = []
+        return []
+    return [t for t in tabs if isinstance(t, dict) and t.get("content_kind") == "browser"]
 
-    def walk(v):
-        if isinstance(v, dict):
-            if v.get("content_kind") == "browser" and "127.0.0.1" in json.dumps(v):
-                found.append(v)
-            for x in v.values():
-                walk(x)
-        elif isinstance(v, list):
-            for x in v:
-                walk(x)
-    walk(tabs)
-    return found[0] if found else None
+
+BEFORE = set()
+
+
+def browser_tab():
+    """A browser tab opened by this run whose page is a loopback inspector."""
+    for t in browser_tabs():
+        if t["id"] in BEFORE:
+            continue
+        state = cli("browser", t["id"], "state")
+        if "127.0.0.1" in state:
+            return {**t, "state": state}
+    return None
 
 
 def page(tab, name, *args):
@@ -187,16 +190,26 @@ proc = None
 try:
     seed()
     proc = launch()
+    # The tag's app session keeps the last shown place: show Home, which starts the Chief.
+    wait(lambda: rpc("action.run", {"id": "home.show"}).get("ran"), 60, 1)
     info = os.path.join(CHIEF, "optchat", "inspector.json")
     endpoint = wait(lambda: os.path.exists(info) and json.load(open(info)), 180, 1)
     note("inspector.json", present=bool(endpoint), url=(endpoint or {}).get("url"))
     ready = wait(lambda: (chief_row(rpc("debug.home")) or {}).get("id"), 180, 1)
     note("home ready", ok=bool(ready))
+    # Show the Chief conversation (the session may have shown another place).
+    note("open chief", result=rpc("action.run", {"id": "home.openConversation", "args": {"conversation": ready}}) if ready else None)
+    time.sleep(2)
     text = "inspector preflight: please answer in one short sentence."
     note("send", drive=[rpc("debug.home.drive", {"action": a, **({"text": text} if a == "type" else {})}) for a in ("focus", "type", "send")])
     ended = wait(turn_ended, opts.reply_wait, 2)
     note("turn", ended=bool(ended), status=(ended or {}).get("status"), harness=(ended or {}).get("harness"))
     snapshot("01-home")
+    if opts.from_workspace:
+        note("select workspace", result=rpc("action.run", {"id": "workspace.selectFirst"}))
+        time.sleep(2)
+    # Tabs an earlier run left in the tag's app session are not this run's.
+    BEFORE.update(t["id"] for t in browser_tabs())
     # The palette path: Cmd-Shift-P, the query, Return.
     keys = [rpc("debug.key", {"key": "p", "modifiers": ["command", "shift"]})]
     for ch in "memory inspector":
@@ -205,12 +218,16 @@ try:
     keys.append(rpc("debug.key", {"key": "return", "target": "palette"}))
     tab = wait(browser_tab, 30, 1)
     if not tab:
-        note("palette did not open the tab; running the action directly", keys=keys[:2])
-        rpc("action.run", {"id": "chief.openMemoryInspector"})
+        note("palette did not open the tab; running the action directly", keys=keys)
+        note("action.run", result=rpc("action.run", {"id": "chief.openMemoryInspector"}))
         tab = wait(browser_tab, 30, 1)
+    open(os.path.join(opts.out, "tab-list.json"), "w").write(cli("--json", "tab", "list"))
+    json.dump(rpc("debug.window_list"), open(os.path.join(opts.out, "window-list.json"), "w"), indent=2)
     tab_id = (tab or {}).get("id")
     note("inspector tab", tab=tab_id, pane=(tab or {}).get("pane_id"))
-    time.sleep(3)
+    if tab_id:
+        wait(lambda: "Chief Memory Inspector" in cli("browser", tab_id, "state")
+             and "cache mark" in cli("browser", tab_id, "text", "body"), 30, 1)
     snapshot("03-inspector-column")
     if tab_id:
         state = page(tab_id, "page-state", "state")
@@ -226,9 +243,10 @@ try:
             body = page(tab_id, "page-turn", "text", "body")
             note("turn prompt", key=key, has_marks="cache mark" in body or "end of the system prompt" in body,
                  exact="Exact bytes" in body, marker="our cache marker" in body)
-        hops = []
-        first = cli("browser", tab_id, "eval", "(() => { const b = [...document.querySelectorAll('.lines .name')].find(x => /\\+(8|16|32|64|128|256)$/.test(x.textContent)) || document.querySelector('.lines .name'); b.click(); return b.textContent; })()")
-        hops.append(first)
+        # The Tree tab: focus node 0+8 (eight messages), then zoom three hops to one message.
+        hops = [cli("browser", tab_id, "eval", "(() => { [...document.querySelectorAll('[role=tab]')].find(b => b.textContent === 'Tree').click(); return 'tree'; })()")]
+        time.sleep(1)
+        hops.append(cli("browser", tab_id, "eval", "(() => { const i = document.querySelector('.search input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '0+8'); i.dispatchEvent(new Event('input', {bubbles: true})); i.form.requestSubmit(); return i.value; })()"))
         for _ in range(3):
             time.sleep(1.5)
             hops.append(cli("browser", tab_id, "eval", "(() => { const b = [...document.querySelectorAll('.kids button')][0]; if (!b) return 'no child'; b.click(); return b.title; })()"))

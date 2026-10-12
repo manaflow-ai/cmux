@@ -19,6 +19,7 @@ nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
         return
     }
     DispatchQueue.main.async {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
         MainActor.assumeIsolated { context.runtime?.tick() }
     }
 }
@@ -34,11 +35,13 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
     }
     let context = app.flatMap { RuntimeCallbackContext.from(ghostty_app_userdata($0)) }
     if Thread.isMainThread {
+        // main-proof: guarded by Thread.isMainThread above
         return MainActor.assumeIsolated {
             GhosttyActionDispatcher.dispatch(decoded, bridge: bridge, runtime: context?.runtime)
         }
     }
     DispatchQueue.main.async {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
         MainActor.assumeIsolated {
             _ = GhosttyActionDispatcher.dispatch(decoded, bridge: bridge, runtime: context?.runtime)
         }
@@ -68,6 +71,7 @@ nonisolated func ghosttyReadClipboard(
         }
     }
     let pointer = UncheckedPointer(raw: state)
+    // main-proof: guarded by Thread.isMainThread at the top of this function
     return MainActor.assumeIsolated {
         guard let view = bridge.view else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         return view.clipboardRequests.completeRead(location: location, wantsText: wantsText,
@@ -104,8 +108,10 @@ nonisolated func ghosttyConfirmReadClipboard(
         bridge.view?.clipboardRequests.confirm(contents: contents, kind: kind, state: pointer)
     }
     if Thread.isMainThread {
+        // main-proof: guarded by Thread.isMainThread above
         MainActor.assumeIsolated(run)
     } else {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
         DispatchQueue.main.async { MainActor.assumeIsolated(run) }
     }
 }
@@ -136,8 +142,10 @@ nonisolated func ghosttyWriteClipboard(
         }
     }
     if Thread.isMainThread {
+        // main-proof: guarded by Thread.isMainThread above
         MainActor.assumeIsolated(run)
     } else {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
         DispatchQueue.main.async { MainActor.assumeIsolated(run) }
     }
 }
@@ -145,6 +153,7 @@ nonisolated func ghosttyWriteClipboard(
 nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ processAlive: Bool) {
     guard let bridge = SurfaceBridge.from(userdata) else { return }
     DispatchQueue.main.async {
+        // main-proof: DispatchQueue.main runs its blocks on the main thread
         MainActor.assumeIsolated { bridge.view?.surfaceRequestedClose() }
     }
 }

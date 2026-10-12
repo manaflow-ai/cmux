@@ -4,9 +4,10 @@ import Foundation
 /// The page's theme (`window.cmuxAcpmuxBridge.applyTheme`, the TypeScript
 /// `AgentSessionTheme`) derived from the Ghostty-based `ThemeTokens`, so the
 /// pane matches the terminal and chrome. No blue accent (REWRITE.md visual
-/// rules): the accent is the foreground and its soft form the selection fill;
-/// labels on it take the background, opaque so a translucent window's
-/// backdrop doesn't thin them. The one hue is `highlight`, the theme's own
+/// rules): the accent is `ThemeTokens.accent` (the foreground, or the theme's
+/// own hue with `appearance.accent`) and its soft form the selection fill;
+/// `accentText` is the opaque background (the page's base) and `onAccent`
+/// the glyphs on a filled accent. The one hue is `highlight`, the theme's own
 /// ANSI blue, for the primary action. `palette` is the terminal's 16 ANSI
 /// colors, which the page's syntax colors use (`--agent-ansi-N`), each lifted
 /// to text contrast over the code card (the elevated surface): terminals
@@ -35,7 +36,8 @@ enum AgentPaneTheme {
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
-            "accent": css(tokens.textPrimary),
+            "accent": css(tokens.accent),
+            "onAccent": css(tokens.onAccent),
             "accentSoft": css(tokens.selectionFill),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
@@ -46,13 +48,15 @@ enum AgentPaneTheme {
             "palette": tokens.ansi.prefix(16).map { color in
                 css(ThemeTokens.readable(color, over: tokens.elevatedBackground, minimum: ThemeTokens.minimumTextContrast))
             },
-            // The page's hover fills, focus rings and menu fades (`--agent-motion-*`), in
+            // The page's hover fills, focus rings, menu fades and moves (`--agent-motion-*`), in
             // seconds after ui.animationSpeed and Reduce Motion, so they pace with the chrome.
             "motion": [
                 "hover": motion.duration(MotionFade.hover),
+                "hoverOut": motion.duration(MotionFade.hoverOut),
                 "focus": motion.duration(MotionFade.focus),
                 "fadeIn": motion.duration(MotionFade.fadeIn),
                 "fadeOut": motion.duration(MotionFade.fadeOut),
+                "move": motion.duration(MotionSpring.move),
             ],
         ]
     }
@@ -60,13 +64,16 @@ enum AgentPaneTheme {
     /// The page's background: the content background where panes paint it
     /// (an opaque window), clear where the window root paints the one
     /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
+    /// Clear on the New Tab page, which its pane backs.
     /// With the user's background for `surface` (`appearance.surfaces`,
     /// R55) it is clear: the document root paints that override once
     /// (`WebTheme`), and translucent layers must not stack on it.
     static func pageColor(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane,
                           backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
         if backgrounds.fill(for: surface, tokens: tokens) != nil { return tokens.surfaceBackground.withAlpha(0) }
-        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
+        // The New Tab page is transparent: its pane paints the window's background under it (cx-tcju).
+        if surface == .newTabPage { return tokens.surfaceBackground.withAlpha(0) }
+        return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
 
     /// The color WebKit shows behind and around the page, the same as the
@@ -88,6 +95,18 @@ enum AgentPaneTheme {
               let json = String(data: data, encoding: .utf8) else { return nil }
         // The shared web theme first (`--cmux-*`, the page background), then
         // the pane's own bridge.
-        return WebTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+        return webTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+    }
+
+    /// The shared web theme of `surface`. The New Tab page is transparent (the page background
+    /// rule paints nothing) unless `appearance.surfaces.newTabPage` gives it a background: its
+    /// pane backs it with the window's own background, as it backs a terminal (cx-tcju).
+    @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
+                                    backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
+        var backgrounds = backgrounds
+        if surface == .newTabPage, backgrounds[.newTabPage] == nil {
+            backgrounds.overrides[.newTabPage] = SurfaceBackground(color: tokens.surfaceBackground.withAlpha(0))
+        }
+        return WebTheme(tokens, surface: surface, backgrounds: backgrounds)
     }
 }

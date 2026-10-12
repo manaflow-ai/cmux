@@ -29,10 +29,10 @@ public final class BrowserPrompt: Identifiable {
     public var dismissalResponse: BrowserPromptResponse {
         switch kind {
         // Closing the tab refuses the waiting downloads and remembers nothing.
-        case .permission(.automaticDownloads): .cancel
+        case .permission(.automaticDownloads), .permission(.location), .permission(.notifications): .cancel
         case .permission: .deny
         case .alert: .accept
-        case .confirm, .textInput, .credentials: .cancel
+        case .confirm, .textInput, .credentials, .openExternalApp: .cancel
         }
     }
 }

@@ -1,8 +1,8 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
-/// `sidebar.showCounts` and `sidebar.showWorkspaceDirectory`;
-/// plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.workspaceRow.*`; plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.showChats` shows the device-wide All chats section (on by default, cx-xub5).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
 public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
@@ -14,6 +14,14 @@ public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIter
 
     public var hidesTop: Bool { self == .top || self == .both }
     public var hidesBottom: Bool { self == .bottom || self == .both }
+}
+
+/// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
+/// (Leo 2026-10-06).
+public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
+    case none
+    /// A header per folder: the front tab's working directory.
+    case folder
 }
 
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
@@ -29,18 +37,45 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var pinnedBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
-    /// Each workspace row shows how many tabs it has.
-    public var showCounts = false
-    /// Each workspace row shows its folder (or branch) as a second line.
-    /// Off: rows are one line unless an agent or hook reports a live status
-    /// (DOGFOOD-CALL-2026-10-06 S1).
-    public var showWorkspaceDirectory = false
+    /// `sidebar.groupByComputer`: one workspace section per computer, each
+    /// under its header. Off (the default) shows one list of workspaces with
+    /// no computer headers; a workspace of another computer names it on its
+    /// second line.
+    public var groupsByComputer = false
+    /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
+    /// the name, the user's icon and the unread/attention mark only
+    /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
+    public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
+    public var showProjects = true
+    /// The Projects menu's Group By (`sidebar.groupBy`).
+    public var groupBy: SidebarGroupBy = .none
+    /// Whether the device-wide All chats section is shown at the bottom of the
+    /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
+    public var showChats = true
+    /// The bottom band's pieces (cx-wab7m): each hides from its own right-click menu and comes
+    /// back from the band's (`sidebar.showSpaces`: the spaces dots; `sidebar.showProfileControl`:
+    /// the profile button).
+    public var showSpaces = true
+    public var showProfileControl = true
+    /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
+    /// people like minimal mode"): workspace rows draw only their icon, name,
+    /// unread mark and attention state (no second line, no counts or badges,
+    /// no tab rows), and section headers become thin lines (the `lines` look).
+    public var minimal = false
+    /// Compact or expanded workspace rows (`sidebar.density`); minimal mode wins.
+    public var density: SidebarDensity = .compact
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
-    /// R100: the Settings/account band shows only while the pointer is over the sidebar.
-    public var minimalMode: SidebarMinimalMode = .bottom
+    /// Off by default: a fresh profile's sidebar is pinned, its Settings and
+    /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
+    public var minimalMode: SidebarMinimalMode = .off
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults
+    /// The "Did you know" tip card above the footer (`sidebar.cards.tips`,
+    /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
+    /// is staged.
+    public var showsTips = true
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

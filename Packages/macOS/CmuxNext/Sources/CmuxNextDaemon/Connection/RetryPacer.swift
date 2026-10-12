@@ -2,7 +2,7 @@ public import CmuxNextWakeups
 import Darwin
 import Dispatch
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// How a retry loop spaces attempts after real failures
 /// (plans/cmux-next/idle-wakeups.md). Attempts are spaced by a capped,

@@ -102,25 +102,17 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         isDirectory: (String) -> Bool = { path in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-        },
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        }
     ) -> [String: String] {
         var env = env
         if let ghosttyBinary, !ghosttyBinary.isEmpty {
             let binDirectory = (ghosttyBinary as NSString).deletingLastPathComponent
             env["GHOSTTY_BIN"] = ghosttyBinary
             env["GHOSTTY_BIN_DIR"] = binDirectory
+            // The bundled `cmux` goes first on PATH through
+            // `BundledCLIEnvironment`, with or without a Ghostty CLI.
             let path = env["PATH"] ?? ""
-            let bundledCLI = binDirectory + "/cmux"
-            if isExecutable(bundledCLI) {
-                // This terminal's CMUX_SOCKET_PATH is this app's socket, so
-                // its `cmux` must be this app's CLI: first on PATH, and the
-                // CLI that `CMUX_BUNDLED_CLI_PATH`-aware shims exec. An
-                // inherited value names the app that launched this one.
-                let rest = path.split(separator: ":").filter { $0 != Substring(binDirectory) }
-                env["PATH"] = ([Substring(binDirectory)] + rest).joined(separator: ":")
-                env["CMUX_BUNDLED_CLI_PATH"] = bundledCLI
-            } else if path.isEmpty {
+            if path.isEmpty {
                 env["PATH"] = binDirectory
             } else if !path.split(separator: ":").contains(Substring(binDirectory)) {
                 env["PATH"] = path + ":" + binDirectory
@@ -175,7 +167,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         switch (shell as NSString).lastPathComponent {
         case "bash":
             guard shell != "/bin/bash", env["GHOSTTY_BASH_INJECT"] != nil,
-                  env["ENV"]?.hasSuffix(bashScript) == true else { return nil }
+                  env["ENV"]?.hasSuffix(bashScript) == true || BundledCLIEnvironment.wrapsGhosttyBash(env)
+            else { return nil }
             return ["--posix"]
         case "nu":
             guard env["GHOSTTY_SHELL_INTEGRATION_XDG_DIR"] != nil else { return nil }

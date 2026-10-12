@@ -5,11 +5,14 @@ import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
+import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
+import type { SpendGuardDO } from "./inference/spend-guard-do.ts"
+import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
@@ -42,9 +45,13 @@ export interface Env {
   readonly SSO_DISCOVER_LIMIT?: RateLimit
   /** GET /v1/cloud/keyset per client IP (namespaces 1161-1163). */
   readonly CLOUD_KEYSET_LIMIT?: RateLimit
+  /** POST /v1/wire/ticket per user (namespaces 1191-1193, 60 per minute; wire-ticket.ts). */
+  readonly WIRE_TICKET_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
+  /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
+  readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**
@@ -56,6 +63,8 @@ export interface Env {
   readonly FREESTYLE_API_URL?: string
   /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
   readonly TEAM_VM_SNAPSHOT?: string
+  /** Var: "1" turns on the team VM bind (vm-image.md 6b; development and staging until the backend lead's review). */
+  readonly TEAM_VM_BIND_ENABLED?: string
   /** Var: provider slug prefix of NEW team VMs; staging must start with `cmuxnp-stg-`, other non-production envs with `cmuxnp-dev-` (FREESTYLE-NAMES). */
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
@@ -78,6 +87,8 @@ export interface Env {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
+  /** Var (development only): the public coderouter host the coderouter.cmux.internal edge rule forwards to (cloud-coderouter-edge.ts); unset = no rule. */
+  readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
   /**
@@ -115,6 +126,8 @@ export interface Env {
    * lead). Enterprise SSO creates Stack users and sessions with it; use it only with that project.
    */
   readonly STACK_SECRET_SERVER_KEY?: string
+  /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
+  readonly STACK_WEBHOOK_SECRET?: string
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string
@@ -201,6 +214,58 @@ export interface Env {
   readonly APNS_TEAM_ID?: string
   /** One UsageMeterDO per team: the automation usage ledger and hard cap (automations-billing.md). */
   readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
+  /** Model router (src/inference, plans/cmux-next/model-router.md). One instance "global": daily caps and provider health. */
+  readonly SPEND_GUARD_DO: DurableObjectNamespace<SpendGuardDO>
+  /** Free tier (src/inference/free.ts): one FreeDeviceDO per App Attest key. */
+  readonly FREE_DEVICE_DO: DurableObjectNamespace<FreeDeviceDO>
+  /** Per-IP limits of the free tier: every free route, and new device grants. */
+  readonly INFERENCE_FREE_IP_LIMIT?: RateLimit
+  readonly INFERENCE_FREE_GRANT_LIMIT?: RateLimit
+  /** Comma list of "<Team ID>.<bundle id>" App Attest app ids the free tier accepts; unset = free tier refuses. */
+  readonly INFERENCE_FREE_APP_IDS?: string
+  /** "true" accepts development App Attest keys (dev builds); never in production. */
+  readonly INFERENCE_FREE_ATTEST_DEVELOPMENT?: string
+  /** Free tier quota per device per UTC day (tokens, default 300000) and requests per minute (default 20). */
+  readonly INFERENCE_FREE_DAILY_TOKENS?: string
+  readonly INFERENCE_FREE_PER_MINUTE?: string
+  /** Apple DeviceCheck: secrets KEY_P8 (PKCS#8 PEM) + KEY_ID, var APPLE_TEAM_ID; "true" = the development endpoint. */
+  readonly INFERENCE_DEVICECHECK_KEY_P8?: string
+  readonly INFERENCE_DEVICECHECK_KEY_ID?: string
+  readonly INFERENCE_DEVICECHECK_DEVELOPMENT?: string
+  readonly APPLE_TEAM_ID?: string
+  /** Workers AI binding for the model router; absent = the workers-ai provider is not configured. */
+  readonly AI?: Ai
+  /** Router switch, fail-closed: only "1" serves /v1/inference/chat/completions. */
+  readonly INFERENCE_ENABLED?: string
+  /** Free tier switch (attested devices without sign-in), fail-closed: only "1". */
+  readonly INFERENCE_FREE_ENABLED?: string
+  /** Comma list of team ids that may call the router (dev and staging); unset = every signed-in team. */
+  readonly INFERENCE_ALLOWED_TEAMS?: string
+  /** "1" lets VM installs call the router. */
+  readonly INFERENCE_MACHINES_ENABLED?: string
+  /** Comma list of providers switched off (kill switch per provider), for example "openrouter,vercel". */
+  readonly INFERENCE_DISABLED_PROVIDERS?: string
+  /** Hard USD cap per provider per UTC day; INFERENCE_DAILY_CAP_USD_<PROVIDER> overrides one provider. Missing = 0 = refuse. */
+  readonly INFERENCE_DAILY_CAP_USD?: string
+  readonly INFERENCE_DAILY_CAP_USD_OPENROUTER?: string
+  readonly INFERENCE_DAILY_CAP_USD_VERCEL?: string
+  readonly INFERENCE_DAILY_CAP_USD_WORKERS_AI?: string
+  readonly INFERENCE_DAILY_CAP_USD_FIREWORKS?: string
+  readonly INFERENCE_DAILY_CAP_USD_BASETEN?: string
+  readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
+  /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
+  readonly INFERENCE_FREE_DAILY_CAP_USD?: string
+  /** Open requests per team (default 4) and per free device (default 1). */
+  readonly INFERENCE_MAX_CONCURRENT?: string
+  readonly INFERENCE_FREE_MAX_CONCURRENT?: string
+  /** Largest max_tokens of a free-tier request (default 4096). */
+  readonly INFERENCE_FREE_MAX_TOKENS?: string
+  /** Secrets: provider keys. A provider without its key is skipped. */
+  readonly INFERENCE_OPENROUTER_KEY?: string
+  readonly INFERENCE_VERCEL_GATEWAY_KEY?: string
+  readonly INFERENCE_FIREWORKS_KEY?: string
+  readonly INFERENCE_BASETEN_KEY?: string
+  readonly INFERENCE_DEEPINFRA_KEY?: string
   /**
    * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.

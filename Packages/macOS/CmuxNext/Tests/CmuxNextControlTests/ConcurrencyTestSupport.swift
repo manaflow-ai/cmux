@@ -65,3 +65,26 @@ extension ControlSnapshot {
         return snapshot
     }
 }
+
+/// A frame source whose `scheduleSoon` hops through the real main run loop
+/// and whose frames fire only when the test says so.
+final class SoonFrameSource: ControlFrameSource {
+    private let frames = ManualFrameSource()
+    private let requests = Mutex(0)
+
+    var frameRequests: Int { requests.withLock { $0 } }
+
+    func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
+        requests.withLock { $0 += 1 }
+        frames.scheduleFrame(work)
+    }
+
+    func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
+        MainRunLoopHop().perform(work)
+    }
+
+    @MainActor
+    func fire() {
+        frames.fire()
+    }
+}

@@ -1,5 +1,9 @@
 import AppKit
 import Foundation
+import os
+
+/// Faults from shim callbacks that arrive off the CEF UI (main) thread.
+private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
 /// C entry for shim events (main thread).
 let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request, a, b, s1, s2 in
@@ -13,10 +17,10 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } }
+        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.handle(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
         return
     }
-    MainActor.assumeIsolated {
+    MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         CEFRuntime.from(address)?.handle(event)
     }
 }
@@ -28,7 +32,7 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent, Thread.isMainThread else { return 0 }
     let address = UInt(bitPattern: context)
     let eventAddress = UInt(bitPattern: nsEvent)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
         let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
@@ -40,9 +44,14 @@ let cefKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
 /// inspected page.
 let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent in
     guard let context, let nsEvent else { return 0 }
+    // Keys arrive on the main thread; off it, the DevTools page keeps the key.
+    guard Thread.isMainThread else {
+        callbackLogger.fault("DevTools key callback off the main thread; the key goes to the page")
+        return 0
+    }
     let address = UInt(bitPattern: context)
     let eventAddress = UInt(bitPattern: nsEvent)
-    return MainActor.assumeIsolated {
+    return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         guard let runtime = CEFRuntime.from(address),
               let pointer = UnsafeMutableRawPointer(bitPattern: eventAddress) else { return 0 }
         let event = Unmanaged<NSEvent>.fromOpaque(pointer).takeUnretainedValue()
@@ -95,10 +104,17 @@ extension CEFRuntime {
             downloads.handle(event)
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
+        case .authCallback(let browser, let url):
+            CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+        case .bookmarks(let json, let path):
+            CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
             break
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
+                #if DEBUG
+                CEFEventTrace.record(browser, event)
+                #endif
                 tab.handle(event)
             }
         }
@@ -149,6 +165,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
+        CEFSignInCallbacks.shared.attached(tab)
     }
 
     private func browserClosed(_ browser: Int32) {
@@ -226,12 +243,12 @@ extension CEFRuntime {
     static let devToolsTimeout: Duration = .seconds(5)
 
     /// Runs a DevTools method in process and returns its JSON result, or
-    /// throws `timedOut` when no result arrives within `devToolsTimeout`.
-    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:]) async throws -> String {
+    /// throws `timedOut` when no result arrives within `timeout`.
+    func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
+                  timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
         guard message != 0 else { throw BrowserTabError.closed }
-        let timeout = Self.devToolsTimeout
         return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
@@ -302,16 +319,16 @@ extension CEFShimEvent {
     var browserID: Int32? {
         switch self {
         case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
-             .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _), .progress(let b, _),
+             .loadStart(let b, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
              .fullscreen(let b, _), .findResult(let b, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
              .afterCreated(let b, _, _, _), .beforeClose(let b), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _):
+             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .download, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
             nil
         }
     }

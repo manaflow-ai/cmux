@@ -3,6 +3,8 @@
 //! A daemon from before the rename serves `edge-docks-v1` but reads the pin
 //! from `sticky`, so it would ignore `dock` and make a plain column. The SDK
 //! refuses the field before it sends the request.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     Client, ClientConfig, ColumnPin, Error, IdentifyRequest, MoveTabToColumnRequest, Optional,
@@ -61,7 +63,11 @@ fn daemon(capabilities: &'static [&'static str]) -> (PathBuf, thread::JoinHandle
 fn docked_move() -> MoveTabToColumnRequest {
     MoveTabToColumnRequest {
         after_column: Optional::Missing,
-        dock: Optional::Value(ColumnPin { edge: "right".to_string(), mode: "docked".to_string() }),
+        dock: Optional::Value(ColumnPin {
+            edge: "right".to_string(),
+            mode: "docked".to_string(),
+            role: Optional::Missing,
+        }),
         pane: Optional::Value(3),
         respawn: Optional::Missing,
         screen: Optional::Missing,

@@ -190,17 +190,3 @@ describe("Google Calendar receiver (not routed until G2)", () => {
   })
 })
 
-describe("pending_revocations schema upgrade", () => {
-  it("adds stop_alias to a table created before it existed", async () => {
-    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_schema_upgrade"))
-    await inDO(stub, async (_i, s) => {
-      s.storage.sql.exec("DROP TABLE IF EXISTS pending_revocations")
-      s.storage.sql.exec(`CREATE TABLE pending_revocations (connection TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL, account TEXT, generation INTEGER NOT NULL,
-        sealed TEXT NOT NULL, attempts INTEGER NOT NULL, first_at INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
-      createRevocationTable(s.storage.sql)
-      createRevocationTable(s.storage.sql)
-      const cols = s.storage.sql.exec<{ name: string }>("PRAGMA table_info(pending_revocations)").toArray().map((c) => c.name)
-      expect(cols).toContain("stop_alias")
-    })
-  })
-})

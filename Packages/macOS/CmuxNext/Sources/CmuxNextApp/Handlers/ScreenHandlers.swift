@@ -54,26 +54,12 @@ enum ScreenHandlers {
                 ScreenCommands.close(screens, in: ref.workspace, daemon: ref.daemon, services: ctx.services)
             })
         }
+        // The daemon's closed history is the only one (reopen-closed.md 9).
         registry.bind("screen.reopenClosed", invoke: { _ in
-            if let entry = DaemonClosedHistory.entries([.screen], in: ctx.services).first {
-                return DaemonClosedHistory.reopen(entry, services: ctx.services)
-            }
-            guard let record = ctx.services.closedScreens.popLatest(isLive: { ctx.services.workspace(id: $0) != nil })
+            guard let entry = DaemonClosedHistory.entries([.screen], in: ctx.services).first
                 ?? ctx.refuse(ScreenStrings.noClosedScreen) else { return }
-            reopen(record, ctx)
+            DaemonClosedHistory.reopen(entry, services: ctx.services)
         })
-    }
-
-    /// Recreates a closed screen with its metadata at its old position (also
-    /// from history lists). False when its workspace is gone.
-    @discardableResult
-    static func reopen(_ record: ClosedScreenHistory.Record, _ ctx: AppActionContext) -> Bool {
-        guard let workspace = ctx.services.workspace(id: record.workspaceID) else { return false }
-        let daemon = ctx.services.machines.daemons.first { $0.store.workspaces.contains { $0 === workspace } } ?? ctx.services.activeDaemon
-        let content = ctx.window(showing: workspace.id).flatMap(\.content)
-        let spec = daemon.supports(DaemonCapabilities.shared.screenMetadata) ? record.spec : ScreenSpec()
-        ScreenCommands.create(in: workspace, daemon: daemon, content: content, spec: spec, cwd: record.cwd)
-        return true
     }
 
     private static func bindNavigation(_ registry: ActionRegistry, _ ctx: AppActionContext) {

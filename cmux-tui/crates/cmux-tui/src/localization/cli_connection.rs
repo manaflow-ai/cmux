@@ -8,6 +8,7 @@ pub(crate) struct CliConnectionMessages {
     pub(super) other: &'static str,
     pub(super) no_answer: &'static str,
     pub(super) wrong_protocol: &'static str,
+    pub(super) app_socket_only: &'static str,
 }
 
 impl CliConnectionMessages {
@@ -35,20 +36,27 @@ impl CliConnectionMessages {
     pub fn wrong_protocol(&self) -> &'static str {
         self.wrong_protocol
     }
+
+    /// `CMUX_SOCKET_PATH` names an app socket, and nothing names its session.
+    pub fn app_socket_only(&self) -> &'static str {
+        self.app_socket_only
+    }
 }
 
 pub(super) const ENGLISH: CliConnectionMessages = CliConnectionMessages {
-    not_running: "no cmux session is running at {socket}; start one with `cmux server ensure` (pass the same --session or --socket)",
-    stale: "{socket} is stale: no session is listening on it; start the session with `cmux server ensure` (pass the same --session or --socket)",
+    not_running: "no cmux session is running at {socket}; start one with `cmux daemon ensure` (pass the same --session or --socket)",
+    stale: "{socket} is stale: no session is listening on it; start the session with `cmux daemon ensure` (pass the same --session or --socket)",
     other: "cannot connect to session socket {socket}: {error}",
-    no_answer: "the session did not answer in time; check it with `cmux server status`, or pass the right --socket",
+    no_answer: "the session did not answer in time; check it with `cmux daemon status`, or pass the right --socket",
     wrong_protocol: "the server on this socket does not speak cmux.protocol/2: it is an older cmux or another program; restart the session with this cmux, or pass the right --socket",
+    app_socket_only: "CMUX_SOCKET_PATH names a cmux app socket, and nothing names that app's session (no CMUX_BUNDLE_ID or CMUX_TAG); pass --socket or --session, or set CMUX_TUI_SOCKET. cmux tried no other socket",
 };
 
 pub(super) const JAPANESE: CliConnectionMessages = CliConnectionMessages {
-    not_running: "{socket} で実行中の cmux セッションはありません。`cmux server ensure` で開始してください (同じ --session または --socket を指定)",
-    stale: "{socket} は古いソケットです。待ち受けているセッションがありません。`cmux server ensure` でセッションを開始してください (同じ --session または --socket を指定)",
+    not_running: "{socket} で実行中の cmux セッションはありません。`cmux daemon ensure` で開始してください (同じ --session または --socket を指定)",
+    stale: "{socket} は古いソケットです。待ち受けているセッションがありません。`cmux daemon ensure` でセッションを開始してください (同じ --session または --socket を指定)",
     other: "セッションソケット {socket} に接続できません: {error}",
-    no_answer: "セッションが時間内に応答しませんでした。`cmux server status` で確認するか、正しい --socket を指定してください",
+    no_answer: "セッションが時間内に応答しませんでした。`cmux daemon status` で確認するか、正しい --socket を指定してください",
     wrong_protocol: "このソケットのサーバーは cmux.protocol/2 を話しません。古い cmux か別のプログラムです。この cmux でセッションを再起動するか、正しい --socket を指定してください",
+    app_socket_only: "CMUX_SOCKET_PATH は cmux アプリのソケットを指定していますが、そのアプリのセッションを指定するものがありません (CMUX_BUNDLE_ID も CMUX_TAG もありません)。--socket か --session を指定するか、CMUX_TUI_SOCKET を設定してください。cmux は他のソケットを試していません",
 };

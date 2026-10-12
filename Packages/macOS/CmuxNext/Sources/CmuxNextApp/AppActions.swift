@@ -33,15 +33,22 @@ enum AppActions {
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         RoomHandlers.bind(into: registry, context: context)
+        RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
+        SidebarHiddenSections.bind(into: registry, context: context)
+        SidebarGroupByActions.bind(into: registry, context: context)
+        SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
+        SidebarMinimalToggle.bind(into: registry, context: context)
+        SidebarDensityActions.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
         FocusRingHandlers.bind(into: registry, context: context)
         HibernationHandlers.bind(into: registry, context: context)
         TabHandlers.bind(into: registry, context: context)
+        TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
@@ -52,6 +59,7 @@ enum AppActions {
         FindInDirectoryHandlers.bind(into: registry, context: context)
         GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
+        HintHandlers.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
         DiffHandlers.bind(into: registry, context: context)
         FilePageHandlers.bind(into: registry, context: context)
@@ -64,12 +72,17 @@ enum AppActions {
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
+        AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)
+        ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
+        RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        IconMenuVisibility.install(registry, context: context)
         TopPages.installTabTargetReasons(services)
+        HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
@@ -121,5 +134,13 @@ enum AppActions {
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
+        // The workspace list takes the keyboard; a hidden sidebar shows first.
+        // Keyboard focus there survives the workspace switches its arrows make.
+        registry.bind("focusSidebar") {
+            guard let window = services.windows.active else { return }
+            if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
+            window.sidebar.container.sidebarView.focusList()
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+        }
     }
 }

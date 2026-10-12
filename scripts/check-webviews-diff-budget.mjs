@@ -9,7 +9,7 @@
 // (TextMate grammars, themes, the Oniguruma WASM blob) must stay a dynamic
 // import so it is fetched only for the languages in the diff, and the worker
 // must never evaluate the main-thread renderer or React. This script walks
-// the committed bundle under `Resources/markdown-viewer/webviews-app`, sums
+// the built bundle under `Resources/markdown-viewer/webviews-app` (build-web-bundles.sh), sums
 // each eager closure and fails when one grows past its budget or when a
 // forbidden chunk is reachable statically.
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -28,15 +28,17 @@ function budgetFromEnvironment(name, fallback) {
   return value;
 }
 
-const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-)/;
+const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-|diff-labels-)/;
 // Monaco (the code editor page's `view` chunk and its worker) loads only after the editor opens a
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
+// English is the fallback; translated diff labels must remain lazy locale chunks.
+const diffBudgetBytes = 1_500_000;
 const surfaces = [
   {
     name: "diff surface",
     entries: ["main.mjs", "chunks/diffSurface.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES", 1_500_000),
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_EAGER_BUDGET_BYTES", diffBudgetBytes),
     forbidden: [],
   },
   {
@@ -48,13 +50,16 @@ const surfaces = [
   {
     name: "diff page",
     entries: ["chunks/diff-page.mjs", "chunks/diffSurface.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_PAGE_EAGER_BUDGET_BYTES", 1_500_000),
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_PAGE_EAGER_BUDGET_BYTES", diffBudgetBytes),
     forbidden: monacoChunks,
   },
   {
     name: "markdown page",
     entries: ["chunks/markdown-page.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_200_000),
+    // 1.4 MB since 8eef4842b70: the editor renders its read-only task checkbox (src/ui TaskCheckbox)
+    // to static markup for a ProseMirror decoration, so react-dom's server renderer (~188 KB) is
+    // eager here. The bundler keeps it out of the shared `vendor` chunk the other pages load.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_400_000),
     forbidden: monacoChunks,
   },
   {
@@ -120,6 +125,13 @@ for (const surface of surfaces) {
     }
     if (surface.forbidden.includes(relativePath)) {
       failures.push(`${surface.name}: ${relativePath} is reachable through static imports but must stay out of its eager set`);
+    }
+  }
+  if (surface.name === "diff surface" || surface.name === "diff page") {
+    for (const file of eager.keys()) {
+      const source = readFileSync(file, "utf8");
+      for (const label of ["Dateien ausblenden", "ファイルを隠す"])
+        if (source.includes(label)) failures.push(`${surface.name}: translated diff labels leaked into ${relative(bundleDirectory, file)}`);
     }
   }
   if (totalBytes > surface.budgetBytes) {

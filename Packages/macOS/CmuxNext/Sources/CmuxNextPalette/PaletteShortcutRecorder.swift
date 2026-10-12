@@ -17,9 +17,10 @@ public import CmuxNextActions
         self.model = model
         core = ShortcutRecorder(
             registry: registry,
-            state: { [unowned model] in model.shortcutRecorder },
-            setState: { [unowned model] in model.shortcutRecorder = $0 },
-            didFinish: { [unowned model] id, notice in
+            state: { [weak model] in model?.shortcutRecorder },
+            setState: { [weak model] in model?.shortcutRecorder = $0 },
+            didFinish: { [weak model] id, notice in
+                guard let model else { return }
                 model.reload()
                 if let notice { model.showNotice(notice, on: id) }
             })

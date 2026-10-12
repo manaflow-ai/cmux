@@ -1,7 +1,10 @@
 public import AppKit
+public import CmuxNextProcessEnvironment
+public import CmuxNextDesign
+import CmuxNextWakeups
 import GhosttyNextKit
 import os
-import Synchronization
+import CmuxNextCompat
 
 /// Process-wide libghostty app (`ghostty_app_t`) plus the user's Ghostty
 /// configuration.
@@ -67,7 +70,12 @@ public final class GhosttyRuntime {
             TerminalTimings.runtimePhase(name, phase.duration(to: now))
             phase = now
         }
-        Self.configureProcessEnvironment()
+        // The app froze the environment in main after preparing it; a
+        // process that skips main (tests) prepares it here. Either way no
+        // write may follow ghostty_init.
+        let environmentGuard = ProcessEnvironmentGuard.process
+        if !environmentGuard.isFrozen { Self.prepareProcessEnvironment(environmentGuard: environmentGuard) }
+        environmentGuard.freeze()
         defer { mark("app_new") }
         guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 else {
             Self.logger.error("ghostty_init failed; terminal surfaces are disabled")
@@ -149,6 +157,25 @@ public final class GhosttyRuntime {
     /// `reloadConfig()`.
     public static var themeOverride: String?
 
+    /// `appearance.themeEdits`: per-token color edits to themes, loaded after
+    /// the theme they edit (`themeLines`). Set it, then call `reloadConfig()`.
+    public static var themeEdits = ThemeEdits.none
+
+    /// The light/dark side `themeLines` takes from a pair, as the app's
+    /// color scheme last was (`applyColorScheme`).
+    static var colorSchemeIsDark = false
+
+    /// The theme lines cmux loads after the user's config files: `theme =
+    /// <spec>`, then the edits of the theme in effect (a pair's variant for
+    /// `isDark`), so an edited token wins and the rest stay the theme's.
+    /// `theme` nil is the Ghostty config's own theme, which has no name to
+    /// key edits by.
+    public nonisolated static func themeLines(_ theme: String?, isDark: Bool, edits: ThemeEdits) -> [String] {
+        guard let line = themeOverrideLine(theme) else { return [] }
+        let name = theme.flatMap(ThemeSpec.init).map { $0.name(isDark: isDark) }
+        return [line] + (name.map(edits.configLines(for:)) ?? [])
+    }
+
     /// `theme = <value>` for a well-formed theme spec; nil for anything
     /// that could inject another config line.
     nonisolated static func themeOverrideLine(_ value: String?) -> String? {
@@ -170,11 +197,11 @@ public final class GhosttyRuntime {
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
-            ghostty_config_load_default_files(config)
+            loadDefaultFiles(into: config)
         }
         ghostty_config_load_recursive_files(config)
-        if let line = themeOverrideLine(theme ?? themeOverride) {
-            ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
+        for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         for line in fontOverrideLines(fontOverride) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
@@ -185,7 +212,7 @@ public final class GhosttyRuntime {
         _ = configGet(config, &configured, key: "background-opacity")
         var configuredBlur: Int16 = 0
         _ = configGet(config, &configuredBlur, key: "background-blur")
-        for line in backgroundOverrideLines(backgroundOverride, configuredOpacity: configured, configuredBlur: Int(configuredBlur)) {
+        for line in GhosttyConfigBackground.overrideLines(configuredOpacity: configured, configuredBlur: Int(configuredBlur), theme: theme) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
         // In a translucent window the root view's material and tint are the
@@ -261,13 +288,16 @@ public final class GhosttyRuntime {
     private func installObservers() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(true) }
         })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.setAppFocused(false) }
         })
         // Ghostty caches the keyboard layout for key translation.
         observers.append(center.addObserver(forName: NSTextInputContext.keyboardSelectionDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated {
                 guard let app = self?.app else { return }
                 ghostty_app_keyboard_changed(app)
@@ -275,10 +305,10 @@ public final class GhosttyRuntime {
         })
         if let nsApp = NSApp {
             applyColorScheme(nsApp.effectiveAppearance)
-            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] application, _ in
-                MainActor.assumeIsolated {
-                    self?.applyColorScheme(application.effectiveAppearance)
-                }
+            // KVO calls back on the thread that changed the value: inline on
+            // main, a hop from anywhere else.
+            appearanceObservation = nsApp.observe(\.effectiveAppearance, options: [.new]) { @Sendable [weak self] application, _ in
+                MainDelivery().run { self?.applyColorScheme(application.effectiveAppearance) }
             }
         }
     }
@@ -294,6 +324,14 @@ public final class GhosttyRuntime {
     private func applyColorScheme(_ appearance: NSAppearance) {
         guard let app else { return }
         isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let switched = isDark != Self.colorSchemeIsDark
+        Self.colorSchemeIsDark = isDark
+        defer {
+            // A light/dark pair's edits are its variants': the other side's need a reload.
+            if switched, !Self.themeEdits.isEmpty, let spec = Self.themeOverride.flatMap(ThemeSpec.init), spec.light != spec.dark {
+                reloadConfig()
+            }
+        }
         ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
         // A surface copies the app's scheme only when it is created; live
         // ones need it too (as Ghostty.app does per surface view), or open
@@ -307,8 +345,14 @@ public final class GhosttyRuntime {
     /// resources bundled in this app, then an inherited value, then
     /// Ghostty.app. Manual-IO surfaces spawn no shell, so shell-integration
     /// and TERM here only matter for `theme =` lookups and local debug PTYs.
-    private static func configureProcessEnvironment() {
-        if let resources = resourcesDirectory() {
+    /// The app calls it in `main` (`CmuxNextApp.prepareLaunchEnvironment`) before any
+    /// thread starts and the environment freeze; `init` calls it only when
+    /// nothing froze the environment (tests). libghostty keeps a slice of
+    /// `environ` from `ghostty_init`, so no write may follow it.
+    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
+        environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
+            guard let resources = resourcesDirectory() else { return }
+            if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
     }

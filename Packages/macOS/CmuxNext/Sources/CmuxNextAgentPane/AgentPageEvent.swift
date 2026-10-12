@@ -7,7 +7,7 @@ public import Foundation
 /// ``AgentPageProvider/hostEvents``. Each kind replaces a script the old host evaluated; the
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
-    /// `theme`, `shortcuts`, `preview`, `customization`, `registry`, `dictation`, `revealTurn`,
+    /// `theme`, `shortcuts`, `preview`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
     /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
@@ -22,7 +22,7 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`).
     @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind) -> AgentPageEvent? {
-        guard let web = try? JSONValue.parse(Data(WebTheme(tokens, surface: surface).payloadJSON.utf8)),
+        guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface).payloadJSON.utf8)),
               let agent = JSONValue(foundation: AgentPaneTheme.values(tokens, surface: surface)) else { return nil }
         return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent])
     }

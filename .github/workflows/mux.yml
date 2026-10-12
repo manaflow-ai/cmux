@@ -11,6 +11,8 @@ on:
       - mux/**
       - .github/workflows/mux.yml
   push:
+    # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10).
+    branches-ignore: [feat-cmux-next]
     paths:
       - mux/**
       - .github/workflows/mux.yml

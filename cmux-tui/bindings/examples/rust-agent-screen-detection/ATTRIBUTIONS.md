@@ -1,122 +1,116 @@
 # Attributions
 
-The files under `manifests/` are derived from the herdr project:
+This package contains material derived from the herdr project:
 
-* Project: https://github.com/herdrdev/herdr
-* Detector source reference revision: `7b675f42af35508eab66ac42fe1598628597a893`
-* Pi bundled-launcher correction: `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`
-* Manifest snapshot revision: `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`
-* First-acquisition OSC retention: `82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`
-* Included manifest fixes: Claude MCP elicitation `f807b697353cfa00aa912c7cde4830e863001cf5`,
-  Claude background-shell state `987b070fbfa187e85009b45cd7e208fc6175ff6a`,
-  Codex weak-blocker scope `f457cff4f2648eee85d176f8a41861241d4e8428`, and
-  Copilot background-agent activity `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
-* License: Apache-2.0, reproduced in `manifests/LICENSE`
-* The bundled manifests are refreshed from Herdr `master` at the checked
-  revision above. This includes the current Letta, Claude, Codex, Kiro, Cline,
-  Pi, and Grok rules. `github-copilot.toml` remains byte-identical to the
-  upstream snapshot at commit `2290257acb2085ce6842ba5c7e3ca50c3ba64f02`.
-* The latest upstream Grok manifest includes the custom-title and spinner
-  precedence fix, so cmux no longer carries a divergent local Grok patch.
-* Changes: cmux pins the files locally and validates them with its own
-  bounded manifest engine. It does not use herdr's network update path.
+* Project: https://github.com/ogulcancelik/herdr (also published as
+  https://github.com/herdrdev/herdr; both names are the same repository)
+* License: Apache-2.0. Upstream ships a `LICENSE` file and no `NOTICE` file.
+  The license text is reproduced unchanged in `manifests/LICENSE`.
+* Upstream pin: commit `2563803dca97c040beaf3dc3acdcb5a3221b4238` (herdr
+  0.9.3, manifest engine version 3), synced 2026-10-08. `HERDR_UPSTREAM.toml`
+  records the pin, the upstream sha256 of every vendored manifest and of the
+  upstream engine sources this port follows.
 
-The checked-in manifests/SHA256SUMS record is verified before bundled
-compilation. It detects accidental drift, not a cryptographic release
-signature for remote updates.
+The original cmux portions of this package are licensed under
+GPL-3.0-or-later; the full text is in `LICENSE`. Only the files listed below
+contain herdr-derived material, and each carries a header that names the
+upstream file, the commit and the cmux changes. The package does not copy
+herdr's application, API server, integrations, sound assets or other
+multiplexer code.
 
-The attribution and capability audit was rerun against herdr's agent-surface
-revision `987b070fbfa187e85009b45cd7e208fc6175ff6a` after the pinned snapshot.
-The package adapts and tests the exact Pi bundled CLI path correction in
-`b1ff4582e9688f52ffb943cfa8bee4871ae122e4`. It also vendors and tests the
-Claude background-shell state correction in
-`987b070fbfa187e85009b45cd7e208fc6175ff6a`. The audit found the
-first-acquisition OSC retention fix in
-`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`; `src/detect.rs` ports that policy
-with a local revision fence because the generic host API cannot clear OSC
-state. It also found foreground group-leader CWD selection in
-`3a3792622e59c7f2dc20f9c0236167161e4a5035`; cmux's generic
-`foreground_cwd` resource already resolves the group leader, so no
-herdr-specific CWD code is copied. Later upstream commits
-`207be3c771d281baae6e5fa0fb74be9a056e97a2`,
-`5158adab10b6dcfea9370782043392f80fa0643c`,
-`5616196942cbe752cc0659b9bd0fb616b2a6ed5c`,
-`da8c7b05f9ef7898cfb7494989df8a533b947bb9`, `99c23cd1ea7468bd3661f6483c7105396503b417`,
-`0032c3b42751b6da9c5b1a91546b3c1a425d67f1`,
-`18e69891dca486d669a584facd80644bb51f54a2`,
-`45484aab84430ac2b18c7bbf44aba15f2b039677`,
-`e22cba35ef7b405758097a5f9436aae8fb4caaf0`,
-`2ae8b91ca5919c26df7ce779b0e9a5dd98b769ae`, and
-`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0` change Windows launch, process
-environment, process-job, input handling, recent terminal reads, graphics
-ownership, or the application/client shell rendering architecture. The
-post-audit multi-client tab-view change
-`6c0bb273d5d5405a00985621b17e36f8b4d64609` and the reliable delayed-prompt
-change `8633a398e653eee47b375c963996c78a8a14aa48` change host/client and PTY
-input behavior, not this detector. These changes are not detector logic and
-are not copied. This package has no Windows SDK transport, native process
-backend, launch path, or input path, so those files are not copied. A
-standalone release must define and test SDK endpoint-generation compatibility
-before it promises upgrades across host versions. Recheck these upstream
-areas before publishing a Windows package.
+## Vendored manifests
 
-The herdr repository tip checked on 2026-09-02 is
-`94f6d9c0d9bb9cf9ffae99d8bbfb09e9bf2fc9e0`. The commits after the
-agent-surface revision change client rendering, terminal reads, graphics,
-Windows input and worktree handling, or sidebar focus. They do not change
-`src/detect` or the manifests. The agent-surface revision is the reproducible
-capability-audit pin.
+`manifests/*.toml` are byte-identical to herdr's `src/detect/manifests/` at
+the pin. No file carries a local patch: `HERDR_PATCHES.toml` documents the
+mechanism and lists none. The Grok precedence correction that cmux used to
+patch in (idle OSC progress outranks a generic custom title, an explicit
+spinner title outranks retained idle progress, and the blank braille code
+point is not a spinner) is covered by upstream Grok `2026.10.05.1`, so the
+patch was dropped.
 
-The original cmux portions of this package are licensed under GPL-3.0-or-later.
-The full text is in `LICENSE`. The Apache-2.0 text for the derived herdr material
-is in `manifests/LICENSE`.
+`manifests/SHA256SUMS` and `HERDR_UPSTREAM.toml` are verified offline by
+`python3 -I scripts/cmux-next/herdr-sync.py check` on every push, and the
+plugin's provenance test checks `SHA256SUMS` before the bundled set compiles.
+These records detect accidental drift; they are not a release signature for
+remote updates. `scripts/cmux-next/herdr-sync.py sync` re-vendors the files
+from a herdr checkout with `git show`, never the update endpoint. The daily
+`herdr-upstream-drift` workflow reports upstream changes in one issue.
 
-The detector engine in `src/manifest.rs` is adapted from herdr's
-`src/detect/manifest.rs` semantics. It keeps the attribution above and adds
-bounded recursion, case-normalized process aliases, and a public plugin
-boundary. Its Claude background-shell regression fixtures are adapted from
-herdr's `src/detect/manifest/tests.rs` at
-`987b070fbfa187e85009b45cd7e208fc6175ff6a`.
+## Adapted sources
 
-The package does not copy herdr's application, API server, sound assets, or
-other multiplexer code. Only the listed detector files and manifests contain
-derived herdr material.
+* `src/manifest.rs`: the manifest engine (rule grammar, regions, gates,
+  validation limits), ported from herdr `src/detect/manifest.rs` at
+  `7b675f42af35508eab66ac42fe1598628597a893`. Rechecked at the pin: upstream
+  only moved compiled rules behind an `Arc` and removed
+  `should_skip_state_update` (cmux already evaluates skip rules with the OSC
+  inputs). cmux adds bounded recursion and loading, case-normalized process
+  aliases, explain output and a public plugin boundary. Its Claude
+  background-shell fixtures are adapted from herdr's
+  `src/detect/manifest/tests.rs` at `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
+* `src/process.rs` and `src/process/launchers.rs`: foreground process-group
+  discovery and wrapper identification, adapted from herdr's
+  `src/platform/{linux,macos}.rs` and `src/detect/mod.rs`. At the pin this
+  includes the Pi bundled-launcher correction
+  (`b1ff4582e9688f52ffb943cfa8bee4871ae122e4`), the Hermes Python installer
+  signature (e35f3937), Letta interactivity (fc1cb77f), Cline's hidden
+  `.cline` launcher and the rule that another program's arguments are not an
+  identity (f3cbe03f), the Kimi and omp package launchers (63ea2314,
+  cd8306d7) and the matched agent pid (950d012c). cmux adds bounded
+  traversal and `/proc` streaming, attached runtime-mode parsing,
+  positional-argument boundaries, shell-word and per-shell invocation-mode
+  parsing, Python boolean/exit/value option boundaries, attached-versus-
+  separate option handling, an explicit Linux child-group fallback, and
+  identity through the replaceable manifest catalog instead of a closed enum.
+  The Python option distinctions are a local correctness improvement: `-S`
+  does not consume the script, documented help aliases (`-?`, `-VV`)
+  terminate, and help/version/hash options cannot expose following tokens as
+  agent executables.
+* `src/background_agent.rs`: keeping a suspended or backgrounded agent's
+  identity, adapted from herdr `src/pane/background_agent.rs` and the
+  `process_start_token` / `live_pane_process_group` functions of
+  `src/platform/{linux,macos}.rs` at `950d012cf0cfd17737b4fff2f4982210b50b5794`.
+  cmux uses manifest ids, and leaves the held-agent replacement case to the
+  scanner's process-group edge.
+* `src/detect.rs` and `src/scanner.rs`: debounce, identity-edge,
+  miss-confirmation and flowing-output signals adapted from herdr
+  `src/detect/mod.rs`, `src/pane/agent_detection.rs` and `src/pane.rs` at
+  `7b675f42af35508eab66ac42fe1598628597a893`. The first-acquisition OSC
+  retention fix (`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605`) is adapted as a
+  local output-revision fence because the generic host API cannot clear OSC
+  state. The one-second evaluation pacer, activity-expiry debt and same-name
+  process-group replacement edge are cmux changes.
+* `src/manifest_update.rs`: versioned update and status concepts from herdr
+  `src/detect/manifest_update.rs`. The explicit-only network policy, HTTPS
+  checks, response bounds, per-agent failures and atomic cache writes are cmux
+  changes.
+* `src/herdr_parity_tests.rs` and `src/background_agent.rs` tests adapt herdr
+  test cases at the pin. `tests/fixtures/hermes-installer-process-info-4910.json`
+  is herdr's redacted reporter capture, copied unchanged.
 
-`src/process.rs` adapts herdr's `src/platform/{linux,macos}.rs` and
-`src/detect/mod.rs` foreground process-group and wrapper discovery. It adds
-bounded traversal and `/proc` streaming, safer path candidates, attached
-runtime-mode parsing, positional-argument boundaries, direct shell-script and
-shell-word parsing, runtime-specific shell invocation-mode checks, Python
-boolean/exit/value option boundaries, attached-versus-separate option handling,
-and an explicit Linux child-group fallback. The Python option distinctions are
-a local correctness improvement:
-`-S` does not consume the script, documented help aliases (`-?`, `-VV`)
-terminate, and help/version/hash options cannot expose following tokens as
-agent executables. Unsupported attached long options fail closed before they
-can consume a later runtime mode flag. Its strict Pi package-entrypoint check
-includes herdr's Windows fix
-from commit `b1ff4582e9688f52ffb943cfa8bee4871ae122e4`; the check is adapted to
-the replaceable manifest catalog. The reference package targets macOS and
-Linux because its Rust SDK transport is Unix-only. A Windows publication needs
-a Windows-capable SDK transport and process backend; it must not claim a
-public-process fallback.
+## Upstream commits reviewed for the 2026-10-08 sync
 
-Local hardening also validates the complete numeric Muse binary version,
-rejects empty matchers before they can match every screen, and excludes the
-Unicode BRAILLE PATTERN BLANK from Grok's spinner rule. These are cmux-owned
-changes, not copied herdr material.
+Commits on `src/detect`, `src/pane/agent_detection.rs` and `src/pane/osc.rs`
+since the previous audit pin `987b070fbfa187e85009b45cd7e208fc6175ff6a`.
 
-`src/detect.rs` adapts herdr's `src/detect/mod.rs` and
-`src/pane/agent_detection.rs` debounce, identity-edge, miss-confirmation, and
-flowing-output signals. The one-second max-evaluation pacer, deterministic
-activity-expiry debt, and same-name process-group replacement edge are
-manaflow changes. Herdr's first-acquisition OSC retention fix from
-`82e6a80eb3ae39fb3d3ebd4d1fed19389767e605` is adapted as a local
-output-revision fence for replacement agents; it keeps that generic host
-metadata from being attributed across an agent identity edge while preserving
-evidence emitted before the first process probe.
+Ported: fabcab10 (agy dialogs and mid-turn work; agy and Grok background work
+is idle), 07e3840b (Codex trust layout and title idle, Pi spinner line),
+7237703d (Codex mention popups), 7df919d0 (Grok custom or disabled OSC
+signals), e35f3937 (Hermes Python installer), fc1cb77f (Letta manifest and
+interactivity), f3cbe03f (Cline manifest and launchers), 950d012c (suspended
+or backgrounded agents keep their identity), 63ea2314 and cd8306d7 (Kimi and
+omp package paths). Already vendored before this sync: 29f9f405, a3a1c94e,
+7fe5a7cd, 7e51b283, e3a46f4f, a05c4038, 4b5e9bda, 987651a7.
 
-`src/manifest_update.rs` follows herdr's `src/detect/manifest_update.rs`
-versioned update and status concepts.
-Its explicit-only network policy, HTTPS checks, response bounds, independent
-per-agent failures, and atomic cache writes are manaflow changes.
+Not applicable: 9c96f7dd (its Codex manifest change was reverted by 07e3840b;
+the Codex prompt observation feeds herdr's hook integration), cce57bc3 and
+fe935882 (text reuse for unidentified panes; this plugin never reads an
+unidentified terminal's screen), the `Arc` rule sharing in `manifest.rs`
+(this engine compiles each manifest once per set), 2552d101 and 90b0e40a
+(agent resume and hook handoff in the application), 0d5d6f1f and 7201907b
+(upstream tests only), c411883e and 309749ad (`osc.rs` graphics and Droid
+scrollback handling; OSC parsing is generic host terminal code, not this
+plugin), 8c8cb49c and the other Windows process-environment, input and launch
+commits (this package has no Windows transport or process backend; recheck
+before a Windows publication). Not ported yet: bafbc094 (on WSL, skip
+`/proc/<pid>/cmdline` reads of exiting processes that can block); this
+package does not claim WSL support.

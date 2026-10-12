@@ -17,7 +17,7 @@ use serde_json::json;
 const PAGE_ORIGIN: &str = "http://127.0.0.1:4100";
 
 async fn start() -> (std::net::SocketAddr, SigningKey) {
-    let key = SigningKey::from_seed(&[9; 32]);
+    let key = SigningKey::from_seed(&[9; 32]).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let verifier = Arc::new(Verifier::new(key.public_key(), APP_ID));
@@ -220,4 +220,69 @@ async fn bundled_page_origin_must_match_the_token_exactly() {
         next_envelope(&mut other).await.unwrap().error_body().unwrap().code,
         error::AUTH_REFUSED
     );
+}
+
+/// The status line the listener answers to a raw upgrade request with these header lines.
+async fn upgrade_status(address: std::net::SocketAddr, headers: &[&str]) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let mut request = String::from(
+        "GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n",
+    );
+    for header in headers {
+        request.push_str(header);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut reply = Vec::new();
+    let mut buffer = [0_u8; 512];
+    while !reply.windows(2).any(|pair| pair == b"\r\n") {
+        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buffer))
+            .await
+            .expect("the listener answered the upgrade")
+            .unwrap_or(0);
+        if read == 0 {
+            break;
+        }
+        reply.extend_from_slice(&buffer[..read]);
+    }
+    String::from_utf8_lossy(&reply).lines().next().unwrap_or("").to_owned()
+}
+
+/// The loopback listener rules (cmux-local-auth) at the wire: a request whose Host is not
+/// this listener's loopback name, is missing or repeated, or whose Origin is `null`, foreign or
+/// repeated never upgrades; the listener's own Host with no Origin (a non-browser client) and
+/// with the allowed page origin does.
+#[tokio::test]
+async fn hostile_host_and_origin_headers_never_upgrade() {
+    let (address, _key) = start().await;
+    let port = address.port();
+    let host = format!("Host: 127.0.0.1:{port}");
+    let localhost = format!("Host: localhost:{port}");
+    let page = format!("Origin: {PAGE_ORIGIN}");
+    let ok = upgrade_status(address, &[&host]).await;
+    assert!(ok.starts_with("HTTP/1.1 101"), "no-origin client: {ok}");
+    let ok = upgrade_status(address, &[&localhost, &page]).await;
+    assert!(ok.starts_with("HTTP/1.1 101"), "allowed page origin: {ok}");
+
+    let rebound = format!("Host: evil.test:{port}");
+    let suffixed = format!("Host: 127.0.0.1.evil.test:{port}");
+    let userinfo = format!("Host: 127.0.0.1:{port}@evil.test");
+    let refused: [(&str, Vec<&str>); 9] = [
+        ("missing Host", vec![]),
+        ("rebound Host", vec![&rebound]),
+        ("suffixed loopback Host", vec![&suffixed]),
+        ("Host with userinfo", vec![&userinfo]),
+        ("repeated Host", vec![&host, &localhost]),
+        ("null Origin", vec![&host, "Origin: null"]),
+        ("foreign Origin", vec![&host, "Origin: http://evil.test"]),
+        ("repeated Origin", vec![&host, &page, &page]),
+        ("Origin on another port", vec![&host, "Origin: http://127.0.0.1:4101"]),
+    ];
+    for (case, headers) in refused {
+        let status = upgrade_status(address, &headers).await;
+        assert!(!status.starts_with("HTTP/1.1 101"), "{case} upgraded: {status}");
+    }
 }

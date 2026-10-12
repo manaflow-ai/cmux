@@ -9,7 +9,10 @@
 
 use serde_json::json;
 
-use super::tests::{Session, changes_after, mutate, read, revision, send, tab_id};
+use super::tests::{
+    Session, changes_after, mutate, placements_by_id, read, replayed_placements, revision, send,
+    tab_id,
+};
 use crate::mux::*;
 use crate::state::prelude::*;
 
@@ -119,7 +122,7 @@ fn every_explicit_close_path_closes_the_emptied_workspace() {
             assert!(mux.close_screen(screen).unwrap());
         }),
         ("close-tabs", &|mux, surface| {
-            let mutation = WorkspaceMutation::new("close-tabs-last", "test").unwrap();
+            let mutation = WorkspaceMutation::daemon("close-tabs-last", "test").unwrap();
             mux.close_tabs_for(vec![surface], false, None, &mutation).unwrap();
         }),
         ("tab.close", &|mux, surface| {
@@ -172,9 +175,12 @@ fn selection_after_the_cascade_follows_the_close_workspace_rule() {
 fn reopen_restores_the_workspace_with_its_tab_name_group_and_place() {
     let session = Session::new("last-tab-reopen");
     let mux = session.open();
+    // Made in sidebar order; the reopen below runs with the default (top).
+    let bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
     let a = mux.new_workspace(None, None).unwrap();
     let b = mux.new_workspace(Some("build".into()), None).unwrap();
     let c = mux.new_workspace(None, None).unwrap();
+    drop(bottom);
     let (a, b_id, c) =
         (workspace_of(&mux, a.id), workspace_of(&mux, b.id), workspace_of(&mux, c.id));
     let group =
@@ -191,7 +197,13 @@ fn reopen_restores_the_workspace_with_its_tab_name_group_and_place() {
 
     assert!(mux.close_surface(b.id).unwrap());
     assert!(!workspace_ids(&mux).contains(&b_id), "an empty workspace was kept");
+    let (start, before) = (placements_by_id(&mux), revision(&mux));
     let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen-b");
+    assert_eq!(
+        replayed_placements(&mux, start, before),
+        placements_by_id(&mux),
+        "session.events placements differ from the store after reopen"
+    );
 
     assert_eq!(reopened["kind"], "workspace", "reopen restored {reopened}");
     let new_id = reopened["workspace_id"].as_str().expect("a workspace was reopened").to_string();

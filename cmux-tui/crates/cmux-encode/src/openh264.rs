@@ -4,7 +4,8 @@
 //!   decoder only, never in a shipped binary (the license gate refuses it in
 //!   app-linked crates);
 //! - `openh264-runtime`: Cisco's prebuilt library, downloaded from Cisco on
-//!   the user's machine at first use (Cisco's patent license covers only that
+//!   the user's machine when the host is enabled (`cmux-rd openh264-install`,
+//!   module `cisco`; Cisco's patent license covers only that
 //!   binary, so it is never bundled in an app or an image) and loaded by
 //!   [`load_verified`] after its SHA-256 matches [`CiscoBinary`] for the
 //!   platform. Mac hosts encode with VideoToolbox instead.
@@ -67,8 +68,9 @@ impl Platform {
 }
 
 /// Where Cisco publishes OpenH264 2.6.0 for one platform and the SHA-256 of
-/// the decompressed library. Cisco serves bzip2 files over plain HTTP; the
-/// hash of the decompressed library is the integrity check. The hashes are
+/// the decompressed library. Cisco serves the bzip2 files over HTTPS too
+/// (certificate for openh264.org, checked by rustls with the webpki roots);
+/// the hash of the decompressed library stays the integrity check. The hashes are
 /// the openh264-sys2 0.9.8 list of Cisco 2.6.0 releases (the API version
 /// this crate's headers match).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,20 +111,20 @@ impl CiscoBinary {
         };
         let url = match platform {
             Platform::LinuxX64 => {
-                "http://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2"
+                "https://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2"
             }
             Platform::LinuxArm64 => {
-                "http://ciscobinary.openh264.org/libopenh264-2.6.0-linux-arm64.8.so.bz2"
+                "https://ciscobinary.openh264.org/libopenh264-2.6.0-linux-arm64.8.so.bz2"
             }
             Platform::MacArm64 => {
-                "http://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2"
+                "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-arm64.dylib.bz2"
             }
             Platform::MacX64 => {
-                "http://ciscobinary.openh264.org/libopenh264-2.6.0-mac-x64.dylib.bz2"
+                "https://ciscobinary.openh264.org/libopenh264-2.6.0-mac-x64.dylib.bz2"
             }
-            Platform::WindowsX64 => "http://ciscobinary.openh264.org/openh264-2.6.0-win64.dll.bz2",
+            Platform::WindowsX64 => "https://ciscobinary.openh264.org/openh264-2.6.0-win64.dll.bz2",
             Platform::WindowsArm64 => {
-                "http://ciscobinary.openh264.org/openh264-2.6.0-win-arm64.dll.bz2"
+                "https://ciscobinary.openh264.org/openh264-2.6.0-win-arm64.dll.bz2"
             }
         };
         Self { url, file_name, sha256 }

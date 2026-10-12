@@ -19,6 +19,8 @@ import QuartzCore
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
     private var snapshot: NSView?
+    /// The bounce now running; a newer one replaces an older one's end.
+    private var bumpGeneration = 0
     var snapshotView: NSView? { snapshot }
 
     init(host: SidebarView) { self.host = host }
@@ -27,6 +29,15 @@ import QuartzCore
     private var width: CGFloat { max(1, page.frame.width) }
 
     // MARK: Gesture
+
+    /// Pages from the list and the dots: a trackpad 1:1, a mouse wheel by
+    /// one space a notch.
+    func attach(list: SidebarScrollView, dots: ProfileBarView) {
+        list.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        dots.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        list.onWheelPage = { [weak self] step in self?.page(by: step) }
+        dots.onWheelPage = { [weak self] step in self?.page(by: step) }
+    }
 
     /// One horizontal scroll event over the list (`SidebarScrollView`).
     func scroll(_ phase: ProfileSwipeTracker.Phase, deltaX: CGFloat, time: TimeInterval) {
@@ -115,7 +126,7 @@ import QuartzCore
 
     private func place(offset: CGFloat, animated spring: MotionSpring?, completion: (() -> Void)? = nil) {
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } }
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         translate(page, -offset * width, animated: spring)
         if let neighbor, let current = pager?.index ?? profiles.firstIndex(where: { $0 == host.model.activeProfileID }) {
             let side: CGFloat = neighbor.index > current ? 1 : -1
@@ -124,13 +135,99 @@ import QuartzCore
         CATransaction.commit()
     }
 
-    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?) {
+    private static let slideKey = "spacePaging.translation"
+
+    /// Moves a page to `x`, with `spring` from its current on-screen offset
+    /// (or `from`). The spring holds its end value until the page moves
+    /// again or goes away (cx-5k3r, "spaces animation is jank"): AppKit may
+    /// reset a view-backed layer's model transform during a layout pass, so
+    /// a finished slide would otherwise show the page back at 0 for the
+    /// frames before its completion removes it (the old rows drawn over the
+    /// new list). A move without a spring holds its value the same way
+    /// (cx-gq1k): AppKit's geometry pass for a page just inserted at a
+    /// swipe's first event reset its transform, so the next space's rows drew
+    /// at 0 over the live list until the next event. At 0 nothing is held.
+    private func translate(_ view: NSView, _ x: CGFloat, animated spring: MotionSpring?, from: CGFloat? = nil) {
         guard let layer = view.layer else { return }
-        if let spring {
-            Motion.set(layer, "transform.translation.x", to: x, spring: spring)
-        } else {
-            Motion.transaction(nil) { layer.setValue(x, forKeyPath: "transform.translation.x") }
+        let keyPath = "transform.translation.x"
+        let shown = ((layer.presentation() ?? layer).value(forKeyPath: keyPath) as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+        let start = from ?? shown
+        layer.removeAnimation(forKey: Self.slideKey)
+        Motion.transaction(nil) {
+            // A page's layer keeps its shift through AppKit's geometry writes.
+            (layer as? SpacePageLayer)?.shiftX = x
+            layer.setValue(x, forKeyPath: keyPath)
         }
+        guard let spring, Motion.animatesMovement, start != x else {
+            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            return
+        }
+        let parameters = Motion.spring(spring)
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.mass = 1
+        animation.stiffness = parameters.stiffness
+        animation.damping = parameters.damping
+        animation.duration = parameters.settlingTime(within: 0.002)
+        animation.fromValue = start
+        animation.toValue = x
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: Self.slideKey)
+    }
+
+    /// A constant animation that keeps `keyPath` at `value` on screen until
+    /// it is replaced or removed, whatever AppKit writes to the model.
+    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = value
+        animation.toValue = value
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
+    }
+
+    // MARK: Mouse wheel
+
+    /// How far a wheel past the first or last space nudges the list, in pages.
+    static let bumpDistance: CGFloat = 0.06
+
+    /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
+    /// like a switch by dot. Past the first or last space the list nudges
+    /// toward the wheel and eases back, a paged scroll view's edge.
+    func page(by step: Int) {
+        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        if host.model.stepProfile(by: step) { return }
+        bump(step)
+    }
+
+    /// The list moves out toward the wheel and eases back, by layer
+    /// translation only like a swipe; reduced motion shows nothing, and one
+    /// space has no edge to show (no bounce on every notch).
+    private func bump(_ step: Int) {
+        guard snapshot == nil, Motion.animatesMovement, host.model.profiles.count > 1 else { return }
+        page.wantsLayer = true
+        guard let layer = page.layer else { return }
+        host.clipsToBounds = true
+        let keyPath = "transform.translation.x"
+        translate(page, 0, animated: nil)
+        let animation = CAKeyframeAnimation(keyPath: keyPath)
+        animation.values = [0, -CGFloat(step) * Self.bumpDistance * width, 0]
+        animation.keyTimes = [0, 0.35, 1]
+        animation.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        animation.duration = Self.bumpDuration
+        CATransaction.begin()
+        bumpGeneration += 1
+        let generation = bumpGeneration
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.endBump(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        layer.add(animation, forKey: Self.slideKey)
+        CATransaction.commit()
+    }
+
+    private static let bumpDuration: CFTimeInterval = 0.3
+
+    private func endBump(_ generation: Int) {
+        guard generation == bumpGeneration, pager == nil, pendingTarget == nil, snapshot == nil else { return }
+        host.clipsToBounds = false
     }
 
     // MARK: Switch by dot, key or a new space
@@ -147,8 +244,8 @@ import QuartzCore
         let model = SidebarModel(sections: sections)
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
-        model.showCounts = host.model.showCounts
-        model.showWorkspaceDirectory = host.model.showWorkspaceDirectory
+        model.workspaceRow = host.model.workspaceRow
+        (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)
@@ -169,11 +266,11 @@ import QuartzCore
         host.clipsToBounds = true
         page.wantsLayer = true
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } }
-        if Motion.animatesMovement, let layer = snapshot.layer {
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        if Motion.animatesMovement {
             let d = CGFloat(direction) * width
-            Motion.set(layer, "transform.translation.x", to: -d, spring: .screen, from: 0)
-            if let pageLayer = page.layer { Motion.set(pageLayer, "transform.translation.x", to: 0, spring: .screen, from: d) }
+            translate(snapshot, -d, animated: .screen, from: 0)
+            translate(page, 0, animated: .screen, from: d)
         } else if let layer = snapshot.layer {
             Motion.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
         }
@@ -197,4 +294,35 @@ final class SpacePageView: NSView {
     var list: SidebarListView?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func makeBackingLayer() -> CALayer { SpacePageLayer() }
+}
+
+/// A page's backing layer: it moves by `shiftX` only. AppKit writes a view's
+/// geometry to its layer on the first display pass after the view is
+/// inserted, transform included (identity), so a page placed at a swipe's
+/// first event went back to 0 in the layer's value (cx-gq1k; the hold
+/// animation only kept what the render server shows, and a host without a
+/// screen shows nothing). Every transform written here is the page's shift.
+nonisolated final class SpacePageLayer: CALayer {
+    var shiftX: CGFloat = 0 {
+        didSet { super.transform = CATransform3DMakeTranslation(shiftX, 0, 0) }
+    }
+
+    override init() { super.init() }
+
+    override init(layer: Any) {
+        super.init(layer: layer)
+        shiftX = (layer as? SpacePageLayer)?.shiftX ?? 0
+    }
+
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+
+    override var transform: CATransform3D {
+        get { super.transform }
+        set { super.transform = CATransform3DMakeTranslation(shiftX, 0, 0) }
+    }
+
+    override func setAffineTransform(_ transform: CGAffineTransform) {
+        super.transform = CATransform3DMakeTranslation(shiftX, 0, 0)
+    }
 }

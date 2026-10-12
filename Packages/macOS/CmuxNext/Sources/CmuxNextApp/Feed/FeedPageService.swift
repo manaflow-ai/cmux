@@ -35,7 +35,7 @@ final class FeedPageService: InternalPageProvider {
     var icon: IconName? { .inbox }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let feed = services.feed else { return NSView() }
+        let feed = services.feed
         FeedGitHubActions.install(on: feed.model, services: services)
         return FeedHostView(model: feed.model, layoutOverride: .inbox)
     }

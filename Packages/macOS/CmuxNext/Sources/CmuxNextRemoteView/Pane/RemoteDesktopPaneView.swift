@@ -13,6 +13,7 @@ public final class RemoteDesktopPaneView: NSView {
     let toolbar = RemoteHoverToolbar()
     let banner = RemoteLatencyBanner()
     let card = RemoteStateCard()
+    let upstreamIndicator = RemoteUpstreamIndicator()
     private var colors = RemotePaneColors()
     private var state: RemotePaneState?
     private var settings = RemoteDesktopSettings()
@@ -26,7 +27,7 @@ public final class RemoteDesktopPaneView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        for view in [video, capture, toolbar, banner, card] as [NSView] {
+        for view in [video, capture, toolbar, banner, upstreamIndicator, card] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
@@ -34,6 +35,7 @@ public final class RemoteDesktopPaneView: NSView {
         toolbar.isHidden = true
         banner.isHidden = true
         card.isHidden = true
+        upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
         setAccessibilityRole(.group)
     }
@@ -53,6 +55,7 @@ public final class RemoteDesktopPaneView: NSView {
         toolbar.update(state: state, settings: settings, colors: colors)
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
+        upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
         if state.overlay != shownOverlay || state.overlay == nil {
             shownOverlay = state.overlay
             card.isHidden = state.overlay == nil
@@ -137,6 +140,11 @@ public final class RemoteDesktopPaneView: NSView {
         banner.frame = CGRect(
             x: ((bounds.width - bannerWidth) / 2).rounded(), y: toolbar.frame.maxY + inset,
             width: max(bannerWidth, 0), height: bannerSize.height)
+        // The upstream indicator: bottom left, never hover-only.
+        let indicatorWidth = min(upstreamIndicator.fittingWidth, bounds.width - inset * 2)
+        upstreamIndicator.frame = CGRect(
+            x: inset, y: bounds.height - inset - RemoteUpstreamIndicator.height,
+            width: max(indicatorWidth, 0), height: RemoteUpstreamIndicator.height)
         let cardSize = card.fittingContentSize
         let cardWidth = min(max(cardSize.width, 300), bounds.width - inset * 2)
         card.frame = CGRect(

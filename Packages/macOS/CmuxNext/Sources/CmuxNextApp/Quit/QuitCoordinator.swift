@@ -71,7 +71,8 @@ final class QuitCoordinator {
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
-        Task { @MainActor in
+        // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
+        Task { @MainActor [services] in
             // Unsaved documents come first (R96 quit hook). Answering that
             // question is the quit's one dialog: the sessions are not asked
             // about after it (#17501).
@@ -117,7 +118,10 @@ final class QuitCoordinator {
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
-                Task { @MainActor in await self.complete(choice, remember: remember, sender) }
+                Task { @MainActor [services] in
+                    await self.complete(choice, remember: remember, sender)
+                    withExtendedLifetime(services) {} // pins the app's services until the quit ends
+                }
             }
         }
         self.sheet = sheet

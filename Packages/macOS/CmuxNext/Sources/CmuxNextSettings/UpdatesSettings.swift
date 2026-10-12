@@ -31,6 +31,10 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
     public var meteredNetwork: UpdatesMeteredSetting = .deferLowData
     public static let meteredNetworkPath = ["updates", "meteredNetwork"]
+    /// The What's New item at the top of the sidebar after an update
+    /// (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
+    public var showWhatsNew = true
+    public static let showWhatsNewPath = ["updates", "showWhatsNew"]
 
     public init() {}
 
@@ -55,6 +59,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
+        if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }
         diagnostics = reader.diagnostics
         return settings
     }

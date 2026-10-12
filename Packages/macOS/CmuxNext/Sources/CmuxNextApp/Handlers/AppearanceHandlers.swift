@@ -17,6 +17,15 @@ enum AppearanceHandlers {
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
+        // Change Background… (the chat's empty-space menu) opens Settings on the Background row.
+        registry.bind("appearance.changeBackground", run: { invocation in
+            let settings = context.services.settingsWindow
+            do {
+                try settings.show(section: .appearance, setting: "appearance.background", focus: invocation.allowsViewChange)
+            } catch {
+                try settings.show(section: .appearance, focus: invocation.allowsViewChange)
+            }
+        })
         registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
         registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         for speed in MotionSpeed.allCases {

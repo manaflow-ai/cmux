@@ -51,8 +51,15 @@ export interface MarkdownConfig {
   text: string;
   /** The SHA-256 of the file's bytes, hex. */
   hash: string;
+  /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
+  githubRepository?: string;
   /** The page may not save: the file is outside every workspace root (or not writable). */
   readOnly?: boolean;
+  /**
+   * A recovered crash draft of this file (R96), sent once: the page loads it as unsaved edits on
+   * `hash`. Ignored when read only or equal to `text`.
+   */
+  recoveredText?: string;
   /** The terminal appearance, as the diff viewer gets it (code colors and font). */
   appearance?: DiffViewerAppearance;
   /** URL prefix of the file's folder for relative images; without it they do not load. */
@@ -105,6 +112,8 @@ export interface MarkdownFile {
   path: string;
   text: string;
   hash: string;
+  /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
+  githubRepository?: string;
   readOnly?: boolean;
   assetBase?: string;
 }

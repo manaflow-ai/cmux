@@ -14,7 +14,7 @@ struct AppDiscoverView: View {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     chips
-                    ScrollView { LazyVStack(spacing: 2) { rows(showsInstall: false) }.padding(Metrics.space3) }
+                    ScrollView { LazyVStack(spacing: 2) { rows(showsInstall: false) }.padding(Metrics.space3).thinScrollers() }
                 }
                 .frame(width: 320)
                 Rectangle().fill(colors.separator).frame(width: Borders.width(1))
@@ -35,12 +35,17 @@ struct AppDiscoverView: View {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Metrics.space4)], spacing: Metrics.space4) {
                                 ForEach(model.listings) { AppListingCard(model: model, listing: $0) }
                             }
-                            .padding(Metrics.space5)
+                            .appStoreColumn()
+                            .padding(.vertical, Metrics.space4)
+                            .thinScrollers()
                         } else {
-                            LazyVStack(spacing: 2) { rows(showsInstall: true) }.padding(Metrics.space4)
+                            LazyVStack(spacing: 2) { rows(showsInstall: true) }
+                                .appStoreColumn()
+                                .padding(.vertical, Metrics.space4)
+                                .thinScrollers()
                         }
                     }
-                    .overlay { if model.listings.isEmpty { empty(model.loadError.map { _ in AppsStrings.loadFailed } ?? AppsStrings.noMatches) } }
+                    .overlay { if model.listings.isEmpty { empty(model.client.unavailableReason.map(AppsStrings.unavailable) ?? AppsStrings.noMatches) } }
                 }
             }
         }
@@ -61,9 +66,11 @@ struct AppDiscoverView: View {
                     chip(AppsStrings.category(id), selected: model.category == id) { model.category = model.category == id ? nil : id }
                 }
             }
-            .padding(.horizontal, Metrics.space5)
             .padding(.vertical, Metrics.space3)
+            .thinScrollers()
         }
+        // On the scroll view: inside it the column gets an unbounded width and stays at the edge.
+        .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5))
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -73,7 +80,7 @@ struct AppDiscoverView: View {
                 .foregroundStyle(selected ? colors.primary : colors.secondary)
                 .padding(.horizontal, Metrics.space3)
                 .padding(.vertical, Metrics.space1)
-                .background(Capsule().fill(selected ? colors.selection : colors.hover))
+                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(selected ? colors.selection : colors.hover))
         }
         .buttonStyle(.plain)
     }

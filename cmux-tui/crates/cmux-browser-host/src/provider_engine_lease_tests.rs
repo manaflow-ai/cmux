@@ -145,3 +145,41 @@ fn a_failed_observe_is_not_the_fresh_read() {
     first.call("tab.info", &json!({"targetId": "W"})).unwrap();
     first.call("input.key", &json!({"targetId": "W"})).unwrap();
 }
+
+/// A session's lease names the terminal its client sent (`browser.repl.open
+/// {terminal}`), so the app draws the lease in that agent's presence colour
+/// (cx-gg84); a session without one sends no `terminal` field at all.
+#[test]
+fn a_sessions_lease_terminal_is_the_callers() {
+    use crate::host::Engines as _;
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("X", "webkit")]);
+    let engines = crate::engines::HostEngines::new(crate::host::agent_bundle());
+    *engines.provider_slot().lock().unwrap() = Some(provider);
+    let open = |name: &str, terminal: Option<&str>| {
+        let context = crate::host::SessionContext {
+            name: name.into(),
+            caller: crate::host::Caller {
+                actor: "uid:501".into(),
+                on_behalf_of: None,
+                origin: "mcp".into(),
+                locality: Default::default(),
+            },
+            label: "task".into(),
+            profile: crate::host::AGENT_PROFILE.into(),
+            terminal: terminal.map(str::to_owned),
+        };
+        engines.driver("webkit", crate::driver::discard_events(), &context).unwrap()
+    };
+    let named = open("s1", Some("term_7"));
+    named.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    wait_for_lease(&app, "W", "with the terminal", |lease| {
+        lease.as_ref().is_some_and(|lease| lease.terminal.as_deref() == Some("term_7"))
+    });
+    let unnamed = open("s2", None);
+    unnamed.call("tab.navigate", &json!({"targetId": "X", "url": "https://b.test/"})).unwrap();
+    wait_for_lease(&app, "X", "without a terminal", |lease| {
+        lease.as_ref().is_some_and(|lease| lease.terminal.is_none())
+    });
+    let wire = serde_json::to_value(leases(&app, "X").last().cloned().flatten().unwrap()).unwrap();
+    assert!(wire.get("terminal").is_none(), "{wire}");
+}

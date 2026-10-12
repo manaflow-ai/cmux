@@ -92,7 +92,7 @@ impl Surface {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) mod test_fixture {
     use std::os::unix::net::UnixStream;
     use std::sync::Arc;
@@ -120,6 +120,7 @@ pub(crate) mod test_fixture {
             SurfaceOptions::default(),
             Arc::downgrade(mux),
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation: None,
                 terminate_on_error: false,
@@ -130,8 +131,10 @@ pub(crate) mod test_fixture {
             },
         )
         .unwrap();
-        host.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-        host.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+        // A safety bound for a late thread under full-suite load, not a
+        // timing assertion.
+        host.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(30))).unwrap();
         (surface, host)
     }
 }

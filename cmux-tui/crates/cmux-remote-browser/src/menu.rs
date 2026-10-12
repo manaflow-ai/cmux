@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::proto::{MenuChoice, MenuKind};
+use crate::proto::{Menu, MenuChoice, MenuItem, MenuKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenMenu {
@@ -19,6 +19,39 @@ pub struct OpenMenu {
     /// `<select>`: the number of options.
     pub item_count: u32,
     pub multiple: bool,
+}
+
+impl OpenMenu {
+    /// The menu `menu` shown under `token`: the command ids of a context
+    /// menu (separators and submenu headers are not choices; nested
+    /// commands are) or the option count of a `<select>`.
+    pub fn for_menu(token: u64, menu: &Menu) -> Self {
+        let mut item_ids = Vec::new();
+        command_ids(&menu.items, &mut item_ids);
+        Self {
+            token,
+            kind: menu.kind,
+            item_ids,
+            item_count: u32::try_from(menu.items.len()).unwrap_or(u32::MAX),
+            multiple: menu.multiple,
+        }
+    }
+
+    /// Whether `choice` is an answer this menu offered.
+    pub fn accepts(&self, choice: &MenuChoice) -> bool {
+        choice_is_valid(self, choice)
+    }
+}
+
+/// The ids a context menu answer may name: every item that is not a
+/// separator or a submenu header, nested items included.
+pub fn command_ids(items: &[MenuItem], out: &mut Vec<i64>) {
+    for item in items {
+        if item.item_type != "separator" && item.item_type != "submenu" {
+            out.push(item.id);
+        }
+        command_ids(&item.items, out);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

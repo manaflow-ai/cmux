@@ -62,6 +62,18 @@ pub use cmux_chief::policy::harness::TEAM_SUBROUTER_URLS;
 /// The profile `requested` runs on, from an `_acpmux/harnesses` answer, or
 /// why the Chief refuses it.
 pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
+    // A profile asked for by name (a configured `claude-cr`, say) whose
+    // launcher acpmux marked unavailable is refused here, as a route is,
+    // instead of failing at the first turn.
+    if !cmux_chief::policy::harness::is_route(requested)
+        && let Some(why) = answer
+            .get("harnesses")
+            .and_then(|h| h.get(requested))
+            .and_then(|p| p.get("unavailable"))
+            .and_then(Value::as_str)
+    {
+        return Err(format!("acpmux's {requested} is unavailable: {why}"));
+    }
     cmux_chief::policy::harness::admit(answer, requested).map(|a| admitted(requested, a))
 }
 
@@ -86,7 +98,7 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
 /// The text the Chief posts for a refused turn.
 pub fn refusal(reason: &str) -> String {
     format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; `sr claude proxy --version` must succeed for claude-sr) and send the message again."
+        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; the CodeRouter CLI must have the configured route for claude-cr, `sr claude proxy --version` must succeed for claude-sr) and send the message again."
     )
 }
 

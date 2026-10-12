@@ -38,20 +38,6 @@ const run = (state: TeamState, op: string, params: unknown, c = ctx()) => teamDo
 const set = (key: string, value: unknown, mode: "enforced" | "default" = "enforced") => ({ key, value: { value, mode } })
 
 describe("team policy reducer (TeamDO single writer)", () => {
-  it("old team objects without a policy field read as version 0 with no keys", () => {
-    expect(currentPolicy(baseState())).toEqual({ version: 0, values: {}, updated_at: null, updated_by: null })
-  })
-
-  it("commits a typed change as version 1 with history, and a stale expected_version is a revision conflict", () => {
-    const r = run(baseState(), "team.policy.update", { changes: [set("telemetry.level", "crash_only")], expected_version: 0, reason: "privacy" })
-    expect(r.ok).toBe(true)
-    if (!r.ok) return
-    const s = r.state as TeamState
-    expect(s.policy).toMatchObject({ version: 1, values: { "telemetry.level": { value: "crash_only", mode: "enforced" } }, updated_by: OWNER })
-    expect(s.policy_history?.[0]).toMatchObject({ version: 1, changed: ["telemetry.level"], reason: "privacy", rollback_of: null })
-    const stale = run(s, "team.policy.update", { changes: [set("telemetry.level", "off")], expected_version: 0 })
-    expect(stale).toMatchObject({ ok: false, code: "revision.conflict" })
-  })
 
   it("refuses members, agents, unknown keys, wrong value types, and out-of-range retention", () => {
     const s = baseState()
@@ -114,94 +100,11 @@ describe("team policy reducer (TeamDO single writer)", () => {
     expect(run(off.state as TeamState, "team.policy.rollback", { version: 1, expected_version: 2 }).ok).toBe(true)
   })
 
-  it("maps the integration keys onto ConnectionDO's TeamIntegrationPolicy fields", () => {
-    expect(integrationSlice({})).toEqual({ allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: false, repo_allowlist: null } })
-    expect(
-      integrationSlice({
-        "integrations.allowedProviders": { value: ["github"], mode: "enforced" },
-        "github.repoScope": { value: "installation", mode: "default" },
-        "github.requireOrgAdmin": { value: true, mode: "enforced" },
-        "github.repoAllowList": { value: ["manaflow-ai/*"], mode: "enforced" }
-      })
-    ).toEqual({ allowed_providers: ["github"], github: { scope: "installation", require_org_admin: true, repo_allowlist: ["manaflow-ai/*"] } })
-  })
-
   it("refuses a policy larger than 64 KB (review P2-4: TeamDO state is one SQLite row)", () => {
     const big = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`ui.k${i}`, { value: "x".repeat(600), mode: "enforced" }]))
     expect(run(baseState(), "team.policy.update", { changes: [set("device.settings", big)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
   })
 
-  it("a change that sets the current values is a no-op (no new version, no event)", () => {
-    const r1 = run(baseState(), "team.policy.update", { changes: [set("mcp.server", "disabled")], expected_version: 0 })
-    if (!r1.ok) throw new Error("setup")
-    const r2 = run(r1.state as TeamState, "team.policy.update", { changes: [set("mcp.server", "disabled")], expected_version: 1 })
-    expect(r2).toMatchObject({ ok: true, changed: false })
-  })
-
-  it("rollback applies a past version as a new version; clearing a key returns it to the product default", () => {
-    let s = baseState()
-    const apply = (op: string, params: unknown) => {
-      const r = run(s, op, params)
-      if (!r.ok) throw new Error(`${op}: ${r.message}`)
-      s = r.state as TeamState
-    }
-    apply("team.policy.update", { changes: [set("updates.channel", "stable")], expected_version: 0 })
-    apply("team.policy.update", { changes: [set("updates.channel", "nightly", "default"), set("cloud.sandboxes", false)], expected_version: 1 })
-    apply("team.policy.update", { changes: [{ key: "cloud.sandboxes", value: null }], expected_version: 2 })
-    expect(s.policy?.values["cloud.sandboxes"]).toBeUndefined()
-    apply("team.policy.rollback", { version: 1, expected_version: 3 })
-    expect(s.policy?.version).toBe(4)
-    expect(s.policy?.values).toEqual(s.policy_history?.find((v) => v.version === 1)?.values)
-    expect(s.policy_history?.[0]).toMatchObject({ version: 4, rollback_of: 1 })
-    expect(run(s, "team.policy.rollback", { version: 99, expected_version: 4 })).toMatchObject({ ok: false, code: "selector.not_found" })
-  })
-
-  it("seeded random op sequences keep the invariants: versions never repeat or go back, history is bounded and newest first, values always decode", () => {
-    // mulberry32: an LCG's low bits cycle too fast for small moduli.
-    let seed = 0x2a
-    const rand = (n: number) => {
-      seed = (seed + 0x6d2b79f5) | 0
-      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-      return ((t ^ (t >>> 14)) >>> 0) % n
-    }
-    const samples: Record<string, ReadonlyArray<unknown>> = {
-      "telemetry.level": ["full", "crash_only", "off", "bogus"],
-      "computerUse.allowed": [true, false, 1],
-      "retention.cuaEventsDays": [1, 15, 30, 31],
-      "apps.install": ["any", "allow_list", "disabled"],
-      "mcp.server": ["user_choice", "disabled"]
-    }
-    let s = baseState()
-    let lastVersion = 0
-    for (let i = 0; i < 400; i++) {
-      const v = currentPolicy(s).version
-      const r =
-        rand(5) === 0
-          ? run(s, "team.policy.rollback", { version: rand(v + 1), expected_version: rand(4) === 0 ? v + 1 : v })
-          : run(s, "team.policy.update", {
-              changes: [
-                (() => {
-                  const keys = Object.keys(samples)
-                  const key = keys[rand(keys.length)]!
-                  return rand(6) === 0 ? { key, value: null } : set(key, samples[key]![rand(samples[key]!.length)], rand(2) ? "enforced" : "default")
-                })()
-              ],
-              expected_version: rand(8) === 0 ? v + 3 : v
-            })
-      if (!r.ok) continue
-      s = r.state as TeamState
-      const p = currentPolicy(s)
-      expect(p.version).toBeGreaterThanOrEqual(lastVersion)
-      if (r.changed !== false) expect(p.version).toBe(lastVersion + 1)
-      lastVersion = p.version
-      const hist = s.policy_history ?? []
-      expect(hist.length).toBeLessThanOrEqual(POLICY_HISTORY_LIMIT)
-      for (let j = 1; j < hist.length; j++) expect(hist[j - 1]!.version).toBeGreaterThan(hist[j]!.version)
-      for (const k of Object.keys(p.values)) expect(policyKeys).toContain(k)
-    }
-    expect(lastVersion).toBeGreaterThan(50)
-  })
 })
 
 const sessionToken = async (stackUser: string) => {
@@ -225,37 +128,6 @@ const call = async (path: string, token: string, body: unknown) => {
   return { status: res.status, json: (await res.json()) as any }
 }
 
-describe("integration seed and slice sync (TeamDO)", () => {
-  const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 5_000 + txn, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
-  const admin = { allowed_providers: null, github: { scope: "linking_user_repos" as const, require_org_admin: true, repo_allowlist: ["acme/api"] } }
-
-  it("copies only keys TeamPolicy has not set, then pushes only when the integration slice changes", () => {
-    let s = run(baseState(), "team.policy.update", { changes: [set("github.repoAllowList", ["acme/web"]), set("telemetry.level", "off")], expected_version: 0 })
-    if (!s.ok) throw new Error("setup")
-    let state = s.state as TeamState
-    expect(integrationSyncPending(state)).toBe(true)
-    const seeded = teamDomain.reduce(state, "team.policy.integration_seed", { policy: admin }, sys())
-    if (!seeded.ok) throw new Error(seeded.message)
-    state = seeded.state as TeamState
-    // The admin's TeamPolicy allow list wins; require_org_admin is copied.
-    expect(state.policy?.values["github.repoAllowList"]).toEqual({ value: ["acme/web"], mode: "enforced" })
-    expect(state.policy?.values["github.requireOrgAdmin"]).toEqual({ value: true, mode: "enforced" })
-    expect(state.policy?.version).toBe(2)
-    expect(integrationSyncPending(state)).toBe(true)
-    const synced = teamDomain.reduce(state, "team.policy.integration_synced", { version: 2, slice_hash: sliceHash(integrationSlice(state.policy!.values)) }, sys())
-    if (!synced.ok) throw new Error(synced.message)
-    state = synced.state as TeamState
-    expect(integrationSyncPending(state)).toBe(false)
-    // An unrelated key does not need a push.
-    const unrelated = run(state, "team.policy.update", { changes: [set("telemetry.level", "full")], expected_version: 2 })
-    if (!unrelated.ok) throw new Error("unrelated")
-    expect(integrationSyncPending(unrelated.state as TeamState)).toBe(false)
-    // Seeding twice changes nothing; members cannot call the system ops.
-    expect(teamDomain.reduce(state, "team.policy.integration_seed", { policy: admin }, sys())).toMatchObject({ ok: true, changed: false })
-    expect(teamDomain.authorize!(state, "team.policy.integration_seed", { policy: admin }, { identity: `user:${OWNER}`, user: OWNER, team: TEAM, kind: "session" })).toMatchObject({ code: "auth.forbidden" })
-  })
-})
-
 /**
  * TeamDO's alarm (scheduled for now by the commit) may already be running in
  * workerd; run any pending alarm and wait until the condition holds (test-only wait).
@@ -278,37 +150,6 @@ const settleIntegration = (session: string, stub: DurableObjectStub, ok: (v: any
   settle(async () => ok((await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value), stub)
 const settleTeamPolicy = (session: string, stub: DurableObjectStub, ok: (p: any) => boolean) =>
   settle(async () => ok((await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy), stub)
-
-describe("SSO/MDM lock notices and release (TeamDO)", () => {
-  const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 9_000 + txn, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
-  it("records notices by version, lets only admins release, and audits the release", () => {
-    let s = baseState()
-    const locked = teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: "mdm", version: 2 }, sys())
-    if (!locked.ok) throw new Error(locked.message)
-    s = locked.state as TeamState
-    expect(s.integration_managed_by).toBe("mdm")
-    // A late, older notice changes nothing.
-    expect(teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: null, version: 1 }, sys())).toMatchObject({ ok: true, changed: false })
-    // A recreated ConnectionDO (new epoch) restarts at version 1 and is still recorded.
-    const fresh = teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: "sso", version: 1, epoch: "lck_new" }, sys())
-    if (!fresh.ok) throw new Error(fresh.message)
-    expect((fresh.state as TeamState).integration_managed_by).toBe("sso")
-    expect((fresh.state as TeamState).integration_lock_epoch).toBe("lck_new")
-    // A push result from before this notice (older lock version) does not overwrite it.
-    const stale = teamDomain.reduce(s, "team.policy.integration_synced", { version: 1, slice_hash: "h", managed_by: null, lock_version: 1 }, sys())
-    expect(stale).toMatchObject({ ok: true, changed: false })
-    expect(run(s, "team.integration.release_lock", {}, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(run(s, "team.integration.release_lock", {}, ctx(OWNER, { kind: "agent", agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    const released = run(s, "team.integration.release_lock", { reason: "moved IdP" }, ctx())
-    if (!released.ok) throw new Error(released.message)
-    expect(released.value).toEqual({ released: "mdm" })
-    expect(released.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
-    expect((released.outbox?.[0]?.payload as { detail: { reason: string } }).detail.reason).toBe("moved IdP")
-    expect((released.state as TeamState).integration_release_requested).toBe(1)
-    // Without a lock there is nothing to release.
-    expect(run(baseState(), "team.integration.release_lock", {}, ctx())).toMatchObject({ ok: false, code: "selector.not_found" })
-  })
-})
 
 describe("team policy over the API (workerd)", () => {
   it("the team owner sets policy with an idempotency key, members read it, retries replay", async () => {

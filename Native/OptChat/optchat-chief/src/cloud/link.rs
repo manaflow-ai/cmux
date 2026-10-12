@@ -1,9 +1,10 @@
 //! The cloud link: the brain's connection to a cmux-tui daemon that proxies
 //! cloud conversations (`cloud-conversations-v1`). It leases a chief token
 //! to the daemon (`cloud-session-set`), subscribes to the chief's main
-//! conversation, hands the brain a port, turns cloud events into the same
-//! `DaemonEvent`s the local owner produces, renews the lease before it
-//! expires or when the daemon asks, and reconnects after any loss.
+//! conversation and to its wake queue (`cloud-mux-subscribe`, G9), hands the
+//! brain a port, turns cloud events into the same `DaemonEvent`s the local
+//! owner produces (and wakes into `DaemonEvent::MuxWake`), renews the lease
+//! before it expires or when the daemon asks, and reconnects after any loss.
 //!
 //! The lease is daemon-wide: every unbound local client of that daemon acts
 //! as the chief. So the brain gets a daemon of its own (DESIGN section 3).
@@ -94,6 +95,26 @@ fn set_lease(control: &mut LineClient, lease: &Lease) -> Result<(), Ended> {
         .map_err(retry)
 }
 
+/// G9: subscribes the chief's wake queue on the current lease (the daemon
+/// takes the chief from the lease's token; the request names none). Called
+/// on every connect and after every new lease. A refusal (a person's lease:
+/// `mux_needs_chief`) is logged, not retried: the main conversation runs.
+fn subscribe_queue(control: &mut LineClient, log: &Log) -> Result<(), Ended> {
+    match control.call("cloud-mux-subscribe", json!({})) {
+        Ok(_) => {
+            log("cloud wake queue subscribed");
+            Ok(())
+        }
+        Err(OpError::Rejected(why)) => {
+            log(&format!(
+                "the daemon refused the chief's wake queue ({why}); only the main conversation is answered"
+            ));
+            Ok(())
+        }
+        Err(e) => Err(retry(e)),
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -150,6 +171,7 @@ fn session(
         config.conversation,
         state.get("state").and_then(Value::as_str).unwrap_or("?")
     ));
+    subscribe_queue(&mut control, log)?;
     let mut port = CloudPort::new(connect(Duration::from_secs(60))?, config.chief.clone());
     let (summary, _) = match port.snapshot(&config.conversation, 1) {
         Ok(found) => found,
@@ -178,6 +200,12 @@ fn session(
                         break "the daemon refused the renewed lease".to_owned();
                     }
                     lease = next;
+                    // The queue is subscribed again on every new lease.
+                    if let Err(Ended::Retry(why) | Ended::Fatal(why)) =
+                        subscribe_queue(&mut control, log)
+                    {
+                        break why;
+                    }
                 }
                 // Keep the old lease; the daemon asks again when it expires.
                 Err(e) => log(&format!("renewing the chief token: {e}")),
@@ -224,10 +252,17 @@ fn session(
                             break "the daemon refused the renewed lease".to_owned();
                         }
                         lease = next;
+                        // The queue is subscribed again on every new lease.
+                        if let Err(Ended::Retry(why) | Ended::Fatal(why)) =
+                            subscribe_queue(&mut control, log)
+                        {
+                            break why;
+                        }
                     }
                     Err(e) => break format!("minting a chief token: {e}"),
                 }
             }
+            Some(CloudSignal::MuxWakes(wakes)) => sink(DaemonEvent::MuxWake(wakes)),
             None => {}
         }
     };

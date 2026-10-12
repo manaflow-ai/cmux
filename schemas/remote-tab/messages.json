@@ -45,6 +45,7 @@
     {"t": "rb.menu.cancel", "token": 2},
     {"t": "rb.dialog.show", "token": 4, "dialog": {"kind": "prompt", "origin": "https://example.com", "message": "Name?", "default_text": "Ada", "is_reload": false}},
     {"t": "rb.dialog.result", "token": 4, "accept": true, "text": "Grace"},
+    {"t": "rb.dialog.cancel", "token": 4},
     {"t": "rb.file_chooser.show", "token": 5, "mode": "open_multiple", "accept": ["image/png", ".pdf"], "default_name": null},
     {"t": "rb.file_chooser.result", "token": 5, "files": [{"upload": 1, "name": "a.png", "size": 2048, "mime": "image/png"}]},
     {"t": "rb.file_chooser.result", "token": 6, "files": null},

@@ -51,14 +51,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nextSidebarTab",
                 title: String(localized: "action.nextSidebarTab", defaultValue: "Next Sidebar Item", bundle: .module),
-                keywords: ["switch", "workspace", "sidebar", "item", "section"], defaultShortcut: Shortcut("]", modifiers: [.control, .command]),
+                keywords: ["switch", "workspace", "sidebar", "item", "section", "next", "tab"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
                 category: .workspace, symbol: "chevron.down.square", surfaces: [.palette, .keyboard, .menu],
                 targets: [.workspace], cliName: "workspace next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSidebarTab",
                 title: String(localized: "action.prevSidebarTab", defaultValue: "Previous Sidebar Item", bundle: .module),
-                keywords: ["switch", "workspace", "sidebar", "item", "section"], defaultShortcut: Shortcut("[", modifiers: [.control, .command]),
+                keywords: ["switch", "workspace", "sidebar", "item", "section", "previous", "tab"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
                 category: .workspace, symbol: "chevron.up.square", surfaces: [.palette, .keyboard, .menu],
                 targets: [.workspace], cliName: "workspace previous", mainMenu: .file
             ),
@@ -245,12 +245,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 cliName: "workspace set-color"
             ),
             ActionDescriptor(
-                id: "palette.workspaceCustomColor",
-                title: String(localized: "action.palette.workspaceCustomColor", defaultValue: "Custom Workspace Color…", bundle: .module),
-                keywords: ["color", "tint"], category: .workspace, symbol: "eyedropper",
-                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace custom-color"
-            ),
-            ActionDescriptor(
                 id: "palette.resetWorkspaceColor",
                 title: String(localized: "action.palette.resetWorkspaceColor", defaultValue: "Reset Workspace Color", bundle: .module),
                 keywords: ["color", "tint"], category: .workspace, symbol: "paintbrush",
@@ -313,7 +307,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.rename",
                 title: String(localized: "action.workspaceGroup.rename", defaultValue: "Rename Group…", bundle: .module),
-                keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.contextMenu],
+                keywords: ["group", "title"], category: .workspace, symbol: "pencil.line", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.workspaceGroup], cliName: "workspace-group rename"
             ),
             ActionDescriptor(
@@ -344,12 +338,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.ungroup",
                 title: String(localized: "action.workspaceGroup.ungroup", defaultValue: "Ungroup Workspaces", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "rectangle.stack.badge.minus",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group ungroup"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group ungroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.delete",
                 title: String(localized: "action.workspaceGroup.delete", defaultValue: "Delete Group", bundle: .module),
-                keywords: ["group", "remove"], category: .workspace, symbol: "trash", surfaces: [.contextMenu],
+                keywords: ["group", "remove"], category: .workspace, symbol: "trash", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup], cliName: "workspace-group delete",
                 destructive: true
             ),
@@ -393,6 +387,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ]
+        ] + classicImportActions()
     }
 }

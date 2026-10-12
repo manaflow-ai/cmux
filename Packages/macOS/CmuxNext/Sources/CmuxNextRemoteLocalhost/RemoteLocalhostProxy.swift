@@ -1,7 +1,7 @@
 import Foundation
 import CmuxNextWakeups
 import Network
-import Synchronization
+import CmuxNextCompat
 import os
 
 /// The in-process HTTP proxy that remote-localhost browser stores use

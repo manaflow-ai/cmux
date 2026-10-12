@@ -44,11 +44,30 @@ final class LayoutViewContext {
     var overlayNeedsSync: () -> Void = {}
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
+    /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
+    /// hover there (the window is not key). Cheap: read on every frame that
+    /// moves the layout, with no event at hand, because the layout can move
+    /// under a still pointer.
+    var hoverPointer: @MainActor (NSWindow) -> NSPoint? = { _ in nil }
+    /// Whether the window is on top under the pointer (no other window or
+    /// panel covers that point, except pass-through panels). A window server
+    /// round trip: asked only when a handle is under the pointer.
+    var hoverReachesWindow: @MainActor (NSWindow) -> Bool = { _ in false }
+    /// Windows above this one that pass divider hover through: the app's
+    /// click-catching panels over page windows (`DividerMouseCatchers`).
+    var hoverPassThroughWindows: () -> Set<Int> = { [] }
 
     init(model: LayoutModel, provider: any LayoutPaneContentProvider, scrollbarClock: any Clock<Duration> = ContinuousClock()) {
         self.model = model
         self.provider = provider
         self.scrollbarClock = scrollbarClock
+        // The shared pointer source (`PointerHover`, CmuxNextDesign): the
+        // real pointer while the window is key and visible, `debug.mouse`'s
+        // synthesized pointer in DEBUG builds (it also passes the topmost check).
+        hoverPointer = { window in PointerHover.pointer(in: window, requireKey: true) }
+        hoverReachesWindow = { [weak self] window in
+            PointerHover.isTopmost(window, passThrough: self?.hoverPassThroughWindows() ?? [])
+        }
     }
 
     var style: LayoutStyle { model.style }

@@ -8,13 +8,13 @@ public extension PageDescriptor {
     /// ``AgentPaneModel`` (`cmux.agent.action.run`), so it lists no shared native op.
     /// It opens no connection of its own (the host's native transport, AgentPaneTransport, carries
     /// acpmux; the Debug dev loop loads a Vite page in the legacy host, which sends no header), shows
-    /// loopback previews in frames, and runs only its own script files, no inline script. The page's
+    /// loopback previews and render cards (AgentPaneRenderFrame) in frames, and runs only its own script files, no inline script. The page's
     /// meta CSP says the same (build-agent-pane-web.sh; AgentPageCSPAlignmentTests); the host runs the
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern.
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
-                     frame: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      inlineScript: false))
 }
 
@@ -27,13 +27,13 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate",
-            "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
-            "newTab.remember", "shortcut.edit", "action.run", "file.open", "browser.open",
-            "project.list", "project.browse", "workspace.chooseFolder", "onboarding.importAndSync", "app.action",
-            "quick.dismiss", "quick.openInWindow", "pane.action", "pane.tabState",
-            "shell.run", "shell.read", "shell.stop",
-            "git.diff", "git.status", "file.search", "git.checkpoint.diff",
+            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation",
+            "pane.edit", "tab.open", "tab.typeAhead", "tab.jump", "tab.setDefaultKind",
+            "newTab.remember", "newTab.setTemplate", "newTab.inputReady", "newTab.touched", "newTab.context", "shortcut.edit", "action.run", "file.open", "browser.open",
+            "project.list", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "app.action", "chats.open", "chats.openInTerminal", "chats.page",
+            "quick.dismiss", "quick.openInWindow", "quick.startInBackground", "quick.setOnTop", "quick.setCollapsed", "quick.floatingState", "quick.context", "pane.action", "pane.tabState", "chat.archive", "chat.markUnread", "chat.sideChat", "chat.unsentDraft", "chat.scrollAnchor", "chat.scrollAnchor.get",
+            "shell.run", "shell.read", "shell.stop", "harness.health",
+            "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
         ].map { ($0, $0) })
@@ -70,6 +70,8 @@ public final class AgentPageProvider: PageProvider {
     /// The current state a new subscriber gets first (theme, shortcuts, preview, customization),
     /// as the old host pushed it again on every handshake.
     public var replay: (@MainActor () -> [AgentPageEvent])?
+    /// Runs a composer menu edit (`pane.edit`) in the page view; ``AgentPanePageHost`` sets it.
+    public var onEdit: (@MainActor (AgentPaneEditCommand) -> Void)?
 
     public init(prepare: @escaping Prepare) {
         self.prepare = prepare
@@ -99,6 +101,8 @@ public final class AgentPageProvider: PageProvider {
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let method = AgentPageOps.method(for: op) else { throw PageError.unknownOp(op) }
+        if method == "pane.edit" { return try edit(params, op: op, context: context) }
+        if method.hasPrefix("chat.scrollAnchor") { return try Self.scrollAnchor(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

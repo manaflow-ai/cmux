@@ -28,11 +28,15 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// The other participants in display order.
     public var people: [HomeSidebarPerson]
 
+    /// Unread messages, or the user's Mark as Unread (then the count is at least one).
     public var unread: Bool
     public var unreadCount: Int
     public var mentions: Int
     public var isPinned: Bool
     public var isChief: Bool
+    /// A Chief's own avatar (`HomeSidebarModel.init`'s `chiefAvatar`); nil
+    /// draws the participant's initials.
+    public var chiefAvatar: HomeChiefAvatar?
     /// What VoiceOver reads.
     public var accessibilityLabel: String
 }
@@ -46,8 +50,10 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
 
+    /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
-                now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
+                unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil, now: Date = Date(),
+                calendar: Calendar = .current, locale: Locale = .current) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let shown = needle.isEmpty ? rows : rows.filter { $0.matches(needle, me: me) }
         let order = Dictionary(pins.pinned.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
@@ -58,7 +64,10 @@ public struct HomeSidebarModel: Hashable, Sendable {
             a.timestamp != b.timestamp ? a.timestamp > b.timestamp : a.id.rawValue < b.id.rawValue
         }
         let item = { (row: InboxRow, pinned: Bool) in
-            HomeSidebarItem(row: row, pinned: pinned, me: me, now: now, calendar: calendar, locale: locale)
+            var item = HomeSidebarItem(row: row, pinned: pinned, markedUnread: unreadMarks.contains(row.id), me: me, now: now,
+                                       calendar: calendar, locale: locale)
+            if item.isChief { item.chiefAvatar = chiefAvatar }
+            return item
         }
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
         self.rows = (needle.isEmpty ? rest : pinnedRows + rest).map { item($0, pins.isPinned($0)) }
@@ -70,25 +79,27 @@ public struct HomeSidebarModel: Hashable, Sendable {
 }
 
 extension HomeSidebarItem {
-    init(row: InboxRow, pinned: Bool, me: ParticipantID?, now: Date, calendar: Calendar, locale: Locale) {
+    init(row: InboxRow, pinned: Bool, markedUnread: Bool = false, me: ParticipantID?, now: Date, calendar: Calendar,
+         locale: Locale) {
         let others = row.summary.participants.filter { $0.id != me }
         let preview = row.homePreview(me: me)
         let time = row.timestamp.homeListTime(now: now, calendar: calendar, locale: locale)
         let title = row.title.isEmpty ? HomeConversationStrings.untitled : row.title
+        let unread = max(row.unread, markedUnread ? 1 : 0)
         self.init(
             id: row.id, title: title,
             avatars: others.prefix(row.kind == .group ? 3 : 1).map { HomeAvatar(initials: $0.initials, seed: $0.id.rawValue) },
             isGroup: row.kind == .group, badge: row.kind == .group ? others.first?.initials : nil,
             preview: preview.text, isReply: preview.isReply, time: time, lastAt: row.timestamp,
-            people: others.map { HomeSidebarPerson(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) }, unread: row.unread > 0, unreadCount: row.unread,
-            mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief,
-            accessibilityLabel: Self.accessibility(title: title, row: row, preview: preview.text, time: time))
+            people: others.map { HomeSidebarPerson(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) }, unread: unread > 0, unreadCount: unread,
+            mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief, chiefAvatar: nil,
+            accessibilityLabel: Self.accessibility(title: title, row: row, unread: unread, preview: preview.text, time: time))
     }
 
     /// The title, unread and mention state, the time, then the preview.
-    static func accessibility(title: String, row: InboxRow, preview: String, time: String) -> String {
+    static func accessibility(title: String, row: InboxRow, unread: Int, preview: String, time: String) -> String {
         var parts = [title]
-        if row.unread > 0 { parts.append(HomeConversationStrings.unread(row.unread)) }
+        if unread > 0 { parts.append(HomeConversationStrings.unread(unread)) }
         if row.mentions > 0 { parts.append(HomeConversationStrings.mentioned) }
         if !time.isEmpty { parts.append(time) }
         if !preview.isEmpty { parts.append(preview) }

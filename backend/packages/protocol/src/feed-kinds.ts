@@ -107,7 +107,13 @@ export const feedKinds: Readonly<Record<string, KindDef>> = {
       decision: Schema.Literals(["allow", "deny"]),
       scope: Schema.optionalKey(ApproveScope),
       reason: Schema.optionalKey(Text(2000)),
-      updated_input: Schema.optionalKey(Schema.Unknown)
+      updated_input: Schema.optionalKey(Schema.Unknown),
+      /**
+       * A device proof for the poster to check (cx-aocz): the answering install, the signing time
+       * (unix ms) and its presence-key signature. Stored as given; the owner never verifies it
+       * (the Mac that posted the item does) and never logs `sig`.
+       */
+      proof: Schema.optionalKey(Schema.Struct({ install: NonEmpty(128), ts: Int(0, 9_007_199_254_740_991), sig: NonEmpty(512) }))
     }),
     priority: "high",
     needsMac: false,
@@ -184,6 +190,7 @@ export const feedKinds: Readonly<Record<string, KindDef>> = {
 export const CUSTOM_KIND = /^x-[a-z0-9][a-z0-9-]{0,39}\.[a-z0-9][a-z0-9-]{0,39}$/
 export const MAX_PROMPT_JSON = 16 * 1024
 export const MAX_ANSWER_JSON = 8 * 1024
+const PROOF_FIELDS: ReadonlySet<string> = new Set(["install", "ts", "sig"])
 
 const decode = (schema: Schema.Top, value: unknown): { ok: true; value: unknown } | { ok: false; message: string } => {
   const exit = Schema.decodeUnknownExit(schema as Schema.Codec<unknown, unknown>)(value)
@@ -213,6 +220,12 @@ export const checkAnswer = (kind: string, prompt: unknown, answerSchema: unknown
   if (CUSTOM_KIND.test(kind)) return checkSubsetValue(answerSchema, answer)
   const def = feedKinds[kind]
   if (!def) return fail(`unknown kind ${kind}`)
+  // The answer is stored as sent, so a proof carries exactly its three fields (decode would drop
+  // an extra one such as `verified`, which then would be stored next to them).
+  const proof = kind === "approve" ? (answer as { proof?: unknown } | null)?.proof : undefined
+  if (proof !== undefined && (typeof proof !== "object" || proof === null || Object.keys(proof).some((k) => !PROOF_FIELDS.has(k)))) {
+    return fail("invalid answer for approve: proof takes only install, ts and sig")
+  }
   const a = decode(def.answer, answer)
   if (!a.ok) return fail(`invalid answer for ${kind}: ${a.message}`)
   const p = decode(def.prompt, prompt ?? {})

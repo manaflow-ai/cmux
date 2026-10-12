@@ -38,7 +38,47 @@ const CONNECTION_REASON: &str =
 /// Read and mutation operations the curated `cmux` CLI does not offer
 /// (`cmux-tui`-only scopes), with the reason. The parity test checks that
 /// `cmux` refuses each one too.
+/// MCP clients act as the local user (an agent in a pane, the Chief's own
+/// turns): conversation reads and writes would let them read the person's
+/// chats and write as the person. Home, `cmux chief` and the person's own
+/// scripts (`cmux-tui conversation`) use the operations instead.
+const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP clients act as the local user, so conversations stay with Home, cmux chief and cmux-tui conversation.";
+
+/// The Chief's engine and turn are the owner's (the daemon refuses an
+/// agent-bound connection); an MCP client is an agent acting as the user.
+const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
+
+/// Launch credentials (identity.md section 2) are the session host's and the
+/// owner's; an MCP client is an agent and never mints, rotates or checks one.
+const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
+
+/// The daemon settings owner (cx-9ce.10) has no CLI verb or MCP policy yet:
+/// `cmux settings` stays on the app socket with its user confirm sheet, and
+/// the CLI and MCP surfaces for the daemon ops come with cx-9ce.12 and the MCP
+/// policy decision cx-ncc.32.
+const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
+    ("settings.schema", SETTINGS_REASON),
+    ("settings.list", SETTINGS_REASON),
+    ("settings.get", SETTINGS_REASON),
+    ("settings.snapshot", SETTINGS_REASON),
+    ("settings.set", SETTINGS_REASON),
+    ("settings.reset", SETTINGS_REASON),
+    ("settings.reset_all", SETTINGS_REASON),
+    ("credential.verify", CREDENTIAL_REASON),
+    ("credential.mint", CREDENTIAL_REASON),
+    ("credential.rotate", CREDENTIAL_REASON),
+    ("conversation.list", CONVERSATION_REASON),
+    ("conversation.get", CONVERSATION_REASON),
+    ("conversation.history", CONVERSATION_REASON),
+    ("conversation.search", CONVERSATION_REASON),
+    ("conversation.send", CONVERSATION_REASON),
+    ("conversation.typing", CONVERSATION_REASON),
+    ("conversation.draft", CONVERSATION_REASON),
+    ("chief.engine.get", CHIEF_REASON),
+    ("chief.engine.set", CHIEF_REASON),
+    ("chief.stop", CHIEF_REASON),
     ("machine.list", MACHINE_REASON),
     ("machine.get", MACHINE_REASON),
     ("session.list", MACHINE_REASON),
@@ -78,10 +118,52 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("project.list", PROJECT_REASON),
+    ("project.observe", PROJECT_REASON),
+    ("project.add", PROJECT_REASON),
+    ("project.update", PROJECT_REASON),
+    ("project.remove", PROJECT_REASON),
+    ("project.sync", PROJECT_REASON),
+    ("palette_usage.get", PALETTE_USAGE_REASON),
+    ("palette_usage.record", PALETTE_USAGE_REASON),
+    ("palette_usage.import", PALETTE_USAGE_REASON),
+    ("palette_usage.hide", PALETTE_USAGE_REASON),
+    ("palette_usage.forget", PALETTE_USAGE_REASON),
     ("workspace.ensure_home", HOME_REASON),
+    ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
+    ("history.backups.purge", HISTORY_PURGE_REASON),
+    ("history.visit.record", HISTORY_VISIT_REASON),
+    ("history.visit.title", HISTORY_VISIT_REASON),
+    ("history.visit.import", HISTORY_VISIT_REASON),
+    ("history.visit.summaries", HISTORY_OMNIBOX_REASON),
+    ("history.visit.remove", HISTORY_OMNIBOX_REASON),
+    ("workspace.agent_start.get", AGENT_START_REASON),
+    ("agent.message.list", AGENT_MESSAGE_REASON),
+    ("agent.message.mark", AGENT_MESSAGE_REASON),
+    ("agent.message.send", AGENT_MESSAGE_REASON),
 ];
 
+/// Operations the curated `cmux` CLI offers but MCP does not, with the
+/// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
+pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("history.entries.list", HISTORY_MCP_PENDING_REASON),
+    ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
+    ("history.site.remove", HISTORY_MCP_PENDING_REASON),
+    ("history.clear", HISTORY_MCP_PENDING_REASON),
+    ("history.restore", HISTORY_MCP_PENDING_REASON),
+];
+
+/// `cmux agent message` and `cmux agent inbox` (agent_message.rs) send
+/// several requests per command: the daemon stores a message, then the CLI
+/// delivers it to each acpmux recipient and marks it. A tool for one of the
+/// three operations alone would store a message nobody delivers, or change
+/// another agent's delivery state.
+const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent message` and `cmux \
+     agent inbox`, which store, deliver and mark in one command; one operation alone would \
+     store a message without delivering it or change another agent's delivery state.";
+
+const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
 const MACHINE_REASON: &str =
     "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
@@ -97,11 +179,28 @@ const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit it through the \
      app's sidebar actions (action tools), which keep the app's intent log.";
+const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
+     records and reads it; agents rank rows through palette.query, never read or write usage.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
+const HISTORY_VISIT_REASON: &str = "Page visits, their titles and the app's older visit logs come \
+     from the verified app that hosts the browser (gate A2); agents read history, they never add a \
+     visit.";
+const HISTORY_OMNIBOX_REASON: &str = "The omnibox's own seed and Remove suggestion: `cmux history` \
+     lists history and removes entries by id or site.";
+const HISTORY_MCP_PENDING_REASON: &str = "The person's page, command and agent history: MCP \
+     clients act as the local user, and the policy for history reads and deletes over MCP is \
+     still open (bead cx-ncc.32); `cmux history` offers them meanwhile.";
+const HISTORY_PURGE_REASON: &str = "Deletes the undo of a history delete: only the user does it, \
+     through the verified app (gate A2); an agent never does.";
+const APP_WORKSPACE_REASON: &str = "The hosting app opens an installed app's one workspace \
+     from its sidebar item (app-screens-v1); agents open apps through the apps tools.";
 const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user sets it, through \
      the verified app after a gesture (gate A2); an agent never does.";
+
+const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
+     chat opens; an agent already runs in its folder (cx-9aps).";
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -175,7 +274,7 @@ pub(super) fn tool_name(wire: &str) -> String {
 }
 
 fn excluded_reason(wire: &str) -> Option<&'static str> {
-    EXCLUDED.iter().find(|(name, _)| *name == wire).map(|(_, reason)| *reason)
+    EXCLUDED.iter().chain(CLI_ONLY).find(|(name, _)| *name == wire).map(|(_, reason)| *reason)
 }
 
 /// Every catalog operation that is not a tool, with the reason.
@@ -217,7 +316,8 @@ impl V2Tool {
                 "readOnlyHint": !self.mutation,
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
-                "openWorldHint": false,
+                // The catalog marks operations that change state elsewhere.
+                "openWorldHint": self.descriptor["risk"] == "send-external",
             },
         })
     }

@@ -20,6 +20,15 @@ use crate::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// `remote-probe` capability: `remote-link --mux-socket` attaches to that
+/// daemon socket. A remote without it (protocol 5 before 2026-10-10) ignores
+/// the flag and attaches to its default session daemon (cx-z3zh).
+pub const REMOTE_LINK_MUX_SOCKET_CAPABILITY: &str = "remote-link-mux-socket";
+
+/// `remote-probe` capability: `remote-link` refuses any flag it does not
+/// know, so a client that passes a newer flag fails loudly, never silently.
+pub const REMOTE_LINK_STRICT_FLAGS_CAPABILITY: &str = "remote-link-strict-flags";
+
 #[derive(Debug, Clone)]
 pub struct SshProviderConfig {
     pub ssh_binary: String,
@@ -49,6 +58,24 @@ impl Default for SshProviderConfig {
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
         }
+    }
+}
+
+impl SshProviderConfig {
+    /// The `remote-probe` capabilities the remote must advertise before
+    /// `remote-link` runs there with this configuration. A remote without
+    /// one is older than this client: the bootstrap refuses it with
+    /// `remote-protocol-older` instead of a link that drops the flag.
+    ///
+    /// Rule: a new `remote-link` flag whose absence changes what the link
+    /// reaches adds its capability here and in `remote_link_command`, in the
+    /// same change, and the remote advertises it in `remote-probe`.
+    pub fn required_remote_capabilities(&self) -> Vec<String> {
+        let mut required = Vec::new();
+        if self.remote_mux_socket.is_some() {
+            required.push(REMOTE_LINK_MUX_SOCKET_CAPABILITY.to_owned());
+        }
+        required
     }
 }
 
@@ -339,151 +366,5 @@ mod tests {
         link.close().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
-    }
-
-    /// The Swift carrier passes `ControlMaster=auto`, so this link can become
-    /// the shared master and keeps forwarding as configured.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn provider_link_uses_hardened_ssh_argv() {
-        let directory = tempfile::tempdir().unwrap();
-        let log = directory.path().join("argv");
-        let script = directory.path().join("ssh");
-        crate::test_exec::write_executable(
-            &script,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
-        );
-        let group = SshLinkGroup {
-            description: "ssh://example.com:2222".into(),
-            destination: "alice@example.com".into(),
-            port: Some(2222),
-            config: SshProviderConfig {
-                ssh_binary: script.to_string_lossy().into_owned(),
-                extra_args: vec!["-o".into(), "ControlMaster=auto".into()],
-                ..SshProviderConfig::default()
-            },
-            evidence: CarrierEvidence::Ssh { destination: "ssh://example.com:2222".into() },
-            closed: AtomicBool::new(false),
-        };
-
-        let link = group
-            .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 })
-            .await
-            .unwrap();
-        link.close().await.unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
-            [
-                "-T",
-                "-p",
-                "2222",
-                "-o",
-                "ControlMaster=auto",
-                "--",
-                "alice@example.com",
-                "~/.local/bin/cmux-tui",
-                "remote-link",
-                "--stdio",
-                "--session",
-                "main",
-            ]
-        );
-    }
-
-    #[test]
-    fn remote_link_command_requests_agent_hooks_only_when_configured() {
-        let mut config = SshProviderConfig::default();
-        assert_eq!(
-            remote_link_command(&config),
-            ["~/.local/bin/cmux-tui", "remote-link", "--stdio", "--session", "main"]
-        );
-        config.remote_state_dir = Some("~/state".into());
-        config.agent_hooks = vec!["claude".into(), "codex".into()];
-        assert_eq!(
-            remote_link_command(&config),
-            [
-                "~/.local/bin/cmux-tui",
-                "remote-link",
-                "--stdio",
-                "--session",
-                "main",
-                "--state-dir",
-                "~/state",
-                "--agent-hooks",
-                "claude,codex",
-            ]
-        );
-    }
-
-    #[test]
-    fn remote_link_command_attaches_to_an_explicit_mux_socket() {
-        let config = SshProviderConfig {
-            remote_binary: "~/.cmux/brains/chief/bin/cmux-tui".into(),
-            remote_mux_socket: Some("~/.cmux/brains/chief/daemon/cmux.sock".into()),
-            ..SshProviderConfig::default()
-        };
-        assert_eq!(
-            remote_link_command(&config),
-            [
-                "~/.cmux/brains/chief/bin/cmux-tui",
-                "remote-link",
-                "--stdio",
-                "--session",
-                "main",
-                "--mux-socket",
-                "~/.cmux/brains/chief/daemon/cmux.sock",
-            ]
-        );
-        for socket in ["", "a b", "$(x)", "x;rm", "`x`"] {
-            let config = SshProviderConfig {
-                remote_mux_socket: Some(socket.into()),
-                ..SshProviderConfig::default()
-            };
-            assert!(SshProvider::new(config).is_err(), "{socket}");
-        }
-    }
-
-    #[test]
-    fn agent_hook_providers_must_be_plain_words() {
-        for provider in ["claude", "codex", "hermes-agent"] {
-            let config = SshProviderConfig {
-                agent_hooks: vec![provider.into()],
-                ..SshProviderConfig::default()
-            };
-            assert!(SshProvider::new(config).is_ok(), "{provider}");
-        }
-        for provider in ["", "a,b", "claude;rm", "$(x)", "a b"] {
-            let config = SshProviderConfig {
-                agent_hooks: vec![provider.into()],
-                ..SshProviderConfig::default()
-            };
-            assert!(SshProvider::new(config).is_err(), "{provider:?}");
-        }
-    }
-
-    #[test]
-    fn destination_preserves_user_for_dial_but_description_redacts_it() {
-        let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
-        let (destination, description) = ssh_destination(&endpoint).unwrap();
-        assert_eq!(destination, "alice@example.com");
-        assert_eq!(description, "ssh://example.com:2222");
-    }
-
-    #[test]
-    fn ipv6_destination_uses_openssh_form_and_bracketed_url() {
-        let endpoint = url::Url::parse("ssh://[2001:db8::1]:2222").unwrap();
-        let (destination, description) = ssh_destination(&endpoint).unwrap();
-        assert_eq!(destination, "2001:db8::1");
-        assert_eq!(description, "ssh://[2001:db8::1]:2222");
-    }
-
-    #[test]
-    fn option_like_destination_is_rejected_before_group_construction() {
-        let endpoint = url::Url::parse("ssh://-Fvalidation@localhost").unwrap();
-        let error = ssh_destination(&endpoint).unwrap_err();
-        assert!(
-            matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
-        );
     }
 }

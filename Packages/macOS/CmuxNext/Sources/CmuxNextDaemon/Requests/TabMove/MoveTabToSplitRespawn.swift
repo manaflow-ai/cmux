@@ -42,6 +42,7 @@ public enum SplitRespawn: Sendable, Hashable, Encodable {
 public struct MoveTabToSplitRespawnRequest: TerminalSpawningRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-split"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabSplitRespawn
     public var surface: SurfaceID
     public var pane: PaneID
     public var edge: PaneEdge

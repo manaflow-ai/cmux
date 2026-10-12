@@ -45,6 +45,18 @@ pub struct Limits {
     pub max_pending_calls: usize,
 }
 
+impl Limits {
+    /// The script profile (`--profile script`): a script session holds the
+    /// REPL cell host and runs user code steps longer than an app's handlers.
+    pub fn script() -> Self {
+        Self {
+            memory_bytes: crate::protocol::SCRIPT_MEMORY_BYTES,
+            entry_deadline: Duration::from_millis(crate::protocol::SCRIPT_STEP_MS),
+            max_pending_calls: 64,
+        }
+    }
+}
+
 impl Default for Limits {
     fn default() -> Self {
         Self {

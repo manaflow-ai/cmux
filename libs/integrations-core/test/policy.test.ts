@@ -103,6 +103,21 @@ describe("resolution", () => {
     expect(resolveEffectivePolicy("tb.projects.create", [rule("t", "team", "tb.*", "allow")], "ask")).toMatchObject({ action: "allow", source: "team" })
   })
 
+  test("an exact rule beats an equally specific one-segment wildcard of the same owner, whatever the rule ids", () => {
+    // `tb.*.delete` and `tb.projects.delete` have the same specificity; the rule id must never decide.
+    const address = "tb.projects.delete"
+    for (const [exactId, wildId] of [["a", "z"], ["z", "a"]] as const) {
+      for (const owner of ["team", "user"] as const) {
+        for (const defaultAction of ["allow", "ask", "block"] as const) {
+          const loose = [rule(wildId, owner, "tb.*.delete", "allow"), rule(exactId, owner, address, "ask")]
+          expect(resolveEffectivePolicy(address, loose, defaultAction)).toMatchObject({ action: "ask", source: owner, ruleId: exactId })
+          const tight = [rule(wildId, owner, "tb.*.delete", "block"), rule(exactId, owner, address, "allow")]
+          expect(resolveEffectivePolicy(address, tight, defaultAction)).toMatchObject({ action: "allow", source: owner, ruleId: exactId })
+        }
+      }
+    }
+  })
+
   test("a rule replaces the default even when it is looser", () => {
     expect(resolveEffectivePolicy("tb.projects.delete", [rule("u", "user", "tb.projects.delete", "allow")], "block").action).toBe("allow")
   })

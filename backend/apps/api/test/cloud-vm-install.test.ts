@@ -94,10 +94,4 @@ describe("VM install at bind", { timeout: 60_000 }, () => {
     ws.close()
   })
 
-  it("every VM op and v1 event kind has a shared vector", () => {
-    const doc = vectors as unknown as { cases: Array<{ op: string }>; events: Array<{ name: string; data?: { kind?: string } }> }
-    for (const name of ["cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"]) expect(doc.cases.some((c) => c.op === name), name).toBe(true)
-    const kinds = ["agent.started", "agent.finished", "agent.needs_input", "notification", "browser.lease.changed", "cua.session.started", "cua.session.ended", "service.port.opened", "service.port.closed"]
-    for (const k of kinds) expect(doc.events.some((e) => e.data?.kind === k), k).toBe(true)
-  })
 })

@@ -1,6 +1,6 @@
 public import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Who a socket settings write acts for, and its refusals (SECURITY, agent_settable). Its own
 /// type, not a `ControlRouter` member (that type's line budget is full).

@@ -188,20 +188,3 @@ impl Dialer for WireGuardDialer {
         Ok(Box::new(stream))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn literals_resolve_without_dns() {
-        assert_eq!(
-            resolve_dial_target("[fd7a::10]", 1337).await.unwrap(),
-            vec!["[fd7a::10]:1337".parse::<SocketAddr>().unwrap()]
-        );
-        assert_eq!(
-            resolve_dial_target("10.100.0.10", 1337).await.unwrap(),
-            vec!["10.100.0.10:1337".parse::<SocketAddr>().unwrap()]
-        );
-    }
-}

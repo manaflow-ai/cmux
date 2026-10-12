@@ -11,6 +11,11 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var draft: String?
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
+    /// Who seeded ``prompt``. Only a person's own action or onboarding's first task gets the
+    /// single-use gesture ticket the prompt needs to go out by itself (cx-k21v gap 4, chief:
+    /// person only); a prompt seeded by the CLI, MCP, a script or another client gets none, so
+    /// the relay refuses it (`transport.gesture_required`) and the prompt waits in the composer.
+    public var promptBy: PromptBy
     /// An outside chat to resume instead of starting a new one. Kept across
     /// page reloads: acpmux adopts one id into one session.
     public var adopt: AgentPaneAdopt?
@@ -18,9 +23,35 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var surface: AgentPaneSurface?
     /// The harness a new chat starts on (`newTab.submit --agent`); nil is the default.
     public var harness: String?
+    /// A chat that opened without its folder: the page explains it and offers Choose Folder.
+    public var folderNeeded: AgentPaneFolderNeeded?
+    /// The device-wide chat (its index key, `harness:id`) whose past turns a new chat shows
+    /// read-only until it has a session (cx-khns1); an adopted chat shows them while its folder's
+    /// trust question holds the replay. Kept across page reloads.
+    public var pastChat: String?
+    /// The page opens on its Harnesses page (Integrate a Harness…, cx-uj5g8). Handed out once.
+    public var showsHarnesses: Bool
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil) {
+    /// Who seeded a prompt that goes out by itself.
+    public nonisolated enum PromptBy: Sendable, Equatable {
+        /// A person's own action in this app (`ActionOrigin.user`).
+        case person
+        /// Onboarding's first task.
+        case onboarding
+        /// The CLI, MCP, a script, a page or another client: no ticket.
+        case automation
+
+        /// Whether the prompt gets the ticket that lets it go out by itself.
+        public var sendsBySelf: Bool { self != .automation }
+    }
+
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, promptBy: PromptBy = .automation,
+                adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil, harness: String? = nil,
+                folderNeeded: AgentPaneFolderNeeded? = nil, pastChat: String? = nil, showsHarnesses: Bool = false) {
+        self.promptBy = promptBy
+        self.showsHarnesses = showsHarnesses
+        self.folderNeeded = folderNeeded
+        self.pastChat = pastChat
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
@@ -41,10 +72,29 @@ public final class AgentPaneSeedSource {
     /// The seed's surface. Unlike the draft it holds for the page's whole
     /// life, after the chat has a session too.
     public private(set) var surface: AgentPaneSurface?
+    /// The missing folder this pane's chat waits for (cx-nn3e.1), until a pick works.
+    public internal(set) var folderNeeded: AgentPaneFolderNeeded?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
         self.limit = limit
+    }
+
+    /// The seed holds a folder and nothing else (a new workspace's first New Tab page): a page
+    /// that takes its folder from its New Tab context can stand in for it.
+    public var holdsOnlyFolder: Bool {
+        guard read == nil else { return false }
+        guard let value else { return true }
+        return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
+            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+    }
+
+    /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
+    /// this Mac's chat list (`pastChat`). Such a seed never opens in a tab of another machine
+    /// (cx-k21v). A seed still to be read (another tab's selection) names neither.
+    public var namesLocalChat: Bool {
+        guard read == nil, let value else { return false }
+        return value.adopt != nil || value.pastChat != nil
     }
 
     public init(_ seed: AgentPaneSeed) {
@@ -53,9 +103,20 @@ public final class AgentPaneSeedSource {
         surface = seed.surface
     }
 
+    /// The seed without taking its draft or prompt: where a chat on another machine starts
+    /// (its folder and harness) before the page's handshake takes the rest.
+    public func peek() async -> AgentPaneSeed? {
+        if let read {
+            self.read = nil
+            value = await agentPaneFirst(within: limit, read)
+            surface = value?.surface
+        }
+        return value
+    }
+
     /// The seed, read once. The draft and prompt are handed out only once,
     /// so a page that reloads before the first prompt does not get them twice.
-    func take() async -> AgentPaneSeed? {
+    public func take() async -> AgentPaneSeed? {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
@@ -64,6 +125,12 @@ public final class AgentPaneSeedSource {
         let seed = value
         value?.draft = nil
         value?.prompt = nil
+        value?.showsHarnesses = false
+        // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
+        if let needed = value?.folderNeeded {
+            folderNeeded = needed
+            value?.folderNeeded = nil
+        }
         return seed
     }
 }

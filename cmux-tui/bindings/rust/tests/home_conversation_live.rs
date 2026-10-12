@@ -6,6 +6,8 @@
 //! Runs when `CMUX_SDK_LIVE_TUI_BIN` names a built `cmux-tui` binary (the
 //! `cmux-tui-sdks.yml` live conformance job sets it). Without the variable the
 //! test reports the skip and passes.
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     ClientConfig, ConversationAgentTokenRequest, ConversationBindRequest,
@@ -205,6 +207,7 @@ fn home_and_conversation_results_live_daemon() {
             owner: Optional::Value("local".into()),
             page: Optional::Missing,
             pane: Optional::Missing,
+            route: Optional::Missing,
             rows: Optional::Missing,
             transaction: Optional::Missing,
             workspace: Optional::Value(raw_home),

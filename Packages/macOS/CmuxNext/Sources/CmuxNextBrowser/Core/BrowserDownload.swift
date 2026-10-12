@@ -37,15 +37,45 @@ public final class BrowserDownload: Identifiable {
     var placement: BrowserDownloadPlacement?
     @ObservationIgnored
     var cancelHandler: (() -> Void)?
-    /// Pause and resume, when the engine can (Chromium).
+    /// Pause and resume, when the engine can.
     @ObservationIgnored
     var pauseHandler: ((Bool) -> Void)?
+    /// Starts the same download again as a new one (Retry), when its engine
+    /// can: a web link, from a tab still open. False when it could not start.
+    @ObservationIgnored
+    var retryHandler: (() -> Bool)?
     @ObservationIgnored
     private var finishHandlers: [(BrowserDownload) -> Void] = []
 
-    public init(sourceURL: URL?, filename: String) {
+    /// The name the page suggested (sanitized), before a free file name was
+    /// picked: what an agent's `download.suggestedFilename()` returns.
+    public internal(set) var suggestedFilename: String
+
+    /// The engine knows the page's suggested name (`named()`); WebKit
+    /// learns it only when it picks the destination.
+    public private(set) var isNamed: Bool
+    private var namedHandlers: [(BrowserDownload) -> Void] = []
+
+    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil, named: Bool = true) {
         self.sourceURL = sourceURL
         self.filename = filename
+        self.suggestedFilename = suggestedFilename ?? filename
+        isNamed = named
+    }
+
+    /// Runs `handler` once the download is named (at once when it is).
+    public func onNamed(_ handler: @escaping (BrowserDownload) -> Void) {
+        guard !isNamed else { return handler(self) }
+        namedHandlers.append(handler)
+    }
+
+    /// The engine set the suggested name; later calls do nothing.
+    func named() {
+        guard !isNamed else { return }
+        isNamed = true
+        let handlers = namedHandlers
+        namedHandlers = []
+        handlers.forEach { $0(self) }
     }
 
     /// A download refused before it started, listed blocked: `reason`
@@ -58,7 +88,36 @@ public final class BrowserDownload: Identifiable {
         return item
     }
 
+    /// A download that ended in an earlier run, as the Downloads list kept
+    /// it: nothing runs on its file, and it cannot pause or retry.
+    public static func ended(sourceURL: URL?, filename: String, destination: URL?, status: Status,
+                             receivedBytes: Int64, totalBytes: Int64?) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: filename)
+        item.destination = destination
+        item.receivedBytes = receivedBytes
+        item.totalBytes = totalBytes
+        if status == .finished { item.fraction = 1 }
+        item.status = status == .inProgress ? .cancelled : status
+        return item
+    }
+
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }
+
+    /// A failed or cancelled download its engine can start again.
+    public var canRetry: Bool {
+        switch status {
+        case .failed, .cancelled: retryHandler != nil
+        case .inProgress, .finished, .blocked: false
+        }
+    }
+
+    /// Starts this download again; the new one is a new `BrowserDownload`
+    /// (the engine's `.download` intent). False when it could not start.
+    @discardableResult
+    public func retry() -> Bool {
+        guard canRetry, let retryHandler else { return false }
+        return retryHandler()
+    }
 
     public func cancel() {
         guard status == .inProgress else { return }
@@ -95,6 +154,8 @@ public final class BrowserDownload: Identifiable {
     /// download leaves no file, and only the first end counts.
     func complete(_ end: Status) {
         guard status == .inProgress, end != .inProgress else { return }
+        // A download that ends before its engine named it is named first.
+        named()
         var end = end
         if let placement {
             if end == .finished {

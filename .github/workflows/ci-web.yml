@@ -219,14 +219,27 @@ jobs:
   react-apps-check:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # Matches the 10-minute siblings in this workflow.
-    timeout-minutes: 10
+    # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
+    # 4 vCPU runner (run 37666132324), so this job takes the 8 vCPU size, which
+    # has twice the memory. Fork pull requests run the same suite on it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # The 10-minute siblings in this workflow, plus the browser engines and the
+    # browser-lane suites they run.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # A pull request's merge commit with its parents: ui-rules and gallery
+          # coverage fail the PR only for its own findings (test/support/prScope.ts).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
+
+      - name: List the pull request's files
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
+          echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -239,17 +252,14 @@ jobs:
         with:
           node-version: "24.11.1"
 
-      - name: Verify generated webviews assets
+      # The web bundles are build output (cx-vn5): this builds them into the
+      # gitignored resource paths that the budget, React Compiler and webviews
+      # tests below read. The source checks of `bun run build` run separately.
+      - name: Verify webviews source checks
         run: ./scripts/build-webviews-app.sh --check
 
-      - name: Verify generated cmux-next agent pane
-        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
-
-      - name: Verify generated cmux-next palette ranker
-        run: ./scripts/cmux-next/build-palette-ranker.sh --check
-
-      - name: Verify generated cmux-next Agent Activity
-        run: ./scripts/cmux-next/build-agent-activity-web.sh --check
+      - name: Build the web bundles
+        run: ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       - name: Generated bundle merge driver
@@ -265,9 +275,19 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
+      # without these engines; before, they skipped themselves and passed.
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+
+      # One bun process per test file with a per-file timeout: a single
+      # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       - name: Test webviews
         working-directory: webviews
-        run: bun run test
+        run: |
+          python3 ../scripts/tests/test_pr_scoped_webviews_checks.py
+          ../scripts/ci/run-webviews-tests.sh
 
       - name: React Doctor
         working-directory: webviews
@@ -379,31 +399,6 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  agent-session-web-resources:
-    if: ${{ inputs.agent_session_web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-
-      - name: Cache Bun package cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
-
-      - name: Test Agent Session web sources
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run agent-session-web:test
-
   web-status:
     name: Web status
     needs:
@@ -415,7 +410,6 @@ jobs:
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
-      - agent-session-web-resources
     # Keep the web verdict after a failed dependency, but skip it after run
     # cancellation so a superseded push does not start another runner.
     if: ${{ !cancelled() }}
@@ -470,7 +464,6 @@ jobs:
               "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
-              "agent-session-web-resources": inputs["agent_session_web"] == "true",
           }
           bad = {}
           for job, is_required in sorted(required.items()):

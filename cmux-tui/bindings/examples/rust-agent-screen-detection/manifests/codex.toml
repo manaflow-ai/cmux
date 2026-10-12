@@ -1,7 +1,7 @@
 id = "codex"
-version = "2026.09.15.1"
+version = "2026.10.01.1"
 min_engine_version = 3
-updated_at = "2026-09-15T00:00:00Z"
+updated_at = "2026-10-01T00:00:00Z"
 
 [[rules]]
 id = "osc_title_blocked"
@@ -38,8 +38,20 @@ priority = 950
 region = "top_non_empty_lines(20)"
 visible_blocker = true
 all = [
-  { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
-  { regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?'] },
+  { any = [
+    { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
+    { contains = ["Folder access"] },
+  ] },
+  { any = [
+    { regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?'] },
+    { all = [
+      { contains = ["Trust this folder?", "Codex can read, edit, and run files here"] },
+      { any = [
+        { contains = ["Trust and continue"] },
+        { contains = ["enter continue"] },
+      ] },
+    ] },
+  ] },
 ]
 
 [[rules]]
@@ -62,6 +74,7 @@ any = [
   { contains = ["enter to submit answer"] },
   { contains = ["enter to submit all"] },
   { contains = ["allow command?"] },
+  { contains = ["All Results", "Filesystem Only", "Plugins"] },
 ]
 
 [[rules]]

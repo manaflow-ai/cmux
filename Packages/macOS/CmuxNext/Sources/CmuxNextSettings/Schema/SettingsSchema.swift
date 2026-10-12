@@ -9,10 +9,13 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+            + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
+            + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }
@@ -29,7 +32,8 @@ public nonisolated enum SettingsSchema {
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
+        AppThemeSetting().configPath, ChromeThemeSetting().configPath, TerminalFontSetting().familyPath,
+        TerminalFontSetting().sizePath,
     ]
 
     /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
@@ -47,7 +51,7 @@ public nonisolated enum SettingsSchema {
     /// availability come from the action registry).
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
-        case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
+        case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
@@ -76,6 +80,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.history.terminalCommands", "Record Terminal Commands"),
                 help: SettingsText.keyed("settings.history.terminalCommands.help",
                                         "Lists finished shell commands in History. Command lines can contain secrets."),
+                summary: SettingsText.keyed("settings.history.terminalCommands.summary", "Shows finished commands in History"),
                 kind: .toggle, default: .bool(TerminalCommandHistorySetting.fallback),
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
@@ -97,12 +102,23 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
                 help: SettingsText.keyed("settings.navigation.historySteps.help",
                                         "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                summary: SettingsText.keyed("settings.navigation.historySteps.summary", "What Go Back and Go Forward step through"),
                 kind: .choice([
                     SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
                     SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
                 ]),
                 default: .string(NavigationHistoryStepSetting.fallback),
                 keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
+            ),
+            SettingDescriptor(
+                CommandRetentionSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
+                help: SettingsText.keyed("settings.history.commandRetentionDays.help",
+                                        "Each machine deletes recorded commands that are older."),
+                kind: .number(SettingNumber(Double(CommandRetentionSetting.range.lowerBound)...Double(CommandRetentionSetting.range.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(Double(CommandRetentionSetting.fallback)),
+                keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
@@ -131,15 +147,29 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
                 help: SettingsText.keyed("settings.app.globalHotKey.help",
                                         "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.startAgentGlobalHotKeyPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
+                help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",
+                                        "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
+                keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
+            ),
             TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
-        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
+            TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
+            TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
+        ] + TabSettingsSchema.paneTabBars(group: tabs) + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -159,6 +189,7 @@ public nonisolated enum SettingsSchema {
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.keyed("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
+                summary: SettingsText.keyed("settings.layout.fixedColumnWidth.summary", "Share of the window width"),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
@@ -177,6 +208,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.layout.stripScrollbar", "Column Scroll Bar"),
                 help: SettingsText.keyed("settings.layout.stripScrollbar.help", "A thin bar under the columns that shows and moves the visible range."),
                 kind: .choice([
+                    SettingChoice(StripScrollbarMode.system.rawValue, SettingsText.keyed("settings.choice.stripScrollbarSystem", "Follow System")),
                     SettingChoice(StripScrollbarMode.auto.rawValue, SettingsText.keyed("settings.choice.stripScrollbarAuto", "While Scrolling")),
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),

@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
         return true
     }
 
@@ -28,6 +29,32 @@ extension WindowController {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.page != .home { state.page = .home }
         return showTopPage(.home)
+    }
+
+    /// The content of the workspace this window names: the shown one, else
+    /// the parked one under a top page (a tab opened behind the page lands
+    /// there).
+    var workspaceContent: WorkspaceContentController? {
+        content ?? parked.last { $0.workspace.id == state.workspaceID }
+    }
+
+    /// Leaves the top page for the window's workspace at once
+    /// (SIDEBAR-SELECTION-ONE-MODEL: one selection, so showing something in
+    /// the workspace selects it). True when a page was left.
+    @discardableResult
+    func leaveTopPage() -> Bool {
+        guard state.page != nil else { return false }
+        state.page = nil
+        services.windows.recordSaver.stateDidChange(state)
+        showWorkspace(requested: state.workspaceID)
+        return true
+    }
+
+    /// Every content swap, a top page or a workspace: the titlebar's Back and
+    /// Forward re-read the shown page's history. The sidebar never shows Back
+    /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
+    func followContentChanges() {
+        root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
     }
 
     /// The top page this window shows, if any.

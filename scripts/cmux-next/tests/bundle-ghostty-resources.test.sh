@@ -15,7 +15,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 src="$TMP/src"
 mkdir -p "$src"
 ln -s "$ROOT/ghostty-next" "$src/ghostty-next"
-for path in Resources/ghostty Resources/terminfo-overlay Resources/shell-integration; do
+for path in Resources/ghostty Resources/terminfo-overlay Resources/shell-integration Resources/cmux-cli-path; do
   if [[ -e "$ROOT/$path" ]]; then mkdir -p "$src/$(dirname "$path")"; ln -s "$ROOT/$path" "$src/$path"; fi
 done
 env -i PATH=/usr/bin:/bin TARGET_BUILD_DIR="$TMP/build" UNLOCALIZED_RESOURCES_FOLDER_PATH=app.app/Contents/Resources \
@@ -27,5 +27,8 @@ bundled="$TMP/build/app.app/Contents/Resources/ghostty/shell-integration"
 # <Resources>/shell-integration, so this tree is Ghostty's alone.
 fail=0
 diff -r "$source_tree" "$bundled" >"$TMP/diff" 2>&1 || { cat "$TMP/diff" >&2; echo "FAIL: bundled shell integration differs from ghostty-next" >&2; fail=1; }
+# The layers that keep the bundled `cmux` first on PATH (BundledCLIEnvironment).
+diff -r "$ROOT/Resources/cmux-cli-path" "$TMP/build/app.app/Contents/Resources/cmux-cli-path" >"$TMP/diff2" 2>&1 \
+  || { cat "$TMP/diff2" >&2; echo "FAIL: bundled cmux-cli-path differs from Resources/cmux-cli-path" >&2; fail=1; }
 [[ $fail -eq 0 ]] || exit 1
 echo "PASS: bundled shell integration equals ghostty-next/src/shell-integration"

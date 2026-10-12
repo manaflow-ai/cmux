@@ -100,6 +100,27 @@ import Testing
         #expect(registry.descriptor(for: "password.importCSV")?.isPersonOnly == true)
     }
 
+    /// Import from Browser opens the import with its password consent screen:
+    /// only a person starts it (PASSWORDS-IMPORT-ANY-BROWSER), so the socket
+    /// refuses it from every origin and it has no `cmux browser` verb.
+    @Test func theBrowserImportIsRefusedOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        var ran = false
+        registry.bind("importFromBrowser", invoke: { _ in ran = true })
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        for origin: JSONValue in ["user", "cli", "mcp", .null] {
+            let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "importFromBrowser", "origin": origin,
+            ]))
+            expectPersonOnlyRefusal(result, "importFromBrowser from \(origin)")
+        }
+        #expect(!ran)
+        #expect(registry.descriptor(for: "importFromBrowser")?.cliName != "browser import-data")
+    }
+
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {
         let registry = ActionRegistry.standard()
         registry.context = [.agentPaneFocused]

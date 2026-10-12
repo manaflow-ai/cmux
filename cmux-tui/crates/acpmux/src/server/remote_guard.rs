@@ -100,6 +100,10 @@ pub(super) async fn check(
     if m == method::MUX_WEB_MODES {
         return Err(refused("_acpmux/web_modes"));
     }
+    // The listener's own credential changes over the unix socket only.
+    if m == method::MUX_WEB_TOKEN_ROTATE {
+        return Err(refused("rotating the web token"));
+    }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
         return Err(refused("mcpServers"));
@@ -125,6 +129,16 @@ pub(super) async fn check(
     }
     if web {
         web_only(m, params)?;
+        // A remote-origin session (a Web device, or a peer) never resumes a
+        // local harness session (REMOTE-FLOOR v3, D13).
+        if m == method::SESSION_NEW
+            && params.pointer("/_meta/acpmux/adopt").is_some_and(|v| !v.is_null())
+        {
+            return Err(RpcError::invalid_params(
+                "a remote device cannot adopt a local agent session; start a new chat from this device",
+            )
+            .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
+        }
     }
     let folders = matches!(
         m,
@@ -255,11 +269,6 @@ pub(super) async fn settle_web_session_mode(
     Ok(())
 }
 
-/// The only permission policies a Web connection may set: `ask` (every
-/// tool call asks) and `deny-all` (nothing runs, nothing is approved). The
-/// exact names only; aliases, other policies and unknown values are refused.
-const ASKING_POLICIES: &[&str] = &["ask", "deny-all"];
-
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
@@ -270,12 +279,9 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
         ))
     };
-    // Absent: nothing is set. Present: one of the asking policies, exactly.
-    let policy_ok = |v: Option<&Value>| match v {
-        None | Some(Value::Null) => true,
-        Some(Value::String(p)) => ASKING_POLICIES.contains(&p.as_str()),
-        Some(_) => false,
-    };
+    // Absent: nothing is set. Present: one of the asking policies, exactly
+    // (`ask`, `deny-all`; the person rule's list, `hub/person.rs`).
+    let policy_ok = crate::hub::person::asking_policy_value;
     let policy_refused = || refused("a permission policy other than ask or deny-all");
     if m == method::SESSION_NEW
         && crate::web_modes::MODE_FIELDS.iter().any(|f| {
@@ -319,7 +325,9 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         method::MUX_DEFAULTS | method::MUX_PRESETS if !policy_ok(params.pointer("/set/policy")) => {
             Err(policy_refused())
         }
-        method::MUX_SET_RULES if !rules_cannot_auto_approve(params.get("rules")) => {
+        method::MUX_SET_RULES
+            if !crate::hub::person::rules_cannot_auto_approve(params.get("rules")) =>
+        {
             Err(refused("a permission rule that could auto-approve"))
         }
         "_acpmux/directories" => Err(RpcError::method_not_found(
@@ -347,6 +355,8 @@ async fn web_starts_asking(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
+    let web = control == crate::hub::Control::Web;
     if m == method::SESSION_NEW
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
@@ -376,6 +386,7 @@ async fn web_starts_asking(
     let controls = matches!(
         m,
         method::SESSION_PROMPT
+            | method::MUX_QUEUE_EDIT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
@@ -406,6 +417,24 @@ async fn web_starts_asking(
         }
         return hub.web_control_check(&t, control);
     }
+    // D13: a remote device does not change or end a Claude session the Mac
+    // started either (its rules, policy, model, its life or its log).
+    let mutates = matches!(
+        m,
+        method::MUX_SET_RULES
+            | method::MUX_SET_POLICY
+            | method::MUX_KILL
+            | method::SESSION_DELETE
+            | method::SESSION_CLOSE
+            | method::SESSION_SET_MODEL
+    );
+    if web
+        && mutates
+        && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if !(copies || sets_mode || controls) {
         return Ok(());
     }
@@ -429,6 +458,14 @@ async fn web_starts_asking(
             e.message
         ))
     })?;
+    // D13: a copy of a Claude Code session the Mac started carries its
+    // local state; a remote chain starts fresh.
+    if web
+        && matches!(m, method::SESSION_FORK | method::MUX_HANDOFF_PREPARE)
+        && let Some(e) = hub.local_claude_refusal(&s.meta())
+    {
+        return Err(e);
+    }
     if sets_mode {
         hub.web_control_check(&s, control)?;
     }
@@ -457,20 +494,6 @@ async fn web_starts_asking(
         )));
     }
     Ok(())
-}
-
-/// Rules a Web connection may set: none (a clear), or only `autoDeny` and
-/// `ask` lists with a `default` of `ask` or `deny`. No `autoApprove` entry,
-/// no `default: "approve"`, and no field this check does not know.
-fn rules_cannot_auto_approve(rules: Option<&Value>) -> bool {
-    let Some(rules) = rules.filter(|r| !r.is_null()) else { return true };
-    let Some(obj) = rules.as_object() else { return false };
-    obj.iter().all(|(k, v)| match k.as_str() {
-        "autoApprove" => !non_empty(Some(v)),
-        "autoDeny" | "ask" => v.is_null() || v.is_array(),
-        "default" => v.is_null() || matches!(v.as_str(), Some("ask" | "deny")),
-        _ => false,
-    })
 }
 
 fn non_empty(v: Option<&Value>) -> bool {
@@ -525,7 +548,7 @@ async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::Path
 /// component, so a case-different or differently normalized spelling of a
 /// path compares equal to its root. Elsewhere `realpath` already returns
 /// the stored names.
-async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
+pub(crate) async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
     let canonical = tokio::fs::canonicalize(path).await.ok()?;
     #[cfg(target_os = "macos")]
     if let Some(stored) = stored_path(&canonical) {

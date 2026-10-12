@@ -40,8 +40,9 @@ public enum JSONValue: Sendable, Hashable, Codable {
     }
 
     public subscript(key: String) -> JSONValue? {
-        if case .object(let object) = self { return object[key] }
-        return nil
+        guard case .object(let members) = self else { return nil }
+        let fields: [String: JSONValue] = members
+        return fields[key]
     }
 
     public var stringValue: String? {

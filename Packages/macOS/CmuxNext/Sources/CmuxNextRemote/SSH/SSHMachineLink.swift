@@ -82,6 +82,8 @@ public actor SSHMachineLink {
     private let onStatus: @Sendable (SSHConnectionMachine.Status) -> Void
     private var machine = SSHConnectionMachine()
     private var child: ChildProcess?
+    /// The stderr tail of the last link that exited.
+    private var exitedOutput: String?
     private var socket: String?
     private var starting: Task<String, any Error>?
     private var localProtocol: Int?
@@ -102,6 +104,14 @@ public actor SSHMachineLink {
     }
 
     public var status: SSHConnectionMachine.Status { machine.status }
+
+    /// The link's stderr tail (ssh and the machine's cmux-tui write their
+    /// errors there, the daemon's start failure included): the running
+    /// link's, else the last exited one's; nil when empty.
+    public func output() -> String? {
+        let text = child?.stderrText ?? exitedOutput ?? ""
+        return text.isEmpty ? nil : text
+    }
     public var pid: Int32? { child?.pid }
 
     /// Feeds an event to the gate and reports the status.
@@ -126,11 +136,26 @@ public actor SSHMachineLink {
         handle(.disconnect)
     }
 
+    /// Ends the link client so it can close the remote session at once
+    /// (its close frame goes over its own ssh child), then the whole process
+    /// group if it has not exited within `closeDeadline` (cx-bj1o).
     private func tearDown() {
-        child?.terminate()
+        if let child {
+            child.terminateProcessOnly()
+            // task-owner: one bounded fallback; terminate() is a no-op once the child exited
+            Task.detached {
+                // wakeup-allow: one-shot deadline for a stopped link client
+                try? await Task.sleep(for: Self.closeDeadline)
+                child.terminate()
+            }
+        }
         child = nil
         socket = nil
     }
+
+    /// How long a stopped link client may take to close its session before
+    /// its process group is ended.
+    static let closeDeadline: Duration = .seconds(5)
 
     private func start() async throws -> String {
         tearDown()
@@ -200,12 +225,16 @@ public actor SSHMachineLink {
                 return nil
             }
             guard machine.mayAttempt, self.child === child else {
-                child.terminate()
+                // A disconnect that raced the connected line already ran
+                // tearDown for this child; otherwise stop it the same way, so
+                // the client still closes its new session (cx-bj1o).
+                if self.child === child { tearDown() }
                 throw SSHLinkError.stopped
             }
             self.socket = socket
             handle(.linkUp)
             watchExit(child)
+            watchSnapshots(child)
             logger.info("ssh link up for \(self.host.destination.description, privacy: .public) pid \(child.pid ?? 0)")
             return socket
         } catch let error as SSHLinkError {
@@ -214,7 +243,13 @@ public actor SSHMachineLink {
             child.terminate()
             if self.child === child { self.child = nil }
             let stderr = child.stderrText
-            let failure = SSHFailure.classify(status: 255, stderr: stderr) ?? .remoteFailed(String(describing: error))
+            if let refusal = RemoteRefusal.parse(stderr) {
+                // A typed refusal is an install or update state, not a failure (cx-z3zh).
+                logger.error("ssh link for \(self.host.destination.description, privacy: .public) refused: \(stderr, privacy: .public)")
+                handle(.probed(.refused(refusal)))
+                throw SSHLinkError.needsInstall(.refused(refusal))
+            }
+            let failure = SSHFailure.classifyLink(stderr: stderr) ?? .remoteFailed(String(describing: error))
             logger.error("ssh link for \(self.host.destination.description, privacy: .public) failed: \(stderr, privacy: .public)")
             handle(.failed(failure))
             throw SSHLinkError.ssh(failure)
@@ -231,8 +266,32 @@ public actor SSHMachineLink {
         }
     }
 
+    /// The running link client redials on its own after sleep, a network
+    /// drop or change, and its local socket stays up meanwhile; only its
+    /// snapshots say so. The machine reads as reconnecting until it is back.
+    private func watchSnapshots(_ child: ChildProcess) {
+        let lines = child.lines
+        // task-owner: ends with the child's stdout
+        Task { [weak self] in
+            for await line in lines {
+                guard let connected = CloudLinkEvent.linkConnected(line) else { continue }
+                await self?.linkReported(child, connected: connected)
+            }
+        }
+    }
+
+    private func linkReported(_ reporting: ChildProcess, connected: Bool) {
+        guard child === reporting else { return }
+        if connected {
+            if machine.status == .reconnecting { handle(.linkUp) }
+        } else {
+            handle(.linkInterrupted)
+        }
+    }
+
     private func linkExited(_ exited: ChildProcess) {
         guard child === exited else { return }
+        exitedOutput = exited.stderrText
         child = nil
         socket = nil
         handle(.linkLost)

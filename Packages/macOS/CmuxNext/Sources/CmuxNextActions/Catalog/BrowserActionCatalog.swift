@@ -191,13 +191,21 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["browser", "privacy"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
                 targets: [.pane], cliName: "browser clear-history"
             ),
-            ActionDescriptor(
-                id: "importFromBrowser",
-                title: String(localized: "action.importFromBrowser2", defaultValue: "Import from Browser…", bundle: .module),
-                keywords: ["browser", "bookmarks", "cookies"], category: .browser,
-                symbol: "square.and.arrow.down.on.square", surfaces: [.menu, .contextMenu], targets: [.pane],
-                cliName: "browser import-data", mainMenu: .view
-            ),
+            {
+                // Person-only and no CLI verb (PASSWORDS-IMPORT-ANY-BROWSER): an agent must not put
+                // the import and its password consent screen in front of the person, who would be
+                // asked to approve something they did not start. Palette, File menu, the browser
+                // context menus, the Passwords page and onboarding open it.
+                var importFromBrowser = ActionDescriptor(
+                    id: "importFromBrowser",
+                    title: String(localized: "action.importFromBrowser2", defaultValue: "Import from Browser…", bundle: .module),
+                    keywords: ["browser", "bookmarks", "cookies", "passwords", "chrome", "arc", "edge", "brave", "firefox", "safari"],
+                    category: .browser, symbol: "square.and.arrow.down.on.square", surfaces: [.palette, .menu, .contextMenu],
+                    targets: [.pane], mainMenu: .file
+                )
+                importFromBrowser.isPersonOnly = true
+                return importFromBrowser
+            }(),
             {
                 var importCSV = ActionDescriptor(
                     id: "password.importCSV",
@@ -238,8 +246,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "openLinkInDefaultBrowser",
                 title: String(localized: "action.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser", bundle: .module),
                 keywords: ["browser", "link", "external"], category: .browser, symbol: "arrow.up.forward.app",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser open-link-in-default"
+                surfaces: [.contextMenu], arguments: [BrowserHitActionCatalog.linkURL], targets: [.tab],
+                cliName: "browser open-link-in-default",
+                // The page's and the terminal's link rows (cx-k9go); left out while cmux is the default browser.
+                surfacePlan: ActionSurfacePlan(contextMenus: [ActionSurfaceCatalog.p(.browserLink, .navigate, 5)])
+            ),
+            // No shortcut: Cmd-P stays Go to Workspace (plans/cmux-next/browser-parity.md, D4).
+            ActionDescriptor(
+                id: "browserPrint",
+                title: String(localized: "action.browserPrint", defaultValue: "Print…", bundle: .module),
+                keywords: ["browser", "print", "page", "pdf"], category: .browser, symbol: "printer",
+                surfaces: [.palette, .menu, .contextMenu], requires: [.browserFocused], targets: [.pane], mainMenu: .file
             ),
             ActionDescriptor(
                 id: "browserScreenshotPage",
@@ -372,18 +389,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 surfaces: [.keyboard], requires: [.diffViewerFocused], targets: [.pane],
                 cliName: "browser diff-previous-file"
             ),
-            ActionDescriptor(
-                id: "palette.vscodeServeWebStop",
-                title: String(localized: "action.palette.vscodeServeWebStop", defaultValue: "Stop VS Code Inline Server", bundle: .module),
-                keywords: ["vscode", "editor", "server"], category: .browser, symbol: "stop.fill", surfaces: [.palette],
-                targets: [.pane], cliName: "browser stop-vs-code-inline-server"
-            ),
-            ActionDescriptor(
-                id: "palette.vscodeServeWebRestart",
-                title: String(localized: "action.palette.vscodeServeWebRestart", defaultValue: "Restart VS Code Inline Server", bundle: .module),
-                keywords: ["vscode", "editor", "server"], category: .browser, symbol: "arrow.clockwise.circle",
-                surfaces: [.palette], targets: [.pane], cliName: "browser restart-vs-code-inline-server"
-            ),
-        ] + agentGuardDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors()
     }
 }

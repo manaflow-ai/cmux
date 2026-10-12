@@ -101,12 +101,34 @@ public nonisolated struct OmniboxResolver: Sendable {
     /// Extension omnibox keywords of the tab (`chrome.omnibox`); empty for
     /// WebKit tabs.
     public var keywords: [OmnibarKeyword]
+    /// Typed hosts already fixed once (`HostTypoFixup`); shared by every
+    /// copy of this resolver.
+    public let hostTypoMemory: HostTypoMemory
 
     public init(urlResolver: BrowserURLResolver = BrowserURLResolver(), searchEngine: BrowserSearchEngine = .google,
-                keywords: [OmnibarKeyword] = []) {
+                keywords: [OmnibarKeyword] = [], hostTypoMemory: HostTypoMemory = HostTypoMemory()) {
         self.urlResolver = urlResolver
         self.searchEngine = searchEngine
         self.keywords = keywords
+        self.hostTypoMemory = hostTypoMemory
+    }
+
+    /// The URL typed `input` loads after its top-level-domain typo is fixed
+    /// (`example.con` -> `https://example.com`), and the host as typed; nil
+    /// when there is no typo, or this host was fixed before (the user typed
+    /// it again on purpose). Only for text the user typed.
+    public func typoFixedURL(for input: String) -> (url: URL, typedHost: String)? {
+        guard let fix = HostTypoFixup.fix(input), hostTypoMemory.allowsFix(of: fix.typedHost),
+              let url = urlResolver.url(for: fix.text) else { return nil }
+        return (url, fix.typedHost)
+    }
+
+    /// `typoFixedURL(for:)` for a commit: the fix is recorded, so the same
+    /// typed host loads as typed next time.
+    public func commitTypoFix(for input: String) -> URL? {
+        guard let fixed = typoFixedURL(for: input) else { return nil }
+        hostTypoMemory.recordFix(of: fixed.typedHost)
+        return fixed.url
     }
 
     public func destination(for input: String) -> OmniboxDestination? {

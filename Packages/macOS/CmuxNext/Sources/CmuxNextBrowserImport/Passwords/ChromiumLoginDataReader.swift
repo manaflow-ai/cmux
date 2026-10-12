@@ -42,6 +42,10 @@ public struct LoginSkipCounts: Sendable, Equatable, Codable {
     public var total: Int { neverSaved + notWebForm + empty + undecryptable + duplicate }
 }
 
+// CMUX_NO_PASSWORD_IMPORT (set only by the cx-f58x notary test build,
+// nightly.yml input notary_test_without_password_import) compiles out the
+// browser password readers. Default builds include them.
+#if !CMUX_NO_PASSWORD_IMPORT
 /// Reads a Chromium profile's saved passwords: `Login Data` (the profile
 /// store) and `Login Data For Account` (the account store). Each database is
 /// read from a private copy (`SQLiteSnapshot`), which holds only the
@@ -101,3 +105,4 @@ public struct ChromiumLoginDataReader {
         return (order.compactMap { byKey[$0] }, skipped)
     }
 }
+#endif

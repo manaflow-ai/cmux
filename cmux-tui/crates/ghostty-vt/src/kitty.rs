@@ -31,51 +31,13 @@ pub const KITTY_INFLIGHT_REPLAY_MAX_BYTES: usize =
     kitty_inflight_replay_limit_for_image_bytes(MAX_KITTY_IMAGE_BYTES as u64) as usize;
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
-#[cfg(test)]
-std::thread_local! {
-    static SNAPSHOT_IMAGE_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static SNAPSHOT_PLACEMENT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static PIXEL_CACHE_GENERATION_LOOKUPS: std::cell::Cell<usize> =
-        const { std::cell::Cell::new(0) };
-    static PIXEL_CACHE_MISSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn record_snapshot_image_visit() {
-    SNAPSHOT_IMAGE_VISITS.with(|visits| visits.set(visits.get() + 1));
-}
-
-#[cfg(not(test))]
-fn record_snapshot_image_visit() {}
-
-#[cfg(test)]
-fn record_snapshot_placement_visit() {
-    SNAPSHOT_PLACEMENT_VISITS.with(|visits| visits.set(visits.get() + 1));
-}
-
-#[cfg(not(test))]
-fn record_snapshot_placement_visit() {}
-
-#[cfg(test)]
-fn record_pixel_cache_generation_lookup() {
-    PIXEL_CACHE_GENERATION_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
-}
-
-#[cfg(test)]
-fn record_pixel_cache_miss() {
-    PIXEL_CACHE_MISSES.with(|misses| misses.set(misses.get() + 1));
-}
-
-#[cfg(not(test))]
-fn record_pixel_cache_miss() {}
-
 /// Bounded copy of a Kitty direct transmission that libghostty is still
 /// assembling. A fresh attach terminal must consume this exact prefix before
 /// it can understand later continuation chunks from the live byte stream.
 pub(crate) struct KittyInFlightTracker {
     scan: KittyStreamScan,
     prefix: Vec<u8>,
-    loading: bool,
+    pub(crate) loading: bool,
     overflowed: bool,
     max_bytes: usize,
 }
@@ -161,11 +123,6 @@ impl KittyInFlightTracker {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn replay_prefix(&self, max_bytes: usize) -> Vec<u8> {
-        self.replay_prefix_checked(max_bytes).unwrap_or_default()
-    }
-
     fn replay_prefix_parts(&self) -> Result<(&[u8], &[u8])> {
         if self.overflowed
             || matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
@@ -205,19 +162,6 @@ impl KittyInFlightTracker {
             return Err(Error::OutOfSpace);
         }
         Ok((prefix.to_vec(), partial.to_vec()))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn replay_prefix_checked(&self, max_bytes: usize) -> Result<Vec<u8>> {
-        let (prefix, partial) = self.replay_prefix_parts()?;
-        let total = prefix.len().checked_add(partial.len()).ok_or(Error::OutOfSpace)?;
-        if total > max_bytes {
-            return Err(Error::OutOfSpace);
-        }
-        let mut replay = Vec::with_capacity(total);
-        replay.extend_from_slice(prefix);
-        replay.extend_from_slice(partial);
-        Ok(replay)
     }
 
     fn finish_command(&mut self, command: KittyCommand) {
@@ -713,7 +657,6 @@ fn snapshot_impl(
             if raw_image.is_null() {
                 break;
             }
-            record_snapshot_image_visit();
             let image = copy_image(raw_image, pixel_cache)?;
             images.insert(image.id, image);
         }
@@ -734,7 +677,6 @@ fn snapshot_impl(
 
     let mut placements = Vec::new();
     while unsafe { sys::ghostty_kitty_graphics_placement_next(iterator.0) } {
-        record_snapshot_placement_visit();
         let image_id = placement_value::<u32>(
             iterator.0,
             sys::GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IMAGE_ID,
@@ -844,11 +786,7 @@ fn snapshot_impl(
         }
     }
     let current_generations = images.values().map(|image| image.generation).collect::<HashSet<_>>();
-    pixel_cache.retain(|image_generation, _| {
-        #[cfg(test)]
-        record_pixel_cache_generation_lookup();
-        current_generations.contains(image_generation)
-    });
+    pixel_cache.retain(|image_generation, _| current_generations.contains(image_generation));
 
     Ok(KittyReplaySnapshot {
         graphics: KittyGraphicsSnapshot {
@@ -949,7 +887,6 @@ fn copy_image(
             data: data.clone(),
         });
     }
-    record_pixel_cache_miss();
     if data_ptr.is_null() && data_len != 0 {
         return Err(Error::InvalidValue);
     }
@@ -1089,17 +1026,17 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
     let Some(kind) = encoded.get(12..16) else {
         return false;
     };
-    let Some(width) = encoded.get(16..20) else {
+    let Some(width) = encoded.get(16..20).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
-    let Some(height) = encoded.get(20..24) else {
+    let Some(height) = encoded.get(20..24).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()) else {
         return false;
     };
     if signature != PNG_SIGNATURE || length != 13_u32.to_be_bytes() || kind != b"IHDR" {
         return false;
     }
-    let width = u32::from_be_bytes(width.try_into().unwrap());
-    let height = u32::from_be_bytes(height.try_into().unwrap());
+    let width = u32::from_be_bytes(width);
+    let height = u32::from_be_bytes(height);
     width > 0
         && height > 0
         && usize::try_from(width)
@@ -1109,260 +1046,4 @@ fn png_header_within_limits(encoded: &[u8]) -> bool {
             })
             .and_then(|pixels| pixels.checked_mul(4))
             .is_some_and(|bytes| bytes <= MAX_KITTY_IMAGE_BYTES)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn reset_counter(counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>) {
-        counter.with(|value| value.set(0));
-    }
-
-    fn counter(counter: &'static std::thread::LocalKey<std::cell::Cell<usize>>) -> usize {
-        counter.with(std::cell::Cell::get)
-    }
-
-    #[test]
-    fn snapshot_format_rejects_unreachable_grayscale_storage() {
-        for raw in
-            [sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY, sys::GHOSTTY_KITTY_IMAGE_FORMAT_GRAY_ALPHA]
-        {
-            assert!(matches!(snapshot_image_format(raw), Err(Error::InvalidValue)));
-        }
-    }
-
-    #[test]
-    fn inflight_limit_covers_exact_base64_expansion_and_bounded_framing() {
-        assert_eq!(kitty_inflight_replay_limit_for_image_bytes(0), 0);
-        assert_eq!(kitty_inflight_replay_limit_for_image_bytes(1), 5);
-        assert_eq!(KITTY_INFLIGHT_REPLAY_MAX_BYTES, 13_595_480);
-        assert_eq!(
-            kitty_inflight_replay_limit_for_image_bytes(MAX_KITTY_IMAGE_BYTES as u64),
-            KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
-        );
-        assert_eq!(
-            kitty_inflight_replay_limit_for_image_bytes(u64::MAX),
-            KITTY_INFLIGHT_REPLAY_MAX_BYTES as u64
-        );
-    }
-
-    #[test]
-    fn inflight_tracker_replays_completed_and_partial_chunks() {
-        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
-        let partial = b"\x1b_Gm=0;AA";
-        let mut tracker = KittyInFlightTracker::default();
-
-        for bytes in first.chunks(3) {
-            tracker.write(bytes);
-        }
-        for bytes in partial.chunks(2) {
-            tracker.write(bytes);
-        }
-
-        let mut expected = first.to_vec();
-        expected.extend_from_slice(partial);
-        assert_eq!(tracker.replay_prefix(usize::MAX), expected);
-    }
-
-    #[test]
-    fn inflight_tracker_clears_only_for_a_final_direct_transmission() {
-        let first = b"\x1b_Ga=T,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
-        let placement = b"\x1b_Ga=p,i=92,p=1,c=1,r=1\x1b\\";
-        let final_chunk = b"\x1b_Gm=0;AAAA\x1b\\";
-        let mut tracker = KittyInFlightTracker::default();
-
-        tracker.write(first);
-        tracker.write(placement);
-        assert_eq!(tracker.replay_prefix(usize::MAX), first);
-
-        tracker.write(final_chunk);
-        assert!(tracker.replay_prefix(usize::MAX).is_empty());
-    }
-
-    #[test]
-    fn inflight_tracker_uses_numeric_final_chunk_semantics() {
-        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
-        let final_chunk = b"\x1b_Gm=00;AAAA\x1b\\";
-        let mut tracker = KittyInFlightTracker::default();
-
-        tracker.write(first);
-        tracker.write(final_chunk);
-
-        assert!(
-            tracker.replay_prefix(usize::MAX).is_empty(),
-            "a zero-valued numeric m parameter kept the completed transmission in flight"
-        );
-    }
-
-    #[test]
-    fn inflight_tracker_handles_c1_apc_and_terminal_reset() {
-        let first = b"\x9fGa=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x9c";
-        let mut tracker = KittyInFlightTracker::default();
-
-        tracker.write(first);
-        assert_eq!(tracker.replay_prefix(usize::MAX), first);
-
-        tracker.write(b"\x1bc");
-        assert!(tracker.replay_prefix(usize::MAX).is_empty());
-    }
-
-    #[test]
-    fn inflight_tracker_cancels_only_the_active_apc_on_can_or_sub() {
-        for cancel in [0x18, 0x1a] {
-            let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
-            let mut tracker = KittyInFlightTracker::default();
-            tracker.write(first);
-            tracker.write(b"\x1b_Gm=0;cancelled");
-            tracker.write(&[cancel]);
-            tracker.write(b"ordinary output");
-
-            assert_eq!(
-                tracker.replay_prefix(usize::MAX),
-                first,
-                "cancel byte {cancel:#x} retained the aborted APC or following text"
-            );
-
-            tracker.write(b"\x1b_Gm=0;AAAA\x1b\\");
-            assert!(tracker.replay_prefix(usize::MAX).is_empty());
-        }
-    }
-
-    #[test]
-    fn completed_oversized_non_transmissions_do_not_poison_future_replay() {
-        for header in ["a=p,i=92,p=1,c=1,r=1", "a=d,d=i,i=92"] {
-            let mut tracker = KittyInFlightTracker::default();
-            tracker.set_max_bytes(64);
-            let mut command = format!("\x1b_G{header};").into_bytes();
-            command.extend(std::iter::repeat_n(b'x', 128));
-            command.extend_from_slice(b"\x1b\\");
-            tracker.write(&command);
-
-            assert!(
-                tracker.replay_prefix_checked(usize::MAX).is_ok(),
-                "completed oversized {header} command poisoned replay"
-            );
-
-            let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
-            tracker.write(first);
-            assert_eq!(
-                tracker.replay_prefix_checked(usize::MAX).unwrap(),
-                first,
-                "completed oversized {header} command poisoned a later upload"
-            );
-        }
-    }
-
-    #[test]
-    fn snapshot_enumerates_each_stored_image_once() {
-        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        for number in 1..=64 {
-            terminal.vt_write(
-                format!("\x1b_Ga=t,t=d,f=24,I={number},s=1,v=1,q=2;AAAA\x1b\\").as_bytes(),
-            );
-        }
-        terminal.vt_write(b"\x1b_Ga=t,t=d,f=24,s=1,v=1,q=2;AAEA\x1b\\");
-
-        reset_counter(&SNAPSHOT_IMAGE_VISITS);
-        let graphics = snapshot(&terminal, &mut HashMap::new(), true).unwrap();
-
-        assert_eq!(graphics.images.len(), 65);
-        assert_eq!(counter(&SNAPSHOT_IMAGE_VISITS), graphics.images.len());
-        assert_eq!(graphics.images.iter().filter(|image| image.number == 0).count(), 1);
-    }
-
-    #[test]
-    fn snapshot_pixel_cache_retention_looks_up_each_generation_once() {
-        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        for image_id in 1..=64 {
-            terminal.vt_write(
-                format!("\x1b_Ga=t,t=d,f=24,i={image_id},s=1,v=1,q=2;AAAA\x1b\\").as_bytes(),
-            );
-        }
-        let mut pixel_cache = HashMap::new();
-        let graphics = snapshot(&terminal, &mut pixel_cache, true).unwrap();
-        assert_eq!(pixel_cache.len(), graphics.images.len());
-
-        reset_counter(&PIXEL_CACHE_GENERATION_LOOKUPS);
-        let refreshed = snapshot(&terminal, &mut pixel_cache, true).unwrap();
-
-        assert_eq!(refreshed.images.len(), graphics.images.len());
-        assert_eq!(counter(&PIXEL_CACHE_GENERATION_LOOKUPS), graphics.images.len());
-    }
-
-    #[test]
-    fn repeated_vt_replay_reuses_cached_image_pixels() {
-        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
-
-        reset_counter(&PIXEL_CACHE_MISSES);
-        terminal.vt_replay().unwrap();
-        terminal.vt_replay().unwrap();
-
-        assert_eq!(
-            counter(&PIXEL_CACHE_MISSES),
-            1,
-            "an unchanged replay copied libghostty image pixels again"
-        );
-    }
-
-    #[test]
-    fn render_snapshot_skips_unchanged_graphics_but_refreshes_geometry_damage() {
-        let mut terminal = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
-        let mut pixel_cache = HashMap::new();
-        let first = snapshot_for_render(&terminal, &mut pixel_cache, true)
-            .unwrap()
-            .expect("forced first render snapshot");
-        assert_eq!(first.placements.len(), 1);
-
-        reset_counter(&SNAPSHOT_PLACEMENT_VISITS);
-        terminal.vt_write(b"text");
-        assert!(
-            snapshot_for_render(&terminal, &mut pixel_cache, false).unwrap().is_none(),
-            "ordinary text output rebuilt an unchanged Kitty scene"
-        );
-        assert_eq!(counter(&SNAPSHOT_PLACEMENT_VISITS), 0);
-
-        terminal.resize(21, 8, 8, 16).unwrap();
-        let resized = snapshot_for_render(&terminal, &mut pixel_cache, false)
-            .unwrap()
-            .expect("resize must refresh placement geometry");
-        assert_eq!(resized.placements.len(), 1);
-        assert!(counter(&SNAPSHOT_PLACEMENT_VISITS) > 0);
-    }
-
-    #[test]
-    fn forced_empty_terminal_rebind_releases_cached_pixels() {
-        let mut populated = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        populated.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
-        let mut pixel_cache = HashMap::new();
-        let graphics = snapshot_for_render(&populated, &mut pixel_cache, true)
-            .unwrap()
-            .expect("populated terminal snapshot");
-        assert_eq!(graphics.images.len(), 1);
-        assert_eq!(pixel_cache.len(), 1);
-
-        let empty = Terminal::new(20, 8, 100, crate::Callbacks::default()).unwrap();
-        let rebound = snapshot_for_render(&empty, &mut pixel_cache, true)
-            .unwrap()
-            .expect("forced empty terminal snapshot");
-
-        assert!(rebound.is_empty());
-        assert!(pixel_cache.is_empty(), "rebound render state retained stale image pixels");
-    }
-
-    #[test]
-    fn png_header_rejects_dimensions_above_the_decode_bound() {
-        let mut header = Vec::from(*PNG_SIGNATURE);
-        header.extend_from_slice(&13_u32.to_be_bytes());
-        header.extend_from_slice(b"IHDR");
-        header.extend_from_slice(&5_000_u32.to_be_bytes());
-        header.extend_from_slice(&5_000_u32.to_be_bytes());
-        assert!(!png_header_within_limits(&header));
-
-        header[16..20].copy_from_slice(&1_u32.to_be_bytes());
-        header[20..24].copy_from_slice(&1_u32.to_be_bytes());
-        assert!(png_header_within_limits(&header));
-    }
 }

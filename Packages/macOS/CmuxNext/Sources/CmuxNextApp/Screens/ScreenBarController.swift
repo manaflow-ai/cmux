@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextTabs
@@ -43,7 +44,7 @@ final class ScreenBarController {
         apply(snapshot())
         observation = Task { [weak self] in
             guard let content = self?.content else { return }
-            for await snapshot in Observations({ Self.snapshot(content) }) { self?.apply(snapshot) }
+            for await snapshot in ObservationStream({ Self.snapshot(content) }) { self?.apply(snapshot) }
         }
     }
 
@@ -180,7 +181,7 @@ final class ScreenBarController {
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):
-            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.colorToken, daemon: daemon)
+            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.tint, daemon: daemon)
         case .group(let command):
             run(command)
         default:

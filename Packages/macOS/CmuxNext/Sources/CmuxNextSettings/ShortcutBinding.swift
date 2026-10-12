@@ -18,8 +18,6 @@ public struct ShortcutStrokeSpec: Sendable, Hashable {
         self.option = option
         self.control = control
     }
-
-    public var hasModifier: Bool { command || shift || option || control }
 }
 
 /// A parsed `shortcuts.bindings.<actionID>` value.
@@ -185,6 +183,7 @@ public struct ShortcutBindingFormat {
     }
 
     private static func functionKey(_ code: Int) -> String {
-        String(Character(UnicodeScalar(UInt32(code))!))
+        // Function-key codes are valid private-use scalars; NUL stands in otherwise (no trap).
+        String(Character(UnicodeScalar(UInt32(code)) ?? UnicodeScalar(0)))
     }
 }

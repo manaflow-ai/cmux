@@ -8,6 +8,11 @@ nonisolated extension ActionSurfaceCatalog {
         // The menus offer New Tab Page, whose field is this action's GUI form.
         .duplicateOfDefault: [
             "newTab.submit",
+            // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
+            // setting-driven New Tab stays in the File menu and the palette.
+            "newTab.default",
+            // The pane's menu offers Show Tab Bar, and the bar's + adds a tab once it shows.
+            "newTab.horizontal",
         ],
         .secondaryEngine: [
             "openBrowser.webkit",
@@ -22,16 +27,17 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .noObject: [
+            "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
-            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.allowAgentWithExtensions",
-            "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
+            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV", "browser.importFromFiles", "browser.allowAgentWithExtensions",
+            "workspace.importClassic", "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "palette.enableMinimalMode", "palette.disableMinimalMode", "showNotifications", "feed.show", "markAllNotificationsRead",
+            "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
@@ -45,7 +51,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
-            "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
+            "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
             "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -56,11 +62,10 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export", "agentActivity.open",
+            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
-            "openLinkInDefaultBrowser",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
@@ -88,9 +93,10 @@ nonisolated extension ActionSurfaceCatalog {
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "space.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
-            "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",
+            "focusPaneByNumber", "focusSidebar",
+            "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
+            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
             "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],
@@ -98,8 +104,9 @@ nonisolated extension ActionSurfaceCatalog {
             "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "increaseWorkspaceTerminalFontSize",
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
-            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
+            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
+            // The app's Interface Size; the chat's own zoom is the agent chat menu's.
+            "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",
@@ -112,20 +119,23 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
         ],
         .liveInput: [
-            "browserLinkHints", "browserLinkHintsNewSplit",
+            "browserLinkHints", "browserLinkHintsNewSplit", "hints.show",
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
-            "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
+            "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [
-            "space.move", "browser.extension.move", "bookmark.move",
+            "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+        ],
+        .minimalMenu: [
+            "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],
         .devOnly: [
-            "openDebugSettings", "palette.onboardingGallery",
+            "openDebugSettings",
         ],
     ]
 }

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -21,13 +22,19 @@ final class HiddenHistoryStore {
         self.services = services
         let store = services.daemon.store
         observation = Task { [weak self] in
-            for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
+            for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
                 self?.load()
             }
         }
     }
 
-    deinit { observation?.cancel() }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
+    }
 
     func change(_ body: (inout HiddenHistory) -> Void) {
         body(&document)

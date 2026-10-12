@@ -1,4 +1,5 @@
-import type { SchedulerState } from "./scheduler.ts"
+import type { RowReader } from "@cmux/ownership"
+import { allAutomations } from "./scheduler-rows.ts"
 
 /** Provider event matching for `event` triggers (SchedulerDO, integration events). Pure. */
 
@@ -14,11 +15,11 @@ const pathValue = (payload: unknown, path: string): unknown => {
 
 /** Event triggers of enabled automations that match a provider event: same connection, event pattern, every filter. */
 export const matchingEventTriggers = (
-  state: SchedulerState,
+  rows: RowReader | undefined,
   ev: { connection: string; event: string; payload: unknown; sharing: "private" | "team"; created_by: string }
 ): Array<{ automation: string; trigger: string }> => {
   const out: Array<{ automation: string; trigger: string }> = []
-  for (const a of Object.values(state.automations)) {
+  for (const a of allAutomations(rows)) {
     if (!a.enabled) continue
     // A private connection's events start only its creator's automations.
     if (ev.sharing !== "team" && a.created_by !== ev.created_by) continue

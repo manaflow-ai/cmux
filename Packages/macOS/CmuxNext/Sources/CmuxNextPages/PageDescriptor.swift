@@ -91,7 +91,12 @@ public nonisolated struct PageNativeOp {
     public nonisolated init() {}
     /// Runs a registry action in the app with origin `user`: `{action, args}`.
     public static let actionRun = "cmux.app.action.run"
-    /// Writes text to the pasteboard: `{text}`.
+    /// The refusal of a person-only action (``ActionDescriptor/isPersonOnly``) that a page asked
+    /// for without a real click or key in the page view.
+    public static let userOnlyCode = "cmux.app.user_only"
+    /// Writes text to the pasteboard: `{text}`. Only within a moment of a real key, click or native
+    /// context menu choice in the page view (`PageCallContext.userGesture`); otherwise refused with
+    /// ``userOnlyCode``.
     public static let clipboardWrite = "cmux.app.clipboard.write"
     /// Stream every page may subscribe to: `{command, text?}` from the app's key dispatcher
     /// (`find`, `focusSearch`, `back`, `forward`, `reset`). The page never reads chords itself.
@@ -102,6 +107,13 @@ public nonisolated struct PageNativeOp {
     /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
     /// current state arrives as the first event.
     public static let pageConnection = "cmux.page.connection"
+    /// Built in for every page (cx-6k6cg): a small transient surface with no room in the page shows
+    /// its rows past the window's edge (WebPopupHost): `show`, `update` and `hide`.
+    public static let popupShow = "cmux.app.popup.show"
+    public static let popupUpdate = "cmux.app.popup.update"
+    public static let popupHide = "cmux.app.popup.hide"
+    /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
+    public static let pagePopup = "cmux.page.popup"
     /// The page commands the dispatcher sends (the Settings lead's page pattern).
     public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
 }
@@ -123,15 +135,17 @@ public extension PageDescriptor {
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
-    /// sections' buttons.
+    /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
         id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
-        nativeOps: [PageNativeOp.actionRun],
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"])
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  // Agents > Computer Use card (ComputerUseSetup).
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum"], ownsSearchField: true)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
     /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
@@ -165,6 +179,11 @@ public extension PageDescriptor {
         "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
         "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
     ]
+
+    /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and
+    /// opens a file; the only native op copies a path.
+    static let files = PageDescriptor(
+        id: "cmux.files", resource: "files", namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

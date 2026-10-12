@@ -1,3 +1,4 @@
+import CmuxNextProcessEnvironment
 import Darwin
 import Foundation
 
@@ -14,10 +15,17 @@ nonisolated struct LaunchMarkSink: Sendable {
     static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
     private let fd: Int32?
 
+    /// Children (the daemon, terminals) must not inherit the variable: its
+    /// descriptor number means nothing to them. Creates ``shared`` first, so
+    /// the sink has read the descriptor. Runs in `CmuxNextApp.prepareLaunchEnvironment`.
+    static func dropInheritedDescriptor(environmentGuard: ProcessEnvironmentGuard = .process) {
+        _ = shared
+        environmentGuard.write("LaunchMarkSink.dropInheritedDescriptor") {
+            unsetenv(environmentKey)
+        }
+    }
+
     init(environment: [String: String]) {
-        // Children (the daemon, terminals) must not inherit the variable:
-        // its descriptor number means nothing to them.
-        unsetenv(Self.environmentKey)
         guard let text = environment[Self.environmentKey], let fd = Int32(text), fd > 2,
               fcntl(fd, F_GETFD) != -1 else {
             self.fd = nil

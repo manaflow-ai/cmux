@@ -5,6 +5,8 @@
 //! request and the typed result; the decode tests use the shapes of
 //! spec/commands.md (`tests/home_conversation_live.rs` checks them against a
 //! real daemon).
+// Unix sockets and a live Unix daemon; the Windows suite is separate.
+#![cfg(unix)]
 
 use cmux::raw::{
     ConversationCreateResult, ConversationListResult, ConversationOpResult,
