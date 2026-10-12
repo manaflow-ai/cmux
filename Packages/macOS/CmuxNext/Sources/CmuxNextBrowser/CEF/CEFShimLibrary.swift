@@ -139,6 +139,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let importPasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
     let passwordEntrySize: @convention(c) () -> Int32
     let passwordImportAvailable: @convention(c) () -> Int32
+    let replacePasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
+    let passwordReplaceAvailable: @convention(c) () -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
@@ -315,6 +317,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         importPasswords = try r("cmux_shim_import_passwords")
         passwordEntrySize = try r("cmux_shim_password_entry_size")
         passwordImportAvailable = try r("cmux_shim_password_import_available")
+        replacePasswords = try r("cmux_shim_replace_passwords")
+        passwordReplaceAvailable = try r("cmux_shim_password_replace_available")
         setPasswordFill = try r("cmux_shim_set_password_fill")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")

@@ -34,7 +34,7 @@ public final class ThemeStore {
     /// `appearance.accent`: every scope derives its tokens with it (`ThemeInput.accent`).
     public private(set) var accent: ThemeAccent = .neutral
     /// Art Color (`appearance.accent: "art"`): each scope's accent takes the hue of the art it
-    /// shows (`BackdropArt.accentColor`), over the theme's own.
+    /// shows (`BackdropArt.accentHue`), over the theme's own.
     public private(set) var accentFollowsArt = false
 
     @ObservationIgnored private let publishesGlobally: Bool

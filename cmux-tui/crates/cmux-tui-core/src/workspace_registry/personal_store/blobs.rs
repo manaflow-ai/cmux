@@ -55,6 +55,7 @@ pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("tab_state", "icon"),
     ("saved_screen_groups", "members_json"),
     ("profiles", "icon"),
+    ("personal_groups", "icon"),
     ("browser_profiles", "icon"),
     ("workspace_status_entries", "icon"),
     ("closed_groups", "record_json"),

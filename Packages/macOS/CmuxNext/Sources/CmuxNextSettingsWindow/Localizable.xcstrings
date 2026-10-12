@@ -39369,127 +39369,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How much glass covers this workspace's art. Text stays readable at any value."
+            "value": "How much glass covers the art. Text stays readable."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wie stark das Glas das Bild dieses Workspaces bedeckt. Text bleibt bei jedem Wert lesbar."
+            "value": "Wie stark Glas das Bild bedeckt. Text bleibt lesbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La part de verre qui couvre l'œuvre de cet espace. Le texte reste lisible à toute valeur."
+            "value": "Part de verre sur l'œuvre. Le texte reste lisible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مقدار الزجاج الذي يغطي لوحة مساحة العمل هذه. يبقى النص مقروءًا عند أي قيمة."
+            "value": "مقدار الزجاج فوق اللوحة. يبقى النص مقروءًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuánto vidrio cubre la obra de este espacio. El texto sigue legible con cualquier valor."
+            "value": "Cuánto vidrio cubre la obra. El texto sigue legible."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quanto vetro copre l'opera di questo spazio. Il testo resta leggibile a qualsiasi valore."
+            "value": "Quanto vetro copre l'opera. Il testo resta leggibile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このワークスペースのアートをガラスがどれだけ覆うか。どの値でも文字は読みやすいままです。"
+            "value": "アートを覆うガラスの量。文字は読みやすいままです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간의 작품을 유리가 얼마나 덮는지입니다. 어떤 값에서도 텍스트는 읽기 쉽게 유지됩니다."
+            "value": "작품을 덮는 유리의 양. 텍스트는 읽기 쉽게 유지됩니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quanto vidro cobre a obra deste espaço. O texto continua legível em qualquer valor."
+            "value": "Quanto vidro cobre a obra. O texto segue legível."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Насколько стекло закрывает картину этой рабочей области. Текст остаётся читаемым при любом значении."
+            "value": "Сколько стекла над картиной. Текст читаем."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "玻璃覆盖此工作区作品的程度。任何数值下文字都清晰可读。"
+            "value": "玻璃覆盖作品的程度。文字依然清晰可读。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "玻璃覆蓋此工作區作品的程度。任何數值下文字都清晰可讀。"
+            "value": "玻璃覆蓋作品的程度。文字依然清晰可讀。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koliko stakla prekriva sliku ovog radnog prostora. Tekst ostaje čitljiv pri svakoj vrijednosti."
+            "value": "Koliko stakla prekriva sliku. Tekst ostaje čitljiv."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor meget glas dækker dette arbejdsområdes billede. Teksten forbliver læsbar ved enhver værdi."
+            "value": "Hvor meget glas dækker billedet. Teksten er læsbar."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្រិតកញ្ចក់គ្របលើរូបភាពនៃកន្លែងធ្វើការនេះ។ អក្សរនៅតែអានបានគ្រប់តម្លៃ។"
+            "value": "កម្រិតកញ្ចក់លើរូបភាព។ អក្សរនៅតែអានបាន។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor mye glass som dekker bildet i dette arbeidsområdet. Teksten forblir lesbar ved alle verdier."
+            "value": "Hvor mye glass dekker bildet. Teksten er lesbar."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jak mocno szkło zakrywa obraz tego obszaru roboczego. Tekst pozostaje czytelny przy każdej wartości."
+            "value": "Ile szkła zakrywa obraz. Tekst pozostaje czytelny."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปริมาณกระจกที่ปิดทับภาพของเวิร์กสเปซนี้ ข้อความยังอ่านง่ายทุกค่า"
+            "value": "ปริมาณกระจกที่ปิดภาพ ข้อความยังอ่านง่าย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camın bu çalışma alanının eserini ne kadar örttüğü. Metin her değerde okunabilir kalır."
+            "value": "Camın eseri ne kadar örttüğü. Metin okunur kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Наскільки скло закриває картину цього робочого простору. Текст лишається читабельним за будь-якого значення."
+            "value": "Скільки скла над картиною. Текст читабельний."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mức kính phủ lên tranh của không gian làm việc này. Chữ vẫn dễ đọc ở mọi giá trị."
+            "value": "Mức kính phủ lên tranh. Chữ vẫn dễ đọc."
           }
         }
       }
@@ -39752,6 +39752,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dùng của tác phẩm"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.windowGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window Glass"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fensterglas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenêtre en verre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نافذة زجاجية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana de vidrio"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finestra di vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウガラス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 유리"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Janela de Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стеклянное окно"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗玻璃"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stakleni prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesglas"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់បង្អួច"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vindusglass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szklane okno"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere Camı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скляне вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ kính"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.windowGlassHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the desktop through the art."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schreibtisch scheint durch das Bild."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le bureau transparaît à travers l'œuvre."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يظهر سطح المكتب عبر اللوحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El escritorio se ve a través de la obra."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scrivania si vede attraverso l'opera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アート越しにデスクトップが見えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작품 너머로 데스크탑이 보입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A mesa aparece através da obra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочий стол виден сквозь картину."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透过作品看到桌面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透過作品看到桌面。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radna površina se vidi kroz sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordet ses gennem billedet."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មើលឃើញផ្ទៃតុតាមរយៈរូបភាព។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrivebordet synes gjennom bildet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biurko prześwituje przez obraz."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มองเห็นเดสก์ท็อปผ่านภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masaüstü eserin ardından görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий стіл видно крізь картину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhìn thấy màn hình nền qua tranh."
           }
         }
       }

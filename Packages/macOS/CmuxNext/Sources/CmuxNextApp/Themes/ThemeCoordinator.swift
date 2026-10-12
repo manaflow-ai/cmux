@@ -108,7 +108,7 @@ final class ThemeCoordinator {
             var input = $0.input
             input.accent = ThemeStore.shared.accent
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
-            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentColor { input.accentColor = hue }
+            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
             return AppTheme.derive(from: input)
         })
     }

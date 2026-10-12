@@ -160,7 +160,7 @@ final class SidebarRegionView: NSView {
             || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items where item.showsLabel {
                 let info = content.infos[item.id] ?? .fallback(for: item)
-                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)
+                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
             }
         }
         return widths
