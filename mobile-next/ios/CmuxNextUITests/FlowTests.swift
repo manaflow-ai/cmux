@@ -602,6 +602,30 @@ final class FlowTests: XCTestCase {
         snap(app, "h2-home-search")
     }
 
+    func testSignOutAndBackIn() throws {
+        let app = launchSignedIn(arguments: [])
+        pause(3)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.profile"].tap()
+        pause(1)
+        app.swipeUp()
+        pause(2)
+        let signOut = app.buttons["settings.signout"]
+        let frame = signOut.frame
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+        pause(0.8)
+        snap(app, "i0-confirm")
+        app.buttons.matching(NSPredicate(format: "label == 'Sign out' AND identifier != 'settings.signout'")).firstMatch.tap()
+        XCTAssertTrue(app.buttons["auth.apple"].waitForExistence(timeout: 10), "should land on welcome")
+        pause(1)
+        snap(app, "i1-welcome")
+        app.terminate()
+        let again = launchSignedIn()
+        XCTAssertTrue(again.descendants(matching: .any)["home.pin.cv_chief"].waitForExistence(timeout: 60))
+        snap(again, "i2-back-in")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
