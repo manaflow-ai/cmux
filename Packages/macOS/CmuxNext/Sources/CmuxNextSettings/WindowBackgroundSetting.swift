@@ -14,6 +14,32 @@ public nonisolated enum WindowBackgroundSetting {
     /// The opacity range, as Ghostty's `background-opacity`.
     public static let opacityRange: ClosedRange<Double> = 0...1
 
+    /// The other window background key a write to `path` changes with it,
+    /// so the pair is either Ghostty's or cmux's own: an opacity with
+    /// Material unset (Ghostty) also names the material Ghostty's blur gives;
+    /// removing either key removes the other, back to Ghostty's values.
+    ///
+    /// - Parameter path: The key being written.
+    /// - Parameter value: Its new value; nil removes it.
+    /// - Parameter root: The settings document before the write.
+    /// - Parameter ghosttyMaterial: The material Ghostty's `background-blur`
+    ///   gives, named when the opacity leaves Ghostty.
+    /// - Returns: Extra edits for the same write; empty for any other key.
+    public static func linkedEdits(writing path: [String], value: JSONValue?, in root: JSONValue,
+                                   ghosttyMaterial: WindowMaterialChoice) -> [(path: [String], value: JSONValue?)] {
+        switch path {
+        case opacityPath where value != nil:
+            guard root.value(at: materialPath) == nil else { return [] }
+            return [(materialPath, .string(ghosttyMaterial.rawValue))]
+        case opacityPath:
+            return root.value(at: materialPath) == nil ? [] : [(materialPath, nil)]
+        case materialPath where value == nil:
+            return root.value(at: opacityPath) == nil ? [] : [(opacityPath, nil)]
+        default:
+            return []
+        }
+    }
+
     /// A missing key keeps Ghostty's value with no diagnostic; a bad value
     /// keeps it too, plus a diagnostic at the key.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WindowBackgroundOverride {

@@ -59,19 +59,24 @@ final class TerminalThemeSetting {
     /// first window, which must not draw a frame in the defaults), then
     /// follows their changes.
     func follow(_ settings: SettingsController) {
-        // The theme and its edits follow `applied`, so a theme picker's live preview shows; the rest
-        // follows the loaded settings, so a slider's preview (font size, opacity) never reloads Ghostty per tick.
-        take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits)
+        // An opacity write with Material unset names the material Ghostty's blur gives; while
+        // Material is unset this scope's resolved blur is Ghostty's.
+        settings.ghosttyBackgroundBlur = { [backdropScope] in backdropScope.input.backgroundBlur }
+        // The theme, its edits and the window background follow `applied`, so a theme picker's or
+        // the Opacity slider's live preview repaints the window; the rest follows the loaded
+        // settings, so a font size slider's preview never reloads Ghostty per tick.
+        take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
+             background: settings.applied.windowBackground)
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits) in ObservationStream({
-                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits)
+            for await (snapshot, theme, edits, background) in ObservationStream({
+                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits)
+                self?.take(snapshot, theme: theme, edits: edits, background: background)
             }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits) {
+    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride) {
         backdropScope.setBackdropSelection(snapshot.backdropSelection)
         backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
         // Per-surface backgrounds (R55): every owner repaints from them.
@@ -79,6 +84,7 @@ final class TerminalThemeSetting {
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits
+        state.background = background
         apply(state)
     }
 
