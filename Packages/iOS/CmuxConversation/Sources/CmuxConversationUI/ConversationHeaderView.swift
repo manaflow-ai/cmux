@@ -37,6 +37,15 @@ final class ConversationHeaderView: UIView {
     let trailingButton = UIButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
     let statusLabel = UILabel()
+    /// iOS 27 sizes the soft top pocket from the elements inside its
+    /// container: glass alone makes it the safe top + 120 pt (182 here),
+    /// while a floating element (a label) ends it 60 pt below that element's
+    /// top (at least the safe top + 60). Messages' pocket (its navigation
+    /// bar's) ends 8 pt under the name capsule (157.33 at Large, 162.33 at
+    /// AX3), so this empty label sits 52 pt above the capsule's bottom.
+    private let pocketAnchor = UILabel()
+    static let pocketBelowCapsule: CGFloat = 8
+    static let floatingElementPocketExtent: CGFloat = 60
 
     var onBack: (() -> Void)?
     var onInfo: (() -> Void)?
@@ -110,6 +119,11 @@ final class ConversationHeaderView: UIView {
         statusLabel.textAlignment = .center
         statusLabel.alpha = 0
         addSubview(statusLabel)
+        if #available(iOS 27.0, *) {
+            pocketAnchor.isAccessibilityElement = false
+            pocketAnchor.isUserInteractionEnabled = false
+            insertSubview(pocketAnchor, at: 0)
+        }
     }
 
     @available(*, unavailable)
@@ -238,6 +252,8 @@ final class ConversationHeaderView: UIView {
         chevron.frame = CGRect(x: pillWidth2 - 10.9 - chevronInk / 2 - chevronSize.width / 2, y: (pillHeight - chevronSize.height) / 2, width: chevronSize.width, height: chevronSize.height)
         nameButton.frame = namePillGlass.bounds
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
+        let anchorTop = namePillGlass.frame.maxY + Self.pocketBelowCapsule - Self.floatingElementPocketExtent
+        pocketAnchor.frame = CGRect(x: centerX, y: anchorTop, width: 1, height: 1)
     }
 
     /// Select mode hides the back button; the trailing X (Cancel) is the way out.
