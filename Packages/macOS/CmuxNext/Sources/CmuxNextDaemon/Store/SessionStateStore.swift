@@ -70,7 +70,8 @@ public final class SessionStateStore {
                     for tab in pane.tabs {
                         tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
                                        progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
-                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [])
+                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
+                                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
                     }
                 }
             }

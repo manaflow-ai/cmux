@@ -52,6 +52,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgress: [ResourceID: TerminalProgressReport] = [:]
     /// OSC 7501 records per terminal; a terminal without records is absent.
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
+    /// When each terminal's running shell command started; a terminal at a prompt is absent.
+    public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -76,9 +78,10 @@ public struct SessionStateMirror: Sendable, Hashable {
             screens[id] = state
         case .tab(let id, let record):
             tabs[id] = record.flatMap { $0.isEmpty ? nil : $0 }
-        case .terminal(let id, let progress, let programStatus):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs):
             terminalProgress[id] = progress
             terminalProgramStatus[id] = programStatus.isEmpty ? nil : programStatus
+            terminalBusySinceMs[id] = busySinceMs
         case .closed(let item):
             closed.removeAll { $0.id == item.id }
             let index = closed.firstIndex { $0.closedAtMs < item.closedAtMs } ?? closed.endIndex

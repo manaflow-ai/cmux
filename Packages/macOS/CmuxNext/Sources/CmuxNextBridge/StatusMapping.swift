@@ -1,13 +1,15 @@
 public import CmuxNextDaemon
 public import CmuxNextDesign
 public import CmuxNextTabs
+import Foundation
 
 /// Turns the status facts the daemon publishes about a tab into
 /// `StatusReport`s, and merges them per tab and per workspace with
 /// `StatusStack` (plans/cmux-next/status-indicators.md). The app only
 /// renders: every fact here is written by its owner (agent hooks through
-/// the session host today; `workspace_status` entries, OSC 9;4 terminal
-/// progress and running commands once the daemon publishes them).
+/// the session host; running shell commands from the terminal record's
+/// `extra.busy`; `workspace_status` entries and OSC 9;4 terminal progress
+/// once the app reads them).
 public struct StatusMapping {
     public static let shared = Self()
 
@@ -35,7 +37,24 @@ public struct StatusMapping {
         if let ref = tab.agentSession, let turn = visibleTurn(tab) {
             reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
         }
+        if let report = command(tab) { reports.append(report) }
         return reports
+    }
+
+    /// A plain shell command (the daemon's `extra.busy`) that has run `status.inferCommandBusyAfter`:
+    /// busy, the weakest source. A younger one arms the tab's one-shot recheck for when it comes of age.
+    func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? {
+        let behavior = DesignSettings.shared.statusBehavior
+        guard behavior.inferCommandBusy, let since = tab.commandSinceMs else { return nil }
+        _ = tab.commandRecheck
+        // A start ahead of this clock (another machine's daemon) counts from now.
+        let age = nowMs > since ? nowMs - since : 0
+        let after = UInt64(behavior.inferCommandBusyAfter * 1000)
+        guard age >= after else {
+            tab.recheckCommand(after: .milliseconds(after - age))
+            return nil
+        }
+        return StatusReport(id: "command:\(tab.id)", source: .command, state: .busy(progress: nil), updatedAtMs: since)
     }
 
     /// Roster sources that infer state from the screen (the agent plugin,
