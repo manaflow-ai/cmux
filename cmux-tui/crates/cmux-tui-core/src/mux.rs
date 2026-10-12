@@ -168,6 +168,8 @@ pub(crate) use browser_tab_create::{
 pub(crate) use spawn_options::{CLIENT_PANE_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity};
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 mod agent_chat_columns;
+#[cfg(unix)]
+mod agent_chat_notices;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 mod client_resize;
