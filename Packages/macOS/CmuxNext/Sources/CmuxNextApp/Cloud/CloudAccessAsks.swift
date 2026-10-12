@@ -68,10 +68,13 @@ final class CloudAccessAsks {
     private func poll(_ services: AppServices?) async -> Duration? {
         guard let services, let binary = services.cloud.move.cli else { return stop() }
         let setup = services.cloud.move, cli = CloudAccessCLI(binary: binary)
-        let ledger = services.cloud.movedChats.all()
-        for entry in ledger where entry.broughtBack != nil { revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session)) }
+        revokes.firstBackoff = setup.accessPoll
+        for entry in services.cloud.movedChats.all() where entry.broughtBack != nil {
+            revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session))
+        }
         await revokes.run(cli, services: services)
-        let chats = ledger.filter { $0.broughtBack == nil }
+        // Read after the await, with no await before a stop: a move recorded meanwhile keeps the loop going.
+        let chats = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
         // Turned off by the organization: no request goes out, and the cards go.
         guard !chats.isEmpty, !services.machines.isFeatureDisabled(.cloud) else {
             asks = [:]
@@ -81,9 +84,11 @@ final class CloudAccessAsks {
         triages += 1
         let triage = triages
         var next: [String: [CloudAccessAsk]] = [:]
+        var liveTabs: Set<String> = []
         for (machineID, machineChats) in Dictionary(grouping: chats, by: \.machineID).sorted(by: { $0.key < $1.key }) {
             guard let machine = services.machines.session(machineID), let socket = await machine.daemon.connection?.endpoint?.socketPath else { continue }
             let sessions = Array(Set(machineChats.map(\.session))).sorted()
+            for chat in machineChats { if let tab = Self.tab(of: chat, on: machine, services: services) { liveTabs.insert(tab) } }
             if let wait = backoff[machineID], ContinuousClock.now < wait.until {
                 for (tab, list) in asks where list.contains(where: { $0.machineID == machineID }) { next[tab] = list }
                 continue
@@ -123,6 +128,8 @@ final class CloudAccessAsks {
         for list in next.values { for ask in list { answered[ask.ask.requestID] = nil } }
         answered = answered.filter { $0.value >= triage }
         asks = next.filter { !$0.value.isEmpty }
+        // A failed answer's card goes with its chat's tab.
+        failures = failures.filter { liveTabs.contains($0.key) }
         render(services: services)
         return setup.accessPoll
     }
@@ -149,11 +156,14 @@ final class CloudAccessAsks {
         return entry.broughtBack == nil && entry.machineID == ask.machineID
     }
 
-    /// Sets each tab's cards (failed answers first, then the asks of chats still on their machines),
+    /// Sets each tab's cards (the asks of chats still on their machines, then one failed answer),
     /// at most ``AgentPaneToolCard/maximumShown`` per chat, and removes those of tabs with none.
     private func render(services: AppServices) {
         for tab in Set(shown.keys).union(asks.keys).union(failures.keys) {
-            let list = (failures[tab] ?? []) + (asks[tab] ?? []).filter { Self.isLive($0, services: services) && !answering.contains($0.ask.requestID) }
+            failures[tab] = failures[tab]?.filter { Self.isLive($0, services: services) }
+            if failures[tab]?.isEmpty == true { failures[tab] = nil }
+            // Live asks first: a failed answer's card never pushes one past the cap.
+            let list = (asks[tab] ?? []).filter { Self.isLive($0, services: services) && !answering.contains($0.ask.requestID) } + (failures[tab] ?? []).prefix(1)
             let cards = list.prefix(AgentPaneToolCard.maximumShown).map(CloudAccessCard.card)
             guard cards != shown[tab] ?? [] else { continue }
             let ok = services.cloud.toolCards.set(cards, owner: Self.owner, tab: tab) { [weak self, weak services] card, action in
@@ -174,8 +184,9 @@ final class CloudAccessAsks {
         }
         guard let ask = asks[tab]?.first(where: { $0.card == card }), Self.isLive(ask, services: services),
               let how = CloudAccessCard.how(action, ask.ask), let binary = services.cloud.move.cli else { return }
-        let id = ask.ask.requestID
+        let id = ask.ask.requestID, chat = CloudAccessRevokes.Chat(machineID: ask.machineID, session: ask.session)
         answering.insert(id)
+        revokes.answerStarted(chat)
         asks[tab]?.removeAll { $0.card == card }
         render(services: services)
         let logger = services.cloud.logger
@@ -190,6 +201,10 @@ final class CloudAccessAsks {
             guard let self else { return }
             answering.remove(id)
             answered[id] = triages
+            // The chat came back while this ran: what it may have granted is revoked again.
+            let live = services.map { Self.isLive(ask, services: $0) } ?? false
+            revokes.answerEnded(chat, live: live)
+            if !live, let services { chatBroughtBack(machineID: chat.machineID, session: chat.session, services: services) }
             // A changed or gone request: the next triage shows it again as it is now, if it still waits.
             guard !answer.ok, answer.errorCode != "request_changed", answer.errorCode != "request_gone" else { return }
             logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
