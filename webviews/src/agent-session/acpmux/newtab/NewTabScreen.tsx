@@ -1,4 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
@@ -83,6 +85,12 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
+  /// Buttons before Send, such as the dictation mic (DictationMic).
+  accessory?: React.ReactNode;
+  /// Why dictation did not run (DictationNotice), under the field.
+  notice?: React.ReactNode;
+  /// Where the page's dictation writes: the field, while the screen shows.
+  dictationField?: React.MutableRefObject<DictationField | null>;
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
@@ -233,6 +241,38 @@ export function NewTabScreen(props: Props) {
     const command = text.trim();
     if (command) props.onShell(command);
   };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const editRef = useRef(edit);
+  editRef.current = edit;
+  const { dictationField } = props;
+  useLayoutEffect(() => {
+    if (!dictationField) return undefined;
+    dictationField.current = {
+      focus: () => field.current?.focus(),
+      focused: () => document.activeElement === field.current,
+      element: () => field.current,
+      text: () => {
+        const input = field.current;
+        const value = input?.value ?? "";
+        return {
+          value,
+          selectionStart: input?.selectionStart ?? value.length,
+          selectionEnd: input?.selectionEnd ?? value.length,
+        };
+      },
+      // Dictation splices its words in as typing would, committed at once: its next update reads
+      // the field back, and auto-send sends what it holds.
+      writeText: (value, selectionStart, selectionEnd) => {
+        flushSync(() => editRef.current(value));
+        field.current?.setSelectionRange(selectionStart, selectionEnd);
+      },
+      submit: () => sendRef.current(),
+    };
+    return () => {
+      dictationField.current = null;
+    };
+  }, [dictationField]);
   // A key typed anywhere on the page goes into the field, the first key kept (Lawrence
   // 2026-10-09: "if i just start typing it needs to automatically start typing"). Another field
   // (a picker's search), a menu with its own keys, a chord and IME keep theirs.
@@ -367,6 +407,7 @@ export function NewTabScreen(props: Props) {
           {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
           {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+          {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
           <button
             type="button"
@@ -380,6 +421,7 @@ export function NewTabScreen(props: Props) {
           </button>
         </div>
       </div>
+      {props.notice}
       {noAgent && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-no-agent" role="status">
