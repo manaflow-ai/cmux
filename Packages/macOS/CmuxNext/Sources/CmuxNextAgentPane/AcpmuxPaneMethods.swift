@@ -43,6 +43,10 @@ nonisolated enum AcpmuxPaneMethods {
         // Enable a folder harness (direct.ts harnessEnable): the relay asks the user on its own
         // native sheet and adds the confirmed sha256 itself (``AgentPaneHarnessEnablePrompt``).
         "_acpmux/harness_enable",
+        // The private secret card's answer to an agent's request_secret (SecretCard.tsx, cx-ncc.42):
+        // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
+        // transport never logs a frame, so the value stays out of the host's logs.
+        "_acpmux/secret_submit",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -173,6 +177,7 @@ nonisolated enum AcpmuxPaneMethods {
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/secret_submit",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
@@ -233,6 +238,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/harness_enable": .always,
         "_acpmux/permission_respond": .whenOptionAllows,
         "_acpmux/permission_group_respond": .whenDecisionAllows,
+        // The card's Provide hands over a secret (its Decline is a click too).
+        "_acpmux/secret_submit": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
     ]
 
