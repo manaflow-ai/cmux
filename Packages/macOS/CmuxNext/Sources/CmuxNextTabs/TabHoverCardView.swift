@@ -16,6 +16,8 @@ final class TabHoverCardView: NSView {
 
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    private var subtitleTop: NSLayoutConstraint?
+    private var subtitleCollapsed: NSLayoutConstraint?
     /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, apart from the
     /// card's own facts above it and in a quieter color, so program text never reads as cmux's.
     private let detailLabel = NSTextField(labelWithString: "")
@@ -61,7 +63,6 @@ final class TabHoverCardView: NSView {
             titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -77,7 +78,11 @@ final class TabHoverCardView: NSView {
         resourcesCollapsed = resources.heightAnchor.constraint(equalToConstant: 0)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
         let detail = detailLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor)
-        NSLayoutConstraint.activate([top, height, detail])
+        let subtitle = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1)
+        NSLayoutConstraint.activate([top, height, detail, subtitle])
+        subtitleTop = subtitle
+        // A hidden label keeps its line in Auto Layout; an empty subtitle gives it up.
+        subtitleCollapsed = subtitleLabel.heightAnchor.constraint(equalToConstant: 0)
         detailTop = detail
         detailCollapsed = detailLabel.heightAnchor.constraint(equalToConstant: 0)
         setDetail(nil)
@@ -129,7 +134,10 @@ final class TabHoverCardView: NSView {
         subtitleLabel.maximumNumberOfLines = lines
         subtitleLabel.lineBreakMode = lines > 1 ? .byTruncatingTail : .byTruncatingMiddle
         subtitleLabel.stringValue = subtitle ?? ""
-        subtitleLabel.isHidden = (subtitle ?? "").isEmpty
+        let shown = !(subtitle ?? "").isEmpty
+        subtitleLabel.isHidden = !shown
+        subtitleCollapsed?.isActive = !shown
+        subtitleTop?.constant = shown ? Metrics.space1 : 0
     }
 
     /// The card's program status line; nil or empty collapses it.
