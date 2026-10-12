@@ -62,7 +62,7 @@ const SELECTED = { line: 3, column: 14, length: 12 };
 const CURSOR = { line: 9, column: 21 };
 
 const title = (key: string) => (rowsByKey.get(key) ? text(rowsByKey.get(key)!.title) : key);
-const help = (key: string) => text(rowsByKey.get(key)?.help);
+const summary = (key: string) => text(rowsByKey.get(key)?.summary);
 const section = (id: string) => text(sections.find((item) => item.id === id)?.title);
 
 export function ThemePreview({
@@ -182,7 +182,7 @@ export function ThemePreview({
             />
             <circle cx={APP_W - 110 - 32} cy="125" r="6" fill={a.icon} />
             <text x="0" y="146" fontSize="10" fill={a.textSecondary}>
-              {truncate(help("app.globalHotKey"), 34)}
+              {truncate(summary("app.globalHotKey"), 34)}
             </text>
             <rect y="160" width={APP_W - 124} height="1" fill={a.separator} />
             <text x="0" y="184" fontSize="11" fill={a.accentText}>
