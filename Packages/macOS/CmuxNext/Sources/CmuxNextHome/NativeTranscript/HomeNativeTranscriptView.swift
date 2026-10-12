@@ -289,6 +289,11 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
+    /// The header band's fade in or out, in seconds.
+    static func headerFadeDuration(shown: Bool) -> TimeInterval {
+        Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
+    }
+
     /// The theme's palettes (key and non-key window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
@@ -298,12 +303,10 @@ public final class HomeNativeTranscriptView: NSView {
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         // The header's band: a light fade of the window background, shown only
-        // near the top; the design system's fades, none under Reduce Motion.
+        // near the top; the design system's fades.
         let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
         transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
-        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
-            Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
-        }
+        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
