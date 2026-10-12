@@ -15327,6 +15327,399 @@
           }
         }
       }
+    },
+    "cloud.bringBack.askFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask first, then bring back"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اطلب الإذن أولًا، ثم أعدها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo pitaj, pa vrati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg først, og hent tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst fragen, dann zurückholen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar primero y traer de vuelta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander d’abord, puis rapatrier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima, poi riporta indietro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に確認してから戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរជាមុន រួចនាំយកមកវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 묻기로 설정하고 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør først, og hent tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw pytaj, potem przywróć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar antes e trazer de volta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала спрашивать, затем вернуть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ถามก่อน แล้วนำกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce sor, sonra geri getir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу питати, потім повернути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước, rồi mang về"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先询问，再带回"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先詢問，再帶回"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.policyAsksFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat approves actions without asking. A chat coming back from Cloud must ask first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توافق هذه المحادثة على الإجراءات دون أن تسأل. يجب أن تسأل المحادثة العائدة من Cloud أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat odobrava radnje bez pitanja. Chat koji se vraća s Clouda mora prvo pitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat godkender handlinger uden at spørge. En chat, der kommer tilbage fra Cloud, skal spørge først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat genehmigt Aktionen ohne Nachfrage. Ein Chat, der aus der Cloud zurückkommt, muss zuerst fragen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat aprueba acciones sin preguntar. Un chat que vuelve de Cloud debe preguntar primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion approuve les actions sans demander. Une discussion qui revient du Cloud doit d’abord demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat approva le azioni senza chiedere. Una chat che torna da Cloud deve prima chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは確認せずに操作を承認します。Cloud から戻るチャットは先に確認する必要があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះយល់ព្រមលើសកម្មភាពដោយមិនសួរ។ ការជជែកដែលត្រឡប់មកពី Cloud ត្រូវតែសួរជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 묻지 않고 작업을 승인합니다. Cloud에서 돌아오는 채팅은 먼저 물어야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten godkjenner handlinger uten å spørre. En chat som kommer tilbake fra Cloud, må spørre først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat zatwierdza działania bez pytania. Czat wracający z Cloud musi najpierw pytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat aprova ações sem perguntar. Um chat que volta do Cloud precisa perguntar antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат одобряет действия, не спрашивая. Чат, возвращающийся из Cloud, должен сначала спрашивать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้อนุมัติการกระทำโดยไม่ถาม แชทที่กลับมาจาก Cloud ต้องถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet eylemleri sormadan onaylıyor. Cloud'dan dönen bir sohbet önce sormalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат схвалює дії, не питаючи. Чат, що повертається з Cloud, має спершу питати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này phê duyệt hành động mà không hỏi. Cuộc trò chuyện quay về từ Cloud phải hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话会不经询问就批准操作。从 Cloud 带回的对话必须先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話會不經詢問就核准操作。從 Cloud 帶回的對話必須先詢問。"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.modeAsksFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat's mode acts without asking. A chat coming back from Cloud must ask first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع هذه المحادثة ينفّذ دون أن يسأل. يجب أن تسأل المحادثة العائدة من Cloud أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način ovog chata radi bez pitanja. Chat koji se vraća s Clouda mora prvo pitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chats tilstand handler uden at spørge. En chat, der kommer tilbage fra Cloud, skal spørge først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Modus dieses Chats handelt ohne Nachfrage. Ein Chat, der aus der Cloud zurückkommt, muss zuerst fragen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modo de este chat actúa sin preguntar. Un chat que vuelve de Cloud debe preguntar primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le mode de cette discussion agit sans demander. Une discussion qui revient du Cloud doit d’abord demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modalità di questa chat agisce senza chiedere. Una chat che torna da Cloud deve prima chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのモードは確認せずに実行します。Cloud から戻るチャットは先に確認する必要があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបរបស់ការជជែកនេះធ្វើសកម្មភាពដោយមិនសួរ។ ការជជែកដែលត្រឡប់មកពី Cloud ត្រូវតែសួរជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 모드는 묻지 않고 실행합니다. Cloud에서 돌아오는 채팅은 먼저 물어야 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modusen til denne chatten handler uten å spørre. En chat som kommer tilbake fra Cloud, må spørre først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb tego czatu działa bez pytania. Czat wracający z Cloud musi najpierw pytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modo deste chat age sem perguntar. Um chat que volta do Cloud precisa perguntar antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим этого чата действует, не спрашивая. Чат, возвращающийся из Cloud, должен сначала спрашивать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดของแชทนี้ทำงานโดยไม่ถาม แชทที่กลับมาจาก Cloud ต้องถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin modu sormadan işlem yapıyor. Cloud'dan dönen bir sohbet önce sormalı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим цього чату діє, не питаючи. Чат, що повертається з Cloud, має спершу питати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ của cuộc trò chuyện này hành động mà không hỏi. Cuộc trò chuyện quay về từ Cloud phải hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话的模式会不经询问就执行。从 Cloud 带回的对话必须先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話的模式會不經詢問就執行。從 Cloud 帶回的對話必須先詢問。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

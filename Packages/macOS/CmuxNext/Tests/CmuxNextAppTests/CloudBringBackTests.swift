@@ -50,7 +50,7 @@ struct CloudBringBackTests {
     }
 
     /// The Mac's guard refuses a chat that approves everything: the machine's tab stays, the
-    /// message names the setting in plain words, and Retry is offered for after it is changed.
+    /// message names the setting in plain words, and "Ask first, then bring back" is offered.
     @Test func aGuardRefusalKeepsTheMachineTabWithAClearMessage() async throws {
         try await Self.withRoundTrip("policy") { trip in
             let error = try #require(await trip.bringBack(), "the bring back did not report the refusal")
@@ -58,7 +58,7 @@ struct CloudBringBackTests {
             #expect(trip.calls().count == 4, "\(trip.calls())")
             #expect(trip.machineChat() != nil, "the machine's tab closed though the chat did not move")
             #expect(trip.localChat() == nil)
-            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .move(machineID: "vm-move"))
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .askFirst(machineID: "vm-move"))
         }
     }
 
