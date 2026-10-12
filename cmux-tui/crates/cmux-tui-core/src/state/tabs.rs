@@ -81,6 +81,10 @@ impl Mux {
         update: TabStateUpdate,
     ) -> anyhow::Result<ResourcePatchCommit> {
         update.validate()?;
+        // An asset icon names a blob this daemon stores (as a new screen's icon does).
+        if let Some(Some(icon)) = &update.icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
+        }
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let resolved =
