@@ -242,7 +242,6 @@ final class SidebarListView: NSView {
                 view.alphaValue = 0
             } else if opens {
                 appearing.append((view, target))
-                (view as? GroupHeaderRowView)?.playAppear()
             } else {
                 targets.append((view, target))
             }
