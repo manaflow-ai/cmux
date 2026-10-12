@@ -5,7 +5,8 @@ import Testing
 /// New Worktree (cx-lyqio.2): a new chat's page asks for a worktree of its folder, and the App
 /// runs the session host's `git.worktree.create` there. It needs a real click in the pane, a chat
 /// whose repository is this Mac's, and a folder a chat may start in (the check a picked folder gets).
-/// Apply (cx-lyqio.4) runs `git.worktree.apply` in the chat's own worktree, on a click.
+/// Apply (cx-lyqio.4) runs `git.worktree.apply` in the chat's own worktree, on a click, and Remove
+/// (cx-lyqio.5) runs `git.worktree.remove` there the same way.
 @MainActor
 struct AgentPaneGitWorktreeTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -140,5 +141,36 @@ struct AgentPaneGitWorktreeTests {
         #expect(away["ok"] as? Bool == false)
         #expect(sent.calls.isEmpty)
         #expect(remoteSent.calls.isEmpty)
+    }
+
+    private static func remove(_ params: [String: Any]) -> AgentPaneRequest {
+        AgentPaneRequest(body: ["method": "git.worktree.remove", "params": params])
+    }
+
+    /// Remove (cx-lyqio.5): a click removes the chat's worktree, in the folder of the pane's own
+    /// session. "Remove anyway" carries `discard`, so work found nowhere else goes only when the
+    /// user said so.
+    @Test func aClickRemovesTheChatsWorktreeAndOnlyDiscardsWhenAsked() async throws {
+        let (model, sent) = Self.applyRig()
+        let unclicked = await model.respond(to: Self.remove(["session_id": "s1", "idempotency_key": "k1"]))
+        #expect(unclicked["ok"] as? Bool == false)
+        #expect(sent.calls.isEmpty)
+        model.transport.gestures.record()
+        let kept = await model.respond(to: Self.remove(["session_id": "s1", "cwd": "/elsewhere", "idempotency_key": "k1"]))
+        #expect(kept["ok"] as? Bool == true, "\(kept)")
+        model.transport.gestures.record()
+        let discarded = await model.respond(to: Self.remove(["session_id": "s1", "idempotency_key": "k2", "discard": true]))
+        #expect(discarded["ok"] as? Bool == true, "\(discarded)")
+        #expect(sent.calls.count == 2)
+        #expect(sent.calls.allSatisfy { $0.0.operation == "git.worktree.remove" && $0.1 == Self.worktreeRoot })
+        let keep = AgentPaneGitWrite(method: "git.worktree.remove", params: ["session_id": "s1", "idempotency_key": "k2"])
+        let discard = AgentPaneGitWrite(method: "git.worktree.remove", params: ["session_id": "s1", "idempotency_key": "k2", "discard": true])
+        #expect(keep != nil && keep != discard)
+        #expect(sent.calls.last?.0 == discard)
+        // Another chat's read removes nothing.
+        model.transport.gestures.record()
+        let other = await model.respond(to: Self.remove(["session_id": "s2", "idempotency_key": "k3"]))
+        #expect(other["ok"] as? Bool == false)
+        #expect(sent.calls.count == 2)
     }
 }
