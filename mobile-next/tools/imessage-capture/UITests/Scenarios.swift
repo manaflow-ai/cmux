@@ -360,14 +360,21 @@ final class Scenarios: XCTestCase {
     func testS7Stills() throws {
         let mode = ProcessInfo.processInfo.environment["CNM_MODE"] ?? "dark"
         still("s7-\(mode)-list")
+        dump("S7-LIST")
         openChat(Chat.a)
         SMS.pause(0.8)
         still("s7-\(mode)-transcript-a")
+        dump("S7-TRANSCRIPT-BOTTOM")
+        pt(201, 20).tap()
+        SMS.pause(1.5)
+        still("s7-\(mode)-transcript-a-top")
+        dump("S7-TRANSCRIPT-TOP")
         app.textFields["messageBodyField"].tap()
         SMS.pause(1.2)
         app.textFields["messageBodyField"].typeText("Draft text")
         SMS.pause(0.8)
         still("s7-\(mode)-composer-keyboard")
+        dump("S7-COMPOSER")
         app.textFields["messageBodyField"].typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 10))
         dismissKeyboardIfNeeded()
         let receivedCells = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "+1"))
@@ -380,6 +387,7 @@ final class Scenarios: XCTestCase {
         openChat(Chat.b)
         SMS.pause(0.8)
         still("s7-\(mode)-transcript-b")
+        dump("S7-TRANSCRIPT-B")
         SMS.goToList(app)
     }
 }

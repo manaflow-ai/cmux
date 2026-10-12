@@ -42,6 +42,7 @@ struct HomeView: View {
                 }
             }
             .navigationTitle("Home")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { DrawerButton() }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -112,7 +113,8 @@ struct HomeView: View {
             }
         }
         .listStyle(.plain)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic))
+        // iOS 26 Messages keeps search in a floating field at the bottom.
+        .searchable(text: $query)
         .refreshable { for host in model.hosts { await host.refreshAll() } }
     }
 

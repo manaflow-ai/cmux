@@ -79,14 +79,20 @@ struct ConversationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    ChiefAvatar(size: 30)
-                    HStack(spacing: 2) {
-                        Text(info?.title ?? "Chief").font(.system(size: 11, weight: .regular))
-                        Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+                // Messages (iOS 26): a large avatar with the name in a glass capsule.
+                VStack(spacing: -6) {
+                    ChiefAvatar(size: 50)
+                        .zIndex(0)
+                    HStack(spacing: 3) {
+                        Text(info?.title ?? "Chief").font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassEffect(.regular, in: .capsule)
+                    .zIndex(1)
                 }
-                .padding(.top, 6)
+                .padding(.top, 22)
             }
         }
         .task {
@@ -404,21 +410,29 @@ struct MessageComposer: View {
                     .padding(.leading, 14)
                     .padding(.vertical, 8)
                     .accessibilityIdentifier("conversation.field")
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 29))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(.white, Color(.systemBlue))
+                ZStack {
+                    Image(systemName: "mic")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.tertiary)
+                        .opacity(hasText ? 0 : 1)
+                        .accessibilityHidden(true)
+                    Button(action: send) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 29))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color(.systemBlue))
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(hasText ? 1 : 0)
+                    .scaleEffect(hasText ? 1 : 0.5)
+                    .accessibilityLabel("Send")
+                    .accessibilityIdentifier("conversation.send")
+                    .disabled(!hasText)
                 }
-                .buttonStyle(.plain)
+                .frame(width: 30, height: 30)
                 .padding(.trailing, 3)
                 .padding(.bottom, 3)
-                .opacity(hasText ? 1 : 0)
-                .scaleEffect(hasText ? 1 : 0.5)
                 .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hasText)
-                .accessibilityLabel("Send")
-                .accessibilityIdentifier("conversation.send")
-                .disabled(!hasText)
             }
             .frame(minHeight: 36)
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
