@@ -31,6 +31,9 @@ public struct ConversationDetailsHeaderLayout: Equatable, Sendable {
 ///   content and then pin;
 /// - pulling down stretches the same parts by `offset / (|offset| + 97.23)`
 ///   of their collapse range (an 80 pt avatar is 85.83 pt at -40).
+///
+/// Dynamic Type grows the title (title1 bold, wrapping to two lines from AX2)
+/// and the quick-action circles; the actions stay 16 pt under the title.
 public enum ConversationDetailsHeaderGeometry {
     public static let avatarSize: CGFloat = 80
     public static let collapsedAvatarSize: CGFloat = 60
@@ -42,8 +45,10 @@ public enum ConversationDetailsHeaderGeometry {
     public static let quickActionSize: CGFloat = 48
     public static let quickActionSpacing: CGFloat = 20
     public static let quickActionCount = 3
+    /// Quick actions' top below the title's bottom (title1 line box).
+    public static let quickActionsBelowTitle: CGFloat = 16
     /// Quick actions' top below the title's top, at rest and collapsed.
-    public static let quickActionsFromTitle: CGFloat = 149.0 / 3
+    public static let quickActionsFromTitle: CGFloat = titleHeight + quickActionsBelowTitle
     public static let collapsedQuickActionsFromTitle: CGFloat = 5.0 / 3
     /// Share of the collapse by which the quick actions are gone.
     public static let quickActionsFadeEnd: CGFloat = 0.6
@@ -62,7 +67,22 @@ public enum ConversationDetailsHeaderGeometry {
         return offset / (-offset + collapseDistance)
     }
 
-    public static func layout(width: CGFloat, safeTop: CGFloat, offset: CGFloat, showsTabs: Bool, isGroup: Bool) -> ConversationDetailsHeaderLayout {
+    /// The quick-action circle's side per content size category, smallest
+    /// (XS) to largest (AX5), read from MobileSMS on iOS 26.5 and 27.0
+    /// (CommunicationDetails QuickActionView frames; the spacing stays 20).
+    public static let quickActionSizes: [CGFloat] = [
+        133.0 / 3, 136.0 / 3, 140.0 / 3, 48, 151.0 / 3, 158.0 / 3, 55,
+        179.0 / 3, 66, 73, 80, 265.0 / 3,
+    ]
+
+    /// `index` is the content size category's position in
+    /// `quickActionSizes` (XS = 0, L = 3, AX5 = 11); out-of-range clamps.
+    public static func quickActionSize(contentSizeIndex index: Int) -> CGFloat {
+        quickActionSizes[max(0, min(quickActionSizes.count - 1, index))]
+    }
+
+    public static func layout(width: CGFloat, safeTop: CGFloat, offset: CGFloat, showsTabs: Bool, isGroup: Bool, titleHeight: CGFloat = Self.titleHeight, quickActionSize: CGFloat = Self.quickActionSize) -> ConversationDetailsHeaderLayout {
+        let quickActionsFromTitle = titleHeight + quickActionsBelowTitle
         let p = progress(offset: offset)
         let size = avatarSize - (avatarSize - collapsedAvatarSize) * p
         let drop = isGroup ? groupDrop : 0
