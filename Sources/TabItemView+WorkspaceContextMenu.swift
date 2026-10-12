@@ -245,6 +245,10 @@ extension TabItemView {
         }
         .disabled(targetIds.isEmpty)
 
+        if !isMulti {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: snapshot.workspaceId)
+        }
+
         Divider()
 
         if let key = closeWorkspaceShortcut.keyEquivalent {
