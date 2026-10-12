@@ -34,6 +34,7 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         addGestureRecognizer(pan)
+        addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -142,6 +143,26 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
         guard lines != 0 else { return }
         scrollRemainder -= lines * cellHeight
         ghostty_surface_mouse_scroll(surface, 0, Double(lines), 0)
+    }
+
+    private var pinchSteps: CGFloat = 0
+
+    /// Pinch changes the font size one point per ~12% of scale; the grid
+    /// (and the Mac's pty) follows through the normal resize path.
+    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) {
+        guard let surface else { return }
+        if gesture.state == .began { pinchSteps = 0 }
+        let steps = (log(gesture.scale) / log(1.12)).rounded(.towardZero)
+        while pinchSteps < steps {
+            pinchSteps += 1
+            _ = "increase_font_size:1".withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+        }
+        while pinchSteps > steps {
+            pinchSteps -= 1
+            _ = "decrease_font_size:1".withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+        }
+        if gesture.state == .ended { setNeedsLayout() }
+        if steps != 0 { setNeedsLayout() }
     }
 
     override var canBecomeFirstResponder: Bool { true }

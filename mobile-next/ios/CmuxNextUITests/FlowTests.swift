@@ -469,6 +469,36 @@ final class FlowTests: XCTestCase {
         snap(app, "c2-recalled")
     }
 
+    /// Rotating resizes the remote pty to the phone's new grid.
+    func testTerminalRotation() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let newTerminal = app.buttons.matching(identifier: "terminals.new").element(boundBy: 0)
+        XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
+        newTerminal.tap()
+        pause(6)
+        app.buttons["terminal.keyboard"].tap()
+        pause(1)
+        app.typeText("echo portrait $(tput cols)x$(tput lines)\n")
+        pause(2)
+        snap(app, "d0-portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        pause(3)
+        app.typeText("echo landscape $(tput cols)x$(tput lines)\n")
+        pause(2)
+        snap(app, "d1-landscape")
+        XCUIDevice.shared.orientation = .portrait
+        pause(2)
+        app.otherElements.firstMatch.pinch(withScale: 1.6, velocity: 1)
+        pause(1.5)
+        app.typeText("echo zoomed $(tput cols)x$(tput lines)\n")
+        pause(2)
+        snap(app, "d2-zoomed")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])
