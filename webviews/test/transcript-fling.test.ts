@@ -3,8 +3,7 @@
 // 97-104 of 181 frames at the capped render rate: one frame there scrolls about as far as the
 // transcript mounted ahead of the reader (App.tsx), so the next frame's view fell past it.
 //
-// Real WebKit from Playwright, at the 60 fps of the capped rate; CI fails the file when it
-// cannot launch (requireBrowserLane).
+// Real WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser } from "playwright";
@@ -38,28 +37,58 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     await vite?.close();
   });
 
-  type Debug = {
-    seedRows(count: number): Promise<unknown>;
-    startFling(seconds: number, options: { wait: boolean }): Promise<Record<string, number>>;
-    perfStats(): Record<string, unknown>;
+  /// Scrolls the transcript up from its bottom by `steps[i]` viewports on frame i, as a fling sets
+  /// the offset from a frame callback, and counts the frames whose view the mounted rows leave
+  /// partly empty. The step is fixed per frame, not per millisecond, so a slow runner scrolls the
+  /// same path the bench's 60 fps fling does.
+  const steppedFling = async (steps: number[]) => {
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    scroller.scrollTop = scroller.scrollHeight;
+    await frame();
+    await frame();
+    let blank = 0;
+    let frames = 0;
+    for (const step of steps) {
+      await frame();
+      scroller.scrollTop = Math.max(0, scroller.scrollTop - step * scroller.clientHeight);
+      // Mounted rows in runs of consecutive positions; one run has to hold the whole view.
+      const view = scroller.getBoundingClientRect();
+      const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+        .map((row) => ({ index: Number(row.getAttribute("aria-posinset")), rect: row.getBoundingClientRect() }))
+        .sort((a, b) => a.index - b.index);
+      const runs: { top: number; bottom: number }[] = [];
+      rows.forEach((row, at) => {
+        if (at > 0 && row.index === rows[at - 1].index + 1) runs.at(-1)!.bottom = row.rect.bottom;
+        else runs.push({ top: row.rect.top, bottom: row.rect.bottom });
+      });
+      const bottom = Math.min(view.bottom, view.top + scroller.scrollHeight - scroller.scrollTop);
+      frames += 1;
+      if (!runs.some((run) => run.top <= view.top + 0.5 && run.bottom >= bottom - 0.5)) blank += 1;
+      if (scroller.scrollTop === 0) break;
+    }
+    return { frames, blank };
   };
 
-  test("the bench's 3 s fling over 5000 rows leaves the view blank on few frames", async () => {
+  test("a fling five viewports a frame keeps the view covered", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
     await page.waitForFunction(() => "__debug" in window);
-    const debug = <T>(call: (debug: Debug) => T | Promise<T>) =>
-      page.evaluate(`(${call.toString()})(window.__debug)`) as Promise<T>;
-    await debug((d) => d.seedRows(5000));
+    await page.evaluate(`window.__debug.seedRows(5000)`);
+    // About the bench's capped fling (4-5 viewports a frame), with the few percent of frame-time
+    // jitter a 60 fps frame callback has.
+    const jitter = [1, 1.06, 0.95, 1.09, 0.92, 1.03, 0.97, 1.08, 0.94];
+    const steps = Array.from({ length: 400 }, (_, frame) => 5 * jitter[frame % jitter.length]);
     // One fling warms the transcript's layout, as the bench's first fling does.
-    await debug((d) => d.startFling(3, { wait: true }));
-    const fling = await debug((d) => d.startFling(3, { wait: true }));
-    const perf = (await debug((d) => d.perfStats())) as { frames: number; blank_frames: number };
-    console.log(`transcript-fling: ${JSON.stringify({ fling, blank: perf.blank_frames, of: perf.frames })}`);
-    expect(fling.frames).toBeGreaterThan(60);
-    // A frame scrolls several viewports here; few of them may show an empty edge.
-    expect(perf.blank_frames / perf.frames).toBeLessThanOrEqual(0.05);
+    await page.evaluate(`(${steppedFling.toString()})(${JSON.stringify(steps)})`);
+    const fling = (await page.evaluate(`(${steppedFling.toString()})(${JSON.stringify(steps)})`)) as {
+      frames: number;
+      blank: number;
+    };
+    console.log(`transcript-fling: ${JSON.stringify(fling)}`);
+    expect(fling.frames).toBeGreaterThan(30);
+    expect(fling.blank / fling.frames).toBeLessThanOrEqual(0.05);
     await page.close();
   });
 });
