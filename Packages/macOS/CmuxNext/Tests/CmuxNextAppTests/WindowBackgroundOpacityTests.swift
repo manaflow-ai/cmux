@@ -43,7 +43,7 @@ import Testing
         func tearDown() {
             window.close()
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
-            (GhosttyRuntime.configBackgroundOpacity, GhosttyRuntime.configBackgroundBlur) = (1, 0)
+            GhosttyConfigBackground.loaded = GhosttyConfigBackground()
             ThemeStore.shared.apply(original)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
@@ -62,7 +62,7 @@ import Testing
         let original = ThemeStore.shared.input
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
         // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
-        (GhosttyRuntime.configBackgroundOpacity, GhosttyRuntime.configBackgroundBlur) = (colors.backgroundOpacity, colors.backgroundBlur)
+        GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
         ThemeStore.shared.apply(ThemeBridge.input(colors))
         let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
         terminal.reload = { ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }

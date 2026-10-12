@@ -2,11 +2,12 @@ import CmuxNextDesign
 
 /// Settings > Window Background: Material "Ghostty" (both keys unset) takes
 /// opacity and blur from the Ghostty config. Moving Opacity leaves Ghostty for
-/// the material its blur gives; resetting either key returns both to Ghostty.
+/// the material its blur gives; resetting Opacity returns that material to
+/// Ghostty (a material the user chose stays), and resetting Material resets both.
 /// Every writer (the page, the palette, the socket's `settings.set`) and the
 /// page's live preview share this rule (`WindowBackgroundSetting.linkedEdits`).
 extension SettingsController {
-    /// The material Ghostty's `background-blur` gives (`ghosttyBackgroundBlur`).
+    /// The material the config files' own `background-blur` gives (`ghosttyBackgroundBlur`).
     var ghosttyWindowMaterial: WindowMaterialChoice {
         WindowMaterialChoice(ghosttyBlur: ghosttyBackgroundBlur?() ?? 0)
     }

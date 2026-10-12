@@ -16,14 +16,15 @@ public nonisolated enum WindowBackgroundSetting {
 
     /// The other window background key a write to `path` changes with it,
     /// so the pair is either Ghostty's or cmux's own: an opacity with
-    /// Material unset (Ghostty) also names the material Ghostty's blur gives;
-    /// removing either key removes the other, back to Ghostty's values.
+    /// Material unset (Ghostty) also names the material Ghostty's blur gives.
+    /// Removing the opacity removes that material too (back to Ghostty), but
+    /// keeps one the user chose; removing the material removes the opacity.
     ///
     /// - Parameter path: The key being written.
     /// - Parameter value: Its new value; nil removes it.
     /// - Parameter root: The settings document before the write.
-    /// - Parameter ghosttyMaterial: The material Ghostty's `background-blur`
-    ///   gives, named when the opacity leaves Ghostty.
+    /// - Parameter ghosttyMaterial: The material the config files' own
+    ///   `background-blur` gives: what leaving Ghostty names.
     /// - Returns: Extra edits for the same write; empty for any other key.
     public static func linkedEdits(writing path: [String], value: JSONValue?, in root: JSONValue,
                                    ghosttyMaterial: WindowMaterialChoice) -> [(path: [String], value: JSONValue?)] {
@@ -32,7 +33,7 @@ public nonisolated enum WindowBackgroundSetting {
             guard root.value(at: materialPath) == nil else { return [] }
             return [(materialPath, .string(ghosttyMaterial.rawValue))]
         case opacityPath:
-            return root.value(at: materialPath) == nil ? [] : [(materialPath, nil)]
+            return root.value(at: materialPath)?.stringValue == ghosttyMaterial.rawValue ? [(materialPath, nil)] : []
         case materialPath where value == nil:
             return root.value(at: opacityPath) == nil ? [] : [(opacityPath, nil)]
         default:
