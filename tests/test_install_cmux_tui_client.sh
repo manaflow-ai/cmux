@@ -214,6 +214,7 @@ echo "PASS: a rate-limited attestation lookup is retried, then verified"
 # outlast GitHub's hourly reset), and the error names the rate limit instead
 # of claiming the manifest has no valid attestation.
 echo 1000 > "$TEST_DIR/rate-limited-forever"
+# Delay 0 runs all nine retries instantly instead of sleeping through the 65-minute schedule.
 FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-forever" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
   install_remote "$TEST_DIR/RateLimitedForever.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   > "$TEST_DIR/rate-limited-forever.log" 2>&1 && {

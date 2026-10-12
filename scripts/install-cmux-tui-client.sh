@@ -41,6 +41,9 @@
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
 # (default 60, below 1 KiB/s) bound each download attempt.
+# CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES (default 9) retries rate-limited `gh attestation verify`
+# before failing with a rate-limit error; CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS (default 60)
+# is the first wait, doubling to a 600 s cap: 65 minutes in total, past GitHub's hourly reset.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
