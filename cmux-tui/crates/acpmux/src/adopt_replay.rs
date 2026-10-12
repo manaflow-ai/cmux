@@ -38,9 +38,13 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
         return Vec::new();
     }
     let mut turns: Vec<PastTurn> = Vec::new();
-    // Codex's message items, kept apart: a rollout that also has its event messages (older
-    // Codex wrote both) is read from those, so no turn shows twice.
+    // Codex's message items before its rollout turns current (items annotated with their kinds):
+    // older Codex also wrote each turn as event messages, which are read instead, so no turn
+    // shows twice; a rollout with no event messages at all is read from these.
     let mut items: Vec<PastTurn> = Vec::new();
+    // Current Codex writes no event messages: from its first annotated item on (a chat begun on
+    // an older Codex and resumed on a current one), items are the turns.
+    let mut current = false;
     for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
         if skip_first && index == 0 {
             continue;
@@ -49,10 +53,11 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
         match family {
             "codex" => {
+                current = current || has_item_kinds(&record);
                 if let Some(step) = codex_step(&record) {
                     add(&mut turns, step, at);
                 } else if let Some(step) = codex_item_step(&record) {
-                    add(&mut items, step, at);
+                    add(if current { &mut turns } else { &mut items }, step, at);
                 }
             }
             _ => {
@@ -177,7 +182,7 @@ fn codex_item_step(record: &Value) -> Option<Step> {
             let kinds =
                 payload.pointer("/internal_chat_message_metadata_passthrough/content_item_kinds");
             let typed = match kinds.and_then(Value::as_array) {
-                Some(kinds) => kinds.iter().all(|kind| kind.as_str() == Some("user.text")),
+                Some(kinds) => is_typed(kinds),
                 None => !CODEX_CONTEXT.iter().any(|prefix| text.starts_with(prefix)),
             };
             typed.then_some(Step::Prompt(text))
@@ -188,6 +193,21 @@ fn codex_item_step(record: &Value) -> Option<Step> {
         },
         _ => None,
     }
+}
+
+/// Whether a Codex `user` message's item kinds are the person's own: text, maybe with images
+/// (`user.text`, `user.image`), never injected context (`agents_md.instructions`, ...).
+fn is_typed(kinds: &[Value]) -> bool {
+    kinds.iter().any(|kind| kind.as_str() == Some("user.text"))
+        && kinds.iter().all(|kind| kind.as_str().is_some_and(|kind| kind.starts_with("user.")))
+}
+
+/// Whether `record` is a Codex message item annotated with its item kinds (current Codex).
+fn has_item_kinds(record: &Value) -> bool {
+    record.get("type").and_then(Value::as_str) == Some("response_item")
+        && record
+            .pointer("/payload/internal_chat_message_metadata_passthrough/content_item_kinds")
+            .is_some()
 }
 
 /// How Codex's injected `user` context begins, for rollouts without item kinds.

@@ -174,7 +174,8 @@ pub(super) fn read(
 }
 
 /// A prompt of current Codex, which writes no `user_message` events: a `user` message item
-/// whose content items are all the person's own text (`user.text`), not injected context.
+/// whose content items are the person's own (`user.text`, maybe `user.image`), not injected
+/// context.
 /// Older rollouts carry no item kinds and are counted from their events, so none counts twice.
 fn typed_prompt(line: &[u8]) -> Option<String> {
     let record: Value = serde_json::from_slice(line).ok()?;
@@ -188,7 +189,10 @@ fn typed_prompt(line: &[u8]) -> Option<String> {
     let kinds = payload
         .pointer("/internal_chat_message_metadata_passthrough/content_item_kinds")?
         .as_array()?;
-    if kinds.is_empty() || !kinds.iter().all(|kind| kind.as_str() == Some("user.text")) {
+    // The person's own text, maybe with images, never injected context.
+    let typed = kinds.iter().any(|kind| kind.as_str() == Some("user.text"))
+        && kinds.iter().all(|kind| kind.as_str().is_some_and(|kind| kind.starts_with("user.")));
+    if !typed {
         return None;
     }
     request_text(payload.get("content")?)
