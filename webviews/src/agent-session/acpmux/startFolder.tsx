@@ -53,6 +53,15 @@ export async function pickFolder(
   return { cwd: answer.cwd, reason: answer.status === "confirm" && answer.reason === "home" ? "home" : "root" };
 }
 
+/// New Worktree (cx-lyqio.2): not yet.
+export async function newWorktree(
+  _callNative: Native,
+  _cwd: string,
+  _use: (cwd: string) => void,
+): Promise<{ root: string; branch?: string }> {
+  throw new Error("New Worktree is not available");
+}
+
 /// Use Home Folder: the answer goes to the host from this click (it spends the click's gesture
 /// and makes the folder a root), then the folder is used at once, so the chat starts there with no
 /// Retry. Rejects when the host refuses; nothing is used then.

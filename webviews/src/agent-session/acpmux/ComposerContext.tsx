@@ -55,6 +55,8 @@ export function ComposerContext({
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
+  onNewWorktree?(cwd: string): void;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// The folder a started chat moved to.

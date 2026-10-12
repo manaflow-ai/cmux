@@ -24,6 +24,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
     /// The current branch to where `git push` would send it; never forced.
     case push(sessionId: String, expectedHead: String?, key: String)
+    /// A new chat's own worktree of `cwd`, a folder the pane has (cx-lyqio.2).
+    case worktree(cwd: String, name: String?, key: String)
 
     /// The page methods that carry a write.
     public static let methods: Set<String> = ["git.commit", "git.push"]
@@ -36,13 +38,14 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
         switch self {
         case .commit: "git.commit"
         case .push: "git.push"
+        case .worktree: "git.worktree.create"
         }
     }
 
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, _, let key), .push(_, _, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, let key), .worktree(_, _, let key): key
         }
     }
 
@@ -50,6 +53,7 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     public var sessionId: String {
         switch self {
         case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _): sessionId
+        case .worktree: ""
         }
     }
 
