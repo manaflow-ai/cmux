@@ -116,15 +116,19 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
         'input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"], [type="hidden"]), textarea, [contenteditable]:not([contenteditable="false"])';
       const roots: (Document | ShadowRoot)[] = [document];
       for (const host of document.querySelectorAll("*")) if (host.shadowRoot) roots.push(host.shadowRoot);
-      const fields = roots.flatMap((root) => [...root.querySelectorAll<HTMLElement>(TEXT)]).filter((field) => {
-        // An open popover's field alone: focusing another field would close it first.
-        if (only && !field.matches(only)) return false;
-        // A contenteditable child of an editable host is part of that field, not a field of its own.
-        if (field.parentElement?.closest('[contenteditable]:not([contenteditable="false"])')) return false;
-        const rect = field.getBoundingClientRect();
-        const style = getComputedStyle(field);
-        return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled;
-      });
+      const fields = roots
+        .flatMap((root) => [...root.querySelectorAll<HTMLElement>(TEXT)])
+        .filter((field) => {
+          // An open popover's field alone: focusing another field would close it first.
+          if (only && !field.matches(only)) return false;
+          // A contenteditable child of an editable host is part of that field, not a field of its own.
+          if (field.parentElement?.closest('[contenteditable]:not([contenteditable="false"])')) return false;
+          const rect = field.getBoundingClientRect();
+          const style = getComputedStyle(field);
+          return (
+            rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled
+          );
+        });
       const look = (element: Element) => {
         const style = getComputedStyle(element);
         return [style.boxShadow, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join("|");
@@ -140,15 +144,22 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       for (const field of fields) {
         if (!field.isConnected) continue;
         field.focus();
-        const active = field.getRootNode() instanceof ShadowRoot ? (field.getRootNode() as ShadowRoot).activeElement : document.activeElement;
+        const active =
+          field.getRootNode() instanceof ShadowRoot
+            ? (field.getRootNode() as ShadowRoot).activeElement
+            : document.activeElement;
         if (active !== field) continue;
         const style = getComputedStyle(field);
-        const ring = style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0 ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}` : "";
+        const ring =
+          style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
+            ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`
+            : "";
         const chain = ancestors(field);
         const focused = chain.map(look);
         field.blur();
         // A popover that closes when its field loses focus shows focus by being open.
-        const shown = !field.isConnected || chain.some((node, index) => !node.isConnected || look(node) !== focused[index]);
+        const shown =
+          !field.isConnected || chain.some((node, index) => !node.isConnected || look(node) !== focused[index]);
         reports.push({ field: describe(field), ring, shown });
       }
       return reports;
@@ -158,12 +169,19 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
   /** Shoots the first text field's box unfocused and focused, cropped around the field. */
   async function shoot(page: Page, prefix: string, selector?: string) {
     const field = page
-      .locator(selector ?? 'textarea, [contenteditable="true"], input[type="search"], input[type="text"], input:not([type])')
+      .locator(
+        selector ?? 'textarea, [contenteditable="true"], input[type="search"], input[type="text"], input:not([type])',
+      )
       .first();
     if ((await field.count()) === 0) return;
     const box = await field.boundingBox();
     if (!box) return;
-    const clip = { x: Math.max(0, box.x - 48), y: Math.max(0, box.y - 40), width: Math.min(960, box.width + 96), height: box.height + 80 };
+    const clip = {
+      x: Math.max(0, box.x - 48),
+      y: Math.max(0, box.y - 40),
+      width: Math.min(960, box.width + 96),
+      height: box.height + 80,
+    };
     fs.mkdirSync(path.dirname(prefix), { recursive: true });
     // Focused first: a popover's search closes when it loses focus.
     await field.evaluate((node) => (node as HTMLElement).focus());
@@ -180,11 +198,23 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
           if (!browser) throw new Error("text-field-focus: the browser did not launch");
           const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
           try {
-            const params = new URLSearchParams({ entry, variant, theme, colorScheme, frame: "component", width: "760", height: "640" });
-            await page.goto(`${base}/gallery/frame.html?${params}`);
-            await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""), null, {
-              timeout: 120_000,
+            const params = new URLSearchParams({
+              entry,
+              variant,
+              theme,
+              colorScheme,
+              frame: "component",
+              width: "760",
+              height: "640",
             });
+            await page.goto(`${base}/gallery/frame.html?${params}`);
+            await page.waitForFunction(
+              () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
+              null,
+              {
+                timeout: 120_000,
+              },
+            );
             const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady);
             // A named surface must mount; another stage that fails to mount is the gallery tests' finding.
             if (named) expect(ready).toBe("1");
@@ -199,7 +229,9 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             expect(reports.filter((report) => report.ring).map(({ field, ring }) => `${field}: ${ring}`)).toEqual([]);
             if (named) {
               expect(reports.length).toBeGreaterThan(0);
-              expect(reports.filter((report) => !report.shown).map(({ field }) => `${field}: no visible focus state`)).toEqual([]);
+              expect(
+                reports.filter((report) => !report.shown).map(({ field }) => `${field}: no visible focus state`),
+              ).toEqual([]);
             }
           } finally {
             await page.close();
