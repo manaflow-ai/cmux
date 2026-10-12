@@ -8,6 +8,7 @@ mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
+mod ensure;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -134,9 +135,25 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "init" => run_init(&flags(rest, &["--state-dir", "--install", "--port"])?),
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
-        "serve" => {
-            run_serve(&flags(rest, &["--state-dir", "--session-socket", "--server-config"])?)
+        "serve" => run_serve(&flags(
+            rest,
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+        )?),
+        "ensure" => {
+            // `--handoff` is the one flag without a value.
+            let handoff = rest.iter().any(|arg| arg == "--handoff");
+            let rest: Vec<String> =
+                rest.iter().filter(|arg| *arg != "--handoff").cloned().collect();
+            ensure::run_ensure(
+                &flags(
+                    &rest,
+                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
+                )?,
+                handoff,
+            )
         }
+        "stop" => ensure::run_stop(&flags(rest, &["--state-dir"])?),
+        "status" => ensure::run_status(&flags(rest, &["--state-dir"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
         #[cfg(target_os = "macos")]
@@ -299,7 +316,11 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     let owner = owner_session(flags)?;
-    tokio_runtime()?.block_on(serve(state, session_socket, owner))
+    let ready = match flags.get("--ready-fd") {
+        Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
+        None => None,
+    };
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready))
 }
 
 /// The owner session block of `server.json` (`--server-config PATH`, else
@@ -325,6 +346,7 @@ async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
+    ready: Option<ensure::ReadyPipe>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let socket =
@@ -348,19 +370,27 @@ async fn serve(
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
-    let socket_path = state::socket_path();
+    let socket_path = state.socket_path();
     let local = bind_local(&socket_path)?;
     let pid = std::process::id();
+    let udp = overlay.local_addr()?.to_string();
+    let status: Arc<str> =
+        ensure::status_line(&state, &config, &socket_path, pid, &udp).to_string().into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    print_json(&json!({
+    let ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
+        "pid": pid,
         "overlay_address": own.to_string(),
-        "udp": overlay.local_addr()?.to_string(),
+        "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
-    }));
+    });
+    print_json(&ready_line);
+    if let Some(ready) = ready {
+        ready.send(&ready_line);
+    }
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver) => served.map_err(anyhow::Error::from),
+        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
     };

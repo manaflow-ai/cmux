@@ -37,17 +37,30 @@ impl LinkState {
     pub(super) fn open(dir: Option<PathBuf>) -> io::Result<Self> {
         let dir = match dir {
             Some(dir) => dir,
-            None => cmux_tui_core::platform::workspace_state_dir()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no state directory"))?
-                .join("link"),
+            None => default_dir()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no state directory"))?,
         };
         create_private_dir(&dir)?;
         Ok(Self { dir })
     }
 
-    #[cfg(target_os = "macos")]
     pub(super) fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// This link's local socket ([`socket_path_for`]).
+    pub(super) fn socket_path(&self) -> PathBuf {
+        socket_path_for(&self.dir)
+    }
+
+    /// Where a link that `cmux link ensure` started writes its output.
+    pub(super) fn log_path(&self) -> PathBuf {
+        self.dir.join("link.log")
+    }
+
+    /// Whether `init` has run (the config exists).
+    pub(super) fn has_config(&self) -> bool {
+        self.config_path().exists()
     }
 
     /// Where `link.json` goes: the daemon state dir, the parent of the
@@ -117,14 +130,29 @@ pub(super) fn public_key(private: &[u8; 32]) -> [u8; 32] {
     x25519_dalek::PublicKey::from(&secret).to_bytes()
 }
 
-/// The link's local socket: `<runtime dir>/link.sock`, or the short
-/// fallback runtime dir when that path would not fit `sun_path`.
-pub(super) fn socket_path() -> PathBuf {
-    let preferred = cmux_tui_core::platform::runtime_dir().join("link.sock");
+/// The default state directory: `<daemon state dir>/link`.
+pub(super) fn default_dir() -> Option<PathBuf> {
+    cmux_tui_core::platform::workspace_state_dir().map(|dir| dir.join("link"))
+}
+
+/// The local socket of the link whose state directory is `dir`:
+/// `<runtime dir>/link-<12 hex>.sock`, or the same name in the short
+/// fallback runtime dir when that path would not fit `sun_path`. The name
+/// comes from the state directory, so two links with their own state
+/// directories (a tagged DEV app's and the release app's) never share a
+/// socket, also when they share a runtime directory. Readers find it in the
+/// registration (`link.json`), never by this name.
+pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
+    use sha2::{Digest as _, Sha256};
+    let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
+    let leaf = format!("link-{hex}.sock");
+    let preferred = cmux_tui_core::platform::runtime_dir().join(&leaf);
     if cmux_unix_socket::fits(&preferred) {
         return preferred;
     }
-    cmux_tui_core::platform::fallback_runtime_dir().join("link.sock")
+    cmux_tui_core::platform::fallback_runtime_dir().join(leaf)
 }
 
 fn create_private_dir(dir: &Path) -> io::Result<()> {

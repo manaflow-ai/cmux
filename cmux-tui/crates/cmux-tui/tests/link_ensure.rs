@@ -19,7 +19,11 @@ impl Scratch {
     fn new(name: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         // Short: the runtime base holds Unix socket paths.
-        let root = PathBuf::from("/tmp").join(format!("cle-{name}-{}-{}", std::process::id(), stamp % 1_000_000));
+        let root = PathBuf::from("/tmp").join(format!(
+            "cle-{name}-{}-{}",
+            std::process::id(),
+            stamp % 1_000_000
+        ));
         std::fs::create_dir_all(root.join("home")).unwrap();
         std::fs::create_dir_all(root.join("run")).unwrap();
         Self { root }
@@ -38,7 +42,8 @@ impl Drop for Scratch {
         for name in ["a", "b", "c"] {
             let app = App { root: self.root.clone(), state_root: self.root.join(name) };
             if app.state_root.exists() {
-                let _ = app.cmux(&["link", "stop", "--state-dir", app.state_dir().to_str().unwrap()]);
+                let _ =
+                    app.cmux(&["link", "stop", "--state-dir", app.state_dir().to_str().unwrap()]);
             }
         }
         let _ = std::fs::remove_dir_all(&self.root);
@@ -146,8 +151,14 @@ fn link_ensure_refuses_another_install_or_port() {
     let app = base.app("a");
     app.ensure(&["--install", "inst_app_a", "--port", "0"]);
     let dir = app.state_dir();
-    let out =
-        app.cmux(&["link", "ensure", "--state-dir", dir.to_str().unwrap(), "--install", "inst_other"]);
+    let out = app.cmux(&[
+        "link",
+        "ensure",
+        "--state-dir",
+        dir.to_str().unwrap(),
+        "--install",
+        "inst_other",
+    ]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("install_mismatch"));
     let out = app.cmux(&["link", "ensure", "--state-dir", dir.to_str().unwrap(), "--port", "4101"]);

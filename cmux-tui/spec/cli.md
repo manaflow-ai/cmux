@@ -18,6 +18,9 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
+cmux link stop --state-dir <dir>
+cmux link status --state-dir <dir>
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
@@ -55,6 +58,30 @@ Key order is not part of the contract. Exit codes:
 | 5 | `unreachable` | no path answered |
 | 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
 | 64 | `bad_request` | bad arguments or a malformed dial |
+
+`link ensure`, `link stop` and `link status` let an app run the per-user
+link on demand, as it ensures the session daemon (`server ensure`). One link
+runs per state directory; its registration is `link.json` in the state
+directory's parent, and its socket is `link-<12 hex>.sock` in the runtime
+directory, named from the state directory, so links of separate state
+directories (a tagged DEV build and the release app) never share a socket.
+`ensure` runs `init` first when the state directory has no config (then
+`--install` is required; `--port 0` binds any free UDP port) and refuses a
+different `--install` or `--port` than the config has (`install_mismatch`,
+`port_mismatch`). When a link of this state directory runs, `ensure` keeps it
+and prints `{"status":"running","pid","socket","build","udp"}`; with
+`--handoff`, a running link of another build is stopped and replaced
+(`"status":"restarted"`). Otherwise it starts `cmux link serve` in its own
+session (the link outlives the caller; output goes to `<state
+dir>/link.log`), waits for its ready line on a private pipe, and prints
+`{"status":"started","pid","socket","udp","build"}`. `stop` signals only the
+pid that a fresh connection proved serves the registered socket, then waits
+for that connection to end (the link removes its registration first); it
+prints `{"ok":true,"stopped":true|false}`. `status` prints
+`{"running":false}` or the link's own `link.status` answer with
+`"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`, `udp`,
+`build`). The link's local socket also answers `{"op":"link.status"}` with
+that line.
 
 `apps run` runs one catalog op of an installed app through the session
 daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and

@@ -143,11 +143,15 @@ pub(super) async fn connect(
     }
 }
 
-/// The running link's socket: from its registration, else the default path.
+/// The running link's socket: from its registration, else the default
+/// state directory's socket path.
 fn link_socket() -> PathBuf {
     cmux_tui_core::platform::workspace_state_dir()
         .and_then(|dir| cmux_link::registration::read_live(&dir))
-        .map_or_else(super::state::socket_path, |live| live.socket)
+        .map(|live| live.socket)
+        .or_else(|| super::state::default_dir().map(|dir| super::state::socket_path_for(&dir)))
+        // No home: a path no link listens at, so the dial reports link_unavailable.
+        .unwrap_or_else(|| cmux_tui_core::platform::fallback_runtime_dir().join("link.sock"))
 }
 
 /// `cmux link dial ...`: the exit code.
