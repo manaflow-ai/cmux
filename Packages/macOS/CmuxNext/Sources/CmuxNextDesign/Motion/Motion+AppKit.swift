@@ -234,7 +234,10 @@ extension Motion {
     /// shrink jumped the panel smaller in one frame before it faded.
     @discardableResult
     public static func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
-        guard animatesMovement else { return nil }
+        guard animatesMovement else {
+            layer.removeAnimation(forKey: keyPath)
+            return nil
+        }
         return set(layer, keyPath, to: value, fade: token, from: from)
     }
 

@@ -147,7 +147,7 @@ def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
-    # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
+    # Capture slots can launch with ui.animationSpeed "off"; record at "fast" (in memory only).
     rpc("debug.motion", {"action": "speed", "value": "fast"})
     if opts.reduce_motion:
         rpc("debug.motion", {"action": "reduce", "value": True})
@@ -187,4 +187,8 @@ def main():
     print("\nRESULT PASS (recorded)")
 
 
-main()
+try:
+    main()
+finally:
+    if opts.reduce_motion:
+        rpc("debug.motion", {"action": "reduce", "value": None})

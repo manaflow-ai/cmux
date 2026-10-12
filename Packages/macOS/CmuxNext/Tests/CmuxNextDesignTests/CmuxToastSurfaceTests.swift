@@ -97,6 +97,9 @@ struct CmuxToastSurfaceTests {
     /// Toasts stay clear of the Home composer; when it grows, a shown toast slides up with it
     /// instead of jumping there in one frame (motion pass, 2026-10-12).
     @Test func aToastSlidesClearOfAGrowingAvoidedView() throws {
+        // Synchronous from here to the reset: the override is process-wide.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let host = CmuxToastOverlayHost()
         let center = CmuxToastCenter(host: host)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],

@@ -524,16 +524,18 @@ def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
-    # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
+    # Capture slots can launch with ui.animationSpeed "off"; record at "fast" (in memory only).
     rpc("debug.motion", {"action": "speed", "value": "fast"})
     if opts.reduce_motion:
         print("reduce motion:", json.dumps(rpc("debug.motion", {"action": "reduce", "value": True}))[:120], flush=True)
-    action("workspace.selectFirst")
-    time.sleep(1.0)  # test harness: the workspace settles
-    for name in opts.surface or list(SURFACES):
-        SURFACES[name]()
-    if opts.reduce_motion:
-        rpc("debug.motion", {"action": "reduce", "value": None})
+    try:
+        action("workspace.selectFirst")
+        time.sleep(1.0)  # test harness: the workspace settles
+        for name in opts.surface or list(SURFACES):
+            SURFACES[name]()
+    finally:
+        if opts.reduce_motion:
+            rpc("debug.motion", {"action": "reduce", "value": None})
     print("\nRESULT PASS (recorded)")
 
 
