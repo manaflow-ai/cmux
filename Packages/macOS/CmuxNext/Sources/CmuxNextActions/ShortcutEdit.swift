@@ -67,8 +67,9 @@ extension ActionRegistry {
     }
 
     /// ``assessShortcut(_:for:environment:)`` without refusing a numbered
-    /// family: `shortcut` as one key of `id` (a family's own keys never
-    /// collide with it), for an edit of one digit or of the family's modifiers.
+    /// family: `shortcut` as one key of `id`, for an edit of one digit or of
+    /// the family's modifiers. `id`'s own entries are not owners: a caller
+    /// editing one digit checks the family's other digits itself.
     public func assessKey(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
         let id = canonicalID(for: id)
         guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
