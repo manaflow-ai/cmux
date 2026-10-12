@@ -70,7 +70,7 @@ final class DragLiftView: NSView {
         let h = SidebarStyle.badgeHeight + Metrics.space1
         let w = max(h, size.width + Metrics.space4)
         badgeBackground.frame = NSRect(x: bounds.maxX - w + Metrics.space3, y: -h / 2, width: w, height: h)
-        badgeBackground.layer?.cornerRadius = h / 2
+        badgeBackground.layer?.cornerRadius = Metrics.chipCornerRadius(height: h)
         countBadge.frame = NSRect(x: badgeBackground.frame.minX, y: badgeBackground.frame.midY - size.height / 2, width: w, height: size.height)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
     }
@@ -98,13 +98,14 @@ final class DragLiftView: NSView {
         }
     }
 
-    /// Lifted: deeper shadow. Landing: shadow fades as the card settles.
+    /// Lifted: the one popover shadow (PopupStyle). Landing: it fades as the card settles.
     func setLifted(_ lifted: Bool, animated: Bool) {
         guard lifted != self.lifted, let layer else { return }
         self.lifted = lifted
-        let opacity: Float = lifted ? 0.28 : 0
-        let radius = lifted ? Metrics.space5 : Metrics.space2
-        let offset = CGSize(width: 0, height: lifted ? Metrics.space3 : Metrics.space1)
+        let style = PopupStyle.standard
+        let opacity: Float = lifted ? Float(style.shadowAlpha) : 0
+        let radius = lifted ? style.shadowBlur : Metrics.space2
+        let offset = CGSize(width: 0, height: lifted ? style.shadowOffset : Metrics.space1)
         guard animated else {
             Motion.transaction(nil) {
                 layer.shadowOpacity = opacity
