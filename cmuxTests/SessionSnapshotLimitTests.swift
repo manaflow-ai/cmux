@@ -40,7 +40,7 @@ struct SessionSnapshotLimitTests {
         for _ in 1..<131 {
             _ = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
         }
-        let boundaryWorkspace = manager.tabs[129]
+        let boundaryWorkspace = manager.tabs[130]
         manager.selectWorkspace(manager.tabs[1])
 
         let before = manager.sessionAutosaveFingerprint()
