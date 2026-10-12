@@ -43,6 +43,8 @@ export interface Sections {
   passkeys: boolean;
   exceptions: boolean;
   export: boolean;
+  /** `browser.passwords.allowExport` is off (the default): export waits for that setting. */
+  exportOff?: boolean;
 }
 
 export interface StateResult {
