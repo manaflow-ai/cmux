@@ -83,7 +83,10 @@ afterAll(() => {
 
 type Sent = { method: "model" | "harness" | "effort"; value: string };
 
-async function mount(start: { harness: string; extra?: { id: string; name: string; unavailable?: string }[] }) {
+async function mount(start: {
+  harness: string;
+  extra?: { id: string; name: string; unavailable?: string; probeFailed?: boolean }[];
+}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -231,7 +234,7 @@ async function mountNewTab(start: { harness: string; folder?: string }) {
   const { useSyncExternalStore } = await import("react");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabComposerChips } = await import("../src/agent-session/acpmux/App");
-  const { HarnessSwitch, applySwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { HarnessSwitch, applySwitch, lastOfferedModel } = await import("../src/agent-session/acpmux/harnessSwitch");
   const { newTabStart } = await import("../src/agent-session/acpmux/newtab/chipDefaults");
   const { HarnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
@@ -272,9 +275,10 @@ async function mountNewTab(start: { harness: string; folder?: string }) {
     "chat.new": (params) => {
       sent.push({ method: "chat.new", params });
       const { harness, cwd, deferred, model } = params;
+      const picked = model ? String(model) : lastOfferedModel(String(harness), acpmux, cwd ? String(cwd) : undefined);
       return store.switchTo(String(harness), cwd ? String(cwd) : undefined, {
         deferred: deferred === true,
-        ...(model ? { model: String(model) } : {}),
+        ...(picked ? { model: picked } : {}),
       });
     },
     "chat.model": (params) => {
@@ -487,4 +491,29 @@ test("the rail lists the harnesses set up here; one acpmux cannot run stays off 
   const rail = () => [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
   expect(rail().some((title) => title.startsWith("Grok"))).toBe(false);
   expect(rail().some((title) => title.startsWith("Claude Code"))).toBe(true);
+});
+
+test("a harness whose model probe alone failed stays on the rail", async () => {
+  await mount({
+    harness: "claude",
+    extra: [{ id: "grok", name: "Grok", unavailable: "model list timed out", probeFailed: true }],
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const rail = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
+  expect(rail.some((title) => title.startsWith("Grok"))).toBe(true);
+});
+
+test("a remembered model the harness no longer offers is neither drawn nor asked for", async () => {
+  dom.window.localStorage.setItem(
+    "cmux.acpmux.lastPick",
+    JSON.stringify({ global: { harness: "claude", model: "claude-opus-3" } }),
+  );
+  const tab = await mountNewTab({ harness: "claude" });
+  expect(chip()).not.toContain("opus-3");
+  await tab.ask();
+  await settle();
+  expect(tab.created).toEqual(["claude"]);
+  expect(tab.models).toEqual([]);
 });
