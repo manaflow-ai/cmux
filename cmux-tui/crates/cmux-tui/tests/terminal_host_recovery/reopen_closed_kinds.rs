@@ -336,7 +336,7 @@ fn another_live_window_never_reopens_a_windows_closed_tab() {
 fn a_closed_browser_tab_keeps_no_secret_query_keys() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, pane) = start("reopen-browser-secrets");
-    let url = "https://example.com/cb?page=2&access_token=abc&code=oauth&X-Amz-Signature=s1&api_key=k#top";
+    let url = "https://example.com/cb?page=2&access_token=abc&q=a%20b&code=oauth&X-Amz-Signature=s1&api_key=k&PHPSESSID=p9#top";
     let created = app.send(serde_json::json!({
         "cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit",
     }));
@@ -345,20 +345,29 @@ fn a_closed_browser_tab_keeps_no_secret_query_keys() {
         "entries":[
             {"url":"https://example.com/login?next=%2Fhome&password=hunter2","title":"Login"},
             {"url":url,"title":"Callback"},
+            {"url":"https://docs.example.com/d/1/edit?authuser=1&pageToken=pg2&sort_key=name&accessKey=ak7","title":"Doc"},
         ],
         "index":1,"scroll":{"x":0,"y":40},
     });
     app.send(serde_json::json!({"cmd":"set-frontend-browser-history","surface":surface,"history":history}));
     let back = close_and_reopen(&harness, &mut app, surface, "browser-secrets");
-    assert_eq!(back["url"], "https://example.com/cb?page=2#top", "{back}");
+    // Kept query bytes stay exactly as they were (no re-encoding).
+    assert_eq!(back["url"], "https://example.com/cb?page=2&q=a%20b#top", "{back}");
     let surface = back["surface"].as_u64().expect("the reopened tab has a surface");
     let restored =
         app.send(serde_json::json!({"cmd":"get-frontend-browser-history","surface":surface}));
     let text = restored.to_string();
-    for secret in ["abc", "oauth", "s1", "hunter2", "api_key", "access_token", "password"] {
+    for secret in
+        ["abc", "oauth", "s1", "hunter2", "api_key", "access_token", "password", "p9", "ak7"]
+    {
         assert!(!text.contains(secret), "{secret} reached closed history: {restored}");
     }
     assert!(text.contains("next=%2Fhome"), "a harmless query key was dropped: {restored}");
+    // Account choice, pagination and sort keys are not secrets.
+    assert!(
+        text.contains("edit?authuser=1&pageToken=pg2&sort_key=name"),
+        "a harmless query key was dropped: {restored}"
+    );
     assert!(text.contains("\"y\":40"), "the scroll position was lost: {restored}");
 }
 
@@ -402,4 +411,10 @@ fn a_closed_incognito_window_is_never_recorded() {
     let groups = window_groups(closed_list(&harness, "normal-list"));
     assert_eq!(groups.len(), 1, "{groups:?}");
     assert_eq!(groups[0]["window"], "reopen-kinds/win-normal");
+    // A window listing only workspaces this daemon does not know (another
+    // machine's, or not loaded yet) is not incognito: it is recorded.
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), true, "remote-open");
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), false, "remote-close");
+    let groups = window_groups(closed_list(&harness, "remote-list"));
+    assert!(groups.iter().any(|group| group["window"] == "reopen-kinds/win-remote"), "{groups:?}");
 }
