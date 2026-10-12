@@ -5,12 +5,12 @@
 //! own daemon and waits for the answer. On this Mac the app runs `triage`
 //! and `answer` through the machine link:
 //!
-//! - `triage` answers what needs no person: a path the rules never share
-//!   (outside the home folder, the home folder itself, `~/Library`, a dot
-//!   folder or a secret file, judged from the path as written so the answer
-//!   tells the machine nothing about this Mac) is denied; a path inside a
-//!   folder the chat was granted whose copy on the machine has it is
-//!   delivered at that copy. Everything else is listed for the person (the
+//! - `triage` answers what needs no person: a path inside a folder the chat
+//!   was granted whose copy on the machine has it is delivered at that copy;
+//!   otherwise a path the rules never share on its own (outside the home
+//!   folder, the home folder itself, `~/Library`, anything in a dot folder
+//!   or a secret file, judged from the path as written so the answer tells
+//!   the machine nothing about this Mac) is denied. Everything else is listed for the person (the
 //!   inline card). Only requests of the chats named by `--session` are
 //!   touched.
 //! - `answer` carries the person's answer to one request: `--allow` copies
@@ -197,18 +197,12 @@ pub(super) fn triage(socket: &Path, machine: &str, sessions: &[String]) -> Resul
         if request.kind != "file" {
             continue;
         }
-        let path = lexical(&request.path).filter(|path| !never_shared(path));
-        let Some(path) = path else {
-            answer_machine(
-                socket,
-                &request.id,
-                json!({"outcome": "denied",
-                "reason": "this file is never shared from the Mac"}),
-            )?;
-            answered.push(json!({"request_id": request.id, "path": request.path,
-                                 "outcome": "denied"}));
+        let Some(path) = lexical(&request.path) else {
+            deny(socket, &request, &mut answered)?;
             continue;
         };
+        // Inside a folder the chat was granted, and in its copy: it is on the
+        // machine already (a copy holds no secret file or repository).
         let granted = store.grants.iter().find_map(|grant| {
             let inside = path.strip_prefix(&grant.folder).ok()?;
             (grant.machine == machine && grant.session == session).then(|| {
@@ -228,6 +222,10 @@ pub(super) fn triage(socket: &Path, machine: &str, sessions: &[String]) -> Resul
                                  "outcome": "delivered", "at": at}));
             continue;
         }
+        if never_shared(&path) {
+            deny(socket, &request, &mut answered)?;
+            continue;
+        }
         let here = std::fs::symlink_metadata(&path).ok();
         let is_dir = here.as_ref().is_some_and(|meta| meta.is_dir());
         ask.push(json!({
@@ -241,6 +239,17 @@ pub(super) fn triage(socket: &Path, machine: &str, sessions: &[String]) -> Resul
         }));
     }
     Ok(json!({"answered": answered, "ask": ask}))
+}
+
+/// Denies `request` by the rules, without the person.
+fn deny(socket: &Path, request: &Pending, answered: &mut Vec<Value>) -> Result<(), Failure> {
+    answer_machine(
+        socket,
+        &request.id,
+        json!({"outcome": "denied", "reason": "this file is never shared from the Mac"}),
+    )?;
+    answered.push(json!({"request_id": request.id, "path": request.path, "outcome": "denied"}));
+    Ok(())
 }
 
 fn answer_machine(socket: &Path, request_id: &str, mut answer: Value) -> Result<(), Failure> {

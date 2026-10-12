@@ -92,7 +92,7 @@ fn id_for(requests: &[Value], path: &Path) -> String {
 }
 
 #[test]
-fn a_file_request_outside_any_grant_waits_for_the_person_and_one_inside_is_answered() {
+fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_answered() {
     let root = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(root.path()).unwrap();
     let mac = Mac::new(&root);
