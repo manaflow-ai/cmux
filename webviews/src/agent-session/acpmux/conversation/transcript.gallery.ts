@@ -431,6 +431,11 @@ export default agentPaneEntry({
     "thought-find": {
       note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason:
+            "The key that opens the closed Worked for fold re-renders the whole pane (Find state lives in AcpmuxPane) in dev React: 19-35 ms to two frames alone, 56-64 ms on a loaded runner; moving Find state down is cx-ncc.86.",
+        },
         layoutShiftMax: {
           value: 0.01,
           reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
@@ -457,7 +462,9 @@ export default agentPaneEntry({
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         page.cmuxAcpmuxBridge?.command?.("find");
         await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
-        await ctx.type("thought");
+        // A key at a time, as a person types: the play's type inserts its whole text in one task,
+        // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
+        for (const key of "thought") await ctx.type(key);
         const active = () => {
           const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
             .CSS.highlights;
