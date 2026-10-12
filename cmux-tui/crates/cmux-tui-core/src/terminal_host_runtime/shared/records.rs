@@ -53,6 +53,7 @@ pub fn validate_terminal_host_record(
             || record.supports_clipboard_read
             || record.supports_viewer_size_priority
             || record.supports_pty_custody
+            || record.supports_program_status
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }

@@ -56,6 +56,13 @@ pub(crate) fn encode_snapshot_for_version(
     if include_terminal_metadata {
         put_string(&mut output, &snapshot.osc_progress)?;
     }
+    // The host sets the records only when the client negotiated them.
+    if let Some(program_status) = &snapshot.program_status {
+        if !include_terminal_metadata {
+            anyhow::bail!("program status requires the terminal metadata tail");
+        }
+        super::program_status_codec::put_program_status(&mut output, program_status)?;
+    }
     if output.len() > MAX_FRAME_PAYLOAD {
         anyhow::bail!("terminal-host snapshot payload is too large");
     }
@@ -83,6 +90,20 @@ pub(crate) fn decode_snapshot_for_version(
     protocol_version: u16,
     include_terminal_metadata: bool,
 ) -> anyhow::Result<HostSnapshot> {
+    decode_snapshot_with_program_status(payload, protocol_version, include_terminal_metadata, false)
+}
+
+/// `decode_snapshot_for_version` that also reads the OSC 7501 records when
+/// `FLAG_PROGRAM_STATUS` was negotiated.
+pub(crate) fn decode_snapshot_with_program_status(
+    payload: &[u8],
+    protocol_version: u16,
+    include_terminal_metadata: bool,
+    include_program_status: bool,
+) -> anyhow::Result<HostSnapshot> {
+    if include_program_status && !include_terminal_metadata {
+        anyhow::bail!("program status requires the terminal metadata tail");
+    }
     if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
         anyhow::bail!("unsupported terminal-host snapshot protocol {protocol_version}");
     }
@@ -133,6 +154,11 @@ pub(crate) fn decode_snapshot_for_version(
     } else {
         String::new()
     };
+    let program_status = if include_program_status {
+        Some(super::program_status_codec::program_status(&mut decoder)?)
+    } else {
+        None
+    };
     pty_size(cols, rows, cell_pixels)?;
     decoder.finish()?;
     Ok(HostSnapshot {
@@ -148,6 +174,7 @@ pub(crate) fn decode_snapshot_for_version(
         command,
         cwd,
         osc_progress,
+        program_status,
     })
 }
 

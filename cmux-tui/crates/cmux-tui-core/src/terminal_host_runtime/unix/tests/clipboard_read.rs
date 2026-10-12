@@ -704,6 +704,7 @@ fn fake_owner_host(
         command: vec!["/bin/sh".into()],
         cwd: None,
         osc_progress: String::new(),
+        program_status: None,
     };
     let mut frames = vec![
         Frame::new(MessageKind::Snapshot, encode_snapshot_for_version(&snapshot, version, false)?),

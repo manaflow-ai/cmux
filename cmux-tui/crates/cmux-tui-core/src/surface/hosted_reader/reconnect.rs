@@ -199,6 +199,10 @@ impl HostedReader {
                 }
                 continue;
             }
+            // The host saw the output this daemon missed; its records win.
+            if let Some(program_status) = replacement_snapshot.program_status.clone() {
+                replacement_metadata.restore_program_status(program_status);
+            }
             self.title_changed.store(false, Ordering::Relaxed);
             let title = replacement_term.title().unwrap_or_default();
             let pwd = replacement_term.pwd();
