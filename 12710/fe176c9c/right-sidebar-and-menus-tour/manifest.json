@@ -1,0 +1,28 @@
+{
+  "tour": "right-sidebar-and-menus-tour",
+  "head_sha": "fe176c9c41bc69094bc5490ac57a9eacc5de251a",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "05-right-sidebar-find",
+      "file": "05-right-sidebar-find.png"
+    },
+    {
+      "name": "12-right-sidebar-cloud",
+      "file": "12-right-sidebar-cloud.png"
+    },
+    {
+      "name": "25-sidebar-with-unread",
+      "file": "25-sidebar-with-unread.png"
+    },
+    {
+      "name": "35-terminal-find-bar",
+      "file": "35-terminal-find-bar.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "4b71d6677b7a833b266cb32f90a0e85ae3f076fc",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36539996142",
+  "failures": [],
+  "frames": 10
+}

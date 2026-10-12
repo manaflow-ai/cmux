@@ -1,0 +1,10 @@
+{
+  "pr": 17205,
+  "source_commit": "71ecdfce3f1958d13f54ae2e0380ec1862ea365d",
+  "description": "cmux-next Settings pane dogfood capture",
+  "files": [
+    "settings-pane.png",
+    "settings-before-cmdw.png",
+    "settings-after-cmdw.png"
+  ]
+}

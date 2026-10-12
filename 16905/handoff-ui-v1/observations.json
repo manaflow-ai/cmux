@@ -1,0 +1,8 @@
+{
+  "transport": "mock",
+  "observations": [
+    "Claude to Codex: no composer before review; checkpoint attested; approved memory reference; one start; review removed.",
+    "Codex to Claude: palette bridge opens header chooser; discard returns to Codex with the same cwd."
+  ],
+  "errors": []
+}

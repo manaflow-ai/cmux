@@ -1,0 +1,18 @@
+{
+  "tour": "copy-actions-tour",
+  "head_sha": "75172ed5233062614f2af46407aae42bde0dd49e",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "07-copy-actions-palette",
+      "file": "07-copy-actions-palette.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "ad06d096b16b1a2f8ff4c859719d8a40c181a8ca",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37418849389",
+  "failures": [
+    "Failed to get matching snapshot: No matches found for Identity Binding from input {("
+  ],
+  "frames": 2
+}

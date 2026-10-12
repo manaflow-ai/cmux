@@ -1,0 +1,28 @@
+{
+  "tour": "modifier-clicks-tour",
+  "head_sha": "9c4d1b3916acc95cffad894e0cd818a3f1089290",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "08-01-plain-hover-example",
+      "file": "08-01-plain-hover-example.png"
+    },
+    {
+      "name": "11-01-cmd-hover-example",
+      "file": "11-01-cmd-hover-example.png"
+    },
+    {
+      "name": "14-01-cmd-click-opens-example",
+      "file": "14-01-cmd-click-opens-example.png"
+    },
+    {
+      "name": "21-02-cmd-click-opens-github",
+      "file": "21-02-cmd-click-opens-github.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "c2205794e4b1d9450d4c64478161d039d2169852",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36659631481",
+  "failures": [],
+  "frames": 6
+}

@@ -1,0 +1,25 @@
+{
+  "tour": "sidebar-and-chrome-tour",
+  "head_sha": "d30ae45928d8a3ac4e2c447add0d49dd49e967dd",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "04-three-workspaces",
+      "file": "04-three-workspaces.png"
+    },
+    {
+      "name": "07-sidebar-row-hover",
+      "file": "07-sidebar-row-hover.png"
+    },
+    {
+      "name": "10-split-right",
+      "file": "10-split-right.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36726439907",
+  "failures": [
+    "Failed to synthesize event: Timed out while synthesizing event."
+  ],
+  "frames": 4
+}

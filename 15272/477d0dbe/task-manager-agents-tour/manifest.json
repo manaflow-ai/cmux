@@ -1,0 +1,29 @@
+{
+  "tour": "task-manager-agents-tour",
+  "head_sha": "477d0dbe91af7e1b8468d038e714daa344a407ec",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    },
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "08-workspaces",
+      "file": "08-workspaces.png"
+    },
+    {
+      "name": "24-palette-activity",
+      "file": "24-palette-activity.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36695985486",
+  "failures": [
+    "DogfoodScenarioUITests.swift:113: failed - Dogfood steps failed:"
+  ],
+  "frames": 14
+}
