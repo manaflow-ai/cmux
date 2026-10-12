@@ -101,6 +101,19 @@ export default componentEntry<ModelPickerProps>({
     fetching: { props: { ...base, catalogRefresh: refresh("fetching", "2026-10-07T10:00:00Z") } },
     updated: { props: { ...base, catalogRefresh: refresh("updated", "2026-10-07T12:30:00Z") } },
     error: { props: { ...base, catalogRefresh: refresh("error", "2026-10-07T10:00:00Z") } },
+    // An agent that has reported no models yet: the list says so and points at Refresh models.
+    empty: {
+      props: {
+        ...base,
+        catalog: catalog.map((entry) => (entry.id === "claude" ? { ...entry, models: [] } : entry)),
+        model: undefined,
+        label: "Claude Code",
+        catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z"),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+      },
+    },
     curated: { props: curated, play: openModels },
     "more-models": {
       props: curated,

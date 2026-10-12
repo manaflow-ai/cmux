@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextPages
 import CmuxNextSettings
 
@@ -13,11 +14,13 @@ import CmuxNextSettings
 /// is saved and listed. Ghostty rows are the user's Ghostty config and are
 /// never written. What cmux.json cannot hold (a `when` clause, arguments,
 /// three or four keys, one of several keys of an action, an app's entry)
-/// waits for keybindings.json (cmux-config).
+/// and every keybindings.json entry is written to keybindings.json by the
+/// home daemon (`file`, cx-9ce.17); without it such a change is unsupported.
 @MainActor
 struct KeybindingPageWrites {
     let registry: ActionRegistry
     let settings: SettingsController
+    let file: KeybindingsFileService
 
     /// `{command, key, when?, args?, replaces?: {key, when}}`.
     func set(_ params: [String: JSONValue]) async throws {
@@ -30,9 +33,10 @@ struct KeybindingPageWrites {
         }
         // cmux.json keeps the action's own `when` and no arguments: only a key change fits.
         let scope = target?.when?.text ?? WhenClause.requiring(registry.descriptor(for: id)?.requires ?? [])?.text
-        let hasArgs = !(params["args"]?.objectValue ?? [:]).isEmpty
-        guard params["when"]?.stringValue == scope, !hasArgs || target != nil, target?.source != .app else {
-            throw Self.needsKeybindingsJSON
+        let args = params["args"]?.objectValue ?? [:]
+        guard params["when"]?.stringValue == scope, args.isEmpty || target != nil, target?.source != .app,
+              !isFromFile(target), keys.count <= 2 else {
+            return try await setInFile(id, keys: keys, when: params["when"]?.stringValue, args: args, replaces: target)
         }
         switch keys.count {
         case 1:
@@ -55,19 +59,82 @@ struct KeybindingPageWrites {
         let id = try command(params)
         let target = try entry(id, params)
         if let target, target.source.isGhostty { throw Self.readOnly }
-        if let target, target.source == .app { throw Self.needsKeybindingsJSON }
-        // cmux.json unbinds the whole action: one of several keys needs keybindings.json.
-        let others = RegistryKeyBindings(registry).table.entries.filter { $0.command == id && !$0.source.isGhostty && $0 != target }
+        // cmux.json unbinds the whole action (keybindings.json entries stay): one of
+        // several keys, an app's entry or a keybindings.json entry is a keybindings.json edit.
+        let others = RegistryKeyBindings(registry).table.entries.filter {
+            $0.command == id && !$0.source.isGhostty && $0 != target && !isFromFile($0)
+        }
+        if let target, target.source == .app || isFromFile(target) || (target.source == .default && !others.isEmpty) {
+            guard file.serves else { throw Self.needsKeybindingsJSON }
+            return try await daemon { try await file.remove(target) }
+        }
         guard others.isEmpty else { throw Self.needsKeybindingsJSON }
         registry.setShortcutOverride(nil, for: id)
         try await write { try await settings.setShortcut(nil, for: id) }
     }
 
-    /// `{command}`: removes the action's cmux.json override.
+    /// `{command}`: removes the action's cmux.json override and its
+    /// keybindings.json entries and removals.
     func reset(_ params: [String: JSONValue]) async throws {
         let id = try command(params)
         registry.removeShortcutOverride(for: id)
         try await write { try await settings.resetShortcut(for: id) }
+        let layers = registry.keyBindingLayers
+        if file.serves, layers.user.contains(where: { $0.command == id }) || layers.removals.contains(where: { $0.command == id }) {
+            try await daemon { try await file.reset(id) }
+        }
+    }
+
+    /// Writes the binding to keybindings.json, checked against the catalog
+    /// and the recorder's rules first (the loader would drop what fails).
+    private func setInFile(_ id: ActionID, keys: [Shortcut], when: String?, args: [String: JSONValue],
+                           replaces target: KeyBinding?) async throws {
+        guard file.serves else {
+            throw keys.count > 2 ? PageError(code: "cmux.keybindings.refused", message: KeybindingStrings.atMostTwoKeys) : Self.needsKeybindingsJSON
+        }
+        // A removal in keybindings.json never takes out a cmux.json override.
+        if let target, target.source == .user, !isFromFile(target) { throw Self.needsKeybindingsJSON }
+        var clause: WhenClause?
+        if let when {
+            do { clause = try WhenClause.parse(when) } catch {
+                throw PageError(code: "cmux.keybindings.invalid", message: String(describing: error))
+            }
+        }
+        let values = args.compactMapValues { value -> ActionValue? in
+            switch value {
+            case .string(let text): .string(text)
+            case .bool(let flag): .bool(flag)
+            case .number(let number): Int(exactly: number).map(ActionValue.int) ?? .string(String(number))
+            default: nil
+            }
+        }
+        let entry = KeyBinding(keys: keys, command: id, arguments: values, when: clause, source: .user)
+        if case .failure(let kind) = KeyBindingLoader(registry).validated(entry) {
+            throw PageError(code: "cmux.keybindings.invalid", message: String(describing: kind))
+        }
+        try assess(keys[0], for: id)
+        try await daemon {
+            // The canonical text: the page lists it, and a later edit names the entry by it.
+            try await file.set(command: id, key: KeybindingReports.text(keys), when: clause?.text,
+                               args: args.mapValues { AppJSON($0).daemonValue }, replaces: target)
+        }
+    }
+
+    /// The entry is keybindings.json's (cmux.json overrides are user entries too).
+    private func isFromFile(_ entry: KeyBinding?) -> Bool {
+        guard let entry, entry.source == .user else { return false }
+        return file.isFromFile(entry)
+    }
+
+    /// Writes keybindings.json through the daemon; its refusal is the page's error.
+    private func daemon(_ body: () async throws -> Void) async throws {
+        do {
+            try await body()
+        } catch let error as PageError {
+            throw error
+        } catch {
+            throw PageError(code: "cmux.keybindings.write_failed", message: String(describing: error))
+        }
     }
 
     // MARK: Steps

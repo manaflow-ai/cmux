@@ -126,6 +126,7 @@ public final class RemoteBrowserContentView: NSView {
         label.ink = .secondary
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.isSelectable = true
+        label.focusRingType = .none
         if failureLabel == nil {
             failureLabel = label
             addSubview(label)

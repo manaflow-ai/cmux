@@ -46,6 +46,7 @@ final class DaemonConnectingView: NSView {
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 4
         detailLabel.isSelectable = true
+        detailLabel.focusRingType = .none
         copyDetailsButton.title = Strings.daemonCopyDetails
         copyDetailsButton.bezelStyle = .accessoryBarAction
         copyDetailsButton.controlSize = .small

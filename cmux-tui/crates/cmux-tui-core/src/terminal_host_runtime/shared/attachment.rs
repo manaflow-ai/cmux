@@ -18,8 +18,8 @@ use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
 use super::codec::{
     PayloadDecoder, clear_history_ack_failure, decode_hex_array, decode_kitty_graphics_limits,
-    decode_snapshot_for_version, encode_default_colors_payload, encode_kitty_graphics_limits,
-    protocol_io_error, read_required_frame,
+    decode_snapshot_with_program_status, encode_default_colors_payload,
+    encode_kitty_graphics_limits, protocol_io_error, read_required_frame,
 };
 use super::control_responses::{ControlResponseWaiter, ControlResponses};
 use super::host_state::{

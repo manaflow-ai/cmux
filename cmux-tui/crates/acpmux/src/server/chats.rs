@@ -58,6 +58,10 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // The secret methods check their own callers and never reach a peer (`secrets.rs`).
+    if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {

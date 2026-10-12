@@ -391,6 +391,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 
 .acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;max-height:45%;overflow:auto;padding-bottom:calc(10px + var(--acpmux-queue-space,0px));font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-permission-panel .acpmux-permission-card{padding:var(--acp-row-pad-y,11px);border-radius:6px}
+/* An approval's answers stay in the panel's view: a tall request (an edit's diff) scrolls in its own
+   list above them, as the card shrinks to the panel's height. */
+.acpmux-permission-panel .acpmux-permission-card{display:flex;flex-direction:column;min-height:0}.acpmux-permission-panel .acpmux-permission-card>*{flex-shrink:0}.acpmux-permission-panel .acpmux-permission-card>button{align-self:flex-start}.acpmux-permission-panel .acpmux-permission-card>.acpmux-permission-items{flex-shrink:1;min-height:48px;overflow:auto}
 .acpmux-permission-panel .acpmux-permission-buttons{gap:var(--acp-row-gap,7px)}
 .acpmux-permission-panel .acpmux-permission-buttons button{border-radius:6px;padding:var(--acp-row-pad-y,7px) 10px;font:inherit}
 .acpmux-permission-panel .acpmux-permission-coverage,.acpmux-permission-panel .acpmux-permission-scope,.acpmux-permission-panel .acpmux-permission-item-kind,.acpmux-permission-panel .acpmux-permission-allowance,.acpmux-permission-panel .acpmux-permission-error,.acpmux-permission-panel .acpmux-permission-receipt{font-size:var(--acp-font-size-small,11px)}
