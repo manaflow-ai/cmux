@@ -164,7 +164,9 @@ const effortPressDragRelease: Play = async (ctx) => {
   await ctx.pointer.move({ text: "High" });
   await ctx.pointer.up({ text: "High" });
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button > span")?.textContent === "High");
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button > span")?.textContent === "High",
+  );
 };
 
 const openMode: Play = async (ctx) => {
