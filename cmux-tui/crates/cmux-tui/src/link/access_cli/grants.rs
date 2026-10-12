@@ -19,11 +19,12 @@
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 
 const VERSION: u32 = 1;
 /// Longest machine or session id.
@@ -81,10 +82,7 @@ impl std::error::Error for Refused {}
 /// The canonical folder at `folder`, when it may be shared.
 pub(super) fn shareable(folder: &Path) -> Result<PathBuf, Refused> {
     let refused = |why: &str| Refused(format!("{} cannot be shared: {why}", folder.display()));
-    let home = std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .and_then(|home| std::fs::canonicalize(home).ok())
-        .ok_or_else(|| refused("this Mac has no home folder"))?;
+    let home = home().ok_or_else(|| refused("this Mac has no home folder"))?;
     let canonical = std::fs::canonicalize(folder).map_err(|_| refused("it does not exist"))?;
     if !std::fs::metadata(&canonical).is_ok_and(|meta| meta.is_dir()) {
         return Err(refused("it is not a folder"));
@@ -109,6 +107,16 @@ pub(super) fn shareable(folder: &Path) -> Result<PathBuf, Refused> {
     Ok(canonical)
 }
 
+/// This Mac's home folder, canonical: `HOME` when it names a folder at
+/// least two levels deep (never `/` or `/Users`, which would make other
+/// people's folders shareable).
+fn home() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").filter(|home| !home.is_empty())?;
+    let home = std::fs::canonicalize(home).ok()?;
+    (home.components().filter(|part| matches!(part, Component::Normal(_))).count() >= 2)
+        .then_some(home)
+}
+
 /// Whether `id` can name a machine or a session.
 pub(super) fn plain_id(id: &str) -> bool {
     !id.is_empty()
@@ -128,24 +136,24 @@ pub(super) fn remote_root(root: &str) -> Option<String> {
 }
 
 /// Where `folder`'s copy goes under the machine's `root`:
-/// `<root>/local/<name>-<6 hex>`, the hash of the folder's path here (FNV-1a,
-/// as Move to Cloud names a moved folder), so two folders with one name
-/// never share a copy and a shared folder never lands on a moved one.
+/// `<root>/local/<name>-<12 hex>`, the start of the SHA-256 of the folder's
+/// path here, so two folders with one name never share a copy, and a shared
+/// folder never lands on a moved one (those go right under `<root>`).
 pub(super) fn remote_of(root: &str, folder: &Path) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in folder.as_os_str().as_encoded_bytes() {
-        hash ^= u32::from(*byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
+    let hash: String = digest[..6].iter().map(|byte| format!("{byte:02x}")).collect();
     let name = folder.file_name().map(|name| name.to_string_lossy().into_owned());
-    let name: String = name
+    let mut name: String = name
         .unwrap_or_default()
         .chars()
         .map(|c| if c == '/' || c.is_control() { '_' } else { c })
-        .take(120)
         .collect();
+    // A name on the machine holds 255 bytes; keep room for the hash.
+    while name.len() > 120 {
+        name.pop();
+    }
     let name = if name.is_empty() { "folder".to_string() } else { name };
-    format!("{root}/local/{name}-{:06x}", hash & 0x00ff_ffff)
+    format!("{root}/local/{name}-{hash}")
 }
 
 /// The grants record, locked for as long as this lives.
@@ -167,6 +175,9 @@ impl Store {
             .mode(0o700)
             .create(&dir)
             .with_context(|| format!("cannot make {}", dir.display()))?;
+        // A folder made earlier with other permissions is this user's only.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("cannot protect {}", dir.display()))?;
         let lock = std::fs::OpenOptions::new()
             .read(true)
             .write(true)

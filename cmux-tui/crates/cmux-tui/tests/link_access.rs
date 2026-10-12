@@ -300,3 +300,111 @@ fn a_read_write_grant_brings_machine_edits_back_and_stops_on_a_conflict() {
     assert_eq!(revoked["revoked"], 1, "{revoked}");
     assert!(remote.join("sub/b.txt").exists(), "{revoked}");
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn a_shared_working_copy_goes_without_any_repository_ignored_files_or_files_past_a_symlink() {
+    let world = World::new();
+    let home = &world.home;
+    // A git working copy: a tracked secret file, ignored output, a remote
+    // URL with a token, and a tracked folder later swapped for a symlink
+    // to a private folder.
+    let repo = home.join("projects/app");
+    for dir in ["src", "config", "build", "data"] {
+        std::fs::create_dir_all(repo.join(dir)).unwrap();
+    }
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("src/a.txt"), "tracked\n").unwrap();
+    std::fs::write(repo.join(".gitignore"), "build/\n").unwrap();
+    std::fs::write(repo.join("config/.env.production"), "TOKEN=fake-secret-5\n").unwrap();
+    std::fs::write(repo.join("data/x.txt"), "public\n").unwrap();
+    std::fs::write(repo.join("build/out.o"), "ignored\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    git(&repo, &["remote", "add", "origin", "https://u:fake-secret-6@example.com/app.git"]);
+    let private = home.join("private");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::write(private.join("x.txt"), "fake-secret-7\n").unwrap();
+    std::fs::remove_dir_all(repo.join("data")).unwrap();
+    std::os::unix::fs::symlink(&private, repo.join("data")).unwrap();
+    // A plain folder holding a repository.
+    let many = home.join("projects/many");
+    std::fs::create_dir_all(many.join("sub/.git")).unwrap();
+    std::fs::write(many.join("sub/readme.txt"), "readme\n").unwrap();
+    std::fs::write(many.join("sub/.git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(
+        many.join("sub/.git/config"),
+        "[remote \"origin\"]\n\turl = https://u:fake-secret-8@example.com/s.git\n",
+    )
+    .unwrap();
+
+    let (ok, granted) = world.grant("session-1", "read", &repo);
+    assert!(ok, "grant failed: {granted}");
+    let remote = PathBuf::from(granted["grant"]["remote"].as_str().unwrap());
+    assert_eq!(read(&remote.join("src/a.txt")), "tracked\n");
+    assert_eq!(read(&remote.join(".gitignore")), "build/\n");
+    for kept_here in [
+        ".git/HEAD",
+        ".git/config",
+        ".git/index",
+        "build/out.o",
+        "config/.env.production",
+        "data/x.txt",
+    ] {
+        assert!(!remote.join(kept_here).exists(), "{kept_here} reached the machine");
+    }
+    let (ok, granted) = world.grant("session-1", "read", &many);
+    assert!(ok, "grant failed: {granted}");
+    let remote = PathBuf::from(granted["grant"]["remote"].as_str().unwrap());
+    assert_eq!(read(&remote.join("sub/readme.txt")), "readme\n");
+    assert!(!remote.join("sub/.git").exists(), "a nested repository reached the machine");
+    let everything = files_below(&world.machine_home);
+    for secret in ["fake-secret-5", "fake-secret-6", "fake-secret-7", "fake-secret-8"] {
+        assert!(
+            !everything.iter().any(|bytes| String::from_utf8_lossy(bytes).contains(secret)),
+            "{secret} reached the machine"
+        );
+    }
+
+    // The machine never writes into a git working copy here.
+    let (ok, refused) = world.grant("session-1", "write", &repo);
+    assert!(!ok, "{refused}");
+    assert_eq!(refused["error_code"], "grant_refused", "{refused}");
+    // Revoking a folder that is not shared says so.
+    let (ok, missing) = world.access(&[
+        "revoke",
+        "--machine",
+        "machine-1",
+        "--session",
+        "session-1",
+        private.to_str().unwrap(),
+    ]);
+    assert!(!ok, "{missing}");
+    assert_eq!(missing["error_code"], "grant_not_found", "{missing}");
+}
+
+/// The bytes of every file below `dir`.
+fn files_below(dir: &Path) -> Vec<Vec<u8>> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let meta = std::fs::symlink_metadata(&path).unwrap();
+        if meta.is_dir() {
+            found.extend(files_below(&path));
+        } else if meta.is_file() {
+            found.push(std::fs::read(&path).unwrap());
+        }
+    }
+    found
+}
