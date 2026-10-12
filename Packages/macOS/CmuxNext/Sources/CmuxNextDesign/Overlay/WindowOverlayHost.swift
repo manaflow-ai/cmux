@@ -26,6 +26,8 @@ public final class WindowOverlayHost {
     public let panel: OverlayHostPanel
     let isAppHost: Bool
     var handles: [OverlayHandle] = []
+    /// Dialogs still fading out after their removal: the panel stays until they finish.
+    var fadingOut = 0
     var nextID = 1
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
@@ -181,7 +183,7 @@ public final class WindowOverlayHost {
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
         guard let window else { return }
-        let wanted = planesWantPanel || !handles.isEmpty
+        let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
             if panel.parent !== window {
@@ -269,7 +271,7 @@ public final class WindowOverlayHost {
     }
 
     private func syncAppPanel() {
-        if handles.isEmpty {
+        if handles.isEmpty, fadingOut == 0 {
             panel.orderOut(nil)
         } else {
             layoutAppPanel()
