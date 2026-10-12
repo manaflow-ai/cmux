@@ -39,7 +39,7 @@ public final class BookmarksBarView: NSView {
         }
         overflow.image = NSImage.icon(.overflowMore, size: 14)
         overflow.image?.accessibilityDescription = BookmarkStrings.moreBookmarks
-        overflow.toolTip = BookmarkStrings.moreBookmarks
+        overflow.themedToolTip = BookmarkStrings.moreBookmarks
         overflow.action = #selector(showOverflow)
         otherButton.image = NSImage.icon(.folder, size: 14)
         otherButton.title = BookmarkStrings.otherBookmarks

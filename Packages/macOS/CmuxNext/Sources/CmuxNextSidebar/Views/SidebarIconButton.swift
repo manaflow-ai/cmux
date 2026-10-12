@@ -18,7 +18,7 @@ final class SidebarIconButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            toolTip = label
+            themedToolTip = label
             renderedSize = 0
             renderIcon()
         }
@@ -39,7 +39,7 @@ final class SidebarIconButton: NSButton {
         imagePosition = .imageOnly
         isBordered = false
         setAccessibilityLabel(label)
-        toolTip = label
+        themedToolTip = label
         wantsLayer = true
         target = self
         action = #selector(pressed)

@@ -65,7 +65,7 @@ final class PageInfoChipButton: NSView {
         text.font = OmnibarStyle.font
         text.stringValue = labelText ?? ""
         text.isHidden = labelText == nil
-        toolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
+        themedToolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
         setAccessibilityLabel([PageInfoStrings.viewSiteInformation, labelText].compactMap(\.self).joined(separator: ", "))
         setAccessibilityEnabled(indicator.isTriggerable)
         if !indicator.isTriggerable { isHovering = false; isPressed = false }

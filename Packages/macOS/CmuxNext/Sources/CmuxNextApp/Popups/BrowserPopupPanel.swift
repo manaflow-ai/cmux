@@ -32,7 +32,7 @@ final class BrowserPopupPanel: NSPanel {
         becomesKeyOnlyIfNeeded = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        standardWindowButton(.closeButton)?.toolTip = Strings.popupCloseHelp
+        standardWindowButton(.closeButton)?.themedToolTip = Strings.popupCloseHelp
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
         animationBehavior = Motion.animatesMovement ? .utilityWindow : .none

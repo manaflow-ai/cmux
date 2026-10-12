@@ -52,7 +52,7 @@ public final class HomeSidebarView: NSView {
         compose.image = NSImage.icon(.agentChatNew, size: 15)
         compose.setAccessibilityLabel(HomeConversationStrings.newMessage)
         compose.setAccessibilityIdentifier("cmux.home.sidebar.compose")
-        compose.toolTip = HomeConversationStrings.newMessage
+        compose.themedToolTip = HomeConversationStrings.newMessage
         compose.target = self
         compose.action = #selector(newMessage)
         compose.owner = self

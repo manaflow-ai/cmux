@@ -30,7 +30,7 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        toolTip = WindowStrings.incognitoHelp
+        themedToolTip = WindowStrings.incognitoHelp
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(WindowStrings.incognitoHelp)
