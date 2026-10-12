@@ -63,7 +63,7 @@ public final class TabModel: Identifiable {
     /// OSC 133 C..D fact), nil at a prompt. How long it must run to show is the client's call.
     public internal(set) var commandSinceMs: UInt64?
     /// This clock's time when `commandSinceMs` arrived: another machine's daemon may run ahead.
-    @ObservationIgnored public private(set) var commandSeenMs: UInt64?
+    @ObservationIgnored public private(set) var commandSeenAt: Date?
     /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
     public private(set) var commandRecheck = 0
     @ObservationIgnored private var commandTimer: DemandTimer?
@@ -179,7 +179,7 @@ public final class TabModel: Identifiable {
         if self.progress != progress { self.progress = progress }
         if self.programStatus != programStatus { self.programStatus = programStatus }
         if self.commandSinceMs != commandSinceMs {
-            commandSeenMs = commandSinceMs.map { _ in UInt64(Date().timeIntervalSince1970 * 1000) }
+            commandSeenAt = commandSinceMs.map { _ in Date() }
             self.commandSinceMs = commandSinceMs
             commandTimer?.cancel()
         }

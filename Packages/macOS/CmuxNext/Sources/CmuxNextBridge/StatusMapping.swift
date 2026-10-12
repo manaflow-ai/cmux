@@ -50,7 +50,7 @@ public struct StatusMapping {
         guard behavior.inferCommandBusy, tab.agent == nil, tab.agentSession == nil, var since = tab.commandSinceMs else { return nil }
         _ = tab.commandRecheck
         // A daemon whose clock runs ahead (another machine) counts from when this client saw the command.
-        if let seen = tab.commandSeenMs { since = min(since, seen) }
+        if let seen = tab.commandSeenAt { since = min(since, UInt64(seen.timeIntervalSince1970 * 1000)) }
         let age = nowMs > since ? nowMs - since : 0
         let after = UInt64(behavior.inferCommandBusyAfter * 1000)
         guard age >= after else {
