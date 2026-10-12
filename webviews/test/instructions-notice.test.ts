@@ -38,6 +38,20 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
   test("a refused Edit CLAUDE.md says why, retries and dismisses", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    // A busy runner (dev server files run side by side, #19831): opening the chat menu drew one
+    // 80-90 ms frame there. The same frame here, every run.
+    await page.addInitScript(() => {
+      document.addEventListener(
+        "click",
+        (event) => {
+          if ((event.target as Element | null)?.closest?.('[aria-label="Chat actions"]')) {
+            const until = performance.now() + 120;
+            while (performance.now() < until) {}
+          }
+        },
+        true,
+      );
+    });
     await page.goto(
       `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.instructions-notice&variant=outside-folder`,
     );
