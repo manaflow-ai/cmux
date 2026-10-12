@@ -1,5 +1,4 @@
 import CmuxNextActions
-import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 import os
@@ -62,19 +61,19 @@ enum SidebarHiddenSections {
         }) { invocation in
             try write(showHiddenPaths.map { ($0, true) }, invocation, context)
         }
-        bindBand(into: registry, context: context, settings: settings)
+        bindBand(into: registry, context: context)
     }
 
     /// The bottom band's pieces (cx-wab7m): Hide on the piece's own menu while it shows, Show on
     /// the band's menu while it is hidden. Hide Profile Button is on the profile button's menu only.
-    private static func bindBand(into registry: ActionRegistry, context: AppActionContext,
-                                 settings: @escaping @MainActor () -> SidebarSectionsPreferences) {
-        let isProfileButton = { @MainActor (target: ActionTargetRef?) -> Bool in
+    private static func bindBand(into registry: ActionRegistry, context: AppActionContext) {
+        let settings = { @MainActor @Sendable in context.services.settings?.snapshot.sidebarSections ?? .defaults }
+        let isProfileButton = { @MainActor @Sendable (target: ActionTargetRef?) -> Bool in
             guard let target else { return true }
             let id = LayoutItemID(target.id)
             return id == profileButtonID || context.services.sidebarLayout.document.item(id)?.ref == .builtIn(.account)
         }
-        let pieces: [(hide: ActionID, show: ActionID, path: [String], shown: @MainActor () -> Bool, offered: @MainActor (ActionTargetRef?) -> Bool)] = [
+        let pieces: [(hide: ActionID, show: ActionID, path: [String], shown: @MainActor @Sendable () -> Bool, offered: @MainActor @Sendable (ActionTargetRef?) -> Bool)] = [
             ("sidebar.spaces.hide", "sidebar.spaces.show", SidebarSectionsSetting.showSpacesPath, { settings().showSpaces }, { _ in true }),
             ("sidebar.profileControl.hide", "sidebar.profileControl.show", SidebarSectionsSetting.showProfileControlPath,
              { settings().showProfileControl }, isProfileButton),
