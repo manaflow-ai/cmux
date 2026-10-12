@@ -9,9 +9,10 @@ import Foundation
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
-    /// The temporary folder the upload CLI (a child of this app, with its environment) resolves.
-    nonisolated static var pastes: URL {
-        let temporary = ProcessInfo.processInfo.environment["TMPDIR"].flatMap { $0.isEmpty ? nil : $0 } ?? NSTemporaryDirectory()
+    /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
+    /// environment) resolves: `TMPDIR`. Nil without one (the CLI would look elsewhere): no upload.
+    nonisolated static var pastes: URL? {
+        guard let temporary = ProcessInfo.processInfo.environment["TMPDIR"], temporary.hasPrefix("/") else { return nil }
         return URL(fileURLWithPath: temporary, isDirectory: true).appendingPathComponent("cmux-pastes", isDirectory: true)
     }
 
@@ -36,7 +37,7 @@ final class CloudUploads {
     }
 
     private static func target(tab: String, services: AppServices) -> Target? {
-        guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli else { return nil }
+        guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
                   CloudAccessAsks.tab(of: chat, on: machine, services: services) == tab,
@@ -47,7 +48,7 @@ final class CloudUploads {
     }
 
     private static func upload(_ files: [AgentPaneUpload], to target: Target, services: AppServices) async -> [String: Any] {
-        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else {
+        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath, let pastes else {
             return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
         }
         let folder = pastes.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
@@ -56,7 +57,9 @@ final class CloudUploads {
         do {
             paths = try await Task.detached { try CloudUploads.write(files, in: folder) }.value
         } catch {
-            services.cloud.logger.error("cloud upload: could not write the pasted files: \(String(describing: error), privacy: .public)")
+            // The error's domain and code only: its description can name the file.
+            let failure = error as NSError
+            services.cloud.logger.error("cloud upload: could not write the pasted files: \(failure.domain, privacy: .public) \(failure.code)")
             return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
         }
         let answer: CloudAccessCLI.Answer
@@ -66,7 +69,8 @@ final class CloudUploads {
             answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
         }
         guard answer.ok, answer.uploaded.count == files.count else {
-            services.cloud.logger.error("cloud upload: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
+            // The CLI's message names the files: private.
+            services.cloud.logger.error("cloud upload: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .private)")
             let refused = answer.errorCode == "upload_refused"
             return AgentPaneReply.failure(code: answer.errorCode ?? "upload_failed", message: refused ? CloudUploadStrings.refused : CloudUploadStrings.failed)
         }

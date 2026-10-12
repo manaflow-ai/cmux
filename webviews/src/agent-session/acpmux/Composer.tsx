@@ -322,15 +322,17 @@ export function Composer({
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
-  attach.current = async (files: File[]) => {
+  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
+  /// the composer can't attach to its machine (never a pick from + or a capture).
+  const attach = useRef<(files: File[], uploads?: boolean) => Promise<void>>(async () => {});
+  attach.current = async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
     // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
     const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
     const sendable = files.filter((file) => refused.has(file.name || "file"));
-    const sent = upload && sendable.length > 0 ? await upload(sendable) : undefined;
+    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
     if (sent && "paths" in sent) insertPaths(sent.paths);
     const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
     setAttachError(sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], t) : undefined);
@@ -353,9 +355,10 @@ export function Composer({
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
-      void attach.current(files);
+      // A paste in shell mode keeps its files for the next prompt and uploads nothing.
+      void attach.current(files, !shellField.current?.contains(target));
     };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files, true), setDropping);
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();
