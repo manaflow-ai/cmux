@@ -845,10 +845,10 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
 }
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
 /// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
-/// match through the measures that come late, and at most 5 s (a hidden page draws no frames).
+/// match through the measures that come late. A page hidden meanwhile draws no frames and finishes
+/// the frames it has left once shown.
 const FIND_REVEAL_MS = 600;
 const FIND_REVEAL_FRAMES = 36;
-const FIND_REVEAL_MAX_MS = 5000;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1497,8 +1497,7 @@ export function VirtualTranscript({
       const tick = () => {
         if (revealWindow.current !== opened) return;
         const elapsed = performance.now() - start;
-        if ((++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) || elapsed >= FIND_REVEAL_MAX_MS)
-          revealing.current = undefined;
+        if (++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) revealing.current = undefined;
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
