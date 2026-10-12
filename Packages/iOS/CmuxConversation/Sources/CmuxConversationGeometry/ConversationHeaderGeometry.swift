@@ -20,9 +20,10 @@ public enum ConversationHeaderGeometry {
     // MARK: Name
 
     /// The name capsule's bold type for the headline size Dynamic Type asks
-    /// for (17 pt at Large), held at 21 pt from XXL up.
+    /// for (17 pt at Large), never smaller than at Large and held at 21 pt
+    /// from XXL up.
     public static func namePointSize(scaled: CGFloat) -> CGFloat {
-        min(scaled, 21)
+        min(max(scaled, 17), 21)
     }
 
     // MARK: Unread count in the back capsule
