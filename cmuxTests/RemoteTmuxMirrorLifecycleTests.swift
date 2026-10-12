@@ -391,7 +391,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         let afterAttach = controller.hostDestinationsGeneration
         #expect(afterAttach != beforeAttach)
 
-        for key in controller.sessionMirrors.keys {
+        for key in Array(controller.sessionMirrors.keys) {
             _ = controller.removeSessionMirror(forKey: key)
         }
         #expect(controller.hostDestinationsGeneration != afterAttach)
