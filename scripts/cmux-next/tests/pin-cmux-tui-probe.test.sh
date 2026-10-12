@@ -55,6 +55,8 @@ for ((i = 0; i < \${#args[@]}; i++)); do
 done
 if [[ "\$method" == POST ]]; then
   echo "POST \${api##*/repos/o/r/} \$body" >> "$TMP/posts.log"
+  # REFUSE_WRITES: the pull request token's 403 on every write.
+  [[ -n "\${REFUSE_WRITES:-}" ]] && exit 22
   case "\$api" in
     */git/refs)
       # REFUSE_REF_SHA: the API refuses a ref at that commit (422).
@@ -197,6 +199,25 @@ expect "pull request, merge ref refused, head has the tree" pull_request deferre
 grep -q "cmux-tui-pin-${head2_sha:0:12}.*$head2_sha" "$TMP/posts.log" || fail "(c) the PR head must be pinned: $(cat "$TMP/posts.log")"
 [[ "$(posts dispatches)" == 1 ]] || fail "(c) one dispatch: $(cat "$TMP/posts.log")"
 unset REFUSE_REF_SHA CMUX_TUI_TREE_HEAD_SHA CMUX_TUI_TREE_DISPATCH
+
+# (d) The pull request's own token may write nothing (HTTP 403 on the pin ref
+# and the dispatch): main's cmux-next-pr-merge-tree.yml (pull_request_target)
+# starts the publish instead, a moment after this run starts. The probe waits a
+# bounded time for that run and defers to it, rather than failing same-tree.
+: > "$TMP/posts.log"
+set_runs "$none"
+export CMUX_TUI_TREE_DISPATCH=1 REFUSE_WRITES=1 CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+( sleep 2; set_runs "$active" ) &
+probe pull_request
+wait
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(d) a publish started from main must be waited for"
+grep -qF "active cmux-tui artifacts run" <<<"$reason" || fail "(d) reason: $reason"
+# No publish appears: the bounded wait ends and the check fails as before.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(d) with no publisher the probe must still fail"
+(( took < 15 )) || fail "(d) the wait must be bounded"
+unset REFUSE_WRITES CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
