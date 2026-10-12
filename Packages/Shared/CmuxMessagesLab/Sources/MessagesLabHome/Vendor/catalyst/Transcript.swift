@@ -570,12 +570,12 @@ final class RowCell: UICollectionViewCell {
         for i in 0..<3 {
             let d = CALayer()
             d.actions = noActions
-            // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
-            d.backgroundColor = Fixture.typingDot.cgColor  // cmux: themed (Fixture keeps the measured levels)
+            // Dot levels (Fixture.typingDotDim / typingDotLit; tintTypingDiscs follows a palette change).
+            d.backgroundColor = Fixture.typingDotDim.cgColor
             d.cornerRadius = 3.25
             let hi = CALayer()
             hi.actions = noActions
-            hi.backgroundColor = Fixture.typingDotHighlight.cgColor  // cmux: themed
+            hi.backgroundColor = Fixture.typingDotLit.cgColor
             hi.cornerRadius = 3.25
             hi.opacity = 0
             hi.name = "hi"
@@ -657,9 +657,9 @@ final class RowCell: UICollectionViewCell {
             }
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
-            for d in dots {  // cmux: themed typing dots
-                d.backgroundColor = Fixture.typingDot.cgColor
-                d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
+            for d in dots {  // cmux: themed typing dots (Fixture.typingDotDim / typingDotLit follow the theme)
+                d.backgroundColor = Fixture.typingDotDim.cgColor
+                d.sublayers?.first?.backgroundColor = Fixture.typingDotLit.cgColor
             }
             applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
             CATransaction.commit()
@@ -866,12 +866,17 @@ final class RowCell: UICollectionViewCell {
         bitmap.contentsCenter = CGRect(x: ix, y: iy, width: 1 - 2 * ix, height: 1 - 2 * iy)
     }
 
-    /// The discs take the bubble's colour when the bubble's bitmap goes on screen (after a palette change the
-    /// previous bitmap stays until the new one lands: the discs change with it, not before).
+    /// The discs and dots take the indicator's colours when the bubble's bitmap goes on screen (after a palette
+    /// change the previous bitmap stays until the new one lands: the discs and dots change with it, not before).
     private func tintTypingDiscs() {
         guard case .typing? = spec?.kind else { return }
-        let c = Fixture.incoming.cgColor
+        let c = Fixture.typingFill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
+        let dim = Fixture.typingDotDim.cgColor, lit = Fixture.typingDotLit.cgColor
+        for d in dots {
+            d.backgroundColor = dim
+            d.sublayers?.first { $0.name == "hi" }?.backgroundColor = lit
+        }
     }
 
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
