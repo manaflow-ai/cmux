@@ -25,6 +25,13 @@ public final class HostRuntime {
         public var hostToken: String
         public var userEmail: String?
         public var name: String
+
+        public init(hostID: String, hostToken: String, userEmail: String?, name: String) {
+            self.hostID = hostID
+            self.hostToken = hostToken
+            self.userEmail = userEmail
+            self.name = name
+        }
     }
 
     public private(set) var phase: Phase = .idle
@@ -55,6 +62,12 @@ public final class HostRuntime {
     private static func load(from environment: HostEnvironment) -> Identity? {
         guard let data = try? Data(contentsOf: environment.supportDirectory.appendingPathComponent("identity.json")) else { return nil }
         return try? JSONDecoder().decode(Identity.self, from: data)
+    }
+
+    /// Puts the runtime in a phase without the network (snapshot tests).
+    public func showPhaseForSnapshot(_ phase: Phase, identity: Identity? = nil) {
+        self.phase = phase
+        if let identity { self.identity = identity }
     }
 
     // MARK: Pairing

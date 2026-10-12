@@ -59,7 +59,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CNMKitTests",
-            dependencies: ["CNMProtocol", "CNMTransport", "CNMHost", "CNMBackend"],
+            dependencies: ["CNMProtocol", "CNMTransport", "CNMHost", "CNMBackend", "CNMHostRuntime"],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
