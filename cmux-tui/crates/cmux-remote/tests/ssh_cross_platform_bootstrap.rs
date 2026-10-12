@@ -16,7 +16,7 @@ fn settle_executable(path: &std::path::Path) {
     for _ in 0..200 {
         match std::process::Command::new(path).stdin(std::process::Stdio::null()).output() {
             Err(error) if error.raw_os_error() == Some(26) => {
-                std::thread::sleep(std::time::Duration::from_millis(5))
+                std::thread::sleep(std::time::Duration::from_millis(5));
             }
             Err(error) => panic!("could not run {}: {error}", path.display()),
             Ok(_) => return,
