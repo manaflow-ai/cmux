@@ -1,0 +1,57 @@
+// New Tab > project chip > New project opens the Add project dialog over the page. The shipped
+// pane's page color is transparent (agent-session/shared/styles.css, so the window glass shows),
+// and the dialog must still be solid: the composer under it never shows through its search field.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("new-tab-add-project-layer: skipping (run `bunx playwright install chromium`)");
+    describe.skip("new tab add project layer", () => test("chromium", () => {}));
+    return;
+  }
+
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  test("the Add project dialog is solid over the New Tab composer", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.new-tab&variant=empty`);
+    // The shipped pane's page color (the gallery theme paints a solid one).
+    await page.addStyleTag({ content: ":root { --agent-page-bg: transparent !important; }" });
+    await page.locator(".nt-pickers .acpmux-project-button").click();
+    await page.locator(".acpmux-project-browse").click();
+    const dialog = page.locator(".acpmux-add-project-dialog");
+    await dialog.waitFor({ state: "visible" });
+    const alpha = await dialog.evaluate((element) => {
+      const probe = document.createElement("canvas").getContext("2d")!;
+      probe.fillStyle = getComputedStyle(element).backgroundColor;
+      probe.fillRect(0, 0, 1, 1);
+      return probe.getImageData(0, 0, 1, 1).data[3];
+    });
+    await page.close();
+    expect(alpha).toBe(255);
+  });
+});
