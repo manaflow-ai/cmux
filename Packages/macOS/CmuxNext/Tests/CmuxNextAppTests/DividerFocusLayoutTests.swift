@@ -24,6 +24,8 @@ struct DividerFocusLayoutTests {
         let view = try #require(screen.screen)
         let handles = Array(view.dividerViews.values)
         #expect(handles.count == 15)
+        // Layout reaches the handles at all: otherwise no layout per move proves nothing.
+        #expect(handles.allSatisfy { $0.layoutCount > 0 })
 
         for pane in 2...16 {
             let before = handles.map(\.layoutCount).reduce(0, +)
