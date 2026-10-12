@@ -385,8 +385,8 @@ export function NewTabScreen(props: Props) {
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
           {props.onAddHarness && (
-            <button type="button" className="nt-tool nt-add-harness" onClick={() => props.onAddHarness?.()}>
-              <span className="nt-tool-icon" aria-hidden="true">
+            <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => props.onAddHarness?.()}>
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
                 {toolIcon("plus")}
               </span>
               <span>{t("newtab.addHarness")}</span>
@@ -494,17 +494,17 @@ function ToolsRow({
 }) {
   const t = useT();
   return (
-    <nav className="nt-tools" aria-label={t("newTabPage.tools")}>
+    <nav className="nt-tools ui-ghost-row" aria-label={t("newTabPage.tools")}>
       {tools.map((tool) => {
         const button = (
           <button
             type="button"
-            className="nt-tool"
+            className="nt-tool ui-ghost"
             // The shortcut in the tooltip: shown inline on hover it moved every later tool.
             title={tool.shortcut ? `${toolTitle(t, tool)}  ${tool.shortcut}` : undefined}
             onClick={() => onRunAction?.(tool.id)}
           >
-            <span className="nt-tool-icon" aria-hidden="true">
+            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
               {toolIcon(tool.symbol)}
             </span>
             <span>{toolTitle(t, tool)}</span>
@@ -537,8 +537,8 @@ function ToolsRow({
         );
       })}
       {onAddHarness && (
-        <button type="button" className="nt-tool nt-add-harness" onClick={() => onAddHarness()}>
-          <span className="nt-tool-icon" aria-hidden="true">
+        <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => onAddHarness()}>
+          <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
             {toolIcon("plus")}
           </span>
           <span>{t("newtab.addHarness")}</span>
