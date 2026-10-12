@@ -2098,45 +2098,6 @@ final class BrowserPanel: Panel, ObservableObject {
     })()
     """
 
-    static let dialogTelemetryHookBootstrapScriptSource = """
-    (() => {
-      if (window.__cmuxDialogHooksInstalled) return true;
-      window.__cmuxDialogHooksInstalled = true;
-
-      window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
-      window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-      const __pushDialog = (type, message, defaultText) => {
-        window.__cmuxDialogQueue.push({
-          type,
-          message: String(message || ''),
-          default_text: defaultText == null ? null : String(defaultText),
-          timestamp_ms: Date.now()
-        });
-        if (window.__cmuxDialogQueue.length > 128) {
-          window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
-        }
-      };
-
-      window.alert = function(message) {
-        __pushDialog('alert', message, null);
-      };
-      window.confirm = function(message) {
-        __pushDialog('confirm', message, null);
-        return !!window.__cmuxDialogDefaults.confirm;
-      };
-      window.prompt = function(message, defaultValue) {
-        __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
-        const v = window.__cmuxDialogDefaults.prompt;
-        if (v === null || v === undefined) {
-          return defaultValue == null ? '' : String(defaultValue);
-        }
-        return String(v);
-      };
-
-      return true;
-    })()
-    """
-
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
@@ -2181,6 +2142,20 @@ final class BrowserPanel: Panel, ObservableObject {
     var mobileBrowserStreamPreviousViewport: BrowserViewport?
     var mobileBrowserStreamPreviousViewportWasCaptured = false
     var mobileBrowserStreamViewport: MobileBrowserViewport?
+    /// Automation keeps its dialogs until answered, even after its command
+    /// returns. Physical input hands subsequent dialogs back to the native UI.
+    enum BrowserDialogOwner {
+        case user
+        case automation
+    }
+
+    private(set) var browserDialogOwner: BrowserDialogOwner = .user
+    var browserDialogsOwnedByCLI: Bool { browserDialogOwner == .automation }
+
+    /// Transfers ownership of subsequent dialogs without presenting existing CLI requests.
+    func takeBrowserDialogOwnership(_ owner: BrowserDialogOwner) {
+        browserDialogOwner = owner
+    }
     let mobileBrowserDialogBroker: MobileBrowserDialogBroker
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3208,7 +3183,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserSameDocumentNavigationMessageHandler.userScript
         )
         configuration.userContentController.addUserScript(BrowserDocumentReadyMessageHandler.userScript)
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        // Keep browser console/error telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
         // methods and __cmux* globals as environment tampering, failing the challenge.
@@ -3291,11 +3266,16 @@ final class BrowserPanel: Panel, ObservableObject {
             let hover = BrowserLinkHoverURL.isEnabled() ? BrowserLinkHoverURL(url: url) : nil
             WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString, from: .keyboardFocus)
         }
+        webView.onPhysicalUserInteraction = { [weak self] in
+            self?.takeBrowserDialogOwnership(.user)
+        }
         webView.onMouseBackButton = { [weak self] in
-            self?.goBack()
+            guard let self else { return }
+            self.goBack(dialogOwner: self.browserDialogOwner)
         }
         webView.onMouseForwardButton = { [weak self] in
-            self?.goForward()
+            guard let self else { return }
+            self.goForward(dialogOwner: self.browserDialogOwner)
         }
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
@@ -3393,6 +3373,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navigationDelegate.didCommit = { [weak self] webView, navigation in
             guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.cancelPendingJavaScriptDialogs()
             self.designModeController.webViewWillNavigate()
             (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
             WindowBrowserSlotView.hosting(webView)?.clearLinkHoverURLs()
@@ -3728,6 +3709,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
+        self.browserDialogOwner = preloadInitialNavigationInBackground ? .automation : .user
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
@@ -5948,7 +5930,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// - If input looks like a URL, navigate to it
     /// - Otherwise, perform a web search
     @discardableResult
-    func navigateSmart(_ input: String) -> WKNavigation? {
+    func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
@@ -6225,6 +6208,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDesignModeActive: designModeController.protectsFromDiscard,
             // A REPL session driving this tab needs its live web view.
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0
+                || !mobileBrowserDialogBroker.pendingDialogs.isEmpty
                 || BrowserReplTabAttachments.shared.attachment(for: id) != nil,
             isMobileBrowserStreamActive: !mobileBrowserStreamSignalHandlers.isEmpty,
             hasPopups: !popupControllers.isEmpty,
@@ -6480,7 +6464,8 @@ extension BrowserPanel {
     }
 
     /// Go back in history
-    func goBack() {
+    func goBack(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6518,7 +6503,8 @@ extension BrowserPanel {
     }
 
     /// Go forward in history
-    func goForward() {
+    func goForward(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         guard canGoForward else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
@@ -6692,7 +6678,8 @@ extension BrowserPanel {
 
     /// Reload the current page
     @discardableResult
-    func reload() -> WKNavigation? {
+    func reload(dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return nil
@@ -6705,7 +6692,8 @@ extension BrowserPanel {
     }
 
     /// Reload the current page, bypassing WebKit's cache.
-    func hardReload() {
+    func hardReload(dialogOwner: BrowserDialogOwner = .user) {
+        takeBrowserDialogOwnership(dialogOwner)
         if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
             cloudAccess.retry()
             return
