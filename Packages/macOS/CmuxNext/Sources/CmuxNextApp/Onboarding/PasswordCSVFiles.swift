@@ -50,7 +50,8 @@ struct PasswordCSVFiles {
                            run: (PasswordCSVImporter) async throws -> PasswordImportReport) async -> ActionWorkFailure? {
         let cef = services.cache.cef
         guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-        let hold = PasswordConflictHold { rows, profile in try await cef.replacePasswords(rows, in: profile) }
+        // Conflicts are held for Replace only when this fork can replace them (API 20).
+        let hold = cef.canReplacePasswords ? PasswordConflictHold { rows, profile in try await cef.replacePasswords(rows, in: profile) } : nil
         let destination = AppPasswordDestination(available: true, hold: hold) { rows, profile in
             try await cef.importPasswords(rows, into: profile)
         }
@@ -61,7 +62,7 @@ struct PasswordCSVFiles {
             Self.trash(url, report: report, hold: hold) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
             return nil
         } catch PasswordCSVImporter.Failure.cancelled {
-            hold.release()
+            hold?.release()
             return nil
         } catch {
             return ActionWorkFailure(PasswordCSVStrings.failure(error))
@@ -130,9 +131,14 @@ struct PasswordCSVFiles {
         handle.onDismiss = { reason in
             guard reason != .action else { return }
             hold.release()
-            // A newer toast took the slot: it says what happened next.
-            guard reason != .replaced, let window = windowLookup() else { return }
-            offerTrash(url, summary, in: window)
+            // After the toast center ends this one (a dismiss can come from inside its show).
+            Task { @MainActor in
+                guard let window = windowLookup() else { return }
+                // A newer password CSV toast took the slot and says what happened next;
+                // unrelated toasts that pushed this one out do not.
+                if reason == .replaced, CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == toastID }) { return }
+                offerTrash(url, summary, in: window)
+            }
         }
     }
 

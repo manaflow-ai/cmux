@@ -27,7 +27,8 @@ final class PasswordConflictHold {
     }
 
     /// Saves the held passwords over the saved ones; they are zeroed as soon
-    /// as the shim has copied them, or here when the write fails.
+    /// as the shim has copied them, or here when the write fails (also a
+    /// reply of -1 counts, the store's failure).
     func replace() async throws -> ChromiumPasswordReplaceResult {
         let held = logins
         logins = []
@@ -36,7 +37,9 @@ final class PasswordConflictHold {
         defer { withExtendedLifetime(held) {} }
         let rows = Self.rows(held) { for login in held { login.password.zero() } }
         do {
-            return try await write(rows, profile)
+            let result = try await write(rows, profile)
+            guard !result.storeFailed else { throw PasswordImporter.Failure.storeUnavailable }
+            return result
         } catch {
             for login in held { login.password.zero() }
             throw error

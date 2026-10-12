@@ -20,6 +20,13 @@ extension CEFEngine {
         return try await CEFRuntime.shared.importPasswords(rows, profile: profile)
     }
 
+    /// Whether an import lists its conflicts and can replace them (fork API
+    /// 20); false until Chromium runs.
+    public var canReplacePasswords: Bool {
+        let runtime = CEFRuntime.shared
+        return runtime.canImportPasswords && runtime.shim?.passwordReplaceAvailable() == 1
+    }
+
     /// Saves each row's password over the saved one for its sign-in in
     /// `profile`: the person's Replace for an import's conflicts (fork API
     /// 20). Every password in `rows` must stay alive until this returns.

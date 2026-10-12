@@ -79,6 +79,10 @@ public nonisolated struct ChromiumPasswordWriteResult: Sendable, Equatable {
         self.conflictIndices = conflictIndices
     }
 
+    /// The store failed the write: the fork answers that with -1 counts
+    /// (API 20), which are never counts to show.
+    public var storeFailed: Bool { min(added, duplicate, conflict, rejected) < 0 }
+
     /// Parses the shim's reply `{"added","duplicate","conflict","rejected","conflicts"?}`.
     static func parse(_ json: String) -> ChromiumPasswordWriteResult? {
         guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
@@ -101,6 +105,9 @@ public nonisolated struct ChromiumPasswordReplaceResult: Sendable, Equatable {
         self.missing = missing
         self.rejected = rejected
     }
+
+    /// The store failed the write (-1 counts from the fork).
+    public var storeFailed: Bool { min(updated, missing, rejected) < 0 }
 
     /// Parses the shim's reply `{"updated","missing","rejected"}`.
     static func parse(_ json: String) -> ChromiumPasswordReplaceResult? {
