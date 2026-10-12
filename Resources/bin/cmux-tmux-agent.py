@@ -183,7 +183,7 @@ def source_existing_shells(context, session, shell, stable, bin_dir):
     shell_names = {shell_name, 'bash', 'zsh', 'sh', 'dash', 'fish', 'ksh'}
     try:
         rows = tmux_call(
-            context, 'list-panes', '-s', '-F',
+            context, 'list-panes', '-s', '-t', session, '-F',
             '#{pane_id}\t#{pane_current_command}\t#{pane_dead}',
         ).splitlines()
     except (OSError, subprocess.SubprocessError):
