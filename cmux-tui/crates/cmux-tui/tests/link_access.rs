@@ -451,11 +451,14 @@ fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
     let dropped = home.join("Desktop/shot.png");
     std::fs::write(&dropped, b"\x89PNG fake image").unwrap();
     // The app writes a pasted image to its temporary folder first.
-    let pasted = tmp.join("pasted.png");
+    std::fs::create_dir_all(tmp.join("cmux-pastes/.hidden")).unwrap();
+    let pasted = tmp.join("cmux-pastes/pasted.png");
     std::fs::write(&pasted, b"\x89PNG pasted").unwrap();
     std::fs::write(home.join(".ssh/id_ed25519"), "fake-upload-key\n").unwrap();
     std::fs::write(home.join("projects/.env"), "TOKEN=fake-upload-env\n").unwrap();
     std::fs::write(base.join("elsewhere/other.txt"), "fake-upload-outside\n").unwrap();
+    std::fs::write(tmp.join("loose.txt"), "fake-upload-loose\n").unwrap();
+    std::fs::write(tmp.join("cmux-pastes/.hidden/x.txt"), "fake-upload-hidden\n").unwrap();
     std::os::unix::fs::symlink(home.join(".ssh/id_ed25519"), home.join("Desktop/key.png")).unwrap();
 
     let (ok, sent) = upload(&world, &tmp, &[&dropped, &pasted]);
@@ -480,6 +483,8 @@ fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
         home.join("projects/.env"),
         home.join("Desktop/key.png"),
         base.join("elsewhere/other.txt"),
+        tmp.join("loose.txt"),
+        tmp.join("cmux-pastes/.hidden/x.txt"),
         home.join("Desktop/missing.png"),
         home.join("Desktop"),
     ] {
