@@ -125,6 +125,8 @@ fn commit_reopen(
     // A closed window (`window` group) reopens no workspace: the app shows
     // that window again, with the workspaces it kept.
     let window = (kind == "window").then(|| record["window_record"].clone());
+    // An ungrouped tab group has no member: its reopen formed it again.
+    let tab_group = record.get("tab_group").is_some_and(Value::is_object);
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
@@ -140,7 +142,7 @@ fn commit_reopen(
         .cloned()
         .or_else(|| {
             active_workspace
-                .filter(|_| room.is_some() || group.is_some() || window.is_some())
+                .filter(|_| room.is_some() || group.is_some() || window.is_some() || tab_group)
                 .map(str::to_string)
         })
         .context("reopened item has no workspace")?;
@@ -267,6 +269,9 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
+        if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
+            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+        }
         let active = self.with_state(|state| {
             state
                 .workspaces
@@ -300,6 +305,78 @@ impl Mux {
                 anyhow::bail!("closed item {closed_id} has a member of unknown kind {other:?}")
             }
         }
+    }
+
+    /// Form an ungrouped tab group again (`archive`, from
+    /// `record_ungrouped_tab_group`) with its id, name and color around
+    /// those of its tabs still open, unpinned and in no other group, in one
+    /// pane, in their order: its own pane when it holds any, else the pane
+    /// of the first. A group formed since keeps its tabs.
+    /// None still open forms nothing; a live group of that id (a retried
+    /// reopen) is left as it is.
+    fn reopen_tab_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        archive: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let presentation = self.presentation_snapshot();
+        if !presentation.tab_groups.groups.contains_key(&id) {
+            let wanted = archive["tab_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|tab| {
+                    !presentation.pinned_tabs.contains(*tab)
+                        && !presentation.tab_groups.members.contains_key(*tab)
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let home = archive["pane_id"].as_str().map(str::to_string);
+            let members = self.with_state(|state| {
+                let open = wanted
+                    .iter()
+                    .filter_map(|tab| {
+                        state
+                            .resource_indexes
+                            .tab_ids
+                            .iter()
+                            .find_map(|(surface, id)| (id.as_str() == tab).then_some(*surface))
+                    })
+                    .collect::<Vec<_>>();
+                let pane = home
+                    .as_deref()
+                    .and_then(|pane| pane_by_public_id(state, pane))
+                    .filter(|pane| {
+                        open.iter().any(|surface| state.pane_of(*surface) == Some(*pane))
+                    })
+                    .or_else(|| open.first().and_then(|surface| state.pane_of(*surface)));
+                open.into_iter()
+                    .filter(|surface| pane.is_some() && state.pane_of(*surface) == pane)
+                    .collect::<Vec<_>>()
+            });
+            if members.is_empty() {
+                return Ok(());
+            }
+            self.tab_group_create(
+                StripRequest::local(actor, "closed.reopen"),
+                move |_| Ok(members),
+                archive["name"].as_str().map(str::to_string),
+                archive["color"].as_str().map(str::to_string),
+                id.clone(),
+            )?;
+        }
+        let outcome = self.tab_group_outcome(&id);
+        for surface in &outcome.members {
+            reopened.tabs.push(self.public_tab_of(*surface)?);
+        }
+        if let Some(pane) = outcome.pane {
+            let (workspace, _) = self.public_screen_of_pane(pane)?;
+            reopened.note_workspace(workspace);
+        }
+        Ok(())
     }
 
     fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {

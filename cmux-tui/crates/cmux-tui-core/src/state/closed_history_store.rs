@@ -368,11 +368,22 @@ fn insert_group(
     members: Vec<Value>,
     window: Option<String>,
 ) -> anyhow::Result<()> {
-    let pending = take_pending_group(transaction)?;
-    let closed_id = match &pending {
-        Some((closed_id, _)) => closed_id.clone(),
-        None => new_closed_id(),
+    let (closed_id, extra) = match take_pending_group(transaction)? {
+        Some((closed_id, extra)) => (closed_id, Some(extra)),
+        None => (new_closed_id(), None),
     };
+    insert_record(transaction, closed_id, members, window, extra)
+}
+
+/// Store group `closed_id` of `members` with the fields of `extra` and
+/// queue its public upsert.
+fn insert_record(
+    transaction: &Transaction<'_>,
+    closed_id: String,
+    members: Vec<Value>,
+    window: Option<String>,
+    extra: Option<Value>,
+) -> anyhow::Result<()> {
     let closed_at_ms = unix_epoch_ms()?;
     let mut record = json!({
         "id": closed_id,
@@ -381,13 +392,16 @@ fn insert_group(
         "closed_at_ms": closed_at_ms.to_string(),
         "members": members,
     });
-    if let Some((_, Value::Object(extra))) = pending {
+    if let Some(Value::Object(extra)) = extra {
         for (key, value) in extra {
             record[key] = value;
         }
         // A deleted space with no workspace left to close is still a
-        // workspace-level group: reopening it restores the space.
-        if record["members"].as_array().is_some_and(Vec::is_empty) {
+        // workspace-level group: reopening it restores the space. An
+        // ungrouped tab group stays a tab-level one.
+        if record["members"].as_array().is_some_and(Vec::is_empty)
+            && record.get("tab_group").is_none()
+        {
             record["kind"] = json!("workspace");
         }
     }
@@ -476,6 +490,23 @@ pub(crate) fn workspace_name(
         })
         .optional()?
         .flatten())
+}
+
+/// Ungroup of a tab group (`archive`: its id, pane, workspace, name, color
+/// and tabs in order): one group with no member, since its tabs stay open,
+/// in the window that lists its workspace. Reopening it forms the group
+/// again around those tabs. An incognito workspace records nothing.
+pub(crate) fn record_ungrouped_tab_group(
+    transaction: &Transaction<'_>,
+    archive: &Value,
+) -> anyhow::Result<()> {
+    let Some(workspace_id) = archive["workspace_id"].as_str() else { return Ok(()) };
+    if !super::store::state_tables_ready(transaction)? || is_ephemeral(transaction, workspace_id)? {
+        return Ok(());
+    }
+    let window = window_of_workspace(transaction, workspace_id)?;
+    let extra = json!({"name": archive["name"], "tab_group": archive});
+    insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
 /// A new closed group id.
