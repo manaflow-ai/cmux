@@ -313,10 +313,14 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    // The switch already sent the model: only its effort waits for the agent to report it.
-    pending.current = wanted.effort
-      ? { sessionId: summary.sessionId, from: current, model: wanted.model, effort: wanted.effort }
-      : undefined;
+    // The switch already sent the model: only its effort remains, now when the agent runs that
+    // model (its default, or it reported the switch first), else once it reports it.
+    pending.current = undefined;
+    if (wanted.effort && current === wanted.model) {
+      if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))
+        onEffort(effort.id, wanted.effort);
+    } else if (wanted.effort)
+      pending.current = { sessionId: summary.sessionId, from: current, model: wanted.model, effort: wanted.effort };
     if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
   });
   const fastValue = fastMode?.currentValue;

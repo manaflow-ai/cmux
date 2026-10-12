@@ -95,7 +95,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
 }
 
 /// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
-/// 1M context"), and every other model under More models in catalog order. Without one, or when
+/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
 /// the harness offers none of it, the catalog's newest family stays first.
 function curatedSections(
   sections: { latest: ModelChoice[]; older: ModelChoice[] },

@@ -42,7 +42,7 @@ export type SwitchPort = {
   turnRunning(): boolean;
   /// The shown session: its id, its harness, whether it has nothing in it yet, and its folder
   /// when a new chat can start there.
-  shown(): { sessionId: string; harness?: string; empty: boolean; cwd?: string } | undefined;
+  shown(): { sessionId: string; harness?: string; model?: string; empty: boolean; cwd?: string } | undefined;
   /// `session/new` on `harness`; does not show it.
   create(harness: string, cwd?: string): Promise<string | undefined>;
   /// Stops showing the current session (the pane draws the new chat meanwhile).
@@ -250,7 +250,8 @@ export class HarnessSwitch {
     // Back to the harness of the session still on screen: there is nothing left to switch.
     if (!shown && previous && shownSession?.harness === harness) {
       this.cancel();
-      if (options.model) void this.pickModel(options.model, { sessionId: shownSession.sessionId });
+      if (options.model && options.model !== shownSession.model)
+        void this.pickModel(options.model, { sessionId: shownSession.sessionId, model: shownSession.model });
       return Promise.resolve(shownSession.sessionId);
     }
     const done = deferred<string | undefined>();
