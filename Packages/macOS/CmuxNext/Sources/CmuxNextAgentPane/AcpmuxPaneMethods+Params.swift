@@ -40,6 +40,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_groups": (["sessionId"], []),
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
+        // No `value` declines the card.
+        "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

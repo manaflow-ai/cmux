@@ -56,7 +56,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
             // ACPMUX_LOCAL_ROUTER: the daemon starts the local model relay
             // (cmux-router routes; ModelRouterLease gives it the bearer).
-            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1"]
+            // ACPMUX_SECRET_TOOLS: agents get request_secret, answered on the
+            // pane's private card (cx-ncc.42).
+            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
+                               "ACPMUX_SECRET_TOOLS": "1"]
         )
     }
 
