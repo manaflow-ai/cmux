@@ -176,6 +176,10 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        "browser.hostsToOpenInEmbeddedBrowser": .privacy,
+        "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).

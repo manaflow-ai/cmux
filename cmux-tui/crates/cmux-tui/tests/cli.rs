@@ -3693,15 +3693,16 @@ mod new_terminal_cwd;
 #[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
+#[path = "cli/state_helpers.rs"]
+mod state_helpers;
 #[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
+#[path = "cli/tab_group_hex.rs"]
+mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-
-#[path = "cli/state_helpers.rs"]
-mod state_helpers;
 use state_helpers::*;
 
 #[cfg(unix)]

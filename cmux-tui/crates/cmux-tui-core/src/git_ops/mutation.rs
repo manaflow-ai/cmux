@@ -62,6 +62,11 @@ impl Target {
         format!("{}\0{}", self.common_dir.display(), self.git_dir.display())
     }
 
+    /// The repository's common git directory, which its worktrees share.
+    pub(super) fn common_dir(&self) -> &Path {
+        &self.common_dir
+    }
+
     /// The worktree's own git directory, where in-progress state lives.
     pub(super) fn git_dir(&self) -> &Path {
         &self.git_dir

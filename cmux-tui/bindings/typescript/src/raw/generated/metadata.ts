@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4. */
+/* cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4" as const;
+export const SDK_IR_SHA256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -8679,7 +8679,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": true,
     "fields": {
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10508,7 +10508,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -10557,7 +10557,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "color": {
-        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.",
         "nullable": false,
         "presence": "required",
         "type": {

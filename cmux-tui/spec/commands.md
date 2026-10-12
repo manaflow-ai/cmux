@@ -210,8 +210,9 @@ order: `array<object{id:string, name:string, color:string, collapsed:bool,
 saved_id:string|null, start:usize, count:usize, surfaces:array<Id>}>`, and
 `group:string|null` to every tab. `start` is the strip index of the group's
 first tab. Group members are contiguous; a tab another path moved away from
-its group's run is reported ungrouped. Colors are nine: `grey`,
-`blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`.
+its group's run is reported ungrouped. A color is one of nine tokens, `grey`,
+`blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`, or a
+custom `#RRGGBB`, kept as given.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
 
@@ -3437,7 +3438,7 @@ Params:
 | --- | --- | --- | --- |
 | `screens` | array of `Id` | required | One workspace, at least one screen |
 | `name` | string | default "" | At most 256 characters |
-| `color` | string | default `grey` | One of the nine tab group colors |
+| `color` | string | default `grey` | One of the nine tab group colors or `#RRGGBB` |
 
 Result:
 
@@ -3461,7 +3462,7 @@ Params:
 | --- | --- | --- | --- |
 | `group` | string | required |  |
 | `name` | string | default null |  |
-| `color` | string | default null | One of the nine tab group colors |
+| `color` | string | default null | One of the nine tab group colors or `#RRGGBB` |
 | `collapsed` | bool | default null |  |
 
 Result:
@@ -4816,7 +4817,7 @@ Params:
 | --- | --- | --- | --- |
 | `surfaces` | array of `Id` | required, nonempty | Tabs of one pane |
 | `name` | string | default `""` | At most 256 characters; empty shows the color only |
-| `color` | string | default `"grey"` | One of the nine tab group colors |
+| `color` | string | default `"grey"` | One of the nine tab group colors or `#RRGGBB` |
 | `group` | string | default generated `tgrp_<32 hex>` | 1-64 ASCII letters, digits, `_`, `-`, `.`, `:` |
 | `transaction` | string | optional | Client id echoed in `tab-changed` |
 

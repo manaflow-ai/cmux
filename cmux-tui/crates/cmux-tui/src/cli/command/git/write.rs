@@ -70,13 +70,27 @@ pub(super) fn push(
     request(Op::GitPush, selectors, flags, params)
 }
 
+/// `git worktree create [--name <name>] [--base <revision>]`.
+pub(super) fn worktree_create(
+    flags: &mut Flags,
+    selectors: &Selectors,
+    mut params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    for field in ["name", "base"] {
+        if let Some(value) = flags.take(field) {
+            params.insert(field.into(), Value::String(value));
+        }
+    }
+    request(Op::GitWorktreeCreate, selectors, flags, params)
+}
+
 fn expected_head(flags: &mut Flags, params: &mut Map<String, Value>) {
     if let Some(head) = flags.take("expected-head") {
         params.insert("expected_head".into(), Value::String(head));
     }
 }
 
-/// Commits and pushes run only on this machine's daemon (`machine` is
+/// Commits, pushes and worktrees run only on this machine's daemon (`machine` is
 /// `current`): a commit or push on another machine is refused (coordinator
 /// decision, remote git writes stay refused). Commit paths name files from
 /// where `cmux` runs, so they are joined with the current directory. Call
@@ -85,12 +99,15 @@ pub(in crate::cli) fn localize_commit_paths(
     operation: &WireOperation,
     params: &mut Value,
 ) -> Result<(), String> {
-    let write = matches!(operation, WireOperation::Typed(Op::GitCommit | Op::GitPush));
+    let write = matches!(
+        operation,
+        WireOperation::Typed(Op::GitCommit | Op::GitPush | Op::GitWorktreeCreate)
+    );
     if !write {
         return Ok(());
     }
     if params.get("machine").and_then(Value::as_str) != Some("current") {
-        return Err("git commit and git push run only on this machine".into());
+        return Err("git commit, git push and git worktree run only on this machine".into());
     }
     if !matches!(operation, WireOperation::Typed(Op::GitCommit)) {
         return Ok(());

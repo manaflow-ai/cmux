@@ -348,7 +348,7 @@ pub fn launch_terminal_host_adopting(
             cols: options.cols,
             rows: options.rows,
             cell_pixels: adoption.cell_pixels,
-            scrollback: options.scrollback,
+            scrollback: HostLaunch::host_scrollback(options.scrollback),
             cwd: None,
             command: Vec::new(),
             extra_env: Vec::new(),

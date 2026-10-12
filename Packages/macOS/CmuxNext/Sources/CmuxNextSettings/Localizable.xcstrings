@@ -76713,6 +76713,923 @@
           }
         }
       }
+    },
+    "settings.group.terminalLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Links"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのリンク"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روابط الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminallinks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal-Links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link del terminale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណ​ស្ថានីយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 링크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminallenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links do Terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์เทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Bağlantıları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання терміналу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openTerminalLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Terminal Links in cmux Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのリンクをcmuxブラウザで開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح روابط الطرفية في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori linkove terminala u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn terminallinks i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal-Links im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces del terminal en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens du terminal dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri link del terminale nel browser cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក​តំណ​ស្ថានីយ​ក្នុង​កម្មវិធី​រុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 링크를 cmux 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne terminallenker i cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki terminala w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir Links do Terminal no Navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки из терминала в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์เทอร์มินัลในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal Bağlantılarını cmux Tarayıcısında Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання терміналу у браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết terminal trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开终端链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟終端機連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openTerminalLinks.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, links clicked in terminal output open in your default browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフの場合、ターミナル出力のリンクはデフォルトブラウザで開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند التعطيل، تفتح الروابط المنقورة في مخرجات الطرفية في متصفحك الافتراضي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, linkovi kliknuti u izlazu terminala se otvaraju u podrazumijevanom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når deaktiveret, åbnes links, der klikkes i terminaloutput, i din standardbrowser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, werden im Terminal angeklickte Links in Ihrem Standardbrowser geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando está desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lorsque désactivé, les liens cliqués dans la sortie du terminal s'ouvrent dans votre navigateur par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando disattivato, i link cliccati nell'output del terminale si aprono nel browser predefinito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេល​បិទ តំណ​ដែល​ចុច​ក្នុង​លទ្ធផល​ស្ថានីយ​បើក​ក្នុង​កម្មវិធី​រុករក​លំនាំដើម​របស់​អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비활성화하면 터미널 출력에서 클릭한 링크가 기본 브라우저에서 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når av, åpnes lenker som klikkes i terminalutdata i standard nettleser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu linki kliknięte w terminalu otwierają się w domyślnej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, links clicados na saída do terminal abrem no seu navegador padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "При отключении ссылки из терминала открываются в браузере по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด ลิงก์ที่คลิกในเอาต์พุตเทอร์มินัลจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken, terminal çıktısında tıklanan bağlantılar varsayılan tarayıcınızda açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, посилання у виводі терміналу відкриваються у стандартному браузері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, liên kết bấm trong đầu ra terminal sẽ mở trong trình duyệt mặc định của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭后，终端输出中点击的链接在默认浏览器中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉時，終端機輸出中點擊的連結會在您的預設瀏覽器中開啟。"
+          }
+        }
+      }
+    },
+    "settings.browser.hostWhitelist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts to Open in Embedded Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内蔵ブラウザで開くホスト"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المضيفون للفتح في المتصفح المضمّن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hostovi za otvaranje u ugrađenom pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værter der åbnes i den indlejrede browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts, die im integrierten Browser geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts para abrir en el navegador integrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hôtes à ouvrir dans le navigateur intégré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Host da aprire nel browser integrato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីន​ដែល​ត្រូវ​បើក​ក្នុង​កម្មវិធី​រុករក​បង្កប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내장 브라우저에서 열 호스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verter som åpnes i innebygd nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosty do otwierania we wbudowanej przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosts para Abrir no Navegador Integrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хосты для открытия во встроенном браузере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฮสต์ที่เปิดในเบราว์เซอร์ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хости для відкриття у вбудованому браузері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ mở trong trình duyệt nhúng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在内嵌浏览器中打开的主机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在內建瀏覽器中開啟的主機"
+          }
+        }
+      }
+    },
+    "settings.browser.externalPatterns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLs to Always Open Externally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常に外部で開くURL"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عناوين URL للفتح خارجيًا دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL-ovi za uvijek vanjsko otvaranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL'er der altid åbnes eksternt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URLs, die immer extern geöffnet werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URLs para abrir siempre externamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL à toujours ouvrir dans un navigateur externe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL da aprire sempre esternamente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL ដែល​ត្រូវ​បើក​ខាងក្រៅ​ជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "항상 외부에서 열 URL"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL-er som alltid åpnes eksternt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresy URL otwierane zawsze zewnętrznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URLs para Sempre Abrir Externamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL для открытия во внешнем браузере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL ที่เปิดภายนอกเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her Zaman Harici Olarak Açılacak URL'ler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL для завжди зовнішнього відкриття"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL luôn mở bên ngoài"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终在外部打开的 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一律在外部開啟的 URL"
+          }
+        }
+      }
+    },
+    "settings.browser.hostWhitelist.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux で開くのはこれらのホストだけです（例: example.com、*.example.com）。空の場合はすべてのホストを cmux で開きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تُفتح في cmux إلا هذه المضيفات، مثل example.com أو *.example.com. إذا تُركت فارغة تُفتح كل المضيفات في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo ovi hostovi se otvaraju u cmuxu, npr. example.com ili *.example.com. Prazno otvara sve hostove u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun disse værter åbnes i cmux, f.eks. example.com eller *.example.com. Tom åbner alle værter i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur diese Hosts öffnen sich in cmux, etwa example.com oder *.example.com. Leer öffnet alle Hosts in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo estos hosts se abren en cmux, como example.com o *.example.com. Vacío abre todos los hosts en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seuls ces hôtes s’ouvrent dans cmux, comme example.com ou *.example.com. Vide ouvre tous les hôtes dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo questi host si aprono in cmux, ad esempio example.com o *.example.com. Vuoto apre tutti gli host in cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មាន​តែ​ម៉ាស៊ីន​ទាំងនេះ​ទេ​ដែល​បើក​ក្នុង cmux ដូចជា example.com ឬ *.example.com។ ទទេ​បើក​ម៉ាស៊ីន​ទាំងអស់​ក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 호스트만 cmux에서 열립니다(예: example.com, *.example.com). 비워 두면 모든 호스트가 cmux에서 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare disse vertene åpnes i cmux, for eksempel example.com eller *.example.com. Tom åpner alle verter i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko te hosty otwierają się w cmux, np. example.com lub *.example.com. Puste otwiera wszystkie hosty w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente estes hosts abrem no cmux, como example.com ou *.example.com. Vazio abre todos os hosts no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В cmux открываются только эти хосты, например example.com или *.example.com. Если пусто, в cmux открываются все хосты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เฉพาะโฮสต์เหล่านี้ที่เปิดใน cmux เช่น example.com หรือ *.example.com หากว่างไว้ ทุกโฮสต์จะเปิดใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca bu ana bilgisayarlar cmux’ta açılır; örneğin example.com veya *.example.com. Boşsa tüm ana bilgisayarlar cmux’ta açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У cmux відкриваються лише ці хости, наприклад example.com або *.example.com. Якщо порожньо, у cmux відкриваються всі хости."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ những máy chủ này mở trong cmux, ví dụ example.com hoặc *.example.com. Để trống thì mọi máy chủ đều mở trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有这些主机在 cmux 中打开，例如 example.com 或 *.example.com。留空则所有主机都在 cmux 中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有這些主機會在 cmux 中開啟，例如 example.com 或 *.example.com。留空則所有主機都在 cmux 中開啟。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalPatterns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致するターミナルのリンクはデフォルトブラウザで開きます。テキストは URL のどこにでも一致し、* と ? はワイルドカード、re: で正規表現を始めます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح روابط الطرفية المطابقة في متصفحك الافتراضي. يطابق النص أي جزء من عنوان URL، و* و? أحرف بدل، وre: تبدأ تعبيرًا نمطيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi terminala koji se podudaraju otvaraju se u podrazumijevanom pregledniku. Tekst se podudara bilo gdje u URL-u, * i ? su džokeri, a re: počinje regularni izraz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminallinks, der matcher, åbnes i din standardbrowser. Tekst matcher hvor som helst i URL’en, * og ? er jokertegn, og re: starter et regulært udtryk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passende Terminal-Links öffnen sich in deinem Standardbrowser. Text passt an jeder Stelle der URL, * und ? sind Platzhalter, und re: leitet einen regulären Ausdruck ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los enlaces del terminal que coinciden se abren en tu navegador predeterminado. El texto coincide en cualquier parte de la URL, * y ? son comodines y re: inicia una expresión regular."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les liens du terminal correspondants s’ouvrent dans votre navigateur par défaut. Le texte correspond n’importe où dans l’URL, * et ? sont des jokers, et re: introduit une expression régulière."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I link del terminale corrispondenti si aprono nel browser predefinito. Il testo corrisponde in qualsiasi punto dell’URL, * e ? sono caratteri jolly e re: inizia un’espressione regolare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណ​ស្ថានីយ​ដែល​ត្រូវ​គ្នា​បើក​ក្នុង​កម្មវិធី​រុករក​លំនាំដើម​របស់​អ្នក។ អត្ថបទ​ត្រូវ​គ្នា​នៅ​កន្លែង​ណា​ក៏​បាន​ក្នុង URL, * និង ? ជា​តួ​ជំនួស ហើយ re: ចាប់ផ្ដើម​កន្សោម​ទៀងទាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 터미널 링크는 기본 브라우저에서 열립니다. 텍스트는 URL의 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminallenker som samsvarer, åpnes i standard nettleser. Tekst samsvarer hvor som helst i URL-en, * og ? er jokertegn, og re: starter et regulært uttrykk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasujące linki terminala otwierają się w domyślnej przeglądarce. Tekst pasuje w dowolnym miejscu adresu URL, * i ? to symbole wieloznaczne, a re: rozpoczyna wyrażenie regularne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links do terminal que correspondem abrem no seu navegador padrão. O texto corresponde em qualquer parte da URL, * e ? são curingas e re: inicia uma expressão regular."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подходящие ссылки из терминала открываются в браузере по умолчанию. Текст совпадает в любом месте URL, * и ? — подстановочные знаки, а re: начинает регулярное выражение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์เทอร์มินัลที่ตรงกันจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ ข้อความตรงกับส่วนใดก็ได้ของ URL, * และ ? เป็นไวลด์การ์ด และ re: ขึ้นต้นนิพจน์ทั่วไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen terminal bağlantıları varsayılan tarayıcınızda açılır. Metin URL’nin herhangi bir yerinde eşleşir, * ve ? joker karakterdir, re: ise bir düzenli ifade başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідні посилання терміналу відкриваються у стандартному браузері. Текст збігається в будь-якому місці URL, * і ? — символи підстановки, а re: починає регулярний вираз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết terminal khớp sẽ mở trong trình duyệt mặc định của bạn. Văn bản khớp ở bất kỳ đâu trong URL, * và ? là ký tự đại diện, còn re: bắt đầu một biểu thức chính quy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匹配的终端链接在默认浏览器中打开。文本可匹配 URL 的任意位置，* 和 ? 是通配符，re: 开头表示正则表达式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符合的終端機連結會在預設瀏覽器中開啟。文字可符合 URL 的任何位置，* 和 ? 是萬用字元，re: 開頭表示規則運算式。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

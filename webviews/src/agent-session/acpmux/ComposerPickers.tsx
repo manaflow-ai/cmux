@@ -75,7 +75,15 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
   return next;
 }
 
-export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
+export type Choice = {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  /// The level the model recommends (its catalog default): the effort slider marks it.
+  recommended?: boolean;
+};
 
 /// Runs `run` after `ms` unless the returned cancel runs first.
 export type SettleTimer = (run: () => void, ms: number) => () => void;
@@ -484,6 +492,11 @@ function AccessMenu({
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
   const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
+  const pick = (next: string) => {
+    setOptimistic({ sessionId, modeId: next });
+    onMode(next);
+    setOpen(false);
+  };
   return (
     <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
@@ -492,19 +505,26 @@ function AccessMenu({
           <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-access-menu">
-          <MenuRadioGroup
-            value={value}
-            onValueChange={(next) => {
-              setOptimistic({ sessionId, modeId: next });
-              onMode(next);
-              setOpen(false);
-            }}
-          >
-            {modes.map((choice) => (
+        <MenuPopup
+          side="top"
+          align="start"
+          className="acpmux-access-menu"
+          // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
+          onKeyDown={(event) => {
+            if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+            const choice = modes[Number(event.key) - 1];
+            if (!choice) return;
+            event.preventDefault();
+            if (choice.id === value) setOpen(false);
+            else pick(choice.id);
+          }}
+        >
+          <MenuRadioGroup value={value} onValueChange={pick}>
+            {modes.map((choice, index) => (
               <MenuRadioItem
                 key={choice.id}
                 value={choice.id}
+                shortcut={index < 9 ? String(index + 1) : undefined}
                 className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
               >
                 <span className="acpmux-access-item-icon" aria-hidden="true">
@@ -1029,6 +1049,7 @@ export function reasoningChoices(
     const key = LEVEL_KEYS[option.value];
     const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
     if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
+    if (option.value === model?.defaultEffort) base.recommended = true;
     return base;
   });
 }

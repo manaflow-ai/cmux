@@ -436,7 +436,15 @@ export function DiffPanel({
       </header>
       {openFailure && (
         <div className="acpmux-diff-notice" role="alert">
-          {openFailure}
+          <span className="acpmux-diff-notice-text">{openFailure}</span>
+          <button
+            type="button"
+            className="acpmux-git-secondary"
+            aria-label={t("git.dismiss")}
+            onClick={() => setOpenFailure(undefined)}
+          >
+            ×
+          </button>
         </div>
       )}
       {(branch || skipped > 0 || turnNote) && (

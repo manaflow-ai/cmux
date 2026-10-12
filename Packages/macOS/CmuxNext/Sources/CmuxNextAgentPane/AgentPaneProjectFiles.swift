@@ -15,11 +15,13 @@ enum AgentPaneProjectFiles {
     static let directory = ".cmux/context"
     static let copyFailedMessage = "The files could not be added to the project."
 
-    /// The chat menu's project requests: Edit CLAUDE.md and Add Files to Project.
+    /// The requests that open a system picker after a click: the chat menu's Edit CLAUDE.md and Add
+    /// Files to Project, and the composer's Attach Screenshot… and Attach Window….
     @MainActor static func respond(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
         switch request {
         case .projectInstructions(let instructions): return await AgentPaneProjectInstructions.reply(to: instructions, in: model)
         case .projectAddFiles(let files): return await reply(to: files, in: model)
+        case .composerCapture(let mode): return await AgentPaneCapture.reply(to: mode, in: model)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
     }
@@ -34,7 +36,7 @@ enum AgentPaneProjectFiles {
         case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
         let instructions = URL(fileURLWithPath: folder).appendingPathComponent(request.name)
-        if let refusal = contextRefusal(folder) ?? (exists(instructions.path) ? check(instructions, request.name, folder).refusal : nil) {
+        if let refusal = contextRefusal(folder) ?? (exists(instructions.path) ? check(instructions, folder).refusal : nil) {
             return AgentPaneModel.transportFailure(refusal)
         }
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
@@ -47,7 +49,7 @@ enum AgentPaneProjectFiles {
         // file (or link) already there is kept, then checked as it resolves.
         _ = try? Data().write(to: instructions, options: .withoutOverwriting)
         let url: URL
-        switch check(instructions, request.name, folder) {
+        switch check(instructions, folder) {
         case .success(let resolved): url = resolved
         case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
@@ -56,7 +58,10 @@ enum AgentPaneProjectFiles {
         }
         let added = names.map { "\(directory)/\($0)" }
         guard !added.isEmpty else { return AgentPaneReply.failure(code: "copy_failed", message: copyFailedMessage) }
-        let lines = added.map { request.name == "CLAUDE.md" ? "@\($0)" : "Read `\($0)` for project context." }
+        // `@` imports only when CLAUDE.md resolves to itself: Codex reads AGENTS.md and ignores
+        // imports, so a file shared through a link (either way) gets plain lines both agents read.
+        let imports = request.name == "CLAUDE.md" && url.lastPathComponent == "CLAUDE.md"
+        let lines = added.map { imports ? "@\($0)" : "Read `\($0)` for project context." }
         let path = url.path
         guard await Task.detached(operation: { AgentPaneProjectCopy.append(lines, to: path) }).value else {
             return AgentPaneReply.failure(code: "copy_failed", message: copyFailedMessage)
@@ -85,11 +90,14 @@ enum AgentPaneProjectFiles {
         return nil
     }
 
-    /// The instructions file as it resolves: a regular file in the chat folder (not another of the
-    /// pane's folders: the imports are relative to it) that keeps its name.
-    private static func check(_ file: URL, _ name: String, _ folder: String) -> Result<URL, AgentPaneTransportError> {
+    /// The instructions file as it resolves: a regular file directly in the chat folder (not a
+    /// subfolder or another of the pane's folders: the added paths are relative to the chat folder)
+    /// named CLAUDE.md or AGENTS.md, so a file that links to the other one gets the lines.
+    private static func check(_ file: URL, _ folder: String) -> Result<URL, AgentPaneTransportError> {
         AgentPaneFileOpen.resolve(file.path, roots: [folder]).flatMap { url in
-            url.lastPathComponent == name ? .success(url) : .failure(.pathInvalid)
+            AgentPaneProjectInstructions.names.contains(url.lastPathComponent)
+                && url.deletingLastPathComponent().path == AcpmuxPathPolicy.canonical(folder)
+                ? .success(url) : .failure(.pathInvalid)
         }
     }
 }

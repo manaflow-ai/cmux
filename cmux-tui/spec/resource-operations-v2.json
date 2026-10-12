@@ -5542,18 +5542,10 @@
       "max_length": 64
     },
     "GroupColor": {
-      "kind": "enum",
-      "values": [
-        "grey",
-        "blue",
-        "red",
-        "yellow",
-        "green",
-        "pink",
-        "purple",
-        "cyan",
-        "orange"
-      ]
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 7
     },
     "TabGroupSnapshot": {
       "kind": "object",
@@ -8336,6 +8328,21 @@
       },
       "extra": false
     },
+    "GitStatusWorktree": {
+      "kind": "object",
+      "fields": {
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout the worktree belongs to."
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -8388,7 +8395,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+          "description": "The branch the branch scope compares with: the base the current branch was made from (branch.<branch>.cmuxBase, git.worktree.create), else origin's default branch, else main or master."
         },
         "ahead": {
           "required": true,
@@ -8405,6 +8412,65 @@
             "name": "uint32"
           },
           "description": "Commits behind upstream; 0 without one."
+        },
+        "worktree": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitStatusWorktree"
+          },
+          "description": "Present in a linked worktree (git worktree add, git.worktree.create); absent in the main checkout."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeCreateResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The new worktree's folder."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's new branch, cmux/<name>."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "What the branch was made from: the base given, the current branch, or HEAD's commit when detached. Recorded as branch.<branch>.cmuxBase: a branch by name, any other revision as its commit."
+        },
+        "base_commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "main_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout's folder; absent for a bare repository."
         }
       },
       "extra": false
@@ -15523,6 +15589,83 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "git.worktree.create": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "The worktree's name, made a slug (lowercase letters, digits and -, at most 48 before a suffix). Default: chat- and six random hex digits."
+          },
+          "base": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The revision the new branch starts at. Default: the current branch, else HEAD's commit."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The worktree is ~/.cmux/worktrees/<project>/<name> on the session host, on a new branch cmux/<name>; <project> is the main checkout's folder name. A name taken by a folder or a branch gets the next free suffix (-2 to -99).",
+        "The user's checkout, index and uncommitted changes are untouched. git worktree add runs in the user's environment, so their post-checkout hook and filters run; it never prompts and is stopped after 120 s.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the worktree the first attempt made; a failing post-checkout hook does not undo the worktree, so it is reported as made.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, base_not_found, name_taken, path_exists, no_home, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
     "history.backups.purge": {

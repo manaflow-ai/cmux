@@ -19,8 +19,11 @@ type HeaderToolsProps = {
   summary: ReactNode;
   menu: () => ChatMenuItem[];
   onMenuOpen?: () => Promise<unknown>;
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<{ queued: boolean }>;
   expand?: string;
   onExpanded?: () => void;
+  folder?: string;
+  readStatus?: () => Promise<unknown>;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -99,6 +102,12 @@ const pullRequestChip: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
 };
 
+// A worktree chat (cx-lyqio.3b): its branch shows once `git.status` answers, beside the PR chip.
+const worktreePill: Play = async (ctx) => {
+  await pullRequestChip(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-worktree"));
+};
+
 // A click on the chip opens its status: title, state and review, then each check, failing first
 // (cx-ncc.77.1).
 const pullRequestStatus: Play = async (ctx) => {
@@ -127,6 +136,30 @@ const pullRequestStatus: Play = async (ctx) => {
   });
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-pr-check").length === 5);
+};
+
+// A green pull request's status offers Merge; Merge asks in place before it merges (cx-ncc.77.4).
+const pullRequestMerge: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/19605",
+      number: 19605,
+      title: "cx-ncc.77.3: Address sends a review comment to the chat",
+      state: "open",
+      review: "approved",
+      mergeable: "mergeable",
+      checks: { state: "passing", passed: 3, total: 3 },
+      checkList: [
+        { name: "web / react-apps-check", state: "passed" },
+        { name: "macOS / Release compile", state: "passed" },
+        { name: "CLA", state: "passed" },
+      ],
+    },
+  });
+  await ctx.click({ selector: ".acpmux-header-pr" });
+  await ctx.click({ role: "button", name: "Merge" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Confirm merge" }));
 };
 
 // Right-click Browser: the menu to move it, pick toggle or open, and show or hide each button (#19156).
@@ -194,6 +227,8 @@ export default componentEntry<HeaderToolsProps>({
   covers: [
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/header/PullRequestChip.tsx#PullRequestChip",
+    "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
+    "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -240,6 +275,32 @@ export default componentEntry<HeaderToolsProps>({
       note: "A click on the PR chip lists its title, state, review and each check, failing first (cx-ncc.77.1).",
       props: { ...base, hasChanges: true, onChanges: () => undefined },
       play: pullRequestStatus,
+    },
+    "pull-request-merge": {
+      note: "A green pull request's status offers Merge, which asks once more in place before merging (cx-ncc.77.4).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        onMergePullRequest: async () => ({ queued: false }),
+      },
+      play: pullRequestMerge,
+    },
+    worktree: {
+      note: "A chat started in a worktree names its branch beside the PR chip; the tooltip names the main checkout and the base (cx-lyqio.3b).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+        }),
+      },
+      play: worktreePill,
     },
     "customize-menu": {
       note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 69834425700b71ed1904c4e43d9c6a1592906fd6c89e184f9029cecdd3427bb4.
+// cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1398,7 +1398,7 @@ pub struct SavedTabGroupMember {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SavedTabGroupRecord {
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     pub members: Vec<SavedTabGroupMember>,
@@ -1906,7 +1906,7 @@ pub struct TabGroupOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRecord {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub id: String,
     /// May be empty: the group shows only its color.
@@ -1921,7 +1921,7 @@ pub struct TabGroupRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TabGroupRun {
     pub collapsed: bool,
-    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     pub color: String,
     pub count: u64,
     pub id: String,

@@ -94,7 +94,8 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
-import { SessionRowsContext } from "./turnChanges/sessionRows";
+import { PlanList } from "./conversation/PlanList";
+import { SessionCwdContext, SessionRowsContext } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -140,6 +141,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -158,7 +160,7 @@ import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
-import { type FolderAsk, StartFolderAsk, confirmFolder, pickFolder } from "./startFolder";
+import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -378,6 +380,9 @@ const changesSource: ChangesSource = {
   pullRequest: () => callNative("git.pullRequest", {}),
   reviewThreads: () => callNative("git.pullRequest", { action: "threads" }),
 };
+/// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
+/// name it by (the header's worktree pill, cx-lyqio.3b).
+const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });
 /// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
 const checkpointDiff: CheckpointDiff = (from, to) =>
   callNative("git.checkpoint.diff", { from, to, include_patch: true });
@@ -519,6 +524,12 @@ const SummaryRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const PlanRow = memo(
+  function PlanRow({ row }: RowProps) {
+    return row.plan ? <PlanList entries={row.plan} /> : <div className="acpmux-muted">{row.text}</div>;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -584,7 +595,7 @@ const defaultRegistry: NativeRegistry = {
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
-  plan: NoticeRow,
+  plan: PlanRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -1845,6 +1856,16 @@ function AcpmuxPane() {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
+  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  const captureScreen = useCallback(async (mode: "screen" | "window") => {
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
+      mode,
+    }).catch(() => null);
+    if (!shot?.data) return undefined;
+    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
+    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+  }, []);
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -2488,6 +2509,22 @@ function AcpmuxPane() {
     },
     [requestFolder],
   );
+  /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
+  const [worktreeError, setWorktreeError] = useState<string | undefined>();
+  const startInWorktree = useCallback((cwd: string) => {
+    // A newer folder pick wins over this worktree, as between two picks.
+    const pick = ++folderPick.current;
+    setFolderAsk(undefined);
+    setWorktreeError(undefined);
+    void newWorktree(callNative, cwd, (folder) => {
+      if (pick !== folderPick.current) return;
+      // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
+      if (freshRef.current) setProjectDraft(folder);
+      else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+    });
+  }, []);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -3065,7 +3102,15 @@ function AcpmuxPane() {
               Array.isArray(hunk) ? hunk.map(String) : [],
               unstage === true,
             ),
-          "git.pullRequest": ({ action }) => client.gitPullRequest(action === "threads"),
+          "git.pullRequest": ({ action, number, url }) =>
+            action === "threads"
+              ? client.gitPullRequest({ action })
+              : action === "merge"
+                ? // A merge names the pull request it means; one that does not is refused, never an Open.
+                  Number.isInteger(number) && typeof url === "string"
+                  ? client.gitPullRequest({ action, number: number as number, url })
+                  : Promise.reject(new Error(translate("header.prMergeFailed")))
+                : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -3582,34 +3627,36 @@ function AcpmuxPane() {
           <TurnActionsContext.Provider value={turnActions}>
             <TurnCountsContext.Provider value={turnCountsFor}>
               <SessionRowsContext.Provider value={snapshot.rows}>
-                <SubagentNavContext.Provider value={setSubagentView}>
-                  <VirtualTranscript
-                    rows={transcriptRows}
-                    working={snapshot.isWorking}
-                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                    jumpButton={!quick}
-                    focusComposer={() => composerHandle.current?.focus()}
-                    find={quick ? undefined : find}
-                    sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                    openAt={
-                      !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                        ? scrollAnchor
-                        : undefined
-                    }
-                    onAnchor={
-                      quick || childRows || !shownSessionId
-                        ? undefined
-                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                    }
-                    expanded={expanded}
-                    registry={registry}
-                    githubRepository={githubRepository}
-                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                    onOpenDiff={quick ? undefined : openDiff}
-                    onToggleActivity={toggleActivity}
-                  />
-                </SubagentNavContext.Provider>
+                <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                  <SubagentNavContext.Provider value={setSubagentView}>
+                    <VirtualTranscript
+                      rows={transcriptRows}
+                      working={snapshot.isWorking}
+                      // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                      jumpButton={!quick}
+                      focusComposer={() => composerHandle.current?.focus()}
+                      find={quick ? undefined : find}
+                      sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                      canLoadOlder={!childRows && snapshot.canLoadOlder}
+                      openAt={
+                        !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                          ? scrollAnchor
+                          : undefined
+                      }
+                      onAnchor={
+                        quick || childRows || !shownSessionId
+                          ? undefined
+                          : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                      }
+                      expanded={expanded}
+                      registry={registry}
+                      githubRepository={githubRepository}
+                      // The Quick Composer has no room for the changes view; its file rows stay plain.
+                      onOpenDiff={quick ? undefined : openDiff}
+                      onToggleActivity={toggleActivity}
+                    />
+                  </SubagentNavContext.Provider>
+                </SessionCwdContext.Provider>
               </SessionRowsContext.Provider>
             </TurnCountsContext.Provider>
           </TurnActionsContext.Provider>
@@ -3682,6 +3729,7 @@ function AcpmuxPane() {
   );
   const composer = !reviewing && !handoffLoading && (
     <>
+      <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       <DictationNotice dictation={dictation} />
       {importError && (
         <p className="acpmux-composer-remote-note" role="alert">
@@ -3768,6 +3816,9 @@ function AcpmuxPane() {
             }}
           />
         )
+      )}
+      {worktreeError && freshChat && !snapshot.sessionId && (
+        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
       )}
       {aside && (
         <SideQuestion
@@ -3865,6 +3916,7 @@ function AcpmuxPane() {
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
+          onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
           onConnect={(kind) =>
             void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
@@ -3933,6 +3985,7 @@ function AcpmuxPane() {
           onMode={(modeId) => void callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
+          capture={captureScreen}
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
@@ -4163,6 +4216,25 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      // A new chat's picked folder too: New Worktree names its branch before the first prompt.
+                      folder={localCwd ?? (remoteChat ? undefined : startFolder)}
+                      readStatus={readFolderStatus}
+                      statusKey={snapshot.isWorking}
+                      // A merge asks the header again, so the chip shows the pull request merged.
+                      onMergePullRequest={
+                        localCwd
+                          ? ({ number, url }) =>
+                              callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
+                                const result = value as { merged?: unknown; queued?: unknown } | null;
+                                if (result?.merged !== true && result?.queued !== true)
+                                  throw new Error(translate("header.prMergeFailed"));
+                                void callNative("pane.tabState", { refresh: true })
+                                  .then(setHeaderState)
+                                  .catch(() => undefined);
+                                return { queued: result.queued === true };
+                              })
+                          : undefined
+                      }
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.

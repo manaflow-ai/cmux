@@ -67,6 +67,7 @@ impl ResourceOperation {
             Self::GitFilesList => "git.files.list",
             Self::GitFilesSearch => "git.files.search",
             Self::GitPush => "git.push",
+            Self::GitWorktreeCreate => "git.worktree.create",
             Self::GitStatus => "git.status",
             Self::HistoryEntriesList => "history.entries.list",
             Self::HistoryEntriesRemove => "history.entries.remove",
