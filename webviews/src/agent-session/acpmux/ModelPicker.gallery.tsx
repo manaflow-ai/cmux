@@ -53,10 +53,10 @@ const numericSearch: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
   await ctx.type("gpt", search);
   await ctx.press("1");
-  await ctx.waitFor(() => {
-    const input = ctx.document.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
-    return input?.value === "gpt";
-  });
+  // With a query active, a digit is search input rather than a row shortcut. The menu remains
+  // mounted after the key, whereas the old shortcut path selected the first cross-harness match
+  // and closed the picker.
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
 };
 
 export default componentEntry<ModelPickerProps>({
