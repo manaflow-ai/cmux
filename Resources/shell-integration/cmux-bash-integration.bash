@@ -1291,6 +1291,20 @@ _cmux_prompt_command() {
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return "$last_status"
     [[ -n "$CMUX_TAB_ID" ]] || return "$last_status"
 
+    # Bash before 4.4 has no PS0 preexec hook. Recover new PR commands at the
+    # prompt instead, using the same history cursor and parser as the PS0 path.
+    # Consume failed commands too, so a later history-ignored success cannot
+    # report them. The first prompt only establishes the restored-history cursor.
+    if [[ $- == *i* && "${CMUX_NO_GIT_WATCH:-}" != "1" && "${CMUX_NO_PR_WATCH:-}" != "1" ]] &&
+       (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4) )); then
+        local pr_command=""
+        pr_command="$(_cmux_bash_history_command 2>/dev/null || true)"
+        if [[ -n "${_CMUX_BASH_PR_HISTORY_INITIALIZED:-}" ]]; then
+            _cmux_record_pr_command_hint "$pr_command"
+        fi
+        _CMUX_BASH_PR_HISTORY_INITIALIZED=1
+    fi
+
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
