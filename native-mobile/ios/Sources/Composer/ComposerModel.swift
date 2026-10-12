@@ -32,7 +32,18 @@ final class ComposerModel {
 
     var canSend: Bool { !isSending && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) }
 
+    /// Attachments are held in memory and sent base64 over the link.
+    nonisolated static let maximumAttachmentBytes = 200 << 20
+
+    nonisolated static func tooLargeMessage(_ name: String) -> String {
+        String(localized: "\(name) is larger than 200 MB. Copy it to your Mac another way.")
+    }
+
     func add(_ attachment: ComposerAttachment) {
+        guard attachment.data.count <= Self.maximumAttachmentBytes else {
+            error = Self.tooLargeMessage(attachment.name)
+            return
+        }
         attachments.append(attachment)
         Haptics.selection()
     }

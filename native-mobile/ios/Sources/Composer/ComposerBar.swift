@@ -262,6 +262,10 @@ struct ComposerBar: View {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > ComposerModel.maximumAttachmentBytes {
+                model.error = ComposerModel.tooLargeMessage(url.lastPathComponent)
+                continue
+            }
             guard let data = try? Data(contentsOf: url) else { continue }
             let type = UTType(filenameExtension: url.pathExtension)
             let isImage = type?.conforms(to: .image) ?? false
@@ -285,6 +289,10 @@ struct ComposerBar: View {
 
     static func stamp() -> String {
         let formatter = DateFormatter()
+        // ASCII digits and the Gregorian year in every locale (file names
+        // end up typed into a shell).
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: Date())
     }
