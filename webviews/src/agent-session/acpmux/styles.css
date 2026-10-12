@@ -396,6 +396,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick .acpmux-permission{padding:6px 8px 0}
 .acpmux-quick .acpmux-composer{padding:6px 8px 0}
 .acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px;white-space:nowrap;overflow:hidden}
+/* The floating chat's right-click menu host (FloatingChat.tsx) adds no box of its own. */
+.acpmux-floating-menu-host{display:contents}
 .acpmux-icon-flip{transform:rotate(180deg)}
 .acpmux-quick-key{display:inline-flex;align-items:center}
 .acpmux-quick-key .acpmux-keycap{margin-right:4px}
