@@ -374,14 +374,8 @@ fn pushed_repo() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf, Pat
 
 /// [`pushed_repo`] whose machine can turn malicious after the push.
 #[allow(clippy::type_complexity)]
-fn hostile_pushed_repo() -> (
-    tempfile::TempDir,
-    tempfile::TempDir,
-    PathBuf,
-    PathBuf,
-    PathBuf,
-    &'static Mutex<Vec<Planted>>,
-) {
+fn hostile_pushed_repo()
+-> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf, PathBuf, &'static Mutex<Vec<Planted>>) {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let repo = base.join("app");
