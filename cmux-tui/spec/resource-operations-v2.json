@@ -15669,10 +15669,10 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Run it in a linked worktree (one git.worktree.create made). Everything the worktree changed since the merge base with its recorded base branch, its commits, uncommitted edits and new files it never added, lands in the main checkout's files as uncommitted changes. HEAD and the index of both checkouts stay as they are.",
-        "Refused, changing nothing, when the main checkout has changes of its own (or untracked files) at any path the work touches, or when the work does not apply cleanly there. git runs in the user's environment, never prompts and is stopped after 120 s.",
-        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the work already applied instead of applying it twice.",
-        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, no_base, no_merge_base, nothing_to_apply, main_checkout_changed (extra.files lists the paths), does_not_apply, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+        "Run it in a linked worktree whose branch git.worktree.create recorded a base for. Everything the worktree changed since the merge base with that base, its commits, uncommitted edits and new files it never added, lands in the main checkout's files as uncommitted changes; submodules are left out. HEAD and the index of both checkouts stay as they are, and the user's diff and apply settings change nothing.",
+        "Refused, changing nothing, when the main checkout has changes of its own at any path the work touches (a staged or unstaged change, or a file git does not track there), when the work does not apply cleanly there, or when the worktree is mid-merge or mid-rebase. git runs in the user's environment, never prompts and is stopped after 120 s.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the work applied instead of applying it twice; one stopped while git wrote the files is refused as interrupted, as the main checkout may hold part of it.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, no_base, unmerged, no_merge_base, nothing_to_apply, main_checkout_changed (extra.files lists the paths), does_not_apply, interrupted, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
       ]
     },
     "git.worktree.create": {
