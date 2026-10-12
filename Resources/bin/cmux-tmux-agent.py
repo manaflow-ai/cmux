@@ -197,7 +197,7 @@ def source_existing_shells(context, session, shell, stable, bin_dir):
         except (OSError, subprocess.SubprocessError):
             continue
         line = re.sub(r'\x1b\[[0-9;]*m', '', capture.rstrip('\r\n').splitlines()[-1] if capture.strip() else '')
-        if not re.search(r'(?:[$%#>]|❯|➜)\s*$', line):
+        if not re.search(r'(?:[$%#]|❯|➜)\s*$', line):
             continue
         if shell_name == 'fish' or Path(current).name == 'fish':
             source = 'set -gx PATH ' + shlex.quote(str(bin_dir)) + ' $PATH'

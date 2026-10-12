@@ -165,6 +165,17 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))
 
+    def test_install_does_not_inject_into_shell_continuation(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run(
+            "--install", "$1", payload,
+            extra_env={"TMUX_PROMPT": "> "},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("send-keys" in call for call in self._tmux_calls()))
+
     def test_management_commands_pass_through(self):
         module_source = HELPER.read_text()
         namespace = {"__name__": "cmux_tmux_agent_test"}
