@@ -77,4 +77,9 @@ await requireBrowserLane("chat-palette-actions.test.ts", async () => {
     const result = await play("archive-chat-key");
     expect(result.play, result.report).toBe("pass");
   });
+
+  test("Mark as Unread asks the host to mark the chat unread", async () => {
+    const result = await play("mark-unread-menu");
+    expect(result.play, result.report).toBe("pass");
+  });
 });
