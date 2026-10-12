@@ -1,7 +1,6 @@
 import AppKit
 import CmuxCloud
 import CmuxCloudMachines
-import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -254,21 +253,15 @@ struct CloudWorkspaceTargetingTests {
     @Test("Unavailable Cloud access is consumed without creating a local workspace")
     func unavailableAction() {
         let fixture = CloudWorkspaceTargetingFixture()
-        defer { fixture.close() }
-        let defaults = UserDefaults.standard
-        let cloudEnabledKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
-        let previousCloudEnabled = defaults.object(forKey: cloudEnabledKey)
-        defaults.set(true, forKey: cloudEnabledKey)
         defer {
-            if let previousCloudEnabled {
-                defaults.set(previousCloudEnabled, forKey: cloudEnabledKey)
-            } else {
-                defaults.removeObject(forKey: cloudEnabledKey)
-            }
+            fixture.app.cloudWelcomeWindowController.dismiss()
+            fixture.close()
         }
         fixture.available = false
         let ids = fixture.manager.tabs.map(\.id)
-        #expect(!fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
+        // Signed out with Cloud on, a direct press opens the Cloud welcome
+        // (#19876): the action is handled, and nothing local is created.
+        #expect(fixture.app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: fixture.manager))
         #expect(fixture.requests.isEmpty)
         #expect(fixture.manager.tabs.map(\.id) == ids)
     }

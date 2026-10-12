@@ -24,6 +24,7 @@ final class CloudWorkspaceCreationSidebarFixture {
     private let defaults: UserDefaults
     private let defaultsName = "cloud-workspace-creation-\(UUID().uuidString)"
     private let previousSharedRenameService: CloudWorkspaceRenameService?
+    private let cloudOptIn = CloudOptInTestOverride()
 
     init(useSharedCatalog: Bool = false, machine: SurfaceMachineID? = nil) throws {
         defaults = try #require(UserDefaults(suiteName: defaultsName))
@@ -92,5 +93,6 @@ final class CloudWorkspaceCreationSidebarFixture {
         AppDelegate.shared = previousApp
         TerminalController.shared.setActiveTabManager(previousManager)
         defaults.removePersistentDomain(forName: defaultsName)
+        cloudOptIn.restore()
     }
 }
