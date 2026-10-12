@@ -81,6 +81,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
+        syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
         table.tile()
@@ -91,7 +92,15 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         selectedID = id
         refresh(old)
         refresh(id)
-        if old != id { NSAccessibility.post(element: table, notification: .selectedRowsChanged) }
+        syncTableSelection()
+    }
+
+    /// The table's own selection follows the palette's, so VoiceOver reads and announces the
+    /// selected row (cx-9ce.44). Nothing draws it (`selectionHighlightStyle` is `.none`), and
+    /// clicks never select (`shouldSelectRow`): the search field keeps the keyboard.
+    private func syncTableSelection() {
+        let rows = selectedID.flatMap { rowIndexByID[$0] }.map { IndexSet(integer: $0) } ?? IndexSet()
+        if table.selectedRowIndexes != rows { table.selectRowIndexes(rows, byExtendingSelection: false) }
     }
 
     func setHover(_ id: String?) {
@@ -203,12 +212,6 @@ final class PaletteTableView: NSTableView {
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
-
-    /// The palette's selected row (`PaletteTableRowView.isPaletteSelected`), for VoiceOver.
-    override func accessibilitySelectedRows() -> [any NSAccessibilityRow]? {
-        (0..<numberOfRows).compactMap { rowView(atRow: $0, makeIfNecessary: false) as? PaletteTableRowView }
-            .filter(\.isPaletteSelected)
-    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
