@@ -3734,6 +3734,13 @@ class TabManager: ObservableObject {
         return action(panel)
     }
 
+    /// Runs a Ghostty font-size binding on the focused terminal, or returns nil
+    /// when no terminal is focused.
+    func performFocusedTerminalFontSizeAction(_ action: String) -> Bool? {
+        guard let panel = selectedTerminalPanel else { return nil }
+        return panel.performBindingAction(action)
+    }
+
     func zoomInFocusedBrowser() -> Bool {
         performFocusedBrowserZoom { $0.zoomIn() } ?? false
     }
