@@ -17,12 +17,7 @@ public struct TabItemMapping {
     public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
-        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        // A terminal its shell has not titled yet shows its folder, which the
-        // shell's first title usually is, so the label does not change a
-        // frame after the tab opens.
-        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
-        let title = untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+        let title = title(tab, fallbackTitle: fallbackTitle)
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
@@ -73,20 +68,24 @@ public struct TabItemMapping {
         return host
     }
 
-    /// A tab's name wherever a list or a toast shows it (the sidebar's tab
-    /// rows, the closed-tab toast): a browser or conversation tab with no
-    /// title, or titled with the New Tab or blank page's address, is
-    /// `newTabTitle` ("New Tab", localized by the App), never `about:blank`.
-    public static func shownTitle(_ tab: TabModel, newTabTitle: String) -> String {
-        let title = tab.displayTitle
-        guard tab.kind == .browser || tab.kind == .conversation else { return title }
-        return title.isEmpty || isBlankPageAddress(title) ? newTabTitle : title
+    /// The strip title of `tab`, with `fallbackTitle` for a tab that has
+    /// none of its own (see ``item(_:fallbackTitle:isNewTabPage:)``). The
+    /// App's `TabTitleResolver` picks the fallback.
+    public func title(_ tab: TabModel, fallbackTitle: String) -> String {
+        let isBrowser = tab.kind == .browser
+        let isConversation = tab.kind == .conversation
+        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
+        // A terminal its shell has not titled yet shows its folder, which the
+        // shell's first title usually is, so the label does not change a
+        // frame after the tab opens.
+        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
+        return untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
     }
 
     /// The New Tab page's and the blank page's addresses
     /// (`BrowserNewTabPage` in CmuxNextBrowser), which a page that never
     /// names itself keeps as its title.
-    public static func isBlankPageAddress(_ text: String) -> Bool {
+    static func isBlankPageAddress(_ text: String) -> Bool {
         ["chrome://newtab/", "chrome://newtab", "about:blank"].contains(text.lowercased())
     }
 

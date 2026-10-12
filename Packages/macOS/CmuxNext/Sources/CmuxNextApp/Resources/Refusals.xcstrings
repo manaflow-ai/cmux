@@ -3800,133 +3800,133 @@
         }
       }
     },
-    "handlers.refusal.noColumnShown": {
+    "handlers.refusal.columnNotShown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no column %@ is shown"
+            "value": "That column isn't shown."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "列 %@ は表示されていません"
+            "value": "その列は表示されていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد عمود %@ معروض"
+            "state": "translated",
+            "value": "هذا العمود غير معروض."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kolona %@ nije prikazana"
+            "state": "translated",
+            "value": "Ta kolona nije prikazana."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen kolonne %@ vises"
+            "state": "translated",
+            "value": "Den kolonne vises ikke."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "keine Spalte %@ wird angezeigt"
+            "state": "translated",
+            "value": "Diese Spalte wird nicht angezeigt."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no se muestra ninguna columna %@"
+            "state": "translated",
+            "value": "Esa columna no se muestra."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucune colonne affichée vers : %@"
+            "state": "translated",
+            "value": "Cette colonne n’est pas affichée."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna colonna %@ visualizzata"
+            "state": "translated",
+            "value": "Quella colonna non è visualizzata."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានជួរឈរ %@ ត្រូវបានបង្ហាញទេ"
+            "state": "translated",
+            "value": "ជួរឈរនោះមិនត្រូវបានបង្ហាញទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "열 %@이(가) 표시되지 않음"
+            "state": "translated",
+            "value": "해당 열이 표시되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen kolonne %@ vises"
+            "state": "translated",
+            "value": "Den kolonnen vises ikke."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kolumna %@ nie jest widoczna"
+            "state": "translated",
+            "value": "Ta kolumna nie jest widoczna."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma coluna %@ está exibida"
+            "state": "translated",
+            "value": "Essa coluna não está sendo exibida."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "столбец %@ не показан"
+            "state": "translated",
+            "value": "Этот столбец не показан."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีคอลัมน์ %@ ที่แสดงอยู่"
+            "state": "translated",
+            "value": "คอลัมน์นั้นไม่ได้แสดงอยู่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ sütunu gösterilmiyor"
+            "state": "translated",
+            "value": "Bu sütun gösterilmiyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "стовпець %@ не показано"
+            "state": "translated",
+            "value": "Цей стовпець не показано."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có cột %@ nào đang hiển thị"
+            "state": "translated",
+            "value": "Cột đó không được hiển thị."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未显示列 %@"
+            "state": "translated",
+            "value": "该列未显示。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未顯示欄 %@"
+            "state": "translated",
+            "value": "該欄未顯示。"
           }
         }
       }
@@ -4193,264 +4193,264 @@
         }
       }
     },
-    "handlers.refusal.noOpenTabGroup": {
+    "handlers.refusal.tabGroupGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no open tab group %@"
+            "value": "That tab group is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開いているタブグループ %@ はありません"
+            "value": "そのタブグループはもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مجموعة علامات تبويب مفتوحة %@"
+            "state": "translated",
+            "value": "لم تعد مجموعة علامات التبويب هذه مفتوحة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema otvorene grupe tabova %@"
+            "state": "translated",
+            "value": "Ta grupa kartica više nije otvorena."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen åben fanegruppe %@"
+            "state": "translated",
+            "value": "Den fanegruppe er ikke længere åben."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "keine offene Tabgruppe %@"
+            "state": "translated",
+            "value": "Diese Tab-Gruppe ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ningún grupo de pestañas abierto %@"
+            "state": "translated",
+            "value": "Ese grupo de pestañas ya no está abierto."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun groupe d’onglets ouvert %@"
+            "state": "translated",
+            "value": "Ce groupe d’onglets n’est plus ouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun gruppo di schede aperto %@"
+            "state": "translated",
+            "value": "Quel gruppo di schede non è più aperto."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានក្រុមថេបបើក %@ ទេ"
+            "state": "translated",
+            "value": "ក្រុមផ្ទាំងនោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "열린 탭 그룹 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 탭 그룹은 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen åpen fanegruppe %@"
+            "state": "translated",
+            "value": "Den fanegruppen er ikke lenger åpen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak otwartej grupy kart %@"
+            "state": "translated",
+            "value": "Ta grupa kart nie jest już otwarta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum grupo de abas aberto %@"
+            "state": "translated",
+            "value": "Esse grupo de abas não está mais aberto."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет открытой группы вкладок %@"
+            "state": "translated",
+            "value": "Эта группа вкладок больше не открыта."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกลุ่มแท็บที่เปิดอยู่ %@"
+            "state": "translated",
+            "value": "กลุ่มแท็บนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "açık sekme grubu yok: %@"
+            "state": "translated",
+            "value": "Bu sekme grubu artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає відкритої групи вкладок %@"
+            "state": "translated",
+            "value": "Ця група вкладок більше не відкрита."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có nhóm tab đang mở %@"
+            "state": "translated",
+            "value": "Nhóm thẻ đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有打开的标签页组 %@"
+            "state": "translated",
+            "value": "该标签页组已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有開啟的標籤頁群組 %@"
+            "state": "translated",
+            "value": "該分頁群組已不再開啟。"
           }
         }
       }
     },
-    "handlers.refusal.noPaneID": {
+    "handlers.refusal.paneGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no pane %@"
+            "value": "That pane is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペイン %@ はありません"
+            "value": "そのペインはもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد جزء %@"
+            "state": "translated",
+            "value": "لم يعد هذا الجزء مفتوحًا."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema panela %@"
+            "state": "translated",
+            "value": "Taj panel više nije otvoren."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen rude %@"
+            "state": "translated",
+            "value": "Den rude er ikke længere åben."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Teilfenster %@"
+            "state": "translated",
+            "value": "Dieser Bereich ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe el panel %@"
+            "state": "translated",
+            "value": "Ese panel ya no está abierto."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun volet %@"
+            "state": "translated",
+            "value": "Ce volet n’est plus ouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun pannello %@"
+            "state": "translated",
+            "value": "Quel riquadro non è più aperto."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានផ្ទាំង %@ ទេ"
+            "state": "translated",
+            "value": "ផ្ទាំងរងនោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "분할 창 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 패널은 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen rute %@"
+            "state": "translated",
+            "value": "Den ruten er ikke lenger åpen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak panelu %@"
+            "state": "translated",
+            "value": "Ten panel nie jest już otwarty."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum painel %@"
+            "state": "translated",
+            "value": "Esse painel não está mais aberto."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет панели %@"
+            "state": "translated",
+            "value": "Эта панель больше не открыта."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีบานหน้าต่าง %@"
+            "state": "translated",
+            "value": "บานหน้าต่างนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "bölme yok: %@"
+            "state": "translated",
+            "value": "Bu bölme artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає панелі %@"
+            "state": "translated",
+            "value": "Ця панель більше не відкрита."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có khung %@"
+            "state": "translated",
+            "value": "Ngăn đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有窗格 %@"
+            "state": "translated",
+            "value": "该窗格已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有窗格 %@"
+            "state": "translated",
+            "value": "該窗格已不再開啟。"
           }
         }
       }
@@ -4848,264 +4848,264 @@
         }
       }
     },
-    "handlers.refusal.noSavedTabGroup": {
+    "handlers.refusal.savedTabGroupGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no saved tab group %@"
+            "value": "That saved tab group no longer exists."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存したタブグループ %@ はありません"
+            "value": "その保存済みタブグループはもう存在しません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مجموعة علامات تبويب محفوظة %@"
+            "state": "translated",
+            "value": "لم تعد مجموعة علامات التبويب المحفوظة هذه موجودة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema sačuvane grupe tabova %@"
+            "state": "translated",
+            "value": "Ta sačuvana grupa kartica više ne postoji."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen gemt fanegruppe %@"
+            "state": "translated",
+            "value": "Den gemte fanegruppe findes ikke længere."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "keine gesicherte Tabgruppe %@"
+            "state": "translated",
+            "value": "Diese gespeicherte Tab-Gruppe gibt es nicht mehr."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ningún grupo de pestañas guardado %@"
+            "state": "translated",
+            "value": "Ese grupo de pestañas guardado ya no existe."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun groupe d’onglets enregistré %@"
+            "state": "translated",
+            "value": "Ce groupe d’onglets enregistré n’existe plus."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun gruppo di schede salvato %@"
+            "state": "translated",
+            "value": "Quel gruppo di schede salvato non esiste più."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានក្រុមថេបដែលបានរក្សាទុក %@ ទេ"
+            "state": "translated",
+            "value": "ក្រុមផ្ទាំងដែលបានរក្សាទុកនោះលែងមានទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "저장된 탭 그룹 %@이(가) 없음"
+            "state": "translated",
+            "value": "저장된 해당 탭 그룹은 더 이상 존재하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen lagret fanegruppe %@"
+            "state": "translated",
+            "value": "Den lagrede fanegruppen finnes ikke lenger."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak zapisanej grupy kart %@"
+            "state": "translated",
+            "value": "Ta zapisana grupa kart już nie istnieje."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum grupo de abas salvo %@"
+            "state": "translated",
+            "value": "Esse grupo de abas salvo não existe mais."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет сохраненной группы вкладок %@"
+            "state": "translated",
+            "value": "Этой сохранённой группы вкладок больше нет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกลุ่มแท็บที่บันทึกไว้ %@"
+            "state": "translated",
+            "value": "กลุ่มแท็บที่บันทึกไว้นั้นไม่มีอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kayıtlı sekme grubu yok: %@"
+            "state": "translated",
+            "value": "Bu kayıtlı sekme grubu artık yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає збереженої групи вкладок %@"
+            "state": "translated",
+            "value": "Цієї збереженої групи вкладок більше немає."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có nhóm tab đã lưu %@"
+            "state": "translated",
+            "value": "Nhóm thẻ đã lưu đó không còn tồn tại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有已存储的标签页组 %@"
+            "state": "translated",
+            "value": "该已保存的标签页组已不存在。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有已儲存的標籤頁群組 %@"
+            "state": "translated",
+            "value": "該已儲存的分頁群組已不存在。"
           }
         }
       }
     },
-    "handlers.refusal.noScreen": {
+    "handlers.refusal.screenGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no screen %@"
+            "value": "That screen is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリーン %@ はありません"
+            "value": "その画面はもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد شاشة %@"
+            "state": "translated",
+            "value": "لم تعد هذه الشاشة مفتوحة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema ekrana %@"
+            "state": "translated",
+            "value": "Taj ekran više nije otvoren."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen skærm %@"
+            "state": "translated",
+            "value": "Den skærm er ikke længere åben."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Bildschirm %@"
+            "state": "translated",
+            "value": "Dieser Bildschirm ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe la pantalla %@"
+            "state": "translated",
+            "value": "Esa pantalla ya no está abierta."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun écran %@"
+            "state": "translated",
+            "value": "Cet écran n’est plus ouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna schermata %@"
+            "state": "translated",
+            "value": "Quella schermata non è più aperta."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានអេក្រង់ %@ ទេ"
+            "state": "translated",
+            "value": "អេក្រង់នោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "스크린 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 화면은 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen skjerm %@"
+            "state": "translated",
+            "value": "Den skjermen er ikke lenger åpen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak ekranu %@"
+            "state": "translated",
+            "value": "Ten ekran nie jest już otwarty."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma tela %@"
+            "state": "translated",
+            "value": "Essa tela não está mais aberta."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет экрана %@"
+            "state": "translated",
+            "value": "Этот экран больше не открыт."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีหน้าจอ %@"
+            "state": "translated",
+            "value": "หน้าจอนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ekran yok: %@"
+            "state": "translated",
+            "value": "Bu ekran artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає екрана %@"
+            "state": "translated",
+            "value": "Цей екран більше не відкритий."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có màn hình %@"
+            "state": "translated",
+            "value": "Màn hình đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有屏幕 %@"
+            "state": "translated",
+            "value": "该屏幕已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有畫面 %@"
+            "state": "translated",
+            "value": "該畫面已不再開啟。"
           }
         }
       }
@@ -5241,264 +5241,264 @@
         }
       }
     },
-    "handlers.refusal.noTab": {
+    "handlers.refusal.tabGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no tab %@"
+            "value": "That tab is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブ %@ はありません"
+            "value": "そのタブはもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد علامة تبويب %@"
+            "state": "translated",
+            "value": "لم تعد علامة التبويب هذه مفتوحة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema taba %@"
+            "state": "translated",
+            "value": "Ta kartica više nije otvorena."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen fane %@"
+            "state": "translated",
+            "value": "Den fane er ikke længere åben."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Tab %@"
+            "state": "translated",
+            "value": "Dieser Tab ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe la pestaña %@"
+            "state": "translated",
+            "value": "Esa pestaña ya no está abierta."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun onglet %@"
+            "state": "translated",
+            "value": "Cet onglet n’est plus ouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna scheda %@"
+            "state": "translated",
+            "value": "Quella scheda non è più aperta."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានថេប %@ ទេ"
+            "state": "translated",
+            "value": "ផ្ទាំងនោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "탭 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 탭은 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen fane %@"
+            "state": "translated",
+            "value": "Den fanen er ikke lenger åpen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak karty %@"
+            "state": "translated",
+            "value": "Ta karta nie jest już otwarta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma aba %@"
+            "state": "translated",
+            "value": "Essa aba não está mais aberta."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет вкладки %@"
+            "state": "translated",
+            "value": "Эта вкладка больше не открыта."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีแท็บ %@"
+            "state": "translated",
+            "value": "แท็บนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "sekme yok: %@"
+            "state": "translated",
+            "value": "Bu sekme artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає вкладки %@"
+            "state": "translated",
+            "value": "Ця вкладка більше не відкрита."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có tab %@"
+            "state": "translated",
+            "value": "Thẻ đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有标签页 %@"
+            "state": "translated",
+            "value": "该标签页已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有標籤頁 %@"
+            "state": "translated",
+            "value": "該分頁已不再開啟。"
           }
         }
       }
     },
-    "handlers.refusal.noWindow": {
+    "handlers.refusal.windowGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no window %@"
+            "value": "That window is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウィンドウ %@ はありません"
+            "value": "そのウインドウはもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد نافذة %@"
+            "state": "translated",
+            "value": "لم تعد هذه النافذة مفتوحة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema prozora %@"
+            "state": "translated",
+            "value": "Taj prozor više nije otvoren."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "intet vindue %@"
+            "state": "translated",
+            "value": "Det vindue er ikke længere åbent."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Fenster %@"
+            "state": "translated",
+            "value": "Dieses Fenster ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe la ventana %@"
+            "state": "translated",
+            "value": "Esa ventana ya no está abierta."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucune fenêtre %@"
+            "state": "translated",
+            "value": "Cette fenêtre n’est plus ouverte."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna finestra %@"
+            "state": "translated",
+            "value": "Quella finestra non è più aperta."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានបង្អួច %@ ទេ"
+            "state": "translated",
+            "value": "បង្អួចនោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "윈도우 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 윈도우는 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ikke noe vindu %@"
+            "state": "translated",
+            "value": "Det vinduet er ikke lenger åpent."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak okna %@"
+            "state": "translated",
+            "value": "To okno nie jest już otwarte."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma janela %@"
+            "state": "translated",
+            "value": "Essa janela não está mais aberta."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет окна %@"
+            "state": "translated",
+            "value": "Это окно больше не открыто."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีหน้าต่าง %@"
+            "state": "translated",
+            "value": "หน้าต่างนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "pencere yok: %@"
+            "state": "translated",
+            "value": "Bu pencere artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає вікна %@"
+            "state": "translated",
+            "value": "Це вікно більше не відкрите."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có cửa sổ %@"
+            "state": "translated",
+            "value": "Cửa sổ đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有窗口 %@"
+            "state": "translated",
+            "value": "该窗口已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有視窗 %@"
+            "state": "translated",
+            "value": "該視窗已不再開啟。"
           }
         }
       }
@@ -7206,133 +7206,133 @@
         }
       }
     },
-    "handlers.refusal.paneHasNoDaemonHandle": {
+    "handlers.refusal.paneNotReady": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "pane %@ has no daemon handle"
+            "value": "That pane isn't ready yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペイン %@ にデーモンのハンドルがありません"
+            "value": "そのペインはまだ準備ができていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ليس للجزء %@ مقبض في الخدمة"
+            "state": "translated",
+            "value": "هذا الجزء غير جاهز بعد."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "panel %@ nema daemon ručku"
+            "state": "translated",
+            "value": "Taj panel još nije spreman."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "rude %@ har intet dæmonhåndtag"
+            "state": "translated",
+            "value": "Den rude er ikke klar endnu."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teilfenster %@ hat kein Daemon-Handle"
+            "state": "translated",
+            "value": "Dieser Bereich ist noch nicht bereit."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "el panel %@ no tiene identificador del daemon"
+            "state": "translated",
+            "value": "Ese panel aún no está listo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "le volet %@ n’a aucun handle daemon"
+            "state": "translated",
+            "value": "Ce volet n’est pas encore prêt."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "il pannello %@ non ha un handle del daemon"
+            "state": "translated",
+            "value": "Quel riquadro non è ancora pronto."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំង %@ គ្មាន daemon handle ទេ"
+            "state": "translated",
+            "value": "ផ្ទាំងរងនោះមិនទាន់រួចរាល់នៅឡើយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "분할 창 %@에 데몬 핸들이 없음"
+            "state": "translated",
+            "value": "해당 패널이 아직 준비되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ruten %@ har ingen daemonreferanse"
+            "state": "translated",
+            "value": "Den ruten er ikke klar ennå."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "panel %@ nie ma uchwytu demona"
+            "state": "translated",
+            "value": "Ten panel nie jest jeszcze gotowy."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "o painel %@ não tem handle do daemon"
+            "state": "translated",
+            "value": "Esse painel ainda não está pronto."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "у панели %@ нет дескриптора демона"
+            "state": "translated",
+            "value": "Эта панель ещё не готова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บานหน้าต่าง %@ ไม่มีแฮนเดิล daemon"
+            "state": "translated",
+            "value": "บานหน้าต่างนั้นยังไม่พร้อม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ bölmesinin arka plan hizmeti tanıtıcısı yok"
+            "state": "translated",
+            "value": "Bu bölme henüz hazır değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "панель %@ не має дескриптора демона"
+            "state": "translated",
+            "value": "Ця панель ще не готова."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "khung %@ không có handle daemon"
+            "state": "translated",
+            "value": "Ngăn đó chưa sẵn sàng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格 %@ 没有守护进程句柄"
+            "state": "translated",
+            "value": "该窗格尚未就绪。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格 %@ 沒有背景程式控點"
+            "state": "translated",
+            "value": "該窗格尚未就緒。"
           }
         }
       }
@@ -7468,133 +7468,133 @@
         }
       }
     },
-    "handlers.refusal.paneHasNoWorkspaceView": {
+    "handlers.refusal.paneWorkspaceNotShown": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "pane %@ has no workspace view"
+            "value": "That pane's workspace isn't shown in any window."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペイン %@ にワークスペースビューがありません"
+            "value": "そのペインのワークスペースはどのウインドウにも表示されていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ليس للجزء %@ عرض مساحة عمل"
+            "state": "translated",
+            "value": "مساحة عمل هذا الجزء غير معروضة في أي نافذة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "panel %@ nema prikaz radnog prostora"
+            "state": "translated",
+            "value": "Radni prostor tog panela nije prikazan ni u jednom prozoru."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "rude %@ har ingen arbejdsområdevisning"
+            "state": "translated",
+            "value": "Den rudes arbejdsområde vises ikke i noget vindue."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teilfenster %@ hat keine Arbeitsbereichsansicht"
+            "state": "translated",
+            "value": "Der Arbeitsbereich dieses Bereichs wird in keinem Fenster angezeigt."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "el panel %@ no tiene vista de espacio de trabajo"
+            "state": "translated",
+            "value": "El espacio de trabajo de ese panel no se muestra en ninguna ventana."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "le volet %@ n’a aucune vue d’espace de travail"
+            "state": "translated",
+            "value": "L’espace de travail de ce volet n’est affiché dans aucune fenêtre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "il pannello %@ non ha una vista area di lavoro"
+            "state": "translated",
+            "value": "L’area di lavoro di quel riquadro non è mostrata in nessuna finestra."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំង %@ គ្មានទិដ្ឋភាពកន្លែងធ្វើការទេ"
+            "state": "translated",
+            "value": "កន្លែងធ្វើការរបស់ផ្ទាំងរងនោះមិនបង្ហាញក្នុងបង្អួចណាមួយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "분할 창 %@에 작업 공간 보기가 없음"
+            "state": "translated",
+            "value": "해당 패널의 작업 공간이 어떤 윈도우에도 표시되지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ruten %@ har ingen arbeidsområdevisning"
+            "state": "translated",
+            "value": "Arbeidsområdet til den ruten vises ikke i noe vindu."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "panel %@ nie ma widoku przestrzeni roboczej"
+            "state": "translated",
+            "value": "Przestrzeń robocza tego panelu nie jest widoczna w żadnym oknie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "o painel %@ não tem visualização de área de trabalho"
+            "state": "translated",
+            "value": "A área de trabalho desse painel não aparece em nenhuma janela."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "у панели %@ нет представления рабочего пространства"
+            "state": "translated",
+            "value": "Рабочее пространство этой панели не показано ни в одном окне."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บานหน้าต่าง %@ ไม่มีมุมมองเวิร์กสเปซ"
+            "state": "translated",
+            "value": "เวิร์กสเปซของบานหน้าต่างนั้นไม่ได้แสดงในหน้าต่างใดเลย"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ bölmesinin çalışma alanı görünümü yok"
+            "state": "translated",
+            "value": "Bu bölmenin çalışma alanı hiçbir pencerede gösterilmiyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "панель %@ не має подання робочої області"
+            "state": "translated",
+            "value": "Робочий простір цієї панелі не показано в жодному вікні."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "khung %@ không có chế độ xem không gian làm việc"
+            "state": "translated",
+            "value": "Không gian làm việc của ngăn đó không hiển thị trong cửa sổ nào."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格 %@ 没有工作区视图"
+            "state": "translated",
+            "value": "该窗格的工作区未在任何窗口中显示。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格 %@ 沒有工作區檢視"
+            "state": "translated",
+            "value": "該窗格的工作區未在任何視窗中顯示。"
           }
         }
       }
@@ -9433,133 +9433,133 @@
         }
       }
     },
-    "handlers.refusal.tabHasNoLiveContent": {
+    "handlers.refusal.tabNotLoaded": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "tab %@ has no live content"
+            "value": "That tab hasn't loaded yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブ %@ に表示中のコンテンツがありません"
+            "value": "そのタブはまだ読み込まれていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ليس لعلامة التبويب %@ محتوى نشط"
+            "state": "translated",
+            "value": "لم يتم تحميل علامة التبويب هذه بعد."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tab %@ nema aktivan sadržaj"
+            "state": "translated",
+            "value": "Ta kartica se još nije učitala."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "fane %@ har intet aktivt indhold"
+            "state": "translated",
+            "value": "Den fane er ikke indlæst endnu."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tab %@ hat keinen aktiven Inhalt"
+            "state": "translated",
+            "value": "Dieser Tab ist noch nicht geladen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "la pestaña %@ no tiene contenido activo"
+            "state": "translated",
+            "value": "Esa pestaña aún no se ha cargado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "l’onglet %@ n’a aucun contenu actif"
+            "state": "translated",
+            "value": "Cet onglet n’est pas encore chargé."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "la scheda %@ non ha contenuto attivo"
+            "state": "translated",
+            "value": "Quella scheda non è ancora stata caricata."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ថេប %@ គ្មានមាតិកាសកម្មទេ"
+            "state": "translated",
+            "value": "ផ្ទាំងនោះមិនទាន់ផ្ទុកនៅឡើយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "탭 %@에 실행 중인 콘텐츠가 없음"
+            "state": "translated",
+            "value": "해당 탭이 아직 로드되지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "fanen %@ har ikke noe aktivt innhold"
+            "state": "translated",
+            "value": "Den fanen er ikke lastet inn ennå."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "karta %@ nie ma aktywnej zawartości"
+            "state": "translated",
+            "value": "Ta karta jeszcze się nie załadowała."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "a aba %@ não tem conteúdo ativo"
+            "state": "translated",
+            "value": "Essa aba ainda não foi carregada."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "у вкладки %@ нет активного содержимого"
+            "state": "translated",
+            "value": "Эта вкладка ещё не загрузилась."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แท็บ %@ ไม่มีเนื้อหาที่ทำงานอยู่"
+            "state": "translated",
+            "value": "แท็บนั้นยังโหลดไม่เสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ sekmesinin canlı içeriği yok"
+            "state": "translated",
+            "value": "Bu sekme henüz yüklenmedi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "вкладка %@ не має активного вмісту"
+            "state": "translated",
+            "value": "Ця вкладка ще не завантажилася."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tab %@ không có nội dung đang chạy"
+            "state": "translated",
+            "value": "Thẻ đó chưa tải xong."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "标签页 %@ 没有实时内容"
+            "state": "translated",
+            "value": "该标签页尚未加载。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "標籤頁 %@ 沒有即時內容"
+            "state": "translated",
+            "value": "該分頁尚未載入。"
           }
         }
       }
@@ -10481,133 +10481,133 @@
         }
       }
     },
-    "handlers.refusal.workspaceHasNoPane": {
+    "handlers.refusal.workspaceEmpty": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace %@ has no pane"
+            "value": "That workspace has no panes."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース %@ にペインがありません"
+            "value": "そのワークスペースにはペインがありません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد جزء في مساحة العمل %@"
+            "state": "translated",
+            "value": "لا تحتوي مساحة العمل هذه على أجزاء."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "radni prostor %@ nema panel"
+            "state": "translated",
+            "value": "Taj radni prostor nema panela."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "arbejdsområde %@ har ingen rude"
+            "state": "translated",
+            "value": "Det arbejdsområde har ingen ruder."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Arbeitsbereich %@ hat kein Teilfenster"
+            "state": "translated",
+            "value": "Dieser Arbeitsbereich hat keine Bereiche."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "el espacio de trabajo %@ no tiene paneles"
+            "state": "translated",
+            "value": "Ese espacio de trabajo no tiene paneles."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "l’espace de travail %@ n’a aucun volet"
+            "state": "translated",
+            "value": "Cet espace de travail n’a aucun volet."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "l’area di lavoro %@ non ha pannelli"
+            "state": "translated",
+            "value": "Quell’area di lavoro non ha riquadri."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កន្លែងធ្វើការ %@ គ្មានផ្ទាំងទេ"
+            "state": "translated",
+            "value": "កន្លែងធ្វើការនោះគ្មានផ្ទាំងរងទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 %@에 분할 창이 없음"
+            "state": "translated",
+            "value": "해당 작업 공간에 패널이 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "arbeidsområdet %@ har ingen rute"
+            "state": "translated",
+            "value": "Det arbeidsområdet har ingen ruter."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "przestrzeń robocza %@ nie ma panelu"
+            "state": "translated",
+            "value": "Ta przestrzeń robocza nie ma paneli."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "a área de trabalho %@ não tem painel"
+            "state": "translated",
+            "value": "Essa área de trabalho não tem painéis."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "в рабочем пространстве %@ нет панели"
+            "state": "translated",
+            "value": "В этом рабочем пространстве нет панелей."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เวิร์กสเปซ %@ ไม่มีบานหน้าต่าง"
+            "state": "translated",
+            "value": "เวิร์กสเปซนั้นไม่มีบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ çalışma alanında bölme yok"
+            "state": "translated",
+            "value": "Bu çalışma alanında bölme yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "робоча область %@ не має панелей"
+            "state": "translated",
+            "value": "У цьому робочому просторі немає панелей."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không gian làm việc %@ không có khung"
+            "state": "translated",
+            "value": "Không gian làm việc đó không có ngăn nào."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "工作区 %@ 没有窗格"
+            "state": "translated",
+            "value": "该工作区没有窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "工作區 %@ 沒有窗格"
+            "state": "translated",
+            "value": "該工作區沒有窗格。"
           }
         }
       }
@@ -13625,133 +13625,133 @@
         }
       }
     },
-    "handlers.refusal.noClosedItem": {
+    "handlers.refusal.closedItemGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no recently closed item %@"
+            "value": "That closed item can no longer be reopened."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最近閉じた項目 %@ はありません"
+            "value": "その閉じた項目はもう再び開けません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد عنصر مغلق مؤخرًا باسم %@"
+            "state": "translated",
+            "value": "لم يعد بالإمكان إعادة فتح هذا العنصر المغلق."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema nedavno zatvorene stavke %@"
+            "state": "translated",
+            "value": "Ta zatvorena stavka se više ne može ponovo otvoriti."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "intet nyligt lukket element %@"
+            "state": "translated",
+            "value": "Det lukkede element kan ikke længere genåbnes."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein zuletzt geschlossenes Element %@"
+            "state": "translated",
+            "value": "Dieses geschlossene Objekt kann nicht mehr erneut geöffnet werden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ningún elemento cerrado recientemente %@"
+            "state": "translated",
+            "value": "Ese elemento cerrado ya no se puede volver a abrir."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun élément fermé récemment %@"
+            "state": "translated",
+            "value": "Cet élément fermé ne peut plus être rouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun elemento chiuso di recente %@"
+            "state": "translated",
+            "value": "Quell’elemento chiuso non può più essere riaperto."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានធាតុដែលបានបិទថ្មីៗ %@ ទេ"
+            "state": "translated",
+            "value": "ធាតុដែលបានបិទនោះមិនអាចបើកឡើងវិញបានទៀតទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "최근에 닫은 항목 %@이(가) 없습니다"
+            "state": "translated",
+            "value": "닫힌 해당 항목은 더 이상 다시 열 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen nylig lukket element %@"
+            "state": "translated",
+            "value": "Det lukkede elementet kan ikke lenger åpnes igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak ostatnio zamkniętego elementu %@"
+            "state": "translated",
+            "value": "Tego zamkniętego elementu nie można już ponownie otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum item fechado recentemente %@"
+            "state": "translated",
+            "value": "Esse item fechado não pode mais ser reaberto."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет недавно закрытого элемента %@"
+            "state": "translated",
+            "value": "Этот закрытый элемент больше нельзя открыть снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีรายการที่ปิดล่าสุด %@"
+            "state": "translated",
+            "value": "ไม่สามารถเปิดรายการที่ปิดไปแล้วนั้นอีกครั้งได้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "son kapatılan %@ öğesi yok"
+            "state": "translated",
+            "value": "Bu kapatılan öğe artık yeniden açılamaz."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає нещодавно закритого елемента %@"
+            "state": "translated",
+            "value": "Цей закритий елемент більше не можна відкрити знову."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có mục đã đóng gần đây %@"
+            "state": "translated",
+            "value": "Không thể mở lại mục đã đóng đó nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有最近关闭的项目 %@"
+            "state": "translated",
+            "value": "该已关闭的项目无法再重新打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有最近關閉的項目 %@"
+            "state": "translated",
+            "value": "該已關閉的項目無法再重新開啟。"
           }
         }
       }
