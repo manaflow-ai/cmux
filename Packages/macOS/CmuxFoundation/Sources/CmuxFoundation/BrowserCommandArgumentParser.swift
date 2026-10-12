@@ -85,9 +85,10 @@ public struct BrowserCommandArgumentParser: Sendable {
                 }
             }
 
+            // The token after a value option is its value, even `-` or `-1`; only a value
+            // option at the end of the arguments is missing its value.
             if valueOptions.contains(value) {
                 guard index + 1 < values.count,
-                      !values[index + 1].hasPrefix("-"),
                       !values[index + 1].isEmpty || optionsAllowingEmptyValues.contains(value) else {
                     throw ParseError.missingValue(option: value)
                 }
@@ -95,7 +96,8 @@ public struct BrowserCommandArgumentParser: Sendable {
                 continue
             }
 
-            if value.hasPrefix("-") {
+            // A bare `-` (stdin, the minus key) and negative numbers are positionals.
+            if value.hasPrefix("-"), value != "-", Double(value) == nil {
                 let redactedName = value.split(
                     separator: "=",
                     maxSplits: 1,
