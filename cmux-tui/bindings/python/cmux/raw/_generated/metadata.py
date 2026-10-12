@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629'
+IR_SHA256 = 'be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff'
 
 
 @dataclass(frozen=True)
@@ -3468,6 +3468,7 @@ EVENTS = {
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
+    'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),
     'resized': EventMetadata('resized', 6, None, ('attach-byte',), 'emitted'),

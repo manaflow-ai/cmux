@@ -992,8 +992,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "796fd9beface3253f94f5f2d438147255ea6694b4ce091ca09a582abb61ce2d9",
-      "size": 15145
+      "sha256": "bf13db033b270263851ed1587a48ca9d60f820478fe2398e82e66da9dc9a0dd8",
+      "size": 15361
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1761,9 +1761,19 @@
       "size": 5246
     },
     {
+      "path": "ProgramStatusChangedEvent.java",
+      "sha256": "ec1da65619b7ac404903a2d01a4956044778b77f285658144799a8f090acfd4b",
+      "size": 3280
+    },
+    {
+      "path": "ProgramStatusState.java",
+      "sha256": "2c422a7c077f3745975f5d50d8db8b1aa9c13018701919d74f5a5ba244dfc4b7",
+      "size": 956
+    },
+    {
       "path": "Protocol.java",
-      "sha256": "290bddbb9be59c09dbce0b7d20df62ac45161e25b7432a25943c92c1fc9f8f85",
-      "size": 6305
+      "sha256": "73749b2ec60548ad9dc85dde6599f451f08695771f4ecae5e41a796f34b350bd",
+      "size": 6393
     },
     {
       "path": "ProtocolEvent.java",
@@ -2336,6 +2346,11 @@
       "size": 1038
     },
     {
+      "path": "ShownProgramStatus.java",
+      "sha256": "296cc48548a58e7d83fff369b93a97d9e672088496f7dce59a7b56d14bc807cc",
+      "size": 2681
+    },
+    {
       "path": "ShutdownDaemonRequest.java",
       "sha256": "9d9a8e3a56e08dc1a054f4a7cedbb95f053942411aeb5e6480851a55c72c1fb2",
       "size": 4695
@@ -2502,8 +2517,8 @@
     },
     {
       "path": "Tab.java",
-      "sha256": "72cf38582c96811a4dc3c5a2985805fbf42e04e7df742f0bf14192fe12554f91",
-      "size": 14396
+      "sha256": "9befb9d4b1a485fc3209668011abc2871f7e1d070cc677891bac62e9d945e3de",
+      "size": 15196
     },
     {
       "path": "TabAddedEvent.java",
@@ -2997,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629",
+  "ir_sha256": "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

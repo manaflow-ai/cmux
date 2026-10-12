@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
+/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
 
 
 import type * as T from "./types.js";
@@ -321,6 +321,12 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ProgramStatusChangedEvent = { event: "program-status-changed" } & {
+  "program_status": (T.ShownProgramStatus) | null;
+  "surface": T.Id;
 };
 
 /** Protocol v7; emission: emitted; streams: attach-render. */
@@ -656,6 +662,7 @@ export type KnownCmuxEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent
   | ResizedEvent
@@ -729,6 +736,7 @@ export type KnownSubscribeEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
