@@ -103,6 +103,8 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
+import { loadHighlightedCode } from "./conversation/CodeBlock";
+import { loadEditDiff } from "./conversation/LazyEditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
@@ -203,7 +205,8 @@ import { experimentArm } from "../../experiments/experiment";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
-/// It starts loading once the page has painted, so opening it waits on nothing.
+/// It starts loading once the page has painted, with the transcript's highlighted code and edit
+/// cards (conversation/CodeBlock.tsx, conversation/LazyEditDiff.tsx), so opening it waits on nothing.
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 
@@ -2726,6 +2729,8 @@ function AcpmuxPane() {
       setTimeout(() => {
         void callNative("pane.painted").catch(() => undefined);
         void loadDiffPanel();
+        void loadHighlightedCode();
+        void loadEditDiff();
       }, 0),
     );
   }, [showsWhatItIs]);

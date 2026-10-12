@@ -11,7 +11,7 @@ import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
-import { EditDiff } from "./EditDiff";
+import { EditDiff } from "./LazyEditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
