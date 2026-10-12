@@ -285,7 +285,7 @@ describe("continuation limits", () => {
         { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "pause",
           continueInBackground: (work) => { background.push(work); } },
       ));
-      expect(answer).toEqual({ _tag: "Right", right: "paused" } as never);
+      expect(answer._tag === "Right" ? answer.right : null).toBe("paused");
       expect(background).toHaveLength(0);
     } finally {
       for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.release();
