@@ -464,6 +464,7 @@
               "agentPane.editedFiles.maxRows",
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
+              "agentPane.showDictation",
               "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -10949,7 +10950,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "bottom",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -18392,6 +18393,57 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.showDictation.help",
+        "text" : "The microphone beside Send in every composer, including the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.showDictation",
+      "keywords" : [
+        "dictation",
+        "microphone",
+        "mic",
+        "voice",
+        "speech",
+        "composer",
+        "agent",
+        "new tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "showDictation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.showDictation",
+        "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         2,
         1.25
@@ -19238,7 +19290,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d81eaa0521aac51ab54f82b6870197eb02e97390d88aca365d11a6434fdea848",
+  "schema_hash" : "c36e57dee8678b5ff0d3d9bebc8f0ae18e6fcd0d45ed12f188dbf3ce2b9a2176",
   "sections" : [
     {
       "id" : "general",
