@@ -14,10 +14,10 @@ struct ClosedBlankItemsTests {
         {"kind":"browser","name":"about:blank","cwd":null,"url":"about:blank","browser_profile_id":null,"pinned":false,"empty":true}
         """
     private static let chat = """
-        {"kind":"browser","name":"Fix the flaky upload test","cwd":"/Users/you/src/cmux","url":"about:blank","browser_profile_id":null,"pinned":false}
+        {"kind":"browser","name":"Fix the flaky upload test","cwd":null,"url":"about:blank","browser_profile_id":null,"pinned":false}
         """
     private static let untitledChat = """
-        {"kind":"browser","name":"about:blank","cwd":"/Users/you/src/relay","url":"about:blank","browser_profile_id":null,"pinned":false}
+        {"kind":"browser","name":"about:blank","cwd":null,"url":"about:blank","browser_profile_id":null,"pinned":false}
         """
     private static let terminal = """
         {"kind":"terminal","name":null,"cwd":"/Users/you/src/cmux","url":null,"browser_profile_id":null,"pinned":false}
@@ -50,8 +50,9 @@ struct ClosedBlankItemsTests {
         }
         #expect(shown == [
             "terminal: /Users/you/src/cmux · /Users/you/src/cmux",
-            "chat: Fix the flaky upload test · /Users/you/src/cmux",
-            "untitled chat: /Users/you/src/relay · /Users/you/src/relay",
+            "chat: Fix the flaky upload test · -",
+            // The daemon keeps no folder for a chat tab: nothing better than the untitled default.
+            "untitled chat: Terminal · -",
             "workspace with a terminal: workspace-7 · /Users/you/src/cmux",
         ])
     }
