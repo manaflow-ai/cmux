@@ -34,6 +34,7 @@ public struct TabItemMapping {
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
+        item.isNewTabPage = isNewTabPage || (isBrowser && (tab.url.map(Self.isBlankPageAddress) ?? true))
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
