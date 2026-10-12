@@ -202,6 +202,17 @@ public final class HostServer: @unchecked Sendable {
         terminal.onExit = { [weak self] _ in
             guard let self, let terminal = self.terminal(id), let value = try? JSONValue.encode(terminal.info) else { return }
             self.broadcast(.terminalChanged, value)
+            // Keep an exited shell's last screen for a while, then free it.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 15 * 60) { [weak self] in
+                guard let self else { return }
+                let removed: Bool = self.lock.withLock {
+                    guard self.terminals[id]?.running == false else { return false }
+                    self.terminals.removeValue(forKey: id)
+                    self.viewers.removeValue(forKey: id)
+                    return true
+                }
+                if removed { self.broadcast(.terminalChanged, ["id": .number(Double(id)), "removed": true]) }
+            }
         }
         lock.withLock { terminals[id] = terminal }
         broadcast(.terminalChanged, try .encode(terminal.info))

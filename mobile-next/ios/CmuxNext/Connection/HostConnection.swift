@@ -221,6 +221,10 @@ final class HostConnection: Identifiable {
                 Task { await attachAgent(event.session) }
             }
         case .terminalChanged:
+            if params["removed"]?.boolValue == true, let id = params["id"]?.intValue {
+                terminals.removeAll { $0.id == UInt32(clamping: id) }
+                return
+            }
             guard let info = try? params.decode(TerminalInfo.self) else { return }
             if let index = terminals.firstIndex(where: { $0.id == info.id }) { terminals[index] = info } else { terminals.append(info) }
         default:

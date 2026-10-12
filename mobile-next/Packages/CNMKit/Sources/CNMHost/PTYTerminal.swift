@@ -106,8 +106,10 @@ final class PTYTerminal: @unchecked Sendable {
                 let data = Data(buffer[0..<count])
                 lock.withLock {
                     history.append(data)
+                    // Trim in large steps (to 3/4 of the limit) so the copy
+                    // happens rarely instead of on every read.
                     if history.count > historyLimit {
-                        history.removeSubrange(0..<(history.count - historyLimit))
+                        history = Data(history.suffix(historyLimit * 3 / 4))
                     }
                     lastOutputAt = Date()
                 }
