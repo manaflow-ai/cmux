@@ -309,6 +309,34 @@ final class FlowTests: XCTestCase {
         snap(app, "82-answer")
     }
 
+    /// Slash-command menu and the mode chip in an existing agent chat.
+    func testAgentCommandsAndModes() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS 'What is in this photo'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        pause(3)
+        field.tap()
+        field.typeText("/")
+        pause(1.2)
+        snap(app, "90-slash-menu")
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
+        app.swipeDown()
+        pause(0.8)
+        app.buttons["agent.mode"].tap()
+        pause(1)
+        snap(app, "91-mode-menu")
+        let plan = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'plan'")).firstMatch
+        if plan.waitForExistence(timeout: 3) { plan.tap() }
+        pause(1.5)
+        snap(app, "92-mode-changed")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

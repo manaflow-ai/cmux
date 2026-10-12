@@ -49,6 +49,7 @@ struct AgentComposer: View {
                         .buttonStyle(.plain)
                     }
                 }
+                .background(.thickMaterial, in: .rect(cornerRadius: 18))
                 .glassEffect(.regular, in: .rect(cornerRadius: 18))
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
