@@ -24,12 +24,9 @@ use super::*;
 /// The launch fields of `Launch` plus the PTY and session to adopt, the
 /// reused incarnation, a seed blob of VT replay and the owner's OSC 7501
 /// records. The seed may use the full blob budget on top of the `Launch`
-/// budget; the records have their own.
-const MAX_LAUNCH_ADOPT_PAYLOAD: usize =
-    MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB + MAX_ADOPT_PROGRAM_STATUS_BYTES;
-/// Records past this budget are not seeded (only `next_seq` is), as a
-/// Snapshot past its frame budget carries none.
-const MAX_ADOPT_PROGRAM_STATUS_BYTES: usize = 64 * 1024;
+/// budget; the records get the rest of the frame.
+const MAX_LAUNCH_ADOPT_PAYLOAD: usize = MAX_FRAME_PAYLOAD;
+const _: () = assert!(MAX_LAUNCH_PAYLOAD + size_of::<u32>() + MAX_BLOB <= MAX_LAUNCH_ADOPT_PAYLOAD);
 const ADOPT_PTY_FD_FLAG: &str = "--adopt-pty-fd";
 /// The descriptor the owner passes the master at.
 const ADOPTED_PTY_FD: libc::c_int = 3;
@@ -87,15 +84,8 @@ impl HostLaunchAdopt {
         );
         put_blob(&mut output, &self.seed)?;
         if let Some(program_status) = &self.program_status {
-            let mut tail = Vec::new();
-            program_status_codec::put_program_status(&mut tail, program_status)?;
-            if tail.len() > MAX_ADOPT_PROGRAM_STATUS_BYTES {
-                tail.clear();
-                let next_seq = program_status.next_seq;
-                let empty = ProgramStatusSnapshot { records: Vec::new(), next_seq };
-                program_status_codec::put_program_status(&mut tail, &empty)?;
-            }
-            output.extend_from_slice(&tail);
+            let room = MAX_LAUNCH_ADOPT_PAYLOAD.saturating_sub(output.len());
+            output.extend_from_slice(&program_status_tail(program_status, room));
         }
         Ok(output)
     }
@@ -143,6 +133,22 @@ impl HostLaunchAdopt {
             seed: Vec::new(),
         };
         Ok(Self { launch, child_pid, session_id, incarnation, seed, program_status })
+    }
+}
+
+/// The records section within `room` bytes. Records must never cost the
+/// shell its replacement host: past the room, or if they do not encode,
+/// only `next_seq` goes (as a Snapshot past its frame budget).
+fn program_status_tail(snapshot: &ProgramStatusSnapshot, room: usize) -> Vec<u8> {
+    let mut tail = Vec::new();
+    if program_status_codec::put_program_status(&mut tail, snapshot).is_ok() && tail.len() <= room {
+        return tail;
+    }
+    tail.clear();
+    let empty = ProgramStatusSnapshot { records: Vec::new(), next_seq: snapshot.next_seq };
+    match program_status_codec::put_program_status(&mut tail, &empty) {
+        Ok(()) if tail.len() <= room => tail,
+        _ => Vec::new(),
     }
 }
 

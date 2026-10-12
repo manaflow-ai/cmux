@@ -246,8 +246,9 @@ per record `id:string`, `state:u8` (1 idle, 2 working, 3 done, 4 blocked,
 5 error), `kind:u8` (0 none, 1 permission, 2 question,
 3 auth), `progress:u8` (255 none, else at most 100),
 optional `app`, `title` and `message` strings, `updated_seq:u64` and
-`updated_at_ms:u64`. It is absent when the payload ends after `seed`. Past
-64 KiB the owner sends no records, only `next_seq`. The host restores the
+`updated_at_ms:u64`. It is absent when the payload ends after `seed`. The
+whole payload fits one frame; when the records do not fit what the seed leaves
+(at least about 1 MiB), the owner sends no records, only `next_seq`. The host restores the
 records under the same rules as a daemon adopting a Snapshot, before it reads
 the PTY, so a daemon that later adopts it shows them with their `updated_seq`.
 
