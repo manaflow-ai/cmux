@@ -316,7 +316,11 @@ async fn reload(socket: &Path) -> bool {
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    let owner = owner_session(flags)?;
+    // `server.json` is read once: the owner session is parsed from, and
+    // `link.status` hashes, the same bytes.
+    let config_path = server_config_path(flags);
+    let config_bytes = read_server_config(config_path.as_deref())?;
+    let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
     let ready = match flags.get("--ready-fd") {
         Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
         None => None,
@@ -324,7 +328,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // One link per state directory, for its whole life, taken before the
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
-    let served = ensure::Served::wanted(flags);
+    let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
     tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
 }
 
@@ -358,13 +362,32 @@ pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
     }
 }
 
+/// The bytes of `server.json` at `path`; none when there is no path or no file.
+pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<Vec<u8>>> {
+    let Some(path) = path else { return Ok(None) };
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
+    }
+}
+
 /// The owner session block of `server.json` (`--server-config PATH`, else
-/// the user-mode `~/.config/cmux/server.json`); none when absent. An
-/// invalid block stops the link instead of serving with a guess.
-fn owner_session(flags: &Flags) -> anyhow::Result<Option<Arc<OwnerSession>>> {
-    let Some(path) = server_config_path(flags) else { return Ok(None) };
-    let owner = OwnerSession::load(&path)
-        .with_context(|| format!("read owner_session in {}", path.display()))?;
+/// the user-mode `~/.config/cmux/server.json`) from its `bytes`; none when
+/// absent. An invalid block stops the link instead of serving with a guess.
+fn owner_session(
+    path: Option<&Path>,
+    bytes: Option<&[u8]>,
+) -> anyhow::Result<Option<Arc<OwnerSession>>> {
+    let Some(bytes) = bytes else { return Ok(None) };
+    let where_ = || {
+        format!(
+            "read owner_session in {}",
+            path.map(Path::display).map(|p| p.to_string()).unwrap_or_default()
+        )
+    };
+    let text = std::str::from_utf8(bytes).with_context(where_)?;
+    let owner = OwnerSession::parse(text).with_context(where_)?;
     Ok(owner.map(Arc::new))
 }
 

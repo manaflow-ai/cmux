@@ -150,18 +150,28 @@ impl Supervisor {
     /// so the last registration change always reaches the servers.
     pub(crate) fn host_link_changed(&self) -> usize {
         {
-            let mut state = self.link_changed.lock().unwrap();
+            let mut state =
+                self.link_changed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.0 {
                 state.1 = true;
                 return 0;
             }
             *state = (true, false);
         }
+        // Clears the running flag however this call ends (a panic too), so
+        // a later call always runs.
+        struct Running<'a>(&'a std::sync::Mutex<(bool, bool)>);
+        impl Drop for Running<'_> {
+            fn drop(&mut self) {
+                *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (false, false);
+            }
+        }
+        let _running = Running(&self.link_changed);
         loop {
             let told = self.host_link_changed_round();
-            let mut state = self.link_changed.lock().unwrap();
+            let mut state =
+                self.link_changed.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if !state.1 {
-                *state = (false, false);
                 return told;
             }
             state.1 = false;

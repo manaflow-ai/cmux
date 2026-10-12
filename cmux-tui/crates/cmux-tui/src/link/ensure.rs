@@ -39,6 +39,9 @@ use super::{Flags, print_json};
 const START_BUDGET: Duration = Duration::from_secs(20);
 /// How long `stop` waits for the link to end after the signal.
 const STOP_BUDGET: Duration = Duration::from_secs(10);
+/// How long `ensure` or `stop` waits for another one of the same state
+/// directory (`link.ensure.lock`).
+const LOCK_BUDGET: Duration = Duration::from_secs(30);
 /// How long a `link.status` read may take.
 const STATUS_BUDGET: Duration = Duration::from_secs(3);
 
@@ -88,9 +91,22 @@ pub(super) struct Served {
 impl Served {
     /// What `flags` ask for: `--session-socket`, and `--server-config` or
     /// the user-mode default (`super::server_config_path`), hashed now.
-    pub(super) fn wanted(flags: &Flags) -> Self {
+    pub(super) fn wanted(flags: &Flags) -> anyhow::Result<Self> {
         let server_config = super::server_config_path(flags);
-        let server_config_sha256 = server_config.as_deref().and_then(file_sha256);
+        let bytes = super::read_server_config(server_config.as_deref())?;
+        Ok(Self::of(flags, server_config, bytes.as_deref()))
+    }
+
+    /// The served fields of `flags`, with `server_config`'s `bytes` (read
+    /// once by the caller).
+    pub(super) fn of(
+        flags: &Flags,
+        server_config: Option<std::path::PathBuf>,
+        bytes: Option<&[u8]>,
+    ) -> Self {
+        use sha2::{Digest as _, Sha256};
+        let server_config_sha256 =
+            bytes.map(|bytes| Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect());
         Self {
             session_socket: flags.get("--session-socket").map(std::path::PathBuf::from),
             server_config,
@@ -105,19 +121,17 @@ impl Served {
         })
     }
 
-    /// The same fields in a `link.status` answer.
+    /// The same fields in a `link.status` answer. An older link that
+    /// answers without them counts as a match: it stays usable for CLI
+    /// callers, and the app (`--handoff`) restarts it as another build.
     fn matches(&self, status: &Value) -> bool {
+        if status.get("session_socket").is_none() && status.get("server_config").is_none() {
+            return true;
+        }
         status["session_socket"] == json!(self.session_socket)
             && status["server_config"]["path"] == json!(self.server_config)
             && status["server_config"]["sha256"] == json!(self.server_config_sha256)
     }
-}
-
-/// The SHA-256 (hex) of the file at `path`, None when it cannot be read.
-fn file_sha256(path: &Path) -> Option<String> {
-    use sha2::{Digest as _, Sha256};
-    let bytes = std::fs::read(path).ok()?;
-    Some(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// The answer to `link.status`.
@@ -159,13 +173,32 @@ pub(super) fn live(state: &LinkState) -> Option<registration::Registration> {
 /// which waits for the `serve` it started while it holds its lock.)
 fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
     let file = super::state::open_lock(&state.dir().join("link.ensure.lock"))?;
-    // SAFETY: flock on a descriptor this process owns; it blocks until the
-    // other ensure or stop of this state directory ends (their own budgets
-    // bound them).
-    if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) } != 0 {
-        return Err(std::io::Error::last_os_error()).context("lock the link state directory");
+    // flock has no timed wait: try, and retry with a bounded backoff until
+    // the deadline (an ensure that holds it ends within its own budgets).
+    let deadline = std::time::Instant::now() + LOCK_BUDGET;
+    let mut pause = Duration::from_millis(10);
+    loop {
+        // SAFETY: flock on a descriptor this process owns.
+        if unsafe {
+            libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX | libc::LOCK_NB)
+        } == 0
+        {
+            return Ok(file);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EWOULDBLOCK) {
+            return Err(error).context("lock the link state directory");
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            bail!(
+                "lock_timeout: another cmux link ensure or stop of {} still runs",
+                state.dir().display()
+            );
+        }
+        std::thread::sleep(pause.min(deadline - now));
+        pause = (pause * 2).min(Duration::from_millis(250));
     }
-    Ok(file)
 }
 
 /// `link.status` of the link at `socket`, or None when it did not answer.
@@ -189,6 +222,13 @@ fn query_status(socket: &Path) -> Option<Value> {
 /// peers (it may be another signed-in person); true when a running link was
 /// stopped.
 fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Result<bool> {
+    // A bad id stops here, before any link is stopped or a file is moved
+    // (it would name archive files).
+    if let Some(install) = flags.get("--install")
+        && !cmux_link::stamp::valid_id(install)
+    {
+        bail!("invalid_install: {install:?} is not an install id");
+    }
     let port = match flags.get("--port") {
         Some(text) => Some(text.parse::<u16>().map_err(|_| anyhow!("--port needs a UDP port"))?),
         None => None,
@@ -230,7 +270,7 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
     let _lock = ensure_lock(&state)?;
     let mut restarted = init_or_check(&state, flags, handoff)?;
-    let wanted = Served::wanted(flags);
+    let wanted = Served::wanted(flags)?;
     if let Some(live) = live(&state) {
         let status = query_status(&live.socket);
         let same_build = status.as_ref().is_some_and(|s| s["build"] == json!(build()));

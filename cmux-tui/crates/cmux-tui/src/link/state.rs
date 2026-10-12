@@ -113,7 +113,15 @@ impl LinkState {
     /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
     /// `new`'s archived pair when it has one. Nothing is deleted; a new
     /// install without an archive gets a new key (`init`) and no peers.
+    /// Both ids must be valid; an existing archive of `old` is never
+    /// replaced; an archive of `new` is restored only when it is a regular
+    /// file of this user that no one else may open. A failed step undoes
+    /// the steps before it.
     pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
+        let invalid = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, why.to_owned());
+        if !cmux_link::stamp::valid_id(old) || !cmux_link::stamp::valid_id(new) {
+            return Err(invalid("invalid install id"));
+        }
         let pairs = [
             (
                 self.key_path(),
@@ -126,14 +134,31 @@ impl LinkState {
                 self.dir.join(format!("peers.{new}.json")),
             ),
         ];
-        for (current, archive_old, archive_new) in pairs {
-            match std::fs::rename(&current, &archive_old) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
+        // Check everything first, then move.
+        for (_, archive_old, archive_new) in &pairs {
+            if std::fs::symlink_metadata(archive_old).is_ok() {
+                return Err(invalid(&format!("{} already exists", archive_old.display())));
             }
-            match std::fs::rename(&archive_new, &current) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
+            if std::fs::symlink_metadata(archive_new).is_ok() {
+                check_private_file(archive_new)?;
+            }
+        }
+        let mut done: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+        let undo = |done: &mut Vec<(std::path::PathBuf, std::path::PathBuf)>| {
+            while let Some((from, to)) = done.pop() {
+                let _ = std::fs::rename(&to, &from);
+            }
+        };
+        for (current, archive_old, archive_new) in &pairs {
+            for (from, to) in [(current, archive_old), (archive_new, current)] {
+                match std::fs::rename(from, to) {
+                    Ok(()) => done.push((from.clone(), to.clone())),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        undo(&mut done);
+                        return Err(error);
+                    }
+                }
             }
         }
         Ok(())
@@ -183,6 +208,22 @@ pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
         return preferred;
     }
     cmux_tui_core::platform::fallback_runtime_dir().join(leaf)
+}
+
+/// A file the link restores is a regular file (not a symlink) of this user
+/// that no group or other user may open.
+fn check_private_file(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path)?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.file_type().is_file() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private file of this user", path.display()),
+        ));
+    }
+    Ok(())
 }
 
 /// Opens (or makes, 0600) a lock file of the state directory.
