@@ -15,13 +15,16 @@ import { PlainCode } from "./StreamingCode";
 import { OpenPreview } from "./OpenPreview";
 import { languageLabel, type CodeBlockProps } from "./CodeBlock";
 
+/// Pierre's line height: a line of the card's body.
+const LINE_HEIGHT = 20;
+
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
 :host {
   --diffs-dark-bg: transparent;
   --diffs-light-bg: transparent;
   --diffs-font-size: 12px;
-  --diffs-line-height: 20px;
+  --diffs-line-height: ${LINE_HEIGHT}px;
   background: transparent;
 }
 [data-line] > span { top: 0; }
@@ -108,7 +111,13 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
           <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>
-      <DiffsHost ref={host} className="cv-codeblock__body selectable" />
+      {/* Pierre paints the lines once the highlight worker answers; until then the body keeps the
+          plain card's height, so the text under the card does not move up and back (cx-wdenv). */}
+      <DiffsHost
+        ref={host}
+        className="cv-codeblock__body selectable"
+        style={{ minHeight: code.replace(/\n$/, "").split("\n").length * LINE_HEIGHT }}
+      />
     </div>
   );
 }
