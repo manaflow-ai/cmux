@@ -20,7 +20,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
 
     @Test("Cmd-Y paints the predicted daemon workspace name during admission")
     func optimisticWorkspaceName() async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let existing = SurfaceRemoteWorkspace(id: "existing", name: "workspace-1", index: 0, focused: false)
         fixture.provider.info.remoteWorkspaces = [existing]
@@ -57,7 +57,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
     @Test("Cmd-Y selects its reservation before remote creation and preserves newer navigation",
           arguments: ["stay", "beforeResolution", "beforeProvider", "providerDelay", "awayAndBack", "afterAdmission", "background"])
     func optimisticSelection(navigation: String) async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let manager = fixture.manager
         let original = try #require(manager.selectedWorkspace)
@@ -149,7 +149,7 @@ struct CloudWorkspaceOptimisticShortcutTests {
     @Test("An optimistic Cmd-Y failure retains a retry pane; cancellation removes its reservation",
           arguments: ["failure", "retry", "cancel", "cancelAfterNavigation"])
     func unsuccessfulCreation(outcome: String) async throws {
-        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true)
+        let fixture = try CloudWorkspaceCreationSidebarFixture(useSharedCatalog: true, enablesCloudMachines: true)
         defer { fixture.close() }
         let manager = fixture.manager
         let original = try #require(manager.selectedWorkspace)

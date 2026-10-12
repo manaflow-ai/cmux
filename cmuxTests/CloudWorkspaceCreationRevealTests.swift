@@ -124,7 +124,7 @@ struct CloudWorkspaceCreationRevealTests {
     }
 
     @Test("⌘N reveals the workspace it selects on completion, unless the user navigated first",
-          arguments: ["stay", "away", "awayAndBack"])
+          .exclusiveAppContext, arguments: ["stay", "away", "awayAndBack"])
     func newWorkspaceShortcutReveals(navigation: String) async throws {
         let fixture = CloudWorkspaceTargetingFixture()
         defer { fixture.close() }
@@ -240,6 +240,8 @@ struct CloudWorkspaceCreationRevealTests {
             }
         )
         let operations = CloudWorkspaceOperationController(isAvailable: { true })
+        let cloudOptIn = CloudMachinesOptInForTesting()
+        defer { cloudOptIn.restore() }
         let previousAppDelegate = AppDelegate.shared
         defer { AppDelegate.shared = previousAppDelegate }
         weak var closed: TabManager?
