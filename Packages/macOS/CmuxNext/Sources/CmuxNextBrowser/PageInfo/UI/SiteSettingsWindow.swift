@@ -35,7 +35,7 @@ final class SiteSettingsWindow: PageInfoWindow {
             let icon = ThemedImageView(image: PageInfoStyle.symbol(PageInfoPages.symbol(kind, blocked: false)) ?? NSImage())
             icon.themeTint = { PageInfoStyle.text }
             let name = PageInfoStyle.label(PageInfoStrings.name(kind), font: PageInfoStyle.bodyFont, color: PageInfoStyle.text)
-            let menu = NSPopUpButton()
+            let menu = ThemedPopUpButton(frame: .zero, pullsDown: false)
             for choice in kind.choices {
                 menu.addItem(withTitle: PageInfoModel.choiceTitle(choice, kind: kind))
                 menu.lastItem?.representedObject = choice.rawValue

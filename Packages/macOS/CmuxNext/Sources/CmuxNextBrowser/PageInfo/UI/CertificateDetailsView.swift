@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// selected certificate's fields, the selected field's value, and Export.
 final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private let chain: [PageInfoCertificate]
-    private let hierarchy = NSPopUpButton()
+    private let hierarchy = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let table = NSTableView()
     private let valueView = NSTextView()
     private var fields: [(String, String)] = []
