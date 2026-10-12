@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxConversationGeometry
 import UIKit
 
 @MainActor
@@ -13,6 +14,9 @@ protocol ConversationTranscriptLayoutDataSource: AnyObject {
     /// it; Messages lets it hang into the bottom margin.
     func transcriptBottomOverhang() -> CGFloat
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance
+    /// Stable row identities, in order (what keeps a row's pixel phase).
+    func transcriptItemIDs() -> [String]
+    func transcriptIndex(ofItemID id: String) -> Int?
 }
 
 /// A single-column transcript layout. Content shorter than the viewport sits
@@ -33,6 +37,11 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
 
     weak var dataSource: (any ConversationTranscriptLayoutDataSource)?
     private var frames: [CGRect] = []
+    /// Each row's top before snapping (stacked raw top plus `phase`), and
+    /// the identities they belong to, kept for the next pass.
+    private var unsnappedTops: [CGFloat] = []
+    private var itemIDs: [String] = []
+    private var phase: CGFloat = 0
     private var contentHeight: CGFloat = 0
     /// Created on first request: a pass over thousands of rows allocates
     /// attributes only for the rows UIKit actually asks about.
@@ -45,21 +54,46 @@ final class ConversationTranscriptLayout: UICollectionViewLayout {
         let width = collectionView.bounds.width
         let count = dataSource.transcriptItemCount()
         dataSource.transcriptWillPrepare(width: width)
-        frames.removeAll(keepingCapacity: true)
-        frames.reserveCapacity(count)
-        // Rows stack at their unrounded heights and each origin snaps to the
-        // pixel grid, as ChatKit's transcript does: 40.287 pt bubbles 4 pt
-        // apart land at 232.33, 276.67, 321.00 (Messages, iOS 26.5 and 27.0).
         let scale = max(1, collectionView.traitCollection.displayScale)
+        var rawTops: [CGFloat] = []
+        var heights: [CGFloat] = []
+        rawTops.reserveCapacity(count)
+        heights.reserveCapacity(count)
         var y: CGFloat = topPadding
         for index in 0..<count {
             y += index == 0 ? 0 : dataSource.transcriptSpacing(before: index)
             let height = dataSource.transcriptHeight(at: index, width: width)
-            frames.append(CGRect(x: 0, y: (y * scale).rounded() / scale, width: width, height: height))
+            rawTops.append(y)
+            heights.append(height)
             y += height
         }
-        contentHeight = y + 6 - (count > 0 ? dataSource.transcriptBottomOverhang() : 0)
+        let newIDs = dataSource.transcriptItemIDs()
+        phase = keptPhase(rawTops: rawTops, scale: scale, collectionView: collectionView, dataSource: dataSource)
+        // Rows stack at their unrounded heights and each top snaps to the
+        // pixel grid (see ConversationTranscriptPixelGrid), with the phase
+        // that keeps the rows on screen where they were on it.
+        frames.removeAll(keepingCapacity: true)
+        frames.reserveCapacity(count)
+        unsnappedTops.removeAll(keepingCapacity: true)
+        unsnappedTops.reserveCapacity(count)
+        for index in 0..<count {
+            unsnappedTops.append(rawTops[index] + phase)
+            frames.append(CGRect(x: 0, y: ConversationTranscriptPixelGrid.snap(rawTops[index], phase: phase, scale: scale), width: width, height: heights[index]))
+        }
+        itemIDs = newIDs
+        contentHeight = y + phase + 6 - (count > 0 ? dataSource.transcriptBottomOverhang() : 0)
         cachedAttributes = Array(repeating: nil, count: frames.count)
+    }
+
+    /// The phase that keeps the first row on screen in the last pass, and
+    /// still here, on the pixel offset it had.
+    private func keptPhase(rawTops: [CGFloat], scale: CGFloat, collectionView: UICollectionView, dataSource: any ConversationTranscriptLayoutDataSource) -> CGFloat {
+        guard !frames.isEmpty, frames.count == itemIDs.count, frames.count == unsnappedTops.count else { return phase }
+        for old in itemRange(in: collectionView.bounds) {
+            guard let new = dataSource.transcriptIndex(ofItemID: itemIDs[old]), new < rawTops.count else { continue }
+            return ConversationTranscriptPixelGrid.phase(placing: rawTops[new], likePreviousTop: unsnappedTops[old], scale: scale)
+        }
+        return phase
     }
 
     private func attributes(at index: Int) -> UICollectionViewLayoutAttributes {

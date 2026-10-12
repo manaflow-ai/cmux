@@ -567,12 +567,20 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
+        rebuild(change: change, measured: nil)
+    }
+
+    /// `measured` carries rows a measure-ahead built from the store as it
+    /// still is (see `measureAhead`), so the landing frame does not build
+    /// every row of the transcript again.
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?) {
+        rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
             initialSpinner.isHidden = true
         }
-        let newRows = ConversationRowBuilder.rows(store: store)
-        if change == .prepended, measureAhead(newRows) { return }
+        let newRows = measured ?? ConversationRowBuilder.rows(store: store)
+        if measured == nil, change == .prepended, measureAhead(newRows) { return }
         apply(newRows, change: change)
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
@@ -603,6 +611,9 @@ public final class ConversationViewController: UIViewController {
         guard pending.count >= Self.measureAheadMinimum else { return false }
         measureGeneration += 1
         let generation = measureGeneration
+        // Every row change goes through `rebuild`; while none comes before
+        // the measuring ends, these rows are still the store's rows.
+        let serial = rebuildSerial
         let traits = collectionView.traitCollection
         let work = MeasureWork(models: pending)
         Task { [weak self] in
@@ -619,7 +630,7 @@ public final class ConversationViewController: UIViewController {
             guard let self else { return }
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
-            self.rebuild(change: .prepended)
+            self.rebuild(change: .prepended, measured: serial == self.rebuildSerial ? newRows : nil)
         }
         return true
     }
@@ -627,6 +638,7 @@ public final class ConversationViewController: UIViewController {
     /// Fewer new rows than this measure in place (a page is 50).
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
+    private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
     private var configuredHeaderTitle: String?
@@ -1229,7 +1241,6 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isScrollingToTop = false
         }
         maybeLoadOlder()
-        for case let cell as MessageCell in collectionView.visibleCells { cell.updateScreenGradients() }
         prefetchAroundVisibleRows()
         // Reading follows viewing (see +CatchUp), not scroll position:
         // Messages reads the whole conversation on open.
@@ -1241,6 +1252,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     func transcriptItemCount() -> Int { rows.count }
+    func transcriptItemIDs() -> [String] { rowIDs }
+    func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
 
     func transcriptWillPrepare(width: CGFloat) {
         let margin = layoutMargin
@@ -1459,6 +1472,12 @@ final class TranscriptCollectionView: UICollectionView {
     override func layoutSubviews() {
         super.layoutSubviews()
         updateTopFadeMask()
+        // Outgoing bubbles' gradient is fixed to the screen. Placed here,
+        // after the cells for this offset are placed, not on scroll: a cell
+        // reused at the other edge would otherwise show the gradient of the
+        // place it left for a frame (its bubble keeps its size, so it does
+        // not lay out again).
+        for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
     }
 
     /// The mask lives in the scroll view's bounds space, so it follows the
