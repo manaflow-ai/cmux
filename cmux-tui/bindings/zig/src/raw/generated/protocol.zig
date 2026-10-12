@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9c09b644c97e8cbe8395ad29715221443769513db58c4eb3ce6791deb38f7745";
+pub const ir_sha256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3673,6 +3673,8 @@ pub const CloseWorkspaceRequest = struct {
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    /// With end_terminals: the close is not recorded in the closed history (session_end).
+    reason: wire.Field(CloseReason) = .absent,
     workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -3697,6 +3699,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
+                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
             },
         },
         request,
@@ -9186,12 +9189,14 @@ pub const NotificationEvent = struct {
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
+    reply: ?bool = null,
     source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "desktop",
+        "reply",
         "source",
     };
 };

@@ -132,6 +132,16 @@ struct SpringElement {
         return v
     }
     var settleTime: Double { components.map { $0.delay + $0.activeTime }.max() ?? 0 }
+    /// The same element, every component `s` seconds later (the same curve shape and name). A
+    /// later component holds its start value from the begin time (`Animate.sampled` for a spring,
+    /// `Animate.basic` for a curve), so no frame before the start shows the final value (live and
+    /// paused trees).
+    func delayed(by s: Double) -> SpringElement {
+        guard s > 0 else { return self }
+        var e = self
+        e.components = components.map { var c = $0; c.delay += s; return c }
+        return e
+    }
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
@@ -222,6 +232,17 @@ enum Springs {
     static func sendPhase(fieldShrinks: Bool) -> Double {
         guard !ComposeMetrics.macOS26 else { return 0 }
         return fieldShrinks ? -0.0066 : 0
+    }
+    /// The transcript's own delay in a send (s, after the send's begin time, for the rows only). Live drop-free
+    /// paired takes on cmux-lawrence-2 (tools/evidence/ANIMATIONS.md section 5 "rows-later"; rows phase with the
+    /// anchor frame as the base, scroll.py phase_anchor): main's rows are ahead of Messages' by 13.0 ms after a
+    /// 1-line draft and 6.6 ms after a draft that shrinks the field; a first delay of 9.0 / 4.0 ms moved them by
+    /// 9.1 / 3.5 ms and left 4.0 / 3.0 ms. The flying bubble's width is 2-4 ms ahead in both and stays. The
+    /// rows' moves, the fades and receipts of the rows the send changes, and an older bubble still flying in its
+    /// row start this much later; the new bubble's flight and the field keep `sendPhase`. macOS 26: none.
+    static func sendRowsDelay(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? 0.007 : 0.013
     }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 

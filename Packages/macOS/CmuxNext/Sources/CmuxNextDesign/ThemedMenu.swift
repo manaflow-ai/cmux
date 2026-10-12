@@ -5,7 +5,8 @@ extension NSMenu {
     /// (follow-up to #19754). NSMenu always highlights in the system accent and only follows light
     /// and dark, so every row becomes a `ThemedMenuRowView` that draws its own highlight in
     /// `Palette.accentFill` with `Palette.onAccent` ink. Separators and rows that already have a
-    /// view (the workspace color swatches) are left as they are. Call it last, once the menu is
+    /// view (the workspace color swatches) are left as they are; such a view that is a
+    /// `ThemedMenuItemView` is handed the scope to draw in. Call it last, once the menu is
     /// built, with the scope of the view that was right-clicked.
     ///
     /// The items keep their titles, key equivalents, states and submenus, so type-select, arrow
@@ -28,7 +29,11 @@ extension NSMenu {
             delegate = relay
         }
         for item in items where !item.isSeparatorItem {
-            if item.view == nil { item.view = ThemedMenuRowView(item: item, scope: scope, session: session) }
+            if let view = item.view as? any ThemedMenuItemView {
+                view.adoptMenuScope(scope)
+            } else if item.view == nil {
+                item.view = ThemedMenuRowView(item: item, scope: scope, session: session)
+            }
             if let submenu = item.submenu {
                 submenu.appearance = scope.appearance
                 submenu.themeRows(in: scope, session: session)

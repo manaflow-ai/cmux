@@ -60,6 +60,7 @@ final class WorkspaceStatusView: NSView {
 
     // MARK: Text
 
+    // theme-scoped: called only from updateLayer(), inside performWithTheme
     private static func text(for line: SidebarWorkspaceStatus.Line) -> NSAttributedString {
         switch line {
         case .entry(let entry):
@@ -112,7 +113,8 @@ final class WorkspaceStatusView: NSView {
     }
 
     /// Level colors come from the theme's palette; no blue accent.
-    static func color(_ level: SidebarWorkspaceStatus.LogLevel) -> NSColor {
+    // theme-scoped: called only from text(for:), inside updateLayer()'s performWithTheme
+    private static func color(_ level: SidebarWorkspaceStatus.LogLevel) -> NSColor {
         switch level {
         case .info, .progress: Palette.textTertiary
         case .success: Palette.success

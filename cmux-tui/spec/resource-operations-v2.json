@@ -17342,6 +17342,14 @@
             },
             "description": "false: the app shows no desktop banner for it (cmux notify --desktop false); the sidebar marker still shows. Default true."
           },
+          "reply": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: the app's banner takes a typed reply, which it pastes into the notifying terminal and submits (cmux notify --reply). Default false."
+          },
           "terminal_id": {
             "required": false,
             "type": {

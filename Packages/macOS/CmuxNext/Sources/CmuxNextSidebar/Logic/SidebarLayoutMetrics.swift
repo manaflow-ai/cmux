@@ -117,7 +117,10 @@ nonisolated extension SidebarLayoutOptions {
     /// stage), counts, badges and the working dots; attention states
     /// (waiting, error) still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
-        if expanded && !minimal { return WorkspaceRowContent(expanded: ws, now: now, machine: machine) }
+        if expanded && !minimal {
+            return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
+                                       showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
+        }
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil

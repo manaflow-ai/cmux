@@ -16,6 +16,13 @@ final class TabHoverCardView: NSView {
 
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
+    private var subtitleTop: NSLayoutConstraint?
+    private var subtitleCollapsed: NSLayoutConstraint?
+    /// The program's own words on its status (OSC 7501, cx-6so.36.9): one line, apart from the
+    /// card's own facts above it and in a quieter color, so program text never reads as cmux's.
+    private let detailLabel = NSTextField(labelWithString: "")
+    private var detailTop: NSLayoutConstraint?
+    private var detailCollapsed: NSLayoutConstraint?
     private let thumbnail = NSView()
     /// CPU and memory of the hovered tab (tab cards only).
     let resources = ResourceSummaryView()
@@ -36,13 +43,17 @@ final class TabHoverCardView: NSView {
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         subtitleLabel.maximumNumberOfLines = 1
         subtitleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
+        detailLabel.font = Typography.caption
+        detailLabel.lineBreakMode = .byTruncatingTail
+        detailLabel.maximumNumberOfLines = 1
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = Metrics.itemCornerRadius
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
 
-        for view in [titleLabel, subtitleLabel, resources, thumbnail] {
+        for view in [titleLabel, subtitleLabel, detailLabel, resources, thumbnail] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -52,10 +63,11 @@ final class TabHoverCardView: NSView {
             titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
             titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            resources.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Metrics.space1),
+            detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            resources.topAnchor.constraint(equalTo: detailLabel.bottomAnchor, constant: Metrics.space1),
             resources.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             resources.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
@@ -65,7 +77,15 @@ final class TabHoverCardView: NSView {
         let top = thumbnail.topAnchor.constraint(equalTo: resources.bottomAnchor, constant: Metrics.space4)
         resourcesCollapsed = resources.heightAnchor.constraint(equalToConstant: 0)
         let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
-        NSLayoutConstraint.activate([top, height])
+        let detail = detailLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor)
+        let subtitle = subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space1)
+        NSLayoutConstraint.activate([top, height, detail, subtitle])
+        subtitleTop = subtitle
+        // A hidden label keeps its line in Auto Layout; an empty subtitle gives it up.
+        subtitleCollapsed = subtitleLabel.heightAnchor.constraint(equalToConstant: 0)
+        detailTop = detail
+        detailCollapsed = detailLabel.heightAnchor.constraint(equalToConstant: 0)
+        setDetail(nil)
         thumbnailTop = top
         thumbnailHeight = height
     }
@@ -79,6 +99,7 @@ final class TabHoverCardView: NSView {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
             subtitleLabel.textColor = Palette.textSecondary
+            detailLabel.textColor = Palette.textTertiary
             thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
         }
     }
@@ -90,6 +111,7 @@ final class TabHoverCardView: NSView {
             let subtitle = [profile, item.machineBadgeHelp, item.themeBadge.map { Strings.axTheme($0.name) }, item.subtitle]
                 .compactMap(\.self).joined(separator: " · ")
             configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
+            setDetail(item.statusDetail)
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
             setResourcesVisible(true)
         case .group(let group, let titles):
@@ -101,6 +123,7 @@ final class TabHoverCardView: NSView {
                 subtitle: lines.joined(separator: "\n"),
                 lines: lines.count
             )
+            setDetail(nil)
             setResourcesVisible(false)
             setThumbnailVisible(false)
         }
@@ -111,8 +134,23 @@ final class TabHoverCardView: NSView {
         subtitleLabel.maximumNumberOfLines = lines
         subtitleLabel.lineBreakMode = lines > 1 ? .byTruncatingTail : .byTruncatingMiddle
         subtitleLabel.stringValue = subtitle ?? ""
-        subtitleLabel.isHidden = (subtitle ?? "").isEmpty
+        let shown = !(subtitle ?? "").isEmpty
+        subtitleLabel.isHidden = !shown
+        subtitleCollapsed?.isActive = !shown
+        subtitleTop?.constant = shown ? Metrics.space1 : 0
     }
+
+    /// The card's program status line; nil or empty collapses it.
+    private func setDetail(_ text: String?) {
+        let shown = !(text ?? "").isEmpty
+        detailLabel.stringValue = text ?? ""
+        detailLabel.isHidden = !shown
+        detailCollapsed?.isActive = !shown
+        detailTop?.constant = shown ? Metrics.space1 : 0
+    }
+
+    /// What the card's program status line reads ("" when hidden).
+    var detailText: String { detailLabel.isHidden ? "" : detailLabel.stringValue }
 
     private func setResourcesVisible(_ visible: Bool) {
         resources.isHidden = !visible

@@ -90,5 +90,6 @@ test("a click on the field's Send button asks the agent, as Return does", async 
   const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]');
   expect(send).not.toBeNull();
   await act(async () => send!.click());
-  expect(asked).toEqual([["claude", "fix the flaky upload test", "/Users/you/src/app"]]);
+  // On the model the chip names (cx-sljrg).
+  expect(asked).toEqual([["claude", "fix the flaky upload test", "/Users/you/src/app", "claude-opus-5-5"]]);
 });

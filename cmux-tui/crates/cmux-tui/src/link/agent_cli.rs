@@ -1,5 +1,5 @@
 //! `cmux link agent move --from-socket LOCAL --surface ID --to-socket MACHINE
-//! --cwd FOLDER [--interrupt]`: moves the agent chat of tab `ID` of the
+//! --cwd FOLDER [--interrupt] [--ask-first]`: moves the agent chat of tab `ID` of the
 //! daemon at `LOCAL` to the machine daemon at `MACHINE` (Move to Cloud,
 //! cmuxterm-hq#1874 slice 1c), over `agent-transfer-v1` (spec/commands.md,
 //! "Agent chat transfer"). `FOLDER` is where the chat runs there. Neither
@@ -13,7 +13,10 @@
 //! socket that `cmux link sync push` uses: the link's remote entry admits
 //! only the `fs-v1` ops.
 //!
-//! 1. begin on the source (the chat freezes there);
+//! 1. begin on the source (the chat freezes there); with `--ask-first` the
+//!    source first narrows the chat to an asking policy, rules and mode
+//!    (Bring Back Local's "Ask first, then bring back" after a Mac's guard
+//!    refused it, cx-rppd.10);
 //! 2. receive on the target with the begin manifest;
 //! 3. every bundle file, page by page, read from the source and written to
 //!    the target;
@@ -61,7 +64,7 @@ use record::{Record, Records};
 
 const USAGE: &str = "usage: cmux link agent move --from-socket LOCAL_DAEMON_SOCKET \
 --surface SURFACE_ID --to-socket REMOTE_CONNECT_SOCKET --cwd REMOTE_FOLDER [--interrupt] \
-[--state-dir DIR]
+[--ask-first] [--state-dir DIR]
   --to-socket: the local_socket of `cmux-tui remote connect --headless --json` for the \
 machine (its connection-snapshot event), not the machine link socket of `cmux link sync`";
 /// Bytes asked for per page (the daemon serves at most 4 MiB).
@@ -76,6 +79,8 @@ struct Args {
     to: PathBuf,
     cwd: String,
     interrupt: bool,
+    /// Narrow the chat on the source to an asking policy and mode first.
+    ask_first: bool,
     state_dir: Option<PathBuf>,
 }
 
@@ -169,7 +174,7 @@ fn parse(args: &[String]) -> Option<Args> {
         return None;
     }
     let (mut from, mut surface, mut to, mut cwd, mut state_dir) = (None, None, None, None, None);
-    let mut interrupt = false;
+    let (mut interrupt, mut ask_first) = (false, false);
     let mut rest = rest.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -179,11 +184,12 @@ fn parse(args: &[String]) -> Option<Args> {
             "--cwd" => cwd = Some(rest.next()?.clone()),
             "--state-dir" => state_dir = Some(PathBuf::from(rest.next()?)),
             "--interrupt" => interrupt = true,
+            "--ask-first" => ask_first = true,
             _ => return None,
         }
     }
     let cwd = cwd.filter(|cwd| cwd.starts_with('/'))?;
-    Some(Args { from: from?, surface: surface?, to: to?, cwd, interrupt, state_dir })
+    Some(Args { from: from?, surface: surface?, to: to?, cwd, interrupt, ask_first, state_dir })
 }
 
 fn move_chat(args: &Args) -> Result<Moved, Failed> {
@@ -236,7 +242,10 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
 /// A new move: begin, receive, copy, finish, then commit or abort.
 fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
-    let params = json!({"surface": args.surface, "interrupt": args.interrupt});
+    let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
+    if args.ask_first {
+        params["ask_first"] = json!(true);
+    }
     let begun = match source.call("agent-transfer-begin", params, BEGIN_TIMEOUT) {
         Ok(begun) => begun,
         Err(CallError::Refused { code, message, details }) => {
