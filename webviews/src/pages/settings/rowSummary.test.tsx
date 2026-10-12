@@ -1,11 +1,14 @@
 // A setting row says what it is in one short line, or nothing (Leo, 2026-10-11): the line under a
 // row's title is the descriptor's `summary`, never the long `help` the docs and the MDM manifest
-// keep. The lint below fails a summary over 60 characters in English or 80 in another language,
-// and any row line the page draws over 60 characters.
+// keep. The lint below fails any description line the page draws (a row's line, a card's intro, a
+// status line) over 60 characters in any language, and any schema summary over 60 characters.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
 import { categories } from "./categories";
+import type { ComputerUsePhase } from "./ops";
+import { schema } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -13,8 +16,7 @@ const restore = installDom();
 afterAll(() => restore());
 const { renderPage, rowElement } = await import("./testing");
 
-const EN_LIMIT = 60;
-const LOCALE_LIMIT = 80;
+const LIMIT = 60;
 const here = path.dirname(new URL(import.meta.url).pathname);
 const catalogFile = path.resolve(
   here,
@@ -31,50 +33,96 @@ afterEach(() => {
   page = null;
 });
 
-/** The line under each schema row's title, as the page draws it. */
-function rowLines(container: ParentNode): Array<{ row: string; line: string }> {
-  return [...container.querySelectorAll<HTMLElement>("[data-row-key], [data-theme-row='app']")].flatMap((row) => {
-    const line = row.querySelector<HTMLElement>(":scope > .row-main > .row-label > .row-help");
-    const key = row.dataset.rowKey ?? "appearance.appTheme";
-    return line ? [{ row: key, line: line.textContent ?? "" }] : [];
-  });
+/**
+ * Every description line the page draws: a row's line under its title, a card's intro, a status
+ * line. `.selectable` lines show a value (a file path, a config file), not a description.
+ */
+function descriptionLines(container: ParentNode): string[] {
+  return [...container.querySelectorAll<HTMLElement>(".row-help:not(.selectable), [data-intro]")].map(
+    (line) => line.textContent?.trim() ?? "",
+  );
 }
 
-test("Backdrop Art says what it is in one short line, with no hover title", async () => {
+const phases: ComputerUsePhase[] = ["off", "unavailable", "starting", "ready", "version_mismatch"];
+
+type View = {
+  name: string;
+  path: string;
+  values?: Record<string, unknown>;
+  phase?: ComputerUsePhase;
+  helper?: string | null;
+};
+
+/** The pages and states that draw description lines: every category, plus the theme studio's
+ * light and dark rows and every Computer Use phase, with and without a signed helper. */
+const views: View[] = [
+  ...categories.map((category) => ({ name: category.id, path: `/settings/${category.id}` })),
+  {
+    name: "theme light/dark",
+    path: "/settings/theme",
+    values: { "appearance.theme": "light:GitHub Light,dark:Dracula" },
+  },
+  ...phases.flatMap((phase) =>
+    [null, "cmux Computer Use"].map((helper) => ({
+      name: `computer use ${phase} ${helper ?? "unsigned"}`,
+      path: "/settings/agents",
+      phase,
+      helper,
+    })),
+  ),
+];
+
+test("Backdrop Art says what it is in one short line, with the line as its hover title", async () => {
   page = await renderPage({ path: "/settings/appearance" });
   const line = rowElement(page.container, "appearance.backdropArt").querySelector<HTMLElement>(".row-help");
   expect(line?.textContent).toBe("Painting behind the window");
-  expect(line?.hasAttribute("title")).toBe(false);
+  expect(line?.title).toBe("Painting behind the window");
 });
 
-test("no row line on any Settings page is over 60 characters", async () => {
-  const long: string[] = [];
-  for (const category of categories) {
-    page = await renderPage({
-      path: `/settings/${category.id}`,
-      mock: { values: { "appearance.experimentalControls": true } },
-    });
-    for (const { row, line } of rowLines(page.container)) {
-      if (characters(line) > EN_LIMIT) long.push(`${row} (${characters(line)}): ${line}`);
+test("no description line on any Settings page is over 60 characters, in any language", async () => {
+  const long = new Set<string>();
+  for (const locale of LOCALES as string[]) {
+    for (const view of views) {
+      page = await renderPage({
+        path: view.path,
+        locale,
+        mock: { values: { "appearance.experimentalControls": true, ...view.values } },
+        setup: (provider) => {
+          if (!view.phase) return;
+          provider.host = {
+            ...provider.host,
+            computer_use: {
+              phase: view.phase,
+              accessibility: true,
+              screen_recording: false,
+              helper: view.helper ?? null,
+            },
+          };
+        },
+      });
+      for (const line of descriptionLines(page.container)) {
+        if (characters(line) > LIMIT) long.add(`${locale} ${view.name} (${characters(line)}): ${line}`);
+      }
+      page.unmount();
+      page = null;
     }
-    page.unmount();
-    page = null;
   }
-  expect(long).toEqual([]);
-});
+  expect([...long]).toEqual([]);
+}, 300_000);
 
-test("every settings summary in the catalog fits: 60 characters in English, 80 in other languages", () => {
+test("every schema summary fits 60 characters in every language", () => {
   const catalog = JSON.parse(readFileSync(catalogFile, "utf8")) as {
     strings: Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>;
   };
+  const keys = schema.rows.flatMap((row) => (row.summary?.key ? [row.summary.key] : []));
+  expect(keys.length).toBeGreaterThan(0);
   const long: string[] = [];
-  for (const [key, entry] of Object.entries(catalog.strings)) {
-    if (!/^settings\..+\.summary$/.test(key)) continue;
-    for (const [locale, localization] of Object.entries(entry.localizations ?? {})) {
-      const value = localization.stringUnit?.value ?? "";
-      const limit = locale === "en" ? EN_LIMIT : LOCALE_LIMIT;
-      const length = characters(value);
-      if (length > limit) long.push(`${key} ${locale} (${length}): ${value}`);
+  for (const key of keys) {
+    const localizations = catalog.strings[key]?.localizations ?? {};
+    for (const locale of LOCALES as string[]) {
+      const value = localizations[locale]?.stringUnit?.value;
+      if (value === undefined) long.push(`${key} ${locale}: missing`);
+      else if (characters(value) > LIMIT) long.push(`${key} ${locale} (${characters(value)}): ${value}`);
     }
   }
   expect(long).toEqual([]);
