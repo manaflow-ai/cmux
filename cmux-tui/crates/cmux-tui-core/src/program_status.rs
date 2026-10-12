@@ -263,6 +263,57 @@ impl ProgramStatusRecords {
         self.published = self.revision;
         changed
     }
+
+    /// The records a terminal host hands to the daemon that attaches.
+    pub(crate) fn snapshot(&self) -> ProgramStatusSnapshot {
+        ProgramStatusSnapshot {
+            records: self.records.iter().map(|(id, record)| (id.clone(), record.clone())).collect(),
+            next_seq: self.next_seq,
+        }
+    }
+
+    /// Replaces the records with the host's when a daemon adopts it. It
+    /// raises no alert: a program that started waiting while no daemon was
+    /// attached shows it on its tab, but posts no notification. The host's
+    /// bytes are untrusted, so `apply_report`'s rules and bounds apply again,
+    /// and `next_seq` never goes back.
+    pub(crate) fn restore(&mut self, snapshot: ProgramStatusSnapshot) {
+        let mut records = BTreeMap::new();
+        for (id, record) in snapshot.records {
+            if record.state == ProgramStatusState::Clear {
+                continue;
+            }
+            let blocked = record.state == ProgramStatusState::Blocked;
+            let shows_progress = blocked || record.state == ProgramStatusState::Working;
+            let bounded = |text: Option<String>, limit| {
+                text.and_then(|text| non_empty(shown_text(&text, limit)))
+            };
+            let record = ProgramStatusRecord {
+                kind: record.kind.filter(|_| blocked),
+                progress: record.progress.filter(|value| shows_progress && *value <= 100),
+                app: bounded(record.app, MAX_TITLE_CHARS),
+                title: bounded(record.title, MAX_TITLE_CHARS),
+                message: bounded(record.message, MAX_MESSAGE_CHARS),
+                ..record
+            };
+            records.insert(id, record);
+        }
+        let newest = records.values().map(|record| record.updated_seq).max().unwrap_or(0);
+        self.next_seq = self.next_seq.max(snapshot.next_seq).max(newest);
+        self.alerts.clear();
+        if records != self.records {
+            self.records = records;
+            self.revision += 1;
+        }
+    }
+}
+
+/// A terminal's records as they cross the terminal-host protocol
+/// (`FLAG_PROGRAM_STATUS`), so they outlive the daemon that showed them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProgramStatusSnapshot {
+    pub(crate) records: Vec<(String, ProgramStatusRecord)>,
+    pub(crate) next_seq: u64,
 }
 
 /// The records shared by a terminal's parser callback (inside `vt_write`)
@@ -278,15 +329,6 @@ pub(crate) fn sink(records: SharedProgramStatus) -> ghostty_vt::ProgramStatusFn 
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .apply(event, crate::mux::now_ms());
     })
-}
-
-/// The callback of a terminal host's own parser. The host keeps no records
-/// (the daemon's mirror does), but libghostty answers the `OSC 7501 ; ?`
-/// support query only while a callback is set, and only the authoritative
-/// parser may answer.
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(crate) fn query_only_sink() -> ghostty_vt::ProgramStatusFn {
-    Box::new(|_| {})
 }
 
 fn non_empty(text: String) -> Option<String> {

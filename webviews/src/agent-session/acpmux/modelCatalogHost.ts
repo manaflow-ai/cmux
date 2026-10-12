@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { postNative } from "./native";
+import { NativeError } from "./nativeError";
 import type { AcpmuxSnapshot } from "./model";
 import {
   BUNDLED_MODEL_CATALOG,
@@ -48,6 +49,12 @@ export function loadModelCatalog(refresh = false): Promise<void> {
   return pending;
 }
 
+/** A host that does not know `models.catalog` (the app today) refuses it as an invalid request. */
+function keepBundledWhenUnserved(error: unknown): void {
+  if (error instanceof NativeError && error.code === "native.invalid_request") return;
+  throw error;
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   if (state.provisional) void loadModelCatalog().catch(() => undefined);
@@ -90,7 +97,13 @@ export function usePickerCatalog(
     catalog: picker,
     date: catalog.generatedAt,
     async refresh() {
-      await Promise.all([loadModelCatalog(true), queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] })]);
+      // The agents' live lists: the pane's direct client re-probes them; without one the catalog
+      // only re-reads. A host without `models.catalog` keeps the bundled catalog, which is no failure.
+      const probe = window.cmuxAcpmuxActions?.["models.refresh"];
+      await Promise.all([
+        loadModelCatalog(true).catch(keepBundledWhenUnserved),
+        probe ? probe({}) : queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] }),
+      ]);
     },
   };
 }

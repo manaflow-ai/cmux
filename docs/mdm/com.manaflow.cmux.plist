@@ -991,6 +991,39 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<dict/>
+			<key>pfm_description</key>
+			<string>A word that names a command by its action id ("vs": "splitRight"). Typing the whole word in the command palette puts that command first.</string>
+			<key>pfm_name</key>
+			<string>palette.aliases</string>
+			<key>pfm_title</key>
+			<string>Command Aliases</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Commands shown first when the command palette opens, in this order, by action id.</string>
+			<key>pfm_name</key>
+			<string>palette.pins</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pinned Commands</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Show chats stored on this device. Nothing is uploaded.</string>
@@ -1330,6 +1363,7 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
+				<string>daily</string>
 				<string>david-death-of-marat</string>
 				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
