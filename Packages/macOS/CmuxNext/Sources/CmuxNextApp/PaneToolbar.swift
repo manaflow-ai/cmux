@@ -15,11 +15,12 @@ final class PaneToolbar {
         case newTab, terminal, browser, other
     }
 
-    /// What the bar follows: the selected tab, its kind and the hidden buttons.
+    /// What the bar follows: the selected tab, its kind, the hidden buttons and whether the pane is zoomed.
     struct State: Equatable, Sendable {
         var target: String?
         var kind: Kind?
         var hidden: Set<String>
+        var zoomed = false
     }
 
     /// The buttons a bar shows; the rest go under "…".
@@ -31,6 +32,7 @@ final class PaneToolbar {
     private(set) var target: String?
     private(set) var kind: Kind?
     private(set) var hidden: Set<String> = []
+    private(set) var zoomed = false
     private var observation: Task<Void, Never>?
 
     init(registry: @escaping () -> ActionRegistry?, writeHidden: @escaping (Set<String>) -> Void) {
@@ -58,7 +60,7 @@ final class PaneToolbar {
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
-                update(target: state.target, kind: state.kind, hidden: state.hidden)
+                update(target: state.target, kind: state.kind, hidden: state.hidden, zoomed: state.zoomed)
             }
         }
     }
@@ -68,7 +70,10 @@ final class PaneToolbar {
         guard let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             return State(hidden: hidden)
         }
-        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), hidden: hidden)
+        // The pane's own workspace, not a store scan: this runs for every pane.
+        let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
+        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), hidden: hidden,
+                     zoomed: zoomed)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -93,10 +98,18 @@ final class PaneToolbar {
     }
 
     /// The first `visibleCount` actions not hidden get buttons; the rest, hidden ones too, go under "…".
-    static func arrange(_ ids: [ActionID], hidden: Set<String>) -> (shown: [ActionID], more: [ActionID]) {
-        let shown = Array(ids.filter { !hidden.contains($0.rawValue) }.prefix(visibleCount))
+    /// A zoomed pane's zoom button takes the last slot, hidden or not: it says the pane is zoomed.
+    static func arrange(_ ids: [ActionID], hidden: Set<String>, zoomed: Bool = false) -> (shown: [ActionID], more: [ActionID]) {
+        let pinned: ActionID? = zoomed && ids.contains(zoom) ? zoom : nil
+        let free = ids.filter { !hidden.contains($0.rawValue) && $0 != pinned }
+        let shown = Array(free.prefix(visibleCount - (pinned == nil ? 0 : 1))) + (pinned.map { [$0] } ?? [])
         return (shown, ids.filter { !shown.contains($0) })
     }
+
+    static let zoom: ActionID = "toggleSplitZoom"
+
+    /// A zoomed pane's lit zoom button.
+    private static let unzoomSymbol = "arrow.down.right.and.arrow.up.left"
 
     /// Symbols the New Tab page's tools used; else the action's own.
     private static let symbols: [ActionID: String] = [
@@ -108,15 +121,17 @@ final class PaneToolbar {
         self.target = target
         self.kind = kind
         self.hidden = hidden
+        self.zoomed = zoomed
         guard let registry = registry(), let target, let kind else { return view.show([], more: false, hidden: []) }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
         let ids = Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
-        let (shown, more) = Self.arrange(ids, hidden: hidden)
+        let (shown, more) = Self.arrange(ids, hidden: hidden, zoomed: zoomed)
         func item(_ id: ActionID) -> PaneToolbarItem? {
             guard let descriptor = registry.descriptor(for: id) else { return nil }
             let title = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
-            return PaneToolbarItem(id: id, title: title, symbol: Self.symbols[id] ?? descriptor.symbol,
-                                   shortcut: registry.shortcutDisplay(for: id))
+            let lit = zoomed && id == Self.zoom
+            return PaneToolbarItem(id: id, title: title, symbol: lit ? Self.unzoomSymbol : Self.symbols[id] ?? descriptor.symbol,
+                                   shortcut: registry.shortcutDisplay(for: id), lit: lit)
         }
         view.show(shown.compactMap(item), more: !more.isEmpty, hidden: ids.filter { hidden.contains($0.rawValue) }.compactMap(item))
     }
@@ -139,7 +154,7 @@ final class PaneToolbar {
         guard let registry = registry(), let target, let kind else { return nil }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
         let ids = Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
-        let more = Self.arrange(ids, hidden: hidden).more
+        let more = Self.arrange(ids, hidden: hidden, zoomed: zoomed).more
         return registry.makeContextMenu(for: .tab, target: invocation.target, entries: more.map { .action($0) })
     }
 }
