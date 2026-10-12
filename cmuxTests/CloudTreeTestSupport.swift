@@ -52,7 +52,7 @@ struct CoderouterSetupWorkspacePersistenceTests {
 
         persistence.save(workspaceID: workspaceID)
 
-        #expect(persistence.workspaceID == workspaceID)
+        #expect(persistence.validatedWorkspaceID { $0 == workspaceID } == workspaceID)
     }
 
     @Test("clears a stale workspace ID")
@@ -68,7 +68,7 @@ struct CoderouterSetupWorkspacePersistenceTests {
         }
 
         #expect(resolved == nil)
-        #expect(persistence.workspaceID == nil)
+        #expect(persistence.validatedWorkspaceID { _ in true } == nil)
     }
 
     @Test("clears malformed persisted state")
@@ -79,7 +79,7 @@ struct CoderouterSetupWorkspacePersistenceTests {
         defaults.set("not-a-uuid", forKey: CoderouterSetupWorkspacePersistence.userDefaultsKey)
 
         #expect(persistence.validatedWorkspaceID { _ in true } == nil)
-        #expect(persistence.workspaceID == nil)
+        #expect(persistence.validatedWorkspaceID { _ in true } == nil)
     }
 
     private func makeDefaults() -> (UserDefaults, String) {

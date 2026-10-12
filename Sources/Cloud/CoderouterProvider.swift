@@ -106,11 +106,6 @@ struct CoderouterSetupWorkspacePersistence {
         self.defaults = defaults
     }
 
-    var workspaceID: UUID? {
-        guard let rawValue = defaults.string(forKey: Self.userDefaultsKey) else { return nil }
-        return UUID(uuidString: rawValue)
-    }
-
     func save(workspaceID: UUID) {
         defaults.set(workspaceID.uuidString, forKey: Self.userDefaultsKey)
     }
@@ -153,29 +148,44 @@ enum CoderouterSetupWorkspaceRoute: Equatable {
 /// remote workspaces cannot host the local CLI process, so those requests use
 /// one persisted local workspace named `CodeRouter Setup`.
 @MainActor
-enum CoderouterSetupWorkspaceCoordinator {
-    static let workspaceTitle = "CodeRouter Setup"
+struct CoderouterSetupWorkspaceCoordinator {
+    static let workspaceTitle = String(
+        localized: "coderouter.setup.workspaceTitle",
+        defaultValue: "CodeRouter Setup"
+    )
+
+    private let manager: TabManager?
+    private let provider: CoderouterProvider
+    private let initialTerminalCommand: String?
+    private let persistence: CoderouterSetupWorkspacePersistence
+
+    init(
+        manager: TabManager?,
+        provider: CoderouterProvider,
+        initialTerminalCommand: String? = nil,
+        persistence: CoderouterSetupWorkspacePersistence = CoderouterSetupWorkspacePersistence()
+    ) {
+        self.manager = manager
+        self.provider = provider
+        self.initialTerminalCommand = initialTerminalCommand
+        self.persistence = persistence
+    }
 
     enum Destination {
         case existing(workspace: Workspace, manager: TabManager)
         case created(workspace: Workspace, manager: TabManager)
     }
 
-    static func resolveDestination(
-        preferredManager: TabManager?,
-        provider: CoderouterProvider,
-        initialTerminalCommand: String? = nil,
-        persistence: CoderouterSetupWorkspacePersistence = CoderouterSetupWorkspacePersistence()
-    ) -> Destination? {
-        let manager = preferredManager.flatMap { manager in
+    func resolveDestination() -> Destination? {
+        let manager = manager.flatMap { manager in
             manager.isFinalizedForWindowClose ? nil : manager
-        } ?? fallbackManager()
+        }
         let selectedWorkspace = manager?.selectedWorkspace
         let selectedWorkspaceIsLocal = manager.map { manager in
             !manager.isFinalizedForWindowClose
                 && selectedWorkspace.map { isLocal($0) } == true
         } == true
-        let setup = persistedLocalWorkspace(using: persistence)
+        let setup = Self.persistedLocalWorkspace(using: persistence)
 
         switch CoderouterSetupWorkspaceRoute.resolve(
             selectedWorkspaceIsLocal: selectedWorkspaceIsLocal,
@@ -195,7 +205,7 @@ enum CoderouterSetupWorkspaceCoordinator {
         guard let manager,
               !manager.isFinalizedForWindowClose,
               let workspace = manager.addWorkspaceIfActive(
-                  title: workspaceTitle,
+                  title: Self.workspaceTitle,
                   titleSource: .user,
                   initialTerminalCommand: initialTerminalCommand ?? provider.addCommand,
                   inheritWorkingDirectory: false,
@@ -207,11 +217,6 @@ enum CoderouterSetupWorkspaceCoordinator {
         }
         persistence.save(workspaceID: workspace.id)
         return .created(workspace: workspace, manager: manager)
-    }
-
-    private static func fallbackManager() -> TabManager? {
-        AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
-            ?? AppDelegate.shared?.tabManager
     }
 
     private static func persistedLocalWorkspace(

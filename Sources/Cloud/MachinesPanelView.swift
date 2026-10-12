@@ -629,12 +629,18 @@ struct MachinesPanelView: View {
         )
 
         Task { @MainActor in
-            guard let route = CoderouterSetupWorkspaceCoordinator.resolveDestination(
-                preferredManager: tabManager,
+            let manager = tabManager
+                ?? AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+            let coordinator = CoderouterSetupWorkspaceCoordinator(
+                manager: manager,
                 provider: provider,
                 initialTerminalCommand: command
-            ) else {
-                viewModel.noteTreeHint("Could not open a local workspace for CodeRouter setup.")
+            )
+            guard let route = coordinator.resolveDestination() else {
+                viewModel.noteTreeHint(String(
+                    localized: "coderouter.setup.localWorkspaceUnavailable",
+                    defaultValue: "Could not open a local workspace for CodeRouter setup."
+                ))
                 return
             }
 
