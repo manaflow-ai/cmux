@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("turn-fork.test.ts", async () => {
@@ -70,11 +71,11 @@ await requireBrowserLane("turn-fork.test.ts", async () => {
 
   test("A Claude chat forks through an earlier turn from its footer", async () => {
     const result = await play("fork-any-turn");
-    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Another agent offers Fork only under its latest turn", async () => {
     const result = await play("fork-latest-turn-only");
-    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+    expect(playFailures(result.report)).toEqual([]);
   });
 });

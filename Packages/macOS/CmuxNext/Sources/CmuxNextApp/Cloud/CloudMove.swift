@@ -150,6 +150,7 @@ struct CloudMove {
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
                                                                    remoteChat: remote.chat, name: workspace?.name))
+            services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,

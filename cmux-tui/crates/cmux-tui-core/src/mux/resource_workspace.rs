@@ -200,9 +200,26 @@ impl Mux {
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
+        // `apply` consumes the plan; keep what the tree delta needs.
+        let ledger = plan
+            .workspace_ledger
+            .as_ref()
+            .filter(|_| !commit.replayed)
+            .map(|ledger| (ledger.event_kind, ledger.workspace_key.clone()));
         plan.apply(&mut state, &commit, workspace_revision);
         let tab_deltas = tabs.and_then(|tabs| tabs.deltas(self, &state, &commit));
+        let workspace_delta = ledger.and_then(|(event_kind, workspace_key)| {
+            self.resource_workspace_tree_delta(
+                &state,
+                event_kind,
+                &workspace_key,
+                workspace_revision,
+            )
+        });
         drop(state);
+        if let Some(delta) = workspace_delta {
+            self.emit_committed_workspace_delta(&registry, delta, false);
+        }
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
@@ -212,6 +229,40 @@ impl Mux {
         }
         self.emit_resource_tab_deltas(tab_deltas);
         Ok(commit)
+    }
+
+    /// The coarse tree event the legacy rename and move commands emit, for
+    /// the same change made through the resource API (`cmux workspace <id>
+    /// rename|move`). Without it a `subscribe` client (the app's sidebar)
+    /// saw the change only when a later one made it resync.
+    fn resource_workspace_tree_delta(
+        &self,
+        state: &State,
+        event_kind: &str,
+        workspace_key: &str,
+        workspace_revision: Option<u64>,
+    ) -> Option<TreeDelta> {
+        let kind = match event_kind {
+            "workspace-renamed" => TreeDeltaKind::WorkspaceRenamed,
+            "workspace-moved" => TreeDeltaKind::WorkspaceMoved,
+            _ => return None,
+        };
+        workspace_revision?;
+        let index = state.workspaces.iter().position(|workspace| workspace.key == workspace_key)?;
+        let workspace = state.workspaces[index].id;
+        let decorations = self.tree_decorations_in_state(state);
+        let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
+        Some(TreeDelta {
+            kind,
+            workspace,
+            screen: None,
+            pane: None,
+            surface: None,
+            index: (kind == TreeDeltaKind::WorkspaceMoved).then_some(index),
+            entity,
+            workspace_revision,
+            transaction: None,
+        })
     }
 
     #[cfg(test)]

@@ -73,6 +73,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
+    /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
+    /// change, as a divider drag or a live resize makes it). Zero in the product.
+    public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
@@ -185,7 +188,9 @@ public final class HomeNativeTranscriptView: NSView {
         // Showing the tab again re-attaches the same views: the transcript is
         // laid out only when the size changed (no bitmap or backdrop rebuild).
         // A size change lays the transcript out; a move only (debugTranscriptOffset) keeps its size.
-        let place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
+        // debugTranscriptWidthTrim narrows it (automation: a pane width change).
+        var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
+        place.size.width = max(0, place.width - debugTranscriptWidthTrim)
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place

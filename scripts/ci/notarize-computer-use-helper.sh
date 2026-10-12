@@ -63,6 +63,10 @@ source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 # Both knobs stay env-configurable; the calling job's timeout must cover them.
 GATEKEEPER_ASSESS_ATTEMPTS="${CMUX_GATEKEEPER_ASSESS_ATTEMPTS:-80}"
 GATEKEEPER_ASSESS_DELAY_SECONDS="${CMUX_GATEKEEPER_ASSESS_DELAY_SECONDS:-15}"
+# notarytool wait's --timeout (for example 15m) for --finish and the synchronous
+# run; unset waits as long as Apple takes. A caller with a step timeout sets it
+# so a slow queue fails here instead of being killed mid-step.
+NOTARY_WAIT_TIMEOUT="${CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT:-}"
 
 assess_with_gatekeeper() {
   local target="$1" attempt=1
@@ -208,8 +212,13 @@ finish_submission() {
   fi
 
   set +e
+  local wait_args=()
+  if [ -n "$NOTARY_WAIT_TIMEOUT" ]; then
+    wait_args=(--timeout "$NOTARY_WAIT_TIMEOUT")
+  fi
   wait_json="$("$XCRUN_TOOL" notarytool wait "$submit_id" \
     "${NOTARY_AUTH_ARGS[@]}" \
+    ${wait_args[@]+"${wait_args[@]}"} \
     --output-format json)"
   wait_status=$?
   set -e

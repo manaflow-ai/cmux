@@ -94,6 +94,17 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Runs the action of the newest toast with `id` in `window`, as its
+    /// button does; false when none shows or it has no action.
+    @discardableResult
+    public func runAction(id: String, in window: NSWindow) -> Bool {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        guard let handle = serials.reversed().lazy.compactMap({ self.entries[$0]?.handle }).first(where: { $0.toast.id == id }),
+              handle.toast.action != nil else { return false }
+        handle.runAction()
+        return true
+    }
+
     /// The responder chain from `responder` has an undo manager that can undo.
     public static func responderCanUndo(_ responder: NSResponder?) -> Bool {
         responder?.undoManager?.canUndo == true

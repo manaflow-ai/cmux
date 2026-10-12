@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Observation
 
 /// A new workspace's sidebar row from the press (cx-9a7wx): a window's
@@ -8,7 +9,9 @@ import Observation
 /// a placeholder at the slot the workspace will take, under the workspace's
 /// own id, and the workspace's row replaces it in place once the window
 /// lists it. A close that takes the create, or a create that fails, removes
-/// the row.
+/// the row. The row waits ``grace`` first: a create the daemon reports by then
+/// changes the sidebar once, in the frame that shows the workspace and its
+/// page, never a placeholder row beside the old content (cx-21zkz).
 @MainActor @Observable
 final class PendingWorkspaceRows {
     static let shared = PendingWorkspaceRows()
@@ -24,18 +27,31 @@ final class PendingWorkspaceRows {
         let byDefault: NewWorkspaceDefaultSlot?
     }
 
+    /// About the time a local create takes to be reported when its window has no other create
+    /// waiting (Cmd-N: ~70 ms in the frame strips); a queued create shows its row after it.
+    static let grace: Duration = .milliseconds(150)
+
     private(set) var rows: [Row] = []
+    /// Rows within their ``grace``, by workspace id.
+    @ObservationIgnored private var waiting: [String: DemandTimer] = [:]
 
     func add(_ row: Row) {
-        rows.append(row)
+        let timer = DemandTimer(owner: "PendingWorkspaceRows.grace")
+        waiting[row.id] = timer
+        timer.schedule(after: Self.grace) { @MainActor [weak self] in
+            guard let self, waiting.removeValue(forKey: row.id) != nil else { return }
+            rows.append(row)
+        }
     }
 
     func remove(_ id: String) {
+        waiting.removeValue(forKey: id)?.cancel()
         rows.removeAll { $0.id == id }
     }
 
     /// Forgets the rows of workspaces a window now owns: their own rows show.
     func forget(owned: (String) -> Bool) {
+        for id in waiting.keys where owned(id) { waiting.removeValue(forKey: id)?.cancel() }
         guard rows.contains(where: { owned($0.id) }) else { return }
         rows.removeAll { owned($0.id) }
     }

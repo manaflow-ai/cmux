@@ -200,6 +200,12 @@ final class NewTabSparePool {
         if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
+        // The launch's page took the prewarmed spare: the next one starts once that page painted,
+        // not after quiet input, so a Cmd-N right after launch finds a page loading (cx-ec99).
+        if !warmedOnce {
+            warmedOnce = true
+            view.model.whenPainted { Task { @MainActor [weak self] in self?.warmNow() } }
+        }
         return (view, window !== target, view.frame.size != size)
     }
 

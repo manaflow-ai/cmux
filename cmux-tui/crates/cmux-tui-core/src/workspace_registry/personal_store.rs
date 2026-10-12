@@ -242,7 +242,7 @@ pub struct PersonalGroup {
     /// order before mixed order.
     pub top_index: Option<usize>,
     /// The group's icon (`workspace-group-icon-v1`): the shared icon string,
-    /// one emoji or an SF Symbol name (`validate_presentation_icon`).
+    /// one emoji, an SF Symbol name or a stored image or SVG (`require_icon_asset`).
     pub icon: Option<String>,
     /// Pinned (saved) group (`workspace-group-pin-v1`): it stays when its
     /// workspaces close; clients keep it as an empty saved group.

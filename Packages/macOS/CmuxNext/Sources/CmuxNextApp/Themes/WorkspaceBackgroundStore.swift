@@ -7,7 +7,8 @@ import os
 /// Each workspace's own background (cx-t2x.5), keyed `<session>/<workspace key>`, in a small
 /// app-local file (`<Application Support>/<bundle id>/workspace-backgrounds.json`). Values are
 /// `appearance.background`'s: a painting, `daily`, `none`, `desktop`, `system:` or `file:` paths.
-/// A workspace without an entry follows `appearance.background`.
+/// A workspace without an entry follows `appearance.background`. A second store
+/// (`workspace-background-opacity.json`) keeps each workspace's own glass tint over art, "0"..."0.95".
 ///
 /// The home daemon's personal workspace rows have no background column yet; when one lands, these
 /// entries move there the way terminal themes did (`ThemeCoordinator.migrateTerminalThemes`).
@@ -28,11 +29,11 @@ final class WorkspaceBackgroundStore {
         self.url = url
     }
 
-    static func forApplication(bundleIdentifier: String?) -> WorkspaceBackgroundStore {
+    static func forApplication(bundleIdentifier: String?, file: String = "workspace-backgrounds.json") -> WorkspaceBackgroundStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: "workspace-backgrounds.json"))
+        return WorkspaceBackgroundStore(url: support.appending(path: bundle).appending(path: file))
     }
 
     static func key(session: String, workspace: String) -> String { "\(session)/\(workspace)" }
@@ -63,7 +64,7 @@ final class WorkspaceBackgroundStore {
         // A background set before the file loaded wins.
         backgrounds = loaded.themes.merging(backgrounds) { _, current in current }
         keepsFile = !loaded.complete
-        if keepsFile { logger.error("workspace-backgrounds.json has entries this build cannot read; leaving it unchanged") }
+        if keepsFile { logger.error("\(url.lastPathComponent, privacy: .public) has entries this build cannot read; leaving it unchanged") }
         isLoaded = true
         if saveAfterLoad {
             saveAfterLoad = false
