@@ -198,15 +198,23 @@ describe("stuck guests and background work", () => {
   });
 
   test("background work is interrupted when its continuation window ends", async () => {
+    backgroundContinuations.resetForTests();
     let interrupted = false;
     const background: Promise<unknown>[] = [];
-    await Effect.runPromise(withVmAnswerDeadline(Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))), {
-      answerWithinMs: 5, onDeadline: () => Effect.succeed("in progress"), continueForMs: 20, label: "test",
-      continueInBackground: (work) => { background.push(work); },
-    }));
+    await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(withVmAnswerDeadline(Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))), {
+        answerWithinMs: 1_000, onDeadline: () => Effect.succeed("in progress"), continueForMs: 2_000, label: "test",
+        continueInBackground: (work) => { background.push(work); },
+      }));
+      yield* TestClock.adjust(1_000);
+      expect(yield* Fiber.join(fiber)).toBe("in progress");
+      expect(interrupted).toBe(false);
+      yield* TestClock.adjust(2_000);
+      yield* Effect.promise(() => Promise.all(background));
+    }).pipe(Effect.provide(TestContext.TestContext)));
     expect(background).toHaveLength(1);
-    await background[0];
     expect(interrupted).toBe(true);
+    expect(backgroundContinuations.running).toBe(0);
   });
 });
 
