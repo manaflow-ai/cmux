@@ -127,7 +127,9 @@ it only for a terminal the user cannot see) posts one rate-limited `terminal`
 notification on its terminal; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
-there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
+there are none; `cmux terminal <selector> status` prints it; the strongest
+non-idle record is the tab's `program_status` in `list-workspaces` and the
+`program-status-changed` subscribe event). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.

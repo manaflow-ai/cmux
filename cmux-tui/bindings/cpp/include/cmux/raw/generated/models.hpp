@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629";
+inline constexpr std::string_view kProtocolIrSha256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct PaneRef;
 struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
+enum class ProgramStatusState;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
@@ -154,6 +155,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -540,6 +542,7 @@ struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct PersonalChangedEvent;
+struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
@@ -2984,6 +2987,19 @@ struct NotificationMarker {
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
 
+enum class ProgramStatusState {
+    working,
+    blocked,
+    error,
+    done,
+};
+
+struct ShownProgramStatus {
+    std::optional<std::uint16_t> progress{};
+    ProgramStatusState state{};
+    friend bool operator==(const ShownProgramStatus&, const ShownProgramStatus&) = default;
+};
+
 enum class TabBrowserSource {
     external,
     launched,
@@ -3010,6 +3026,7 @@ struct Tab {
     TabKind kind{};
     std::optional<std::string> name{};
     Field<NotificationMarker> notification{};
+    Field<ShownProgramStatus> program_status{};
     std::optional<std::string> short_id{};
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
@@ -3630,6 +3647,12 @@ struct ProcessInfoResult {
     Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
+};
+
+struct ProgramStatusChangedEvent {
+    std::optional<ShownProgramStatus> program_status{};
+    Id surface{};
+    friend bool operator==(const ProgramStatusChangedEvent&, const ProgramStatusChangedEvent&) = default;
 };
 
 struct ProviderWorkspaceMutationResult {
@@ -5864,6 +5887,12 @@ struct Codec<ProcessInfoResult> {
 };
 
 template <>
+struct Codec<ProgramStatusState> {
+    static Result<Json> encode(const ProgramStatusState& value);
+    static Result<ProgramStatusState> decode(const Json& value);
+};
+
+template <>
 struct Codec<ProviderWorkspaceMutationResult> {
     static Result<Json> encode(const ProviderWorkspaceMutationResult& value);
     static Result<ProviderWorkspaceMutationResult> decode(const Json& value);
@@ -6095,6 +6124,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShownProgramStatus> {
+    static Result<Json> encode(const ShownProgramStatus& value);
+    static Result<ShownProgramStatus> decode(const Json& value);
 };
 
 template <>
@@ -8411,6 +8446,12 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ProgramStatusChangedEvent> {
+    static Result<Json> encode(const ProgramStatusChangedEvent& value);
+    static Result<ProgramStatusChangedEvent> decode(const Json& value);
 };
 
 template <>
