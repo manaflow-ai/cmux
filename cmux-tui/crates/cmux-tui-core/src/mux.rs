@@ -26111,6 +26111,45 @@ mod tests {
     }
 
     #[test]
+    fn persistent_restart_recovers_after_notification_terminal_is_removed() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-notification-orphan-restart-{}",
+            WorkspacePublicId::random().unwrap()
+        ));
+        let session = "notification-orphan-restart";
+
+        let mux = open_persistent_test_mux(session, &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("terminal identity");
+        mux.post_notification(
+            "Orphaned notification".into(),
+            "Keep this history after the terminal is removed".into(),
+            NotificationLevel::Warning,
+            Some(surface.id),
+        )
+        .unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+        assert!(mux.surface(surface.id).is_none());
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = open_persistent_test_mux(session, &root);
+        let notifications = reopened.resource_notifications(8);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title, "Orphaned notification");
+        assert_eq!(notifications[0].terminal_id, None);
+        assert_eq!(notifications[0].surface, None);
+        assert!(reopened.surface_notification(surface.id).is_none());
+        assert!(reopened.resolve_terminal(terminal_id.as_str()).unwrap().is_some());
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn notification_reads_survive_restart_and_eviction_prunes_them() {
         let root = std::env::temp_dir()
             .join(format!("cmux-notification-reads-{}", WorkspacePublicId::random().unwrap()));

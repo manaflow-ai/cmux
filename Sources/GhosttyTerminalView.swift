@@ -885,8 +885,8 @@ class GhosttyApp {
             // Mac's clipboard without a user gesture or confirmation.
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let terminalSurface = callbackContext.terminalSurface,
-                  terminalSurface.allowsAutomaticClipboardWrite,
-                  let content = content, len > 0 else { return }
+                  let content = content else { return }
+            guard terminalSurface.permitsClipboardWrite(contentLength: Int(len)) else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
 
@@ -8545,7 +8545,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
             modifierFlagsRawValue: pressFlags.rawValue,
-            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint)
+            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint),
+            pressPointX: eventPoint.x,
+            pressPointY: eventPoint.y
         )
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
@@ -8582,6 +8584,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               ) else { return false }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: eventPoint.x, y: eventPoint.y)
+        }
         trackMousePointIfUsable(eventPoint)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         return true
@@ -8625,6 +8630,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
             && !codexActionHandled
+        if let completion,
+           let terminalSurface,
+           terminalSurface.ioMode == .manualMirror,
+           terminalSurface.allowsAutomaticClipboardWrite == false {
+            let callbackCount = TerminalPointerGestureState.clipboardWriteCount(
+                isDrag: completion.isDrag,
+                clickCount: event.clickCount,
+                isShiftClick: releaseFlags.contains(.shift)
+            )
+            if callbackCount > 0 {
+                terminalSurface.permitClipboardWriteForUserGesture(writeCount: callbackCount)
+            }
+        }
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -9855,6 +9873,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: mouseState.localPoint.x, y: mouseState.localPoint.y)
+        }
         copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
