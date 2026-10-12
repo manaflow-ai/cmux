@@ -258,7 +258,8 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive() else { return nil }
         let point = currentPointer()
-        let top = windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = (WindowPlacement.noActivate ? Self.ownTopWindowNumber(at: point, excluding: panel?.windowNumber) : nil)
+            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -272,6 +273,16 @@ public final class HoverCardCoordinator {
         let top = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
         guard let card, top == card else { return top }
         return NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: card)
+    }
+
+    /// The front one of this app's windows under a screen point. A
+    /// no-activate run (a capture slot) sits under other apps' windows,
+    /// such as the Cua Driver's full-screen one, so the system's topmost
+    /// window there is never ours.
+    private static func ownTopWindowNumber(at point: CGPoint, excluding card: Int?) -> Int? {
+        NSApp?.orderedWindows.first {
+            $0.isVisible && !$0.ignoresMouseEvents && $0.windowNumber != card && $0.frame.contains(point)
+        }?.windowNumber
     }
 
     // MARK: Verification
