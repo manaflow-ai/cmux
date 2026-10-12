@@ -55,6 +55,10 @@ impl NotificationSource {
     }
 }
 
+/// `desktop` on `notification.create` and the `notification` event: false
+/// asks the app for no desktop banner (`cmux notify --desktop false`).
+pub const NOTIFICATION_DESKTOP_CAPABILITY: &str = "notification-desktop-v1";
+
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
     pub notification: u64,

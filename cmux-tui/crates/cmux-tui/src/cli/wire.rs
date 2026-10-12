@@ -119,7 +119,9 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(code) => return code,
         };
     }
-    if super::launch_credential::attach(&mut reader, &socket, &mut request) {
+    if notify_desktop::drop_unsupported(&mut reader, &mut request)
+        | super::launch_credential::attach(&mut reader, &socket, &mut request)
+    {
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
             Err(code) => return code,
@@ -972,6 +974,7 @@ fn human_key_rank(key: &str) -> usize {
 
 mod closed_view;
 mod hints;
+mod notify_desktop;
 mod sanitize;
 mod socket;
 pub(super) use hints::connect_failure;

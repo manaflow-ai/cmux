@@ -25,7 +25,7 @@ pub(super) fn attach(
     else {
         return false;
     };
-    if !advertises(reader) {
+    if !advertises(reader, LAUNCH_CREDENTIAL_CAPABILITY) {
         return false;
     }
     request["credential"] = Value::String(credential);
@@ -45,7 +45,10 @@ fn for_socket(credential: Option<String>, own: Option<PathBuf>, socket: &Path) -
 
 /// One `identify` on the connection; false on any doubt (the request then
 /// goes without a credential, which is the pre-P8 behavior).
-fn advertises(reader: &mut BufReader<Box<dyn transport::Stream>>) -> bool {
+pub(super) fn advertises(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    capability: &str,
+) -> bool {
     let Ok(id) = super::wire::random_request_id() else { return false };
     let request = json!({"id": id, "cmd": "identify"});
     let Ok(encoded) = serde_json::to_vec(&request) else { return false };
@@ -64,5 +67,5 @@ fn advertises(reader: &mut BufReader<Box<dyn transport::Stream>>) -> bool {
         return false;
     }
     crate::session::parse_identity_capabilities(response.get("data").unwrap_or(&Value::Null))
-        .is_ok_and(|capabilities| capabilities.contains(LAUNCH_CREDENTIAL_CAPABILITY))
+        .is_ok_and(|capabilities| capabilities.contains(capability))
 }

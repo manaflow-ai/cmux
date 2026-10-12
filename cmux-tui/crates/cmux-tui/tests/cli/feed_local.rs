@@ -399,6 +399,12 @@ fn cmux_next_feed_an_ack_sent_on_the_notification_event_clears_the_ring() {
 #[test]
 fn cmux_next_notify_desktop_false_reaches_the_app_event() {
     let daemon = Daemon::start("desktop");
+    let capabilities =
+        daemon.ok(json!({"id": "identify", "cmd": "identify"}))["capabilities"].clone();
+    assert!(
+        capabilities.as_array().unwrap().iter().any(|c| c == "notification-desktop-v1"),
+        "identify must advertise notification-desktop-v1: {capabilities}"
+    );
     let mut events = daemon.plain();
     writeln!(events.0.get_mut(), "{}", json!({"id": "sub", "cmd": "subscribe"})).unwrap();
     assert_eq!(events.line()["ok"], true);

@@ -210,7 +210,10 @@ export function useCmuxClient() {
             if (cancelled) return;
             if (event.event === "notification") {
               const notification = event as NotificationEvent;
-              setToasts((current) => [...current.slice(-2), notification]);
+              // `desktop: false` (`notify --desktop false`): no toast, the unread mark stays.
+              if (notification.desktop !== false) {
+                setToasts((current) => [...current.slice(-2), notification]);
+              }
               if (notification.surface !== null) {
                 setUnread((current) => new Set(current).add(notification.surface!));
               }

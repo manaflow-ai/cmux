@@ -162,4 +162,12 @@ enum NotificationSounds {
         let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true) : NSSound(named: NSSound.Name(name))
         sound?.play()
     }
+
+    /// A poster asked for no banner (`notify --desktop false`): the
+    /// notification's own default sound has no banner to ride, so the
+    /// system alert sound stands in, as classic played one.
+    @MainActor
+    static func playWithoutBanner(_ name: String) {
+        name == "default" ? NSSound.beep() : play(name)
+    }
 }

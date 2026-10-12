@@ -228,6 +228,7 @@ final class NotificationCenterService {
         guard let located else {
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             return
         }
         if decision.acknowledge {
@@ -257,13 +258,15 @@ final class NotificationCenterService {
         // The feed (and the iPhone push) gets only what would alert on this Mac: the
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
-        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.desktop)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
                  subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
         }
-        if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
+        if !decision.desktop, let sound = decision.sound {
+            notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
+        }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 
