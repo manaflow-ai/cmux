@@ -17,6 +17,7 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
   const body = useId();
   const text = item.text.trim();
   if (!text) return null;
+  const title = firstLine(text);
   return (
     <>
       <button
@@ -33,8 +34,8 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
             {t("tools.thought")}
           </span>
           {!open && (
-            <span className="cv-thought__title" dir="auto">
-              {firstLine(text)}
+            <span className="cv-thought__title" dir="auto" title={title}>
+              {title}
             </span>
           )}
         </span>
@@ -53,8 +54,17 @@ export function ThoughtRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
+/// The title: the first non-empty line without its Markdown marks. Codex and Claude summaries open
+/// with a `**Heading**` line, which would otherwise show its asterisks.
 const firstLine = (text: string) =>
-  text
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean) ?? "";
+  (
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? ""
+  )
+    .replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(\*|_)(\S(?:.*?\S)?)\1/g, "$2")
+    .replace(/`([^`]+)`/g, "$1")
+    .trim();
