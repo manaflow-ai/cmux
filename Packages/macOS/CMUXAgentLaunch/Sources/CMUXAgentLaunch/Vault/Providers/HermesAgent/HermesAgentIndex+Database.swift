@@ -32,7 +32,9 @@ extension HermesAgentIndex {
     ) throws -> T? {
         guard FileManager.default.fileExists(atPath: stateDBPath) else { return nil }
         if let database = try openLiveDatabase(stateDBPath) {
-            defer { sqlite3_close(database) }
+            // `close_v2` releases the read transaction even if a statement was
+            // left unfinalized; a lingering reader would block Hermes's checkpoints.
+            defer { sqlite3_close_v2(database) }
             return try body(database)
         }
         guard let snapshot = try makeSnapshot(
@@ -55,8 +57,10 @@ extension HermesAgentIndex {
     ///     create `-wal`, so SQLite reports `SQLITE_CANTOPEN` on the first read.
     ///     `SQLITE_READONLY` covers a shared-memory index this process can't write.
     ///   - Outside WAL mode, a reader's shared lock blocks Hermes's commits for the
-    ///     whole query, and searches scan every message. The probe itself can see
-    ///     `SQLITE_BUSY` while Hermes commits.
+    ///     whole query, and searches scan every message.
+    ///
+    ///   Other errors, including `SQLITE_BUSY`, throw: a busy database is being
+    ///   written, which is the worst time to copy it.
     private static func openLiveDatabase(_ path: String) throws -> OpaquePointer? {
         var db: OpaquePointer?
         let uri = URL(fileURLWithPath: path).absoluteString + "?mode=ro"
@@ -69,14 +73,14 @@ extension HermesAgentIndex {
             result = sqlite3_exec(db, "SELECT 1 FROM sqlite_master LIMIT 1", nil, nil, nil)
             if result == SQLITE_OK {
                 if journalMode(db) == "wal" { return db }
-                sqlite3_close(db)
+                sqlite3_close_v2(db)
                 return nil
             }
         }
         let message = sqliteMessage(db) ?? "open failed with code \(result)"
-        sqlite3_close(db)
+        sqlite3_close_v2(db)
         switch result & 0xFF {
-        case SQLITE_CANTOPEN, SQLITE_READONLY, SQLITE_BUSY:
+        case SQLITE_CANTOPEN, SQLITE_READONLY:
             return nil
         default:
             throw HermesAgentIndexError.sqlite(message)
@@ -99,7 +103,7 @@ extension HermesAgentIndex {
     static func makeSnapshot(
         stateDBPath: String,
         prefix: String,
-        in temporaryDirectory: URL
+        in temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) throws -> HermesAgentDatabaseSnapshot? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
