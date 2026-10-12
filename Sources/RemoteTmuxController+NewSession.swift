@@ -137,16 +137,13 @@ extension RemoteTmuxController {
                 )
                 return
             }
-            guard result.succeeded, !created.isEmpty else {
+            guard !created.isEmpty else {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: new-session returned no session: \(result.stderr)")
                 #endif
-                // A successful command with an empty/truncated `-P` response still may have
-                // created the explicitly named session. Clean it before reporting failure.
-                let removed = await removeCreatedSession(
-                    host: host,
-                    name: created.isEmpty ? requestedName : created
-                )
+                // An empty/truncated `-P` response may still follow a successful command,
+                // while a nonzero command with no output has no evidence of a session.
+                let removed = await removeCreatedSession(host: host, name: requestedName)
                 if result.succeeded {
                     newSessionEnvironment.reportFailure(
                         host,
@@ -158,6 +155,9 @@ extension RemoteTmuxController {
                 }
                 return
             }
+            // A nonzero SSH status can still carry the session name when the remote
+            // tmux command was accepted before the transport failed. Treat that as an
+            // attach-stage failure so cleanup status is reported accurately.
             name = created
         } catch is CancellationError {
             // The remote command may have created the session before local
