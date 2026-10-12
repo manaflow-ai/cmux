@@ -76,7 +76,7 @@ struct PaneToolbarTests {
         let bar = Bar()
         bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: ["toggleSplitZoom"], zoomed: true)
         #expect(bar.buttons == ["splitRight", "splitDown", "openDiffViewer", "toggleSplitZoom"])
-        #expect(bar.more == ["Open File"])
+        #expect(bar.more == ["Open File…"])
         let zoom = try #require(bar.view.buttons.last)
         #expect(zoom.state == .on)
         #expect(zoom.symbol == "arrow.down.right.and.arrow.up.left")
