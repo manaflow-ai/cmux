@@ -621,7 +621,7 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_summary.py
 
       - name: Validate agent pane frame pacing bench files
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_frame_pacing_bench_files.py
 
       - name: Validate manual dispatch routing guard

@@ -38,5 +38,8 @@ if [ -n "$console_user" ] && [ "$console_user" != root ] && [ "$console_user" !=
     bash -c 'cd "${GITHUB_WORKSPACE:-.}" && exec "$@"' bash "$@"
 fi
 
-echo "No console session to hop into (console user '${console_user:-none}'); running here: $*" >&2
+# A LaunchAgent already runs in Aqua without sudo; anything else draws nothing.
+if [ "$(launchctl managername 2>/dev/null || true)" != Aqua ]; then
+  echo "::warning::Not in a console user's Aqua session (console user '${console_user:-none}', no passwordless sudo hop); the bench's windows may not draw." >&2
+fi
 exec "$@"
