@@ -186,6 +186,23 @@ for line in sys.stdin:
         if said.strip() == "bg-left":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_left", "name": "Bash",
                   "input": {"command": "npm run dev", "run_in_background": True}}]}})
+            # A launch that failed (denied, or a bad input) never ran, so nothing stops at exit.
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_err", "name": "Bash",
+                  "input": {"command": "rm -rf build", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_err",
+                  "is_error": True, "content": "Permission denied"}]}})
+        # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
+        # patch), then ended; its notification names only the task.
+        if said.strip() == "bg-moved":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_mv", "name": "Bash",
+                  "input": {"command": "npm run build", "description": "Build"}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "m1", "tool_use_id": "toolu_mv",
+                  "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
+            send({"type": "system", "subtype": "task_updated", "task_id": "m1", "patch": {"is_backgrounded": True}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_mv",
+                  "content": "Command moved to the background with ID: m1"}]}})
+            send({"type": "system", "subtype": "task_notification", "task_id": "m1", "status": "completed",
+                  "output_file": "", "summary": "Build finished"})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",

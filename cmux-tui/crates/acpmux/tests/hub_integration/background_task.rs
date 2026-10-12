@@ -90,3 +90,23 @@ async fn a_background_shell_left_when_claude_exits_is_reported_stopped() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A foreground shell moved to the background while it ran reports its end
+/// like one launched there, under its own command.
+#[tokio::test]
+async fn a_shell_moved_to_the_background_reports_how_it_ended() {
+    let root = std::env::temp_dir().join(format!("acpmux-bg-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "bg-moved"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    let want = vec![json!({"sessionUpdate": "background_task_update", "taskId": "m1",
+                           "toolCallId": "toolu_mv", "command": "npm run build",
+                           "state": "completed", "summary": "Build finished"})];
+    assert_eq!(ends(&hub, &id), want);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
