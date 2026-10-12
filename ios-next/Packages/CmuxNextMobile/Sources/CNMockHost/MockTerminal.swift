@@ -37,6 +37,8 @@ struct MockShell {
         /// A codex-like full-screen TUI: prompt box near the bottom, cursor in
         /// it, and a footer hint on the last row (key bar overlap tests).
         case startFooterTUI
+        /// Replays the recorded codex output stream (regression harness).
+        case replayCodex(times: Int)
         case exit
     }
 
@@ -99,6 +101,8 @@ struct MockShell {
             return .startInputEcho(mouse: true)
         case "alttest":
             return .startInputEcho(mouse: false)
+        case "codexreplay":
+            return .replayCodex(times: max(1, Int(parts.dropFirst().first ?? "") ?? 5))
         case "footertest":
             return .startFooterTUI
         case "exit", "logout":

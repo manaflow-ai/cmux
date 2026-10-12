@@ -36,6 +36,7 @@ actor MockEngine {
     var streamOwners: [UInt32: UUID] = [:]
     var terminalStreams: [UInt32: String] = [:]
     var uploads: [UInt32: String] = [:]
+    var replayTask: Task<Void, Never>?
     /// Layout: focused tab per pane, and the active pane per workspace.
     var layoutFocus: [String: String] = [:]
     var layoutActivePane: [String: String] = [:]

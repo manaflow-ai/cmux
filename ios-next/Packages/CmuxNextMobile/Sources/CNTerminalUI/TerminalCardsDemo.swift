@@ -13,6 +13,7 @@ struct TerminalCardsDemo: View {
     let terminals: [Terminal]
     @State private var thumbnails: TerminalThumbnails
     @State private var open: TerminalHandle?
+    @Environment(\.dismiss) private var dismiss
 
     init(connection: HostConnection, terminals: [Terminal]) {
         self.connection = connection
@@ -26,6 +27,11 @@ struct TerminalCardsDemo: View {
         GeometryReader { geo in
             ZStack {
                 ScrollView {
+                    HStack {
+                        Spacer()
+                        Button("Close") { dismiss() }.accessibilityIdentifier("cards.close")
+                    }
+                    .padding(.horizontal, 20)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: card.width), spacing: 16)], spacing: 16) {
                         ForEach(terminals) { t in
                             VStack(spacing: 6) {

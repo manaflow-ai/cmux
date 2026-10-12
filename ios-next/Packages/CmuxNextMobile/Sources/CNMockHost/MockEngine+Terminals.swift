@@ -56,8 +56,11 @@ extension MockEngine {
 
     /// Writes output to scrollback (shell mode) and every attached stream.
     func emit(_ terminalId: String, _ text: String, recordScrollback: Bool = true) {
+        emit(terminalId, bytes: Data(text.utf8), recordScrollback: recordScrollback)
+    }
+
+    func emit(_ terminalId: String, bytes: Data, recordScrollback: Bool = true) {
         guard var t = terminals[terminalId] else { return }
-        let bytes = Data(text.utf8)
         if recordScrollback {
             t.scrollback.append(bytes)
             if t.scrollback.count > MockTerminal.maxScrollback {
@@ -70,6 +73,12 @@ extension MockEngine {
 
     func terminalInput(streamId: UInt32, bytes: Data) {
         guard let terminalId = terminalStreams[streamId], var t = terminals[terminalId] else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_LOG_INPUT"] == "1" {
+            let shown = bytes.map { $0 == 0x1B ? "ESC" : (0x20...0x7E).contains($0) ? String(UnicodeScalar($0)) : String(format: "\\x%02X", $0) }.joined()
+            FileHandle.standardError.write(Data("mock input \(terminalId): \(shown)\n".utf8))
+        }
+        #endif
         if t.mode == .inputEcho {
             if bytes == Data("q".utf8) {
                 t.mode = .shell
@@ -159,6 +168,8 @@ extension MockEngine {
             let modes = "\u{1B}[?1049h\u{1B}[2J\u{1B}[H" + (mouse ? "\u{1B}[?1000h\u{1B}[?1006h" : "")
             emit(terminalId, modes + "\(mouse ? "mouse reporting on" : "alternate screen, no mouse") — scroll here, q quits\r\n",
                  recordScrollback: false)
+        case .replayCodex(let times):
+            replayTask = Task { await self.replayCodex(terminalId, times: times) }
         case .startFooterTUI:
             t.mode = .inputEcho
             terminals[terminalId] = t
@@ -203,5 +214,24 @@ extension MockEngine {
             emit(terminalId, t.shell.topScreen(tick: t.tick, cols: t.info.cols, rows: t.info.rows), recordScrollback: false)
             do { try await pause(1000) } catch { return }
         }
+    }
+
+    /// Streams the codex recording in small chunks, `times` over, then the
+    /// prompt: rapid alternate-screen redraws like a live codex session.
+    func replayCodex(_ terminalId: String, times: Int) async {
+        let bytes = CodexRecording.bytes
+        for _ in 0..<times {
+            var offset = 0
+            while offset < bytes.count {
+                guard terminals[terminalId] != nil, !Task.isCancelled else { return }
+                let end = min(offset + 384, bytes.count)
+                // Raw slices: chunk edges split escape sequences and UTF-8
+                // like a real link does.
+                emit(terminalId, bytes: bytes.subdata(in: offset..<end), recordScrollback: false)
+                offset = end
+                do { try await pause(15) } catch { return }
+            }
+        }
+        if let t = terminals[terminalId] { emit(terminalId, "\r\n" + t.shell.prompt) }
     }
 }
