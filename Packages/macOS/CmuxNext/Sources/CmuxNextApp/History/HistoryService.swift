@@ -29,7 +29,7 @@ final class HistoryService {
         self.services = services
         hidden = HiddenHistoryStore(services: services)
         agents = AgentHistory(services: services, hidden: hidden)
-        commands = CommandHistory(services: services, hidden: hidden)
+        commands = CommandHistory(services: services)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -135,12 +135,13 @@ final class HistoryService {
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9).
     func closedEntries() -> [HistoryEntry] {
-        DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services).map { entry in
+        DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).map { entry in
             let item = entry.item, tab = item.tabs.first
             let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
             case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
             case .screen: .screen
-            case .workspace: .workspace
+            // A closed window lists as its workspace (it reopens with the workspaces it kept).
+            case .workspace, .window: .workspace
             }
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
@@ -171,10 +172,12 @@ final class HistoryService {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
         if daemonHistory != nil {
-            // The daemon removes page visits and hides agents and commands; closed items age out
-            // in their owners; the trail is the app's.
-            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting([.location]) : kinds.subtracting([.location])
+            // The daemon removes page visits and hides agents; closed items age out in their
+            // owners; the trail is the app's; terminal commands are deleted as rows in each daemon.
+            let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
+            let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
             if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
+            if wants(.command) { commands.delete(since: since) }
             if wants(.page) {
                 for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
                     services.cache.history(for: profile).forget(since: since)
@@ -194,7 +197,7 @@ final class HistoryService {
         if wants(.location) { services.locationTrail.clear(since: since) }
         if wants(.closed) { DaemonClosedHistory.clear(since: since, services: services) }
         if wants(.agent) { agents.hide(since: since) }
-        if wants(.command) { commands.hide(since: since) }
+        if wants(.command) { commands.delete(since: since) }
         onChange?()
     }
 
@@ -217,7 +220,7 @@ final class HistoryService {
     func remove(_ entry: HistoryEntry) {
         // Pages keep the app path: the omnibox removes the URL and its persistence (the daemon when
         // it serves history-v1) removes every visit of it.
-        if daemonHistory != nil, entry.kind != .location, entry.kind != .page {
+        if daemonHistory != nil, entry.kind != .location, entry.kind != .page, entry.kind != .command {
             let id = entry.id
             daemonMutation { try await $0.remove(ids: [id]) }
             onChange?()
@@ -237,7 +240,7 @@ final class HistoryService {
         case .agent(let session):
             agents.hide(session)
         case .command(let command):
-            commands.hide(command)
+            commands.delete(command)
         }
         onChange?()
     }

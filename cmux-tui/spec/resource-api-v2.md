@@ -212,6 +212,18 @@ again with its id, name, color, icon, pin, collapse, room and place, and puts ba
 member whose personal row still exists and that is still ungrouped; a group
 that exists again is left as it is. Its result names the session's active
 workspace.
+A window record put with `open: false` (`window_record.put`; the app closed
+the window and keeps its workspaces) after an open one stores one closed-history
+item of `kind: "window"` with no member, `window` naming the record
+(`install/window`) and `name` the window's workspace. A put with `open` true
+(or absent), and `window_record.delete`, remove the window's items. A window
+whose record says `open: false` is not live: its groups and its window item
+are in scope for every window (`closed.list`/`closed.reopen` with `window`).
+`closed.reopen` of a window item reopens nothing in the daemon; its result's
+`window` names the record for the app to show again and `workspace_id` the
+session's active workspace.
+`closed.reopen` with neither `closed` nor `window` skips window items: only
+an app can show a window again, and it names its window.
 `workspace-group-icon-v1` gives a personal group an icon:
 `workspace_group.update {icon}` sets it to the shared icon string (one emoji
 or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
