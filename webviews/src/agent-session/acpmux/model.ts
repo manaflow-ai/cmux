@@ -14,6 +14,14 @@ import type { ComposerAttachment } from "./attachments";
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
 
+/** How a background shell ended (acpmux `background_task_update`, cx-ncc.84). */
+export type AcpmuxBackgroundTask = {
+  toolCallId: string;
+  command: string;
+  state: "completed" | "failed" | "stopped";
+  reason?: string;
+};
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -28,6 +36,8 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
+  /// A background task row's shell, which ended where the row sits (cx-ncc.84).
+  backgroundTask?: AcpmuxBackgroundTask;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -204,6 +214,8 @@ export type AcpmuxSnapshot = {
     /** The configured harness login command, when its profile declares one. */
     auth?: { login?: string };
     unavailable?: string;
+    /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
+    probeFailed?: boolean;
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
@@ -233,8 +245,6 @@ export type AcpmuxSnapshot = {
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
   liveChat?: { canFork: boolean; command?: string };
 };
-
-export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
 
 export type PreparedRow = {
   text: string;
@@ -296,19 +306,6 @@ export function markdownBlocks(source: string): Token[] {
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
-}
-
-export function diffRows(previous: Map<string, AcpmuxRow>, next: AcpmuxRow[]): RowChange {
-  const nextById = new Map(next.map((row) => [row.id, row]));
-  const added: AcpmuxRow[] = [];
-  const updated: AcpmuxRow[] = [];
-  for (const row of next) {
-    const before = previous.get(row.id);
-    if (!before) added.push(row);
-    else if (before.version !== row.version) updated.push(row);
-  }
-  const removed = [...previous.keys()].filter((id) => !nextById.has(id));
-  return { added, updated, removed };
 }
 
 export function visibleRowRange(
@@ -385,7 +382,14 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === "permission") return 87;
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
-  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
+  if (
+    row.kind === "turnSummary" ||
+    row.kind === "notice" ||
+    row.kind === "backgroundTask" ||
+    row.kind === "plan" ||
+    row.kind === "typing"
+  )
+    return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
@@ -519,23 +523,45 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   return Math.max(34, 16 + chromeHeight(row) + contentHeight);
 }
 
+/// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a
+/// new object), so a long chat's layout measures only the rows that changed since the last one.
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number }>;
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
+  known?: RowHeights,
+  /// The last layout at this width, whose rows (by object) the new rows may start with: those
+  /// keep their places, and only the rows after the first change are placed again.
+  previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
-  let top = 0;
-  for (let index = 0; index < rows.length; index += 1) {
+  let start = 0;
+  if (previous) {
+    const limit = Math.min(rows.length, previous.rows.length);
+    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    tops.set(previous.layout.tops.subarray(0, start));
+    heights.set(previous.layout.heights.subarray(0, start));
+  }
+  let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
-    const customHeight = measureOverride?.(rows[index], width);
-    const height =
-      customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-        ? customHeight
-        : measuredRowHeight(rows[index], width, cache);
+    const row = rows[index]!;
+    const kept = known?.get(row);
+    let height: number;
+    if (kept && kept.width === width) height = kept.height;
+    else {
+      const customHeight = measureOverride?.(row, width);
+      height =
+        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
+          ? customHeight
+          : measuredRowHeight(row, width, cache);
+      known?.set(row, { width, height });
+    }
     heights[index] = height;
     top += height;
   }
@@ -544,14 +570,22 @@ export function layoutConversation(
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
+/// `kept` rows at the start keep their places from `previous` (the last placement, which they
+/// had the same heights in).
 export function placeRows(
   estimate: ConversationLayout,
   heightAt: (index: number) => number | undefined,
+  previous?: { layout: ConversationLayout; kept: number },
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  let top = 0;
-  for (let index = 0; index < heights.length; index += 1) {
+  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  if (kept > 0) {
+    tops.set(previous!.layout.tops.subarray(0, kept));
+    heights.set(previous!.layout.heights.subarray(0, kept));
+  }
+  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
     const known = heightAt(index);
     const height = known !== undefined && known > 0 ? known : estimate.heights[index];

@@ -429,7 +429,7 @@ final class AgentTabStore {
         // React-only New Tab). Chat panes keep it.
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
-        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
+        model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
         customization.start()
         return view
     }

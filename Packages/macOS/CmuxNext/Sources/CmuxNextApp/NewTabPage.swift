@@ -83,39 +83,16 @@ enum NewTabPage {
     static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind { .agent }
 
     /// `~/code/app` for a folder under the home folder, as the bar shows it.
-    static func abbreviated(_ path: String) -> String {
-        let home = NSHomeDirectory()
+    static func abbreviated(_ path: String, home: String = NSHomeDirectory()) -> String {
         if path == home { return "~" }
         return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 
-    /// The bar's suggestions: every open terminal and browser tab but the one
-    /// the page opened from, the other workspaces, the open tabs' folders
-    /// (the current one first), and recent pages, newest first.
+    /// The bar's suggestions: the open tabs and other workspaces a jump lands somewhere real on
+    /// (``places(_:current:excluding:home:)``), the open tabs' folders (the current one first),
+    /// and recent pages, newest first.
     static func omnibar(_ services: AppServices, excluding selectedID: String?) -> AgentPaneOmnibar {
-        let current = services.windows.active?.state.workspaceID
-        var tabs: [AgentPaneOmnibar.Tab] = []
-        var workspaces: [AgentPaneOmnibar.Workspace] = []
-        var folders: [String] = []
-        for (workspace, _) in services.machines.allWorkspaces {
-            let workspaceTabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            for tab in workspaceTabs {
-                if let folder = tab.cwd, !folders.contains(folder) { folders.append(folder) }
-                guard tab.id != selectedID else { continue }
-                let browser = tab.kind == .browser
-                tabs.append(AgentPaneOmnibar.Tab(
-                    id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
-                    detail: browser ? tab.url.map(Self.displayURL) : tab.cwd.map(abbreviated), workspace: workspace.displayName,
-                    icon: browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
-                ))
-            }
-            if workspace.id != current {
-                workspaces.append(AgentPaneOmnibar.Workspace(
-                    id: workspace.id, name: workspace.displayName,
-                    detail: workspaceTabs.lazy.compactMap(\.cwd).first.map(abbreviated)
-                ))
-            }
-        }
+        let (tabs, workspaces, folders) = places(services, excluding: selectedID)
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
@@ -128,6 +105,85 @@ enum NewTabPage {
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
         )
     }
+
+    /// One workspace as the bar reads it.
+    struct PlaceSource {
+        var id: String
+        var name: String
+        var tabs: [TabModel]
+    }
+
+    /// ``places(_:current:excluding:home:icon:)`` over every machine's workspaces; `current` is
+    /// the workspace the page's window shows (the active window's when nil).
+    static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
+        -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
+        let sources = services.machines.allWorkspaces.map { workspace, _ in
+            PlaceSource(id: workspace.id, name: workspace.displayName, tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        }
+        let current = current ?? services.windows.active?.state.workspaceID
+        return places(sources, current: current, excluding: selectedID, home: NSHomeDirectory()) {
+            AppServices.dataURL(services.tabFavicon($0))
+        }
+    }
+
+    /// The open tabs, other workspaces and folders the bar suggests: only places a jump lands
+    /// somewhere real on (Leo 2026-10-11: "about:blank Home", a bare "~ ~" folder, each
+    /// workspace twice). A New Tab page, a page tab and a blank browser tab are no place; a chat
+    /// is one; the home folder is not a project. Another workspace with one place lists once, as
+    /// the workspace (a jump to either shows the same tab), named by that tab.
+    static func places(_ workspaces: [PlaceSource], current: String?, excluding selectedID: String?, home: String,
+                       icon: (TabModel) -> String? = { _ in nil })
+        -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
+        var tabs: [AgentPaneOmnibar.Tab] = []
+        var others: [AgentPaneOmnibar.Workspace] = []
+        var folders: [String] = []
+        for workspace in workspaces {
+            for folder in workspace.tabs.compactMap(\.cwd) where folder != home && !folders.contains(folder) { folders.append(folder) }
+            let rows = workspace.tabs.filter { $0.id != selectedID }.compactMap { tab in
+                place(tab, home: home).map { place in
+                    AgentPaneOmnibar.Tab(id: tab.id, kind: place.kind, title: place.title, detail: place.detail,
+                                         workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
+                }
+            }
+            guard workspace.id != current else {
+                tabs += rows
+                continue
+            }
+            if rows.count > 1 { tabs += rows }
+            let named = rows.count == 1 ? rows[0].detail ?? rows[0].title : nil
+            let detail = named ?? workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
+            others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: detail))
+        }
+        return (tabs, others, folders)
+    }
+
+    /// A tab as a bar row: its kind, a title of its own and the line under it; nil for no place.
+    static func place(_ tab: TabModel, home: String) -> (kind: AgentPaneTabKind, title: String, detail: String?)? {
+        let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = !title.isEmpty && title != blankPage
+        switch tab.kind {
+        case .browser:
+            // A browser on `about:blank` is no place, whatever its title says ("about:blank Home").
+            guard let url = tab.url.flatMap({ $0 == blankPage || $0.isEmpty ? nil : displayURL($0) }) else { return nil }
+            let shown = named ? title : url
+            return (.browser, shown, url == shown ? nil : url)
+        case .pty, .remoteTerminal:
+            let folder = tab.cwd.map { abbreviated($0, home: home) }
+            // A shell titled with its folder alone is named by that folder.
+            let shown = named && title != tab.cwd && title != folder ? title : folder ?? (named ? title : nil)
+            guard let shown else { return nil }
+            return (.terminal, shown, folder == shown ? nil : folder)
+        case .conversation:
+            // A chat (an agent session) is a place; a New Tab page (no session yet) and a page tab are not.
+            guard tab.agentSession?.session != nil, named else { return nil }
+            return (.agent, title, tab.cwd.map { abbreviated($0, home: home) })
+        case .other:
+            return nil
+        }
+    }
+
+    /// The address of a page with nothing on it, the title a New Tab page starts with.
+    static let blankPage = "about:blank"
 
     /// `vite.dev/guide` for `https://vite.dev/guide/`.
     static func displayURL(_ url: String) -> String {
@@ -275,9 +331,12 @@ enum NewTabPage {
 extension PaneController {
     /// New Tab Page: an agent tab showing the new tab page, where the store
     /// places a new tab, with the selected tab's kind selected and folder inherited
-    /// (``NewTabPage/open(in:seed:)``).
+    /// (``NewTabPage/open(in:seed:reusingShown:then:)``).
     /// `then` gets the new tab's id once the store made it.
-    func newTabPage(seed: AgentPaneSeedSource? = nil, then: (@MainActor (String) -> Void)? = nil) { NewTabPage.open(in: self, seed: seed, then: then) }
+    /// `reusingShown`: see ``NewTabPage/open(in:seed:reusingShown:then:)``.
+    func newTabPage(seed: AgentPaneSeedSource? = nil, reusingShown: Bool = false, then: (@MainActor (String) -> Void)? = nil) {
+        NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
+    }
 
     /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field;
     /// anywhere else a new New Tab page, whose field takes the keyboard (cx-e2aa; Lawrence
@@ -290,6 +349,6 @@ extension PaneController {
         }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
-        NewTabPage.open(in: self, seed: nil)
+        NewTabPage.open(in: self, seed: nil, reusingShown: true)
     }
 }

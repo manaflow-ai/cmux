@@ -30,7 +30,9 @@ public struct SidebarMapping {
     /// still on the New Tab page, which the tab list draws as new tabs
     /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
     /// face of a workspace whose front tab is a browser, and the favicon of
-    /// each browser tab in the tab list.
+    /// each browser tab in the tab list. `tabTitle` names each tab in the tab
+    /// list as its strip does (the App's `TabTitleResolver`); without it a
+    /// tab shows its record's title.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -39,7 +41,8 @@ public struct SidebarMapping {
                                 statusLine: (String) -> String? = { _ in nil },
                                 selectedTab: (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
-                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> [SidebarRowSection] {
+                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                                tabTitle: ((TabModel) -> String)? = nil) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
@@ -47,7 +50,8 @@ public struct SidebarMapping {
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
                 .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
-                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace) }
+                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace,
+                           tabTitle: tabTitle) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -74,7 +78,8 @@ public struct SidebarMapping {
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
-                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil }) -> SidebarWorkspace {
+                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                    tabTitle: ((TabModel) -> String)? = nil) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
@@ -110,7 +115,8 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
+                let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
+                return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
                                   brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },

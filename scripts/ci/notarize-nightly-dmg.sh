@@ -21,17 +21,20 @@ VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
-# Release channel of the app being packaged: `nightly` (default), `rc`, or
-# `stable`. It selects the entitlements file and the bundle-metadata check; the
-# packaging, notarization, and stapling steps are identical for all three.
+# Release channel of the app being packaged: `nightly` (default), `next`
+# (nightly-next's cmux NEXT), `rc`, or `stable`. It selects the entitlements
+# file and the bundle-metadata check; the packaging, notarization, and stapling
+# steps are identical for all of them.
 # `stable` is used only by the nightly-next production-identity notary probe
 # (nightly.yml input notary_probe_production_identity), which publishes nothing.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
   nightly|rc) ENTITLEMENTS_NAME="cmux.${CHANNEL}.entitlements" ;;
+  # nightly-next's cmux NEXT (cx-x7hwx): signed without a provisioning profile.
+  next) ENTITLEMENTS_NAME="cmux.next-dev.entitlements" ;;
   stable) ENTITLEMENTS_NAME="cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, rc or stable)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, next, rc or stable)" >&2
     exit 2
     ;;
 esac
