@@ -45,7 +45,8 @@ async fn claude_edit_tool_call_carries_its_diff() {
 async fn claude_edit_diff_survives_the_tools_completion() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&tool_use("toolu_1", "Edit", edit_input())).await;
-    let out = updates(&t.inbound(&tool_result("toolu_1", false, "The file has been updated.")).await);
+    let out =
+        updates(&t.inbound(&tool_result("toolu_1", false, "The file has been updated.")).await);
     assert_eq!(out.len(), 1, "{out:?}");
     assert_eq!(out[0]["status"], "completed");
     assert_eq!(out[0]["content"], edit_diff());
@@ -55,7 +56,8 @@ async fn claude_edit_diff_survives_the_tools_completion() {
 async fn claude_edit_that_fails_reports_why() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&tool_use("toolu_1", "Edit", edit_input())).await;
-    let out = updates(&t.inbound(&tool_result("toolu_1", true, "String to replace not found")).await);
+    let out =
+        updates(&t.inbound(&tool_result("toolu_1", true, "String to replace not found")).await);
     assert_eq!(out[0]["status"], "failed");
     assert_eq!(
         out[0]["content"],
@@ -101,7 +103,9 @@ async fn claude_edit_permission_request_shows_the_diff() {
     let call = out
         .iter()
         .find_map(|m| match m {
-            Message::Request { method: m, params: Some(p), .. } if m == method::SESSION_REQUEST_PERMISSION => {
+            Message::Request { method: m, params: Some(p), .. }
+                if m == method::SESSION_REQUEST_PERMISSION =>
+            {
                 Some(p["toolCall"].clone())
             }
             _ => None,
