@@ -48,6 +48,11 @@ final class MessageCell: UICollectionViewCell {
     let pollFailedLabel = UILabel()
     /// Everything that moves with the bubble during swipes.
     let shiftable = UIView()
+    /// The parts of `shiftable` a reply swipe leaves in place (avatar,
+    /// sender name, quote and thread line): they still follow the time
+    /// drawer and select mode, but not the bubble's trip to the right,
+    /// which would slide them over the reply arrow.
+    let replyPinned = UIView()
     /// Audio messages (created on first use; see ConversationAudioViews).
     weak var audioDelegate: (any AudioMessageCellDelegate)?
     var audioViews: AudioMessageCellViews?
@@ -72,7 +77,8 @@ final class MessageCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.addSubview(shiftable)
-        shiftable.layer.insertSublayer(threadLine, at: 0)
+        shiftable.addSubview(replyPinned)
+        replyPinned.layer.addSublayer(threadLine)
         threadLine.fillColor = nil
         threadLine.lineWidth = 2.5
         threadLine.lineCap = .round
@@ -96,7 +102,10 @@ final class MessageCell: UICollectionViewCell {
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
-        for view in [senderLabel, quoteBubble, quoteLabel, bubble, textLabel, emojiLabel, avatar, reactionBadge, editedLabel, repliesLabel, translationLabel] {
+        for view in [senderLabel, quoteBubble, quoteLabel, avatar] {
+            replyPinned.addSubview(view)
+        }
+        for view in [bubble, textLabel, emojiLabel, reactionBadge, editedLabel, repliesLabel, translationLabel] {
             shiftable.addSubview(view)
         }
         shiftable.bringSubviewToFront(reactionBadge)
@@ -122,6 +131,7 @@ final class MessageCell: UICollectionViewCell {
         contentView.alpha = 1
         shiftable.alpha = 1
         shiftable.subviews.forEach { $0.alpha = 1 }
+        replyPinned.subviews.forEach { $0.alpha = 1 }
         shiftable.layer.removeAllAnimations()
         shiftable.transform = .identity
         contentView.transform = .identity
@@ -446,7 +456,7 @@ final class MessageCell: UICollectionViewCell {
     /// sender name and avatar stay put, so nothing pops in when it lands.
     func setLiftedContentHidden(_ hidden: Bool) {
         let lifted = liftedContentFrame
-        for view in shiftable.subviews where view !== avatar && view !== senderLabel {
+        for view in shiftable.subviews + replyPinned.subviews where view !== avatar && view !== senderLabel && view !== replyPinned {
             if hidden {
                 if view.frame.intersects(lifted) { view.alpha = 0 }
             } else {
@@ -469,6 +479,7 @@ final class MessageCell: UICollectionViewCell {
     /// select shift for reconfigured rows and left them offset after exit.
     private func placeShiftable() {
         shiftable.setUntransformedFrame(contentView.bounds)
+        replyPinned.setUntransformedFrame(shiftable.bounds)
     }
 
     private func applyShifts() {
@@ -479,6 +490,9 @@ final class MessageCell: UICollectionViewCell {
             reveal: timestampReveal * timestampRevealDistance
         )
         shiftable.transform = CGAffineTransform(translationX: replyDrag + selectionShift - reveal, y: 0)
+        replyPinned.transform = ConversationReplyMotion.followsSwipe(.avatar)
+            ? .identity
+            : CGAffineTransform(translationX: -replyDrag, y: 0)
         let drawer = CGAffineTransform(translationX: -reveal, y: 0)
         footerLabel.transform = drawer
         audioViews?.expiry.transform = drawer

@@ -57,6 +57,48 @@ public enum ConversationReplyMotion {
         balloon.minX
     }
 
+    /// The arrow's 26 pt box (`CKSwipeActionIndicator`'s preferred size).
+    public static let indicatorSize: CGFloat = 26
+
+    /// The parts of a transcript row a reply swipe could carry.
+    public enum SwipePart: Sendable, CaseIterable {
+        /// The bubble, photo, link card or document and what is drawn in it.
+        case balloon
+        /// The tapback platter hanging off the bubble.
+        case tapback
+        /// A group sender's avatar beside the bubble.
+        case avatar
+        /// A group sender's name over the bubble.
+        case senderName
+        /// The quoted message over a reply and its thread line.
+        case replyQuote
+    }
+
+    /// Whether `part` slides right with the bubble during a reply swipe.
+    /// ChatKit applies `swipeToReplyLayoutOffset` only to the message
+    /// display view (`CKTranscriptMessageContentCell`) and, through
+    /// `transcriptBalloonCell:didTranslateBalloonByDelta:`, to the tapback
+    /// cells; the avatar, sender name and quoted message stay where they
+    /// are, so the arrow grows in the gap the bubble leaves, uncovered.
+    public static func followsSwipe(_ part: SwipePart) -> Bool {
+        switch part {
+        case .balloon, .tapback: true
+        case .avatar, .senderName, .replyQuote: false
+        }
+    }
+
+    /// Where the arrow draws for a bubble `offset`: its box parked at
+    /// `restingCenter`, scaled about its center as it grows, an outgoing
+    /// arrow drifting left in the scaled space. `nil` before it shows.
+    public static func indicatorFrame(restingCenter: CGPoint, isOutgoing: Bool, offset: CGFloat) -> CGRect? {
+        guard offset > showIndicatorThreshold else { return nil }
+        let progress = indicatorProgress(forOffset: offset)
+        let scale = indicatorScale(forProgress: progress)
+        let drift = isOutgoing ? -outgoingIndicatorDrift * progress : 0
+        let side = indicatorSize * scale
+        return CGRect(x: restingCenter.x + drift * scale - side / 2, y: restingCenter.y - side / 2, width: side, height: side)
+    }
+
     /// Whether a pan with this velocity is horizontal enough to be a reply swipe.
     public static func isSwipeAngle(velocity: CGPoint) -> Bool {
         guard velocity.x != 0 else { return false }

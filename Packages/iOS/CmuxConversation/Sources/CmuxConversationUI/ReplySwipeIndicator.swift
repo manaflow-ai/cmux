@@ -9,7 +9,7 @@ import UIKit
 /// while sharpening from a 4.5 pt blur and fading in; an outgoing bubble's
 /// arrow drifts 12 pt left as it grows.
 final class ReplySwipeIndicator: UIView {
-    static let size: CGFloat = 26
+    static let size = ConversationReplyMotion.indicatorSize
 
     private let sharp = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.backward.fill"))
     /// Core Animation's gaussian blur filter isn't public, so the blur is a
