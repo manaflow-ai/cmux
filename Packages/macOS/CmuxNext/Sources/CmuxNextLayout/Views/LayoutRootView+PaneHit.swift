@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension LayoutRootView {
     /// The pane showing under `point` (this view's coordinates) on the active screen, and the part
