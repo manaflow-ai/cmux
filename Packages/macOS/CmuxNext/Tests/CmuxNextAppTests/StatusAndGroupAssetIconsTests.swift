@@ -18,7 +18,8 @@ struct StatusAndGroupAssetIconsTests {
 
     /// The sidebar sections of one grouped workspace reporting a status entry, with the group
     /// and the entry both naming the stored icon.
-    func sections(asset: (String) -> SidebarFavicon?) -> [SidebarRowSection] {
+    func sections(asset: (String) -> SidebarFavicon?, groupAsset: ((String) -> SidebarFavicon?)? = nil,
+                  extraEntries: Int = 0) -> [SidebarRowSection] {
         let store = DaemonStore()
         let group = WorkspaceGroupID(rawValue: "g1")
         store.apply(snapshot: DaemonTree(
@@ -26,10 +27,12 @@ struct StatusAndGroupAssetIconsTests {
             groups: [WorkspaceGroupSnapshot(id: group, name: "Work", icon: Self.icon)]))
         var mirror = SessionStateMirror()
         mirror.workspaceStatus[Self.workspace] = WorkspaceStatus(
-            workspaceID: Self.workspace, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: Self.icon)])
+            workspaceID: Self.workspace,
+            entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: Self.icon)]
+                + (0..<extraEntries).map { WorkspaceStatus.Entry(key: "k\($0)", text: "entry \($0)") })
         store.session.apply(.snapshot(mirror), to: store.workspaces)
         return SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
-                                              iconAsset: asset)
+                                              iconAsset: asset, groupIconAsset: groupAsset)
     }
 
     func group(_ sections: [SidebarRowSection]) -> SidebarGroup? {
@@ -52,5 +55,23 @@ struct StatusAndGroupAssetIconsTests {
         let loading = sections(asset: { _ in nil })
         #expect(loading.flatMap(\.workspaces).first?.reported?.entries.first?.image == nil)
         #expect(group(loading)?.icon != .favicon(favicon))
+    }
+
+    /// A personal group's icon is the home daemon's (whichever machine's section shows the group);
+    /// a status entry's is its workspace's daemon's.
+    @Test func aGroupReadsItsIconFromTheHomeDaemon() throws {
+        let favicon = SidebarFavicon(try #require(IconAssetImages.decode(Self.svg, mediaType: "image/svg+xml")))
+        let drawn = sections(asset: { _ in nil }, groupAsset: { $0 == Self.icon ? favicon : nil })
+        #expect(group(drawn)?.icon == .favicon(favicon))
+        #expect(drawn.flatMap(\.workspaces).first?.reported?.entries.first?.image == nil)
+    }
+
+    /// The hover card lists as many status entries as the row does, then how many more.
+    @Test func theHoverCardFoldsStatusEntriesPastTheRowsLimit() throws {
+        let row = try #require(sections(asset: { _ in nil }, extraEntries: 9).flatMap(\.workspaces).first)
+        let texts = WorkspaceHoverCardContent.make(row, machine: nil, now: Date()).facts.map(\.text)
+        let limit = SidebarWorkspaceStatus.visibleEntryLimit
+        #expect(texts.filter { $0 == "Building" || $0.hasPrefix("entry ") }.count == limit)
+        #expect(texts.last == CmuxNextSidebar.Strings.statusMore(10 - limit))
     }
 }
