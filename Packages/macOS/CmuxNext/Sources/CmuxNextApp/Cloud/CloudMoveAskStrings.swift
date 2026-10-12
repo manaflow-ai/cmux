@@ -28,6 +28,9 @@ enum CloudMoveAskStrings {
     static var noPage: String {
         String(localized: "cloud.moveAsk.noPage", defaultValue: "Couldn't show the question in the chat, so nothing moved.", table: "Cloud", bundle: .module)
     }
+    static var noMove: String {
+        String(localized: "cloud.moveAsk.noMove", defaultValue: "Move to Cloud isn't available for this chat right now.", table: "Cloud", bundle: .module)
+    }
     static var bringBackIsPersons: String {
         String(localized: "cloud.moveAsk.bringBackIsPersons", defaultValue: "Only a person can bring a chat back from Cloud.", table: "Cloud", bundle: .module)
     }

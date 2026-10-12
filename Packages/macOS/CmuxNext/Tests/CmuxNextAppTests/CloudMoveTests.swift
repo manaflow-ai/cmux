@@ -132,12 +132,13 @@ struct CloudMoveTests {
     /// Not now leaves the chat on this Mac and takes the card away; an agent never brings a chat back.
     @Test func notNowKeepsTheChatAndAnAgentCantBringOneBack() async throws {
         try await Self.withMove("moves") { move in
-            #expect(await move.runAsAgent("cloud bring-back") != nil, "an agent's Bring Back Local ran")
+            let refused = await move.runAsAgent("cloud bring-back")
+            #expect(refused?.message.contains(CloudMoveAskStrings.bringBackIsPersons) == true, "an agent's Bring Back Local was not refused as one: \(String(describing: refused?.message))")
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let card = try #require(await move.toolCards()?.first, "no card in the chat")
             let id = try #require(Self.text(card, "id"))
             #expect(await move.answer(id, "notNow", gesture: true)["ok"] as? Bool == true)
-            #expect(await move.toolCards()?.isEmpty == true, "the card stayed after Not now")
+            #expect(await move.toolCards(waiting: false)?.isEmpty == true, "the card stayed after Not now")
             #expect(move.calls().isEmpty, "Not now moved the chat: \(move.calls())")
             #expect(move.services.locateTab(move.tabID) != nil)
         }
@@ -202,7 +203,7 @@ struct CloudMoveTests {
 
         /// The chat's page's tool cards as the page gets them (its `toolCards` event), once there are
         /// some (or ten seconds passed); nil when the chat has no page.
-        func toolCards() async -> [[String: CmuxNextSettings.JSONValue]]? {
+        func toolCards(waiting: Bool = true) async -> [[String: CmuxNextSettings.JSONValue]]? {
             let deadline = ContinuousClock.now + .seconds(10)
             func cards() -> [[String: CmuxNextSettings.JSONValue]]? {
                 guard let view = services.agentTabs.existingView(key) else { return nil }
@@ -212,7 +213,7 @@ struct CloudMoveTests {
                     return card
                 }
             }
-            while cards()?.isEmpty != false, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            while waiting, cards()?.isEmpty != false, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
             return cards()
         }
 

@@ -57,8 +57,8 @@ final class CloudMoveAsks {
             guard let self else { return nil }
             guard let folder = chat.flatMap(CloudMoveFolder.init(chat:)) else { return ActionWorkFailure(CloudMoveStrings.noFolder) }
             guard !folder.isTooBroad else { return ActionWorkFailure(CloudMoveStrings.homeFolder) }
-            // An ask already open or moving stays as it is.
-            if asks[tabID] != nil { return nil }
+            // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
+            if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
             asks[tabID] = Ask(folder: folder.root, always: false)
             if alwaysFolders().contains(folder.root) {
                 asks[tabID]?.always = true
@@ -122,8 +122,10 @@ final class CloudMoveAsks {
     private func start(_ tab: String, services: AppServices) {
         let registry = services.registry
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)
-        let refusal = registry.capturingTypedRefusal { _ = registry.perform(CloudMove.action, invocation: invocation) }
-        if let refusal { show(tab, .failed, refusal.reason, [.dismiss], services: services) }
+        var ran = false
+        let refusal = registry.capturingTypedRefusal { ran = registry.perform(CloudMove.action, invocation: invocation) }
+        // A run that did nothing and said nothing (the action is off here) never leaves the card asking.
+        if let reason = refusal?.reason ?? (ran ? nil : CloudMoveAskStrings.noMove) { show(tab, .failed, reason, [.dismiss], services: services) }
     }
 
     private func close(_ tab: String, services: AppServices) {

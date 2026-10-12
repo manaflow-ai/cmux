@@ -28,6 +28,9 @@ final class AgentToolCards {
         return push(tab)
     }
 
+    /// Shows chat tab `tab`'s cards again, on its current page; false when it has none to show them.
+    func reshow(tab: String) -> Bool { push(tab) }
+
     /// Every card on chat tab `tab`, in owner order.
     func cards(tab: String) -> [AgentPaneToolCard] {
         let owners = byTab[tab] ?? [:]
