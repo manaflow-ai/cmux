@@ -92,7 +92,12 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         killExit: Int,
         emitCreatedName: Bool = true,
         createExit: Int = 0
-    ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
+    ) async throws -> (
+        failures: [RemoteTmuxController.NewSessionFailure],
+        argv: String,
+        tabs: Int,
+        attachCalls: Int
+    ) {
         _ = NSApplication.shared
         let appDelegate = try #require(AppDelegate.shared)
         let argvLog = FileManager.default.temporaryDirectory
@@ -111,8 +116,12 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             try? FileManager.default.removeItem(atPath: argvLog)
         }
         var failures: [RemoteTmuxController.NewSessionFailure] = []
+        var attachCalls = 0
         var environment = RemoteTmuxNewSessionEnvironment.live
-        environment.attach = { _, _, _, _, _ in throw AttachRefused() }
+        environment.attach = { _, _, _, _, _ in
+            attachCalls += 1
+            throw AttachRefused()
+        }
         environment.reportFailure = { _, failure, _ in failures.append(failure) }
         let controller = RemoteTmuxController(newSessionEnvironment: environment)
         let manager = TabManager()
@@ -128,7 +137,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         await controller.createAndMirrorSession(request, in: manager)
 
         let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
-        return (failures, argv, manager.tabs.count - tabsBefore)
+        return (failures, argv, manager.tabs.count - tabsBefore, attachCalls)
     }
 
     /// Runs the same create path with an attach that reports a non-throwing miss.
@@ -199,17 +208,18 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         }
     }
 
-    @Test func aNonzeroCreateWithSessionOutputReportsAnAttachFailure() async throws {
+    @Test func aNonzeroCreateWithUnexpectedOutputReportsACreationFailure() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let run = try await runCreateThenFailedAttach(
-                sessionName: "transport-error-after-create",
+                sessionName: "remote-login-banner",
                 killExit: 1,
                 createExit: 1
             )
             #expect(run.failures == [
-                .attach(sessionName: "transport-error-after-create", removed: false),
+                .create,
             ])
-            #expect(run.argv.contains("'kill-session' '-t' '=transport-error-after-create'"))
+            #expect(run.attachCalls == 0)
+            #expect(run.argv.contains("'kill-session' '-t' '=cmux-new-"))
             #expect(run.tabs == 0)
         }
     }
