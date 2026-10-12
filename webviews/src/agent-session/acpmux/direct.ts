@@ -434,9 +434,6 @@ export class AcpmuxDirectClient {
   private sessions: Session[] = [];
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
-  /// Sessions whose turn ended while another was selected. acpmux does not track what the
-  /// user has seen, so the pane keeps this until the session is selected.
-  private unseen = new Set<string>();
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -467,6 +464,8 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
+  private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
@@ -519,6 +518,10 @@ export class AcpmuxDirectClient {
   private hasConnected = false;
   private closed = false;
   private selectionGeneration = 0;
+  /// The last attach sent, and what acpmux last accepted about whether the page shows its chat.
+  private attaching: Promise<unknown> = Promise.resolve();
+  private shownToAcpmux?: { sessionId: string; visible: boolean };
+  private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
@@ -540,6 +543,7 @@ export class AcpmuxDirectClient {
     this.listener = listener;
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it
@@ -726,6 +730,7 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.historyExhausted = false;
     this.rows.clear();
+    this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
@@ -886,31 +891,39 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
   }
 
-  /// A full session list from `_acpmux/watch`. A turn whose end the reread is the first to show
-  /// (its notice lost to a lag or a reconnect) counts as unseen too; sessions gone from the list
-  /// leave the set.
+  /// A full session list from `_acpmux/watch`. acpmux owns `unread` (cx-n8ou): the pane only
+  /// tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
   private reread(sessions: Session[] | undefined): Session[] {
-    const next = (sessions ?? []).filter((session) => session.sessionId);
-    const ids = new Set(next.map((session) => session.sessionId));
-    const running = new Set(this.sessions.filter((session) => session.status === "running").map((s) => s.sessionId));
-    for (const id of this.unseen) if (!ids.has(id)) this.unseen.delete(id);
-    for (const session of next)
-      if (
-        running.has(session.sessionId) &&
-        session.status !== "running" &&
-        session.sessionId !== this.selectedSessionId
-      )
-        this.unseen.add(session.sessionId);
-    return next.map(this.withUnseen);
+    return (sessions ?? []).filter((session) => session.sessionId);
   }
 
-  /// The session with its unseen flag; a new object, so its sidebar entry is rebuilt.
-  private withUnseen = (session: Session): Session =>
-    this.unseen.has(session.sessionId) && session.unread !== true ? { ...session, unread: true } : session;
+  /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
+  /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
+  private showChanged = (): void => {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.closed) return;
+    this.syncView();
+    if (pageShown()) this.markSeen(sessionId);
+  };
+
+  /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
+  /// its own task, so a view must wait for the attach it changes and for the view before it.
+  private syncView(): void {
+    this.viewSync = this.viewSync.then(async () => {
+      await this.attaching;
+      const sessionId = this.selectedSessionId;
+      const visible = pageShown();
+      if (!sessionId || this.closed || this.shownToAcpmux?.sessionId !== sessionId) return;
+      if (this.shownToAcpmux.visible === visible) return;
+      await this.request("_acpmux/view", { sessionId, visible }).then(
+        () => (this.shownToAcpmux = { sessionId, visible }),
+        () => undefined,
+      );
+    });
+  }
 
   /// Selecting a session is seeing it, including an unread flag acpmux sent.
   private markSeen(sessionId: string): void {
-    this.unseen.delete(sessionId);
     this.sessions = this.sessions.map((session) =>
       session.sessionId === sessionId && session.unread === true ? { ...session, unread: false } : session,
     );
@@ -966,6 +979,19 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// Commits in the selected session's repository (`git.commit`; changes/gitWrite.ts builds
+  /// the params and the idempotency key).
+  gitCommit(params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.commit", params);
+  }
+
+  /// Pushes the selected session's branch (`git.push`); never forced.
+  gitPush(params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.push", params);
+  }
+
   /// Stages (or unstages) files of the selected session's repository, named as `git.diff` names
   /// them. Only the native host on this Mac writes: a chat read through a daemon has no Stage.
   gitStage(paths: string[], unstage: boolean): Promise<unknown> {
@@ -973,11 +999,20 @@ export class AcpmuxDirectClient {
     return this.git(unstage ? "git.unstage" : "git.stage", { paths });
   }
 
-  /// Opens the pull request of the selected session's pushed branch (`{url, number}`). Only the
-  /// native host on this Mac runs it, as for Stage.
-  gitPullRequest(): Promise<unknown> {
+  /// Stages (or unstages) one hunk of a file (and a rename's previous path), named as for `gitStage`: `hunk` is its lines as
+  /// `git.diff` showed them, and the native host applies only the hunk it finds with those lines.
+  gitStageHunk(paths: string[], hunk: string[], unstage: boolean): Promise<unknown> {
     if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
-    return this.git("git.pullRequest", {});
+    return this.git(unstage ? "git.unstageHunk" : "git.stageHunk", { paths, hunk });
+  }
+
+  /// Opens the pull request of the selected session's pushed branch (`{url, number}`), or with
+  /// `{action: "threads"}` reads its review threads (`{url, number, threads}`), or with
+  /// `{action: "merge", number, url}` merges it (cx-ncc.77.4). Only the native host on this Mac runs
+  /// it, as for Stage.
+  gitPullRequest(params: { action?: "threads" | "merge"; number?: number; url?: string } = {}): Promise<unknown> {
+    if (this.gitRoute === "daemon") return Promise.reject(new Error(translate("error.noFolderChanges")));
+    return this.git("git.pullRequest", params);
   }
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
@@ -988,7 +1023,17 @@ export class AcpmuxDirectClient {
   }
 
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.stage" | "git.unstage" | "git.pullRequest",
+    method:
+      | "git.diff"
+      | "git.status"
+      | "git.checkpoint.diff"
+      | "git.commit"
+      | "git.push"
+      | "git.stage"
+      | "git.unstage"
+      | "git.stageHunk"
+      | "git.unstageHunk"
+      | "git.pullRequest",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
@@ -998,9 +1043,18 @@ export class AcpmuxDirectClient {
     if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
     // The native host runs the read on the machine whose acpmux runs the session (a Cloud or
     // SSH machine's chat reads through that machine's daemon), so no page-side machine check.
-    return this.gitRoute === "daemon"
-      ? this.request(method, { sessionId, cwd, ...params })
-      : postNative(method, { cwd, ...params });
+    // The host refuses a commit or push whose session folder is not on this Mac.
+    const asked =
+      this.gitRoute === "daemon"
+        ? this.request(method, { sessionId, cwd, ...params })
+        : postNative(method, { cwd, ...params });
+    // A status read names the session it read, so a commit or push built on it says which
+    // session's repository the reader saw; the host refuses one for another session.
+    return method === "git.status"
+      ? asked.then((value) =>
+          value && typeof value === "object" ? { ...(value as object), session_id: sessionId } : value,
+        )
+      : asked;
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
@@ -1034,12 +1088,20 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const result = await this.request("_acpmux/attach", {
+    const visible = pageShown();
+    const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
       kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
       eventStream: true,
+      visible,
     });
+    this.attaching = attaching.then(
+      () => (this.shownToAcpmux = { sessionId, visible }),
+      () => undefined,
+    );
+    const result = await attaching;
+    this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
     // An agent usually lists its commands once, at start, which is older than the page.
@@ -1107,18 +1169,13 @@ export class AcpmuxDirectClient {
     const session = params?.session;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
-      this.unseen.delete(session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
       else this.emit("session purged");
       return;
     }
     if (!session?.sessionId) return;
-    const before = this.sessions.find((item) => item.sessionId === session.sessionId);
-    // A turn that ends in the background is news the user hasn't seen.
-    if (session.sessionId !== this.selectedSessionId && before?.status === "running" && session.status !== "running")
-      this.unseen.add(session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), this.withUnseen(session)];
+    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
@@ -1274,7 +1331,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
-      if (event.kind === "user_message") {
+      if (event.kind === "forked") {
+        this.forkedAtSeq = event.seq;
+      } else if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
@@ -1483,6 +1542,7 @@ export class AcpmuxDirectClient {
         return entry;
       }),
       peers: this.peers,
+      ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
             sessionId: summary.sessionId,
@@ -1974,15 +2034,16 @@ export class AcpmuxDirectClient {
     });
     this.emit();
   }
-  /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
-  /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
-  /// transcript; a reader who opened another session meanwhile stays there.
-  async fork(throughSeq: number): Promise<string | undefined> {
+  /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
+  /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
+  /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
+  /// stays there.
+  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       return await this.select(String(result.sessionId));
     } catch (error) {
@@ -2104,6 +2165,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
@@ -2218,11 +2280,20 @@ export function catalogModel(model: any): AcpmuxSnapshot["catalog"][number]["mod
   return entry;
 }
 
+/// A harness map's entries in acpmux's order: its default (`defaultHarness`) first, then by id. The
+/// native relay re-encodes the reply, so the map's own key order means nothing (a first launch
+/// asked the model router instead of Claude Code).
+function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown): any[] {
+  const ids = Object.keys(harnesses).sort((a, b) =>
+    a === preferred ? -1 : b === preferred ? 1 : a < b ? -1 : a > b ? 1 : 0,
+  );
+  return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
-  return (
-    Array.isArray(harnesses) ? harnesses : Object.entries(harnesses).map(([id, data]) => ({ id, ...(data as any) }))
-  ).map((harness: any) => ({
+  const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
+  return entries.map((harness: any) => ({
     id: String(harness.id ?? harness.name),
     name: agentName(
       String(harness.id ?? harness.name),
@@ -2242,4 +2313,10 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
   }));
+}
+
+/// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
+/// hidden, or in an occluded window.
+function pageShown(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
 }

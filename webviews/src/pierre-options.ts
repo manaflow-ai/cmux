@@ -1,11 +1,18 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
-import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
+import {
+  appearanceBackgroundColor,
+  readableColor,
+  type DiffChangeColors,
+  type DiffViewerAppearance,
+} from "./appearance";
 import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
+  /** Diff Colors, the Settings-only add/remove palette (appearance.ts `setDiffChangeColors`). */
+  colors: DiffChangeColors;
   diffIndicators: "bars" | "classic" | "none";
   expandUnchanged: boolean;
   layout: "split" | "unified";
@@ -171,6 +178,20 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       background-color: var(--cmux-diff-solid-bg);
+      /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
+      --trees-icon-gray: var(--cmux-file-icon-gray);
+      --trees-icon-red: var(--cmux-file-icon-red);
+      --trees-icon-vermilion: var(--cmux-file-icon-vermilion);
+      --trees-icon-orange: var(--cmux-file-icon-orange);
+      --trees-icon-yellow: var(--cmux-file-icon-yellow);
+      --trees-icon-green: var(--cmux-file-icon-green);
+      --trees-icon-teal: var(--cmux-file-icon-teal);
+      --trees-icon-cyan: var(--cmux-file-icon-cyan);
+      --trees-icon-blue: var(--cmux-file-icon-blue);
+      --trees-icon-indigo: var(--cmux-file-icon-indigo);
+      --trees-icon-purple: var(--cmux-file-icon-purple);
+      --trees-icon-pink: var(--cmux-file-icon-pink);
+      --trees-icon-mauve: var(--cmux-file-icon-mauve);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;

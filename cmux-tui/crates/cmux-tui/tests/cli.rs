@@ -3674,6 +3674,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_write.rs"]
+mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
@@ -3689,15 +3691,16 @@ mod new_terminal_cwd;
 #[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
+#[path = "cli/state_helpers.rs"]
+mod state_helpers;
 #[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
+#[path = "cli/tab_group_hex.rs"]
+mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-
-#[path = "cli/state_helpers.rs"]
-mod state_helpers;
 use state_helpers::*;
 
 #[cfg(unix)]

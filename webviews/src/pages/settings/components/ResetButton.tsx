@@ -2,6 +2,11 @@ import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 
+/** An empty Reset slot, for a row with no setting to reset: its control lines up with the others. */
+export function ResetSpacer() {
+  return <span className="reset-slot" aria-hidden="true" />;
+}
+
 /**
  * A row's Reset control in a slot every row reserves, so it never moves the row's other
  * controls. It fades and scales in while the value differs from the default; at the default it

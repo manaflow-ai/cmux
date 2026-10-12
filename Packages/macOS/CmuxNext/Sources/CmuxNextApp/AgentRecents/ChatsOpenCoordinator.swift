@@ -13,6 +13,8 @@ struct ChatOpenSubject: Equatable {
     var harness: String?
     var sessionID: String?
     var cwd: String?
+    /// The chat's index key (`harness:id`): a fresh chat opened for it shows its past turns.
+    var key: String?
 
     /// The acpmux harness family a fresh agent chat for this chat starts on, nil for the default.
     var acpHarness: String? {
@@ -46,13 +48,14 @@ enum ChatOpenRoute: Equatable {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(let adopt, let cwd, _):
             return openTab(adopt).map { .reveal(tab: $0) }
-                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt), command: nil, env: [:])
+                ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
+                                 command: nil, env: [:])
         case .terminal(_, _, let cwd):
-            return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd, seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness),
-                                 command: nil, env: [:])
+            return .newWorkspace(name: chat.title, cwd: cwd ?? chat.cwd,
+                                 seed: AgentPaneSeed(cwd: cwd ?? chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])
         case .readOnly:
-            return .newWorkspace(name: chat.title, cwd: chat.cwd, seed: AgentPaneSeed(cwd: chat.cwd, harness: chat.acpHarness),
-                                 command: nil, env: [:])
+            return .newWorkspace(name: chat.title, cwd: chat.cwd,
+                                 seed: AgentPaneSeed(cwd: chat.cwd, harness: chat.acpHarness, pastChat: chat.key), command: nil, env: [:])
         }
     }
 
@@ -85,6 +88,11 @@ final class ChatsOpenCoordinator {
                   let url = await view.pickFolder() else { return .cancelled }
             return await self.reopen(chat, in: url.path)
         }
+        // A fresh chat opened for a chat that cannot resume here shows its past (cx-khns1).
+        AgentPanePastTurn.reader = { [weak self] chat in
+            guard let services = self?.services, let environment = QuitAgents.environment(services) else { return [] }
+            return (try? await environment.chatTranscript(key: chat)) ?? []
+        }
     }
 
     /// Open in Terminal (the row's right-click menu): the harness's own resume command.
@@ -113,12 +121,12 @@ final class ChatsOpenCoordinator {
         // harness and session id in its key (`harness:sessionId`).
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
         let subject = ChatOpenSubject(title: title, harness: chat?.harness ?? parts.first,
-                                      sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd)
+                                      sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd, key: key)
         switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
             // The chat opens (in its new workspace) and says why it has no folder, with Choose
             // Folder there (cx-nn3e.1), never a bare Open panel.
-            let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason))
+            let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason), pastChat: key)
             if let page, replace(page, with: seed) { return }
             createWorkspace(WorkspaceSpawn(name: title), seed: seed)
         case .reveal(let tab):

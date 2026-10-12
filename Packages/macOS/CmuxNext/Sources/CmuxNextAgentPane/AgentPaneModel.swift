@@ -83,11 +83,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public var pendingRevealTurn: String?
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
-    @ObservationIgnored public private(set) var hasHandshake = false
+    @ObservationIgnored public internal(set) var hasHandshake = false
     /// Runs a git read on the session host and returns its JSON result.
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Runs a commit or push on the session host in the given folder (the pane's session's,
+    /// from the host) and returns its `MutationResult` as JSON; throws like ``onGit``.
+    @ObservationIgnored public var onGitWrite: (@MainActor (AgentPaneGitWrite, String) async throws -> Data)?
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
@@ -102,7 +105,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
-    @ObservationIgnored private var pendingConnection: AcpmuxConnection?
+    @ObservationIgnored var pendingConnection: AcpmuxConnection?
     /// The folders of this pane's workspace the App knows (its local tabs' folders). With the
     /// handshake's cwd and the new tab page's folders they are the roots every `cwd` or `path`
     /// the page sends must be under (``AcpmuxPathPolicy``).
@@ -124,14 +127,15 @@ public final class AgentPaneModel {
     @ObservationIgnored public internal(set) var chosenFolder: String?
     @ObservationIgnored internal(set) var handshakeCwd: String?
 
-    /// Saves the inspector's exported log (text, suggested file name) where
-    /// the user picks; true when saved, false when the user cancelled. Nil
-    /// leaves the page to copy the log instead.
-    @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
+    /// Saves the inspector's exported log or a side panel document where the user picks; true
+    /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
+    @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
+    /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
+    @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     @ObservationIgnored public var onShowContextUsage: (@MainActor (Bool) async throws -> Void)?
 
-    @ObservationIgnored private let host: any AgentPaneHostProviding
+    @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
@@ -207,71 +211,8 @@ public final class AgentPaneModel {
         }
         switch request {
         case .ready, .reconnect:
-            setCheckpointAvailable(false)
-            do {
-                var handshake = request == .ready
-                    ? try await host.handshake(sessionId: sessionId)
-                    : try await host.reconnectHandshake(sessionId: sessionId)
-                // Only a chat without a session yet starts from the seed.
-                if sessionId == nil, let seed = await seed?.take() {
-                    handshake.cwd = seed.cwd
-                    handshake.draft = seed.draft
-                    handshake.prompt = seed.prompt
-                    handshake.harness = seed.harness
-                    handshake.adopt = seed.adopt
-                }
-                // The surface holds after the chat has a session (a reload
-                // of the quick panel stays compact).
-                handshake.surface = seed?.surface
-                // A new tab page is a new chat on every host, the mock included: the page
-                // never falls back to the most recent session behind it. Its chat starts in
-                // the page's folder unless a seed named one.
-                if sessionId == nil, let newTab {
-                    handshake.newTab = newTab
-                    handshake.newSession = true
-                    if handshake.cwd == nil { handshake.cwd = newTab.cwd }
-                }
-                if sessionId == nil, let folderNeeded = seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
-                handshake.linkScheme = linkScheme
-                // A chat on another machine names that machine (its host set it), never this Mac.
-                if handshake.machineName == nil { handshake.machineName = await Self.localMachineName?.value }
-                // A pane attaches only to the exact session its tab recorded: a session the
-                // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
-                // available", never another chat (P1 2026-10-09).
-                if sessionId != nil { handshake.sessionMustExist = true }
-                // A chat its host already started (on another machine) gets no new-chat folder steps:
-                // they read this Mac's folders and disk (cx-k21v).
-                let started = handshake.connection?.remote != nil
-                let filled = started ? false : await startFolders.apply(to: &handshake, ready: request == .ready, model: self)
-                if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
-                handshake.revealTurn = pendingRevealTurn
-                pendingRevealTurn = nil
-                hasHandshake = true
-                // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
-                if let cwd = handshake.cwd, !filled { handshakeCwd = cwd }
-                if let session = handshake.sessionId { transport.sessions.add(session) }
-                if handshake.connection?.remote != nil { remoteChat = true }
-                // The connection stays here; the reply never encodes it.
-                pendingConnection = handshake.connection
-                handshake.connection = nil
-                return AgentPaneReply.handshake(handshake)
-            } catch {
-                let message = AgentPaneHostError.userMessage(for: error)
-                var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)
-                // A refused chat of another machine still names that machine on its chip (cx-k21v).
-                if let machine = (error as? any AgentPaneHostRefusal)?.machineName, var failure = reply["error"] as? [String: Any] {
-                    failure["details"] = ["machineName": machine]
-                    reply["error"] = failure
-                }
-                return reply
-            }
-        case .persistSession(let id):
-            if id != sessionId {
-                sessionId = id
-                newTab = nil
-                onSessionChange?(id)
-            }
-            return AgentPaneReply.success()
+            return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
@@ -347,72 +288,35 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target): return await openFile(path, target: target)
-        case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext: return await quick?.respond(to: request) ?? Self.unsupported("quick")
+        case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
+            return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))
         case .openPreview(let url):
             guard let onOpenPreview, onOpenPreview(url) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
             }
             return AgentPaneReply.success()
-        case .quickOpenInWindow(let session):
-            guard let openInWindow = quick?.openInWindow else { return Self.unsupported("quick.openInWindow") }
-            if let session, session != sessionId {
-                sessionId = session
-                newTab = nil
-                onSessionChange?(session)
-            }
-            openInWindow(sessionId)
-            return AgentPaneReply.success()
-        case .quickStartInBackground(let start):
-            guard let startInBackground = quick?.startInBackground else { return Self.unsupported("quick.startInBackground") }
-            if start.sessionId != sessionId {
-                sessionId = start.sessionId
-                newTab = nil
-                onSessionChange?(start.sessionId)
-            }
-            await startInBackground(start)
-            return AgentPaneReply.success()
-        case .git(let git):
-            guard let onGit else { return Self.gitFailure(.notConnected) }
-            do {
-                let data = try await onGit(git)
-                // A git.diff with patches can be many megabytes: parse it off the main actor (cx-9c8m).
-                guard let value = await Self.parseGitReply(data)?.value else {
-                    return Self.gitFailure(.failed)
-                }
-                return AgentPaneReply.success(value)
-            } catch {
-                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
-            }
-        case .invalidGit: return Self.gitFailure(.invalidRequest)
-        case .githubRepository(let cwd): return AgentPaneReply.success(["repository": (await AgentPaneGitHubRepository.read(at: cwd)).map { $0 as Any } ?? NSNull()])
+        case .gitWrite(let write): return await respondToGitWrite(write)
+        case .git, .invalidGit, .githubRepository, .gitStage, .gitPullRequest, .transportOpen, .transportSend, .transportGesture, .transportGestureRelease, .transportClose:
+            return await AgentPaneTransportReply.reply(to: request, in: self)
         case .turnUndo(let undo): return await AgentPaneTurnUndo.reply(to: undo, in: self)
         case .invalidTurnUndo: return await AgentPaneTurnUndo.reply(to: nil, in: self)
-        case .gitStage(let request): return await AgentPaneGitStage.reply(to: request, in: self)
-        case .gitPullRequest(let request): return await AgentPaneGitPullRequest.reply(to: request, in: self)
-        case .transportOpen:
-            guard let connection = pendingConnection else { return Self.transportFailure(.noConnection) }
-            pendingConnection = nil
-            do {
-                return AgentPaneReply.success(["connection": try await transport.open(connection)])
-            } catch {
-                return Self.transportFailure(error)
-            }
-        case .transportSend(let connection, let frames):
-            return Self.transportReply(await transport.send(connection: connection, frames: frames))
-        case .transportGesture(let intent):
-            guard let intent else { return Self.transportFailure(.intentInvalid) }
-            guard let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
-            return AgentPaneReply.success(["ticket": ticket])
-        case .transportGestureRelease: return endTransport(closing: nil)
-        case .transportClose(let connection): return endTransport(closing: connection)
+        case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
-        case .saveLog(let text, let suggestedName): return await saveLog(text, suggestedName: suggestedName)
+        case .saveFile(let save): return await saveFile(save)
         case .showContextUsage(let show): return await showContextUsage(show)
         case .unsupported(let method): return Self.unsupported(method)
         }
     }
 
-    private func setCheckpointAvailable(_ available: Bool) {
+    /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
+    func adoptSession(_ id: String) {
+        guard id != sessionId else { return }
+        sessionId = id
+        newTab = nil
+        onSessionChange?(id)
+    }
+
+    func setCheckpointAvailable(_ available: Bool) {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)

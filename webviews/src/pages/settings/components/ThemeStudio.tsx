@@ -21,6 +21,7 @@ import { rowsByKey } from "../schema";
 import { managedOf, managedText, valueOf } from "../store";
 import { t, text } from "../strings";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
+import { ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { SettingRow, useRowMenu } from "./SettingRow";
 import { ThemePreview } from "./ThemePreview";
@@ -236,6 +237,7 @@ export function ThemeStudio() {
                         else void write({ kind: "single", name });
                       }}
                     />
+                    <ResetSpacer />
                   </div>
                 </div>
               </div>
@@ -248,7 +250,10 @@ export function ThemeStudio() {
                           {side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                         </div>
                       </ContextMenu>
-                      <div className="row-control">{picker(ids[side], current(side), pickSide(side))}</div>
+                      <div className="row-control">
+                        {picker(ids[side], current(side), pickSide(side))}
+                        <ResetSpacer />
+                      </div>
                     </div>
                   </div>
                 ))
@@ -265,6 +270,7 @@ export function ThemeStudio() {
                       {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
                         write(name ? { kind: "single", name } : null),
                       )}
+                      <ResetSpacer />
                     </div>
                   </div>
                 </div>
@@ -311,6 +317,7 @@ export function ThemeStudio() {
                     onPreview={previewApp}
                     custom={custom}
                   />
+                  <ResetSpacer />
                 </div>
               </div>
             </div>

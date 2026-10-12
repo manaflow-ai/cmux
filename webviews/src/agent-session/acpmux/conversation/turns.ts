@@ -217,6 +217,7 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
       items: edits.flatMap((row) => row.items ?? []),
       toolCount: edits.reduce((sum, row) => sum + (row.toolCount ?? 0), 0),
       ended: true,
+      merged: edits.map((row) => row.id),
     },
   ];
 }

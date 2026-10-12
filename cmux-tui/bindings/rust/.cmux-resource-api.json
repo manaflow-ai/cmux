@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "4516279760bb9e96eeb47b7ea89be9f3b336665762ec3cdb4fe23536dfd52114",
+  "catalog_sha256": "53873accd111ce02623c70754ee076d87a51c52a844354507d8cebaba2415388",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -160,6 +160,9 @@
     "git.checkpoint.unpin": {
       "class": "mutation"
     },
+    "git.commit": {
+      "class": "mutation"
+    },
     "git.diff": {
       "class": "read"
     },
@@ -168,6 +171,9 @@
     },
     "git.files.search": {
       "class": "read"
+    },
+    "git.push": {
+      "class": "mutation"
     },
     "git.status": {
       "class": "read"

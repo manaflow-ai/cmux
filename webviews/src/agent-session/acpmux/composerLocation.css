@@ -85,11 +85,14 @@
 .acpmux-context-divider { flex: none; color: var(--agent-muted); opacity: .65; }
 /* The menus: the composer menu's surface, rows highlighted with the theme's wash, never a system blue.
    Base UI's positioner places them (portaled to the body, which is why styles.css gives
-   .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. */
-.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
-/* The recent folders scroll; Choose folder… stays in view under them. The menu opens above its
-   control (ComposerContext.tsx useControlAnchor), so the list also fits the room the positioner
-   reports there, less Choose folder… and the menu's padding, but never under two rows. */
+   .ui-positioner the pane's tokens), so the composer menu's own absolute placement is undone. Both
+   classes, so this wins over styles.css's .acpmux-menu whichever loads last: losing it puts the
+   popup its own height above the positioner. */
+.acpmux-menu.acpmux-location-menu { position: relative; inset: auto; min-width: 200px; max-width: 320px; max-height: none; overflow: visible; font-size: var(--text-control); }
+/* The recent folders (and the folder field's suggestions) scroll; Choose folder… stays in view under
+   them. A location menu keeps the side it chose when it opened (ComposerContext.tsx
+   useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
+   and the menu's padding, but never under two rows. */
 .acpmux-location-folders {
   max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
   overflow: auto;

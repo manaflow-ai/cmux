@@ -290,10 +290,10 @@ struct ThreadPreview: Hashable {
         // A root can be a 100k-character message: only the characters that 4 lines can hold are laid out
         // (no 10 pt glyph is narrower than 2 pt, so 2 per pt of width is more than 4 lines), at most 2000;
         // a cut text always ends in "…".
-        let limit = 16 + 2 * CrashGuard.int(min(992, max(0, maxWidth.isFinite ? maxWidth : 0)), in: 0...992) // cmux: crash program, checked conversion of the clamped width
-        let end = text.index(text.startIndex, offsetBy: limit, limitedBy: text.endIndex) ?? text.endIndex
-        let cut = end < text.endIndex
-        let flat = String(text.prefix(limit)).replacingOccurrences(of: "\n", with: " ") // cmux: crash program, no range subscript (same cut as `end`)
+        let limit = 16 + 2 * CrashGuard.int(maxWidth.isFinite ? min(992, max(0, maxWidth)) : 0, in: 0...992)
+        let head = text.prefix(limit)
+        let cut = head.endIndex < text.endIndex
+        let flat = String(head).replacingOccurrences(of: "\n", with: " ")
         let tl = TextLayout.make(flat, runs: [], maxWidth: maxWidth, font: textFont)
         let ns = flat as NSString
         var lines: [String] = []

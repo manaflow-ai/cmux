@@ -54,10 +54,12 @@ export function TerminalInfo() {
       <div className="row-help">{t("settingsWindow.terminalBody.options")}</div>
       <div className="rows">
         <ActionRow title={t("settingsWindow.ghosttyConfig")} help="">
-          <span className="row-help selectable">{host.terminal.ghostty_config}</span>
+          <span className="row-help selectable" title={host.terminal.ghostty_config}>
+            {host.terminal.ghostty_config}
+          </span>
         </ActionRow>
         <ActionRow title={t("settingsWindow.shellIntegration")} help="">
-          <span className="row-help selectable">
+          <span className="row-help selectable" title={host.terminal.shell_integration ?? undefined}>
             {host.terminal.shell_integration ?? t("settingsWindow.shellIntegrationUnknown")}
           </span>
         </ActionRow>

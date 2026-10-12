@@ -47,6 +47,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
+  merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
@@ -129,6 +131,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
+  forkedAtSeq?: number;
   summary?: {
     sessionId: string;
     cwd?: string;

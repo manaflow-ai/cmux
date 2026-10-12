@@ -78,7 +78,7 @@ export function SettingRow({
             <Highlight text={text(row.title)} query={query} />
           </div>
           {row.help && (
-            <div className="row-help">
+            <div className="row-help" title={text(row.help)}>
               <Highlight text={text(row.help)} query={query} />
             </div>
           )}

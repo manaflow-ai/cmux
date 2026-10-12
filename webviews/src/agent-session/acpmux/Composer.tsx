@@ -38,6 +38,7 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -75,6 +76,8 @@ export const COMPOSER_LABELS = {
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
+  attachScreenshot: "composer.attachScreenshot",
+  attachWindow: "composer.attachWindow",
   prompt: "composer.prompt",
   send: "composer.send",
   stop: "composer.stop",
@@ -157,6 +160,9 @@ type Props = {
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
+  /// or a window, attached as an image; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -213,6 +219,7 @@ export function Composer({
   onUnsentDraft,
   onImportFile,
   searchFiles,
+  capture,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -237,6 +244,13 @@ export function Composer({
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
+  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  useEffect(() => {
+    if (!searchFiles) return;
+    const open = () => setFindingFiles(true);
+    window.addEventListener("cmux-acpmux-searchFiles", open);
+    return () => window.removeEventListener("cmux-acpmux-searchFiles", open);
+  }, [searchFiles]);
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
@@ -1034,6 +1048,21 @@ export function Composer({
                 {
                   choices: [
                     { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
+                    // A harness without images would refuse the capture after the whole pick.
+                    ...(capture && allowImages
+                      ? [
+                          {
+                            id: "screenshot",
+                            name: t(COMPOSER_LABELS.attachScreenshot),
+                            icon: <Icon name="site.permission.camera" size={18} />,
+                          },
+                          {
+                            id: "window",
+                            name: t(COMPOSER_LABELS.attachWindow),
+                            icon: <Icon name="site.permission.windowmanagement" size={18} />,
+                          },
+                        ]
+                      : []),
                     { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
@@ -1055,11 +1084,15 @@ export function Composer({
                         )
                       : id === "attach"
                         ? chooser.current?.click()
-                        : id === "mention"
-                          ? mention()
-                          : id === "files"
-                            ? setFindingFiles(true)
-                            : openCommands(),
+                        : id === "screenshot" || id === "window"
+                          ? void capture?.(id === "window" ? "window" : "screen").then(
+                              (file) => file && attach.current([file]),
+                            )
+                          : id === "mention"
+                            ? mention()
+                            : id === "files"
+                              ? setFindingFiles(true)
+                              : openCommands(),
                 },
               ]}
             />

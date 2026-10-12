@@ -1,18 +1,23 @@
 // One edit in the changes view: its header and its diff on @pierre/diffs.
 import React, { useMemo } from "react";
-import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
+import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride, type DiffLineAnnotation } from "@pierre/diffs";
 import { FileDiff, WorkerPoolContext, useStableCallback } from "@pierre/diffs/react";
 import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
 import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { HunkStage } from "./HunkStage";
+import { ReviewThread } from "./ReviewThread";
+import { showsLine, threadId, type AddressState, type ReviewThread as Thread } from "./reviewThreads";
 import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 import { paneHighlightPool } from "../conversation/highlightPool";
 
 export type DiffLayout = "unified" | "split";
+/// A line annotation: a hunk's actions, or a review thread.
+type AnnotationOf = { anchor?: HunkAnchor; thread?: Thread };
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () =>
@@ -29,6 +34,8 @@ export function EditBlock({
   onPainted,
   review,
   focusAfter,
+  threads,
+  address,
 }: {
   file: TurnFile;
   edit: DiffEdit;
@@ -41,6 +48,11 @@ export function EditBlock({
   /// Hunk review, when the view offers it: each hunk gets Reject and Accept as a line annotation.
   review?: HunkReview;
   focusAfter?: FocusAfter;
+  /// The file's pull request review threads (Branch scope): each under its line, or above the
+  /// diff when this edit does not show that line.
+  threads?: readonly Thread[];
+  /// Address on an open thread (ReviewThread.tsx): each thread's state, by `threadId`, and its press.
+  address?: { states: ReadonlyMap<string, AddressState>; run: (thread: Thread) => void };
 }) {
   const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
@@ -57,16 +69,32 @@ export function EditBlock({
   const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const workerPool = paneHighlightPool(lineDiffType, language);
   const reviewing = review !== undefined;
+  // A git scope's hunks stage one by one; a new or deleted file stages whole, from its header, and
+  // a patch the host cut short has a last hunk the App's own read would not match.
+  const staging = !reviewing && on.stageHunk !== undefined && !file.created && !file.deleted && !file.patchTruncated;
+  const addressOf = (thread: Thread) =>
+    address && {
+      state: address.states.get(threadId(thread)) ?? { state: "idle" as const },
+      run: () => address.run(thread),
+    };
+  const [placed, unplaced] = useMemo(() => {
+    const on = (threads ?? []).filter((thread) => edit.numbered && showsLine(edit, thread));
+    return [on, (threads ?? []).filter((thread) => !on.includes(thread))];
+  }, [threads, edit]);
   const annotations = useMemo(
-    () =>
-      reviewing
-        ? edit.hunks.flatMap((hunk, hunkIndex) =>
-            hunk.reviewKeys?.length === 0
-              ? []
-              : (hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []),
-          )
-        : [],
-    [reviewing, edit, file, index],
+    (): DiffLineAnnotation<AnnotationOf>[] => [
+      ...(reviewing || staging
+        ? edit.hunks.flatMap((hunk, hunkIndex) => {
+            const at =
+              hunk.reviewKeys?.length === 0
+                ? undefined
+                : hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered);
+            return at ? [{ side: at.side, lineNumber: at.lineNumber, metadata: { anchor: at.metadata } }] : [];
+          })
+        : []),
+      ...placed.map((thread) => ({ side: thread.side, lineNumber: thread.line!, metadata: { thread } })),
+    ],
+    [reviewing, staging, edit, file, index, placed],
   );
   const options = useMemo(
     () => ({
@@ -100,15 +128,31 @@ export function EditBlock({
           {file.binary ? t("changes.binaryNotShown") : t("changes.noLineChanges")}
         </div>
       )}
+      {!view.collapsed && unplaced.length > 0 && (
+        <div className="acpmux-review-unplaced">
+          {unplaced.map((thread) => (
+            <ReviewThread key={threadId(thread)} thread={thread} address={addressOf(thread)} />
+          ))}
+        </div>
+      )}
       {showDiff && (
         <WorkerPoolContext.Provider value={workerPool}>
-          <FileDiff<HunkAnchor>
+          <FileDiff<AnnotationOf>
             className="acpmux-diff-pierre"
             fileDiff={fileDiff}
             options={options}
             lineAnnotations={annotations}
             renderAnnotation={(annotation) => {
-              const anchor = annotation.metadata;
+              if (annotation.metadata?.thread)
+                return (
+                  <ReviewThread thread={annotation.metadata.thread} address={addressOf(annotation.metadata.thread)} />
+                );
+              const anchor = annotation.metadata?.anchor;
+              const hunk = edit.hunks.find((_, hunkIndex) => hunkKey(file, index, hunkIndex) === anchor?.key);
+              if (staging && on.stageHunk && anchor && hunk) {
+                const { unstage, run } = on.stageHunk;
+                return <HunkStage anchor={anchor} unstage={unstage} onPress={() => run(file.path, hunk)} />;
+              }
               return review && focusAfter && anchor ? (
                 <HunkActions
                   anchor={anchor}

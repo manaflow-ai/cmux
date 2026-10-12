@@ -62,7 +62,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardView(), noticeCardView = SidebarNoticeCardView()
+    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -156,6 +156,19 @@ public final class SidebarView: NSView {
     }
 
     /// The app's one hover card coordinator (the App injects it).
+    /// The React update surfaces (cx-urd.61.2): the staged card's highlights
+    /// popover and the "cmux Updated!" card. Set by the App; without them the
+    /// popover does not open and the Updated card does not show.
+    public var updateSurfaces: (any SidebarUpdateSurfaces)? {
+        didSet {
+            updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }
+            // Each page is made once its card shows.
+            updateCardView.surfaces = updateSurfaces
+            updatedCardView.surfaces = updateSurfaces
+            needsLayout = true
+        }
+    }
+
     public var hoverCards: HoverCardCoordinator {
         get { list.hoverCards }
         set { list.hoverCards = newValue }

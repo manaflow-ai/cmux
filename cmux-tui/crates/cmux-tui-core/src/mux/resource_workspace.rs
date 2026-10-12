@@ -245,7 +245,7 @@ impl Mux {
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
                 );
                 let key = generated_key.clone();
-                let name = name.clone().unwrap_or_else(|| Self::default_workspace_name(state));
+                let name = name.clone().unwrap_or_else(|| self.default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {
                     id: workspace_slot,

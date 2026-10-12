@@ -159,6 +159,18 @@
   font-size: var(--text-body);
   font-weight: 600;
 }
+.acpmux-artifact-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-artifact-version {
+  min-width: 26px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
 .acpmux-artifact-tabs {
   display: inline-flex;
   padding: 2px;
@@ -225,8 +237,22 @@
   transition: opacity 120ms ease-out;
 }
 .cv-user:hover .cv-user__actions,
-.cv-user__actions:focus-within {
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
   opacity: 1;
+}
+/* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
+.cv-user__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-user__version-count {
+  min-width: 28px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--cv-text-muted);
 }
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {
@@ -805,8 +831,27 @@ pre.cv-math-source {
 .cv-tool__chevron {
   margin-left: -4px;
 }
+/* A thought: "Thought" and its first line on one row, the full text below once opened (cx-ncc.73). */
 .cv-thought .cv-tool__text {
-  white-space: normal;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.cv-thought__label {
+  flex: none;
+}
+.cv-thought__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-muted);
+}
+.cv-thought__body {
+  margin: 2px 0 6px 22px;
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .cv-worked.is-toggle:hover,
 .cv-tool.is-toggle:hover {
