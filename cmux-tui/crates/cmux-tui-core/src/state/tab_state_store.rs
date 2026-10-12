@@ -65,8 +65,9 @@ pub(crate) struct TabStateUpdate {
     /// Install id of the app hosting a frontend-rendered browser tab, stored
     /// on its browser record. Only that app sends it; the CLI never does.
     pub(crate) owner: Option<String>,
-    /// The user's icon for the tab (the shared icon wire string: one emoji
-    /// or an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS).
+    /// The user's icon for the tab (the shared icon wire string: one emoji,
+    /// an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, or a stored
+    /// `image:`/`svg:` asset, `icon-assets-v1`, checked by `state_update_tab`).
     pub(crate) icon: Option<Option<String>>,
 }
 
@@ -82,7 +83,7 @@ impl TabStateUpdate {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            crate::workspace_registry::validate_presentation_icon(icon)?;
+            crate::workspace_registry::presentation_store::validate_icon_value(icon)?;
         }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
