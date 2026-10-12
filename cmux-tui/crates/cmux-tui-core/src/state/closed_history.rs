@@ -125,8 +125,11 @@ fn commit_reopen(
     // A closed window (`window` group) reopens no workspace: the app shows
     // that window again, with the workspaces it kept.
     let window = (kind == "window").then(|| record["window_record"].clone());
-    // An ungrouped tab group has no member: its reopen formed it again.
-    let tab_group = record.get("tab_group").is_some_and(Value::is_object);
+    // An ungrouped tab or screen group has no member: its reopen formed it
+    // again.
+    let tab_group = ["tab_group", "screen_group"]
+        .iter()
+        .any(|field| record.get(*field).is_some_and(Value::is_object));
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
@@ -272,6 +275,9 @@ impl Mux {
         if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
             self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
         }
+        if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
+            self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
+        }
         let active = self.with_state(|state| {
             state
                 .workspaces
@@ -374,6 +380,81 @@ impl Mux {
         }
         if let Some(pane) = outcome.pane {
             let (workspace, _) = self.public_screen_of_pane(pane)?;
+            reopened.note_workspace(workspace);
+        }
+        Ok(())
+    }
+
+    /// Form an ungrouped screen group again (`archive`, from
+    /// `record_ungrouped_group`) with its id, name and color around those of
+    /// its screens still open, unpinned and in no other group, in their
+    /// order, in the workspace of the first. A group formed since keeps its
+    /// screens. None still open forms nothing; a live group of that id (a
+    /// retried reopen) is left as it is.
+    fn reopen_screen_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        archive: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let presentation = self.presentation_snapshot();
+        if !presentation.screens.groups.contains_key(&id) {
+            let wanted = archive["screen_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|screen| {
+                    !presentation.screens.is_pinned(screen)
+                        && !presentation.screens.members.contains_key(*screen)
+                })
+                .filter_map(|screen| self.screen_id_of(screen))
+                .collect::<Vec<_>>();
+            let members = self.with_state(|state| {
+                let workspace = |screen: ScreenId| {
+                    state.workspaces.iter().position(|workspace| {
+                        workspace.screens.iter().any(|candidate| candidate.id == screen)
+                    })
+                };
+                let first = wanted.first().and_then(|screen| workspace(*screen));
+                wanted
+                    .iter()
+                    .copied()
+                    .filter(|screen| first.is_some() && workspace(*screen) == first)
+                    .collect::<Vec<_>>()
+            });
+            if members.is_empty() {
+                return Ok(());
+            }
+            self.create_screen_group_with_id(
+                StripRequest::local_screens(actor, "closed.reopen"),
+                &members,
+                archive["name"].as_str().map(str::to_string),
+                archive["color"].as_str().map(str::to_string),
+                id.clone(),
+            )?;
+        }
+        let outcome = self.screen_group_outcome_public(&id);
+        let screens = self.with_state(|state| {
+            let workspace = outcome
+                .workspace
+                .and_then(|workspace| state.workspace_index(workspace))
+                .map(|index| &state.workspaces[index]);
+            workspace.map(|workspace| {
+                let screens = outcome
+                    .members
+                    .iter()
+                    .filter_map(|member| {
+                        workspace.screens.iter().find(|screen| screen.id == *member)
+                    })
+                    .map(|screen| screen.public_id.to_string())
+                    .collect::<Vec<_>>();
+                (workspace.public_id.to_string(), screens)
+            })
+        });
+        if let Some((workspace, screens)) = screens {
+            reopened.screens.extend(screens);
             reopened.note_workspace(workspace);
         }
         Ok(())
