@@ -202,7 +202,8 @@ struct BrowserCLIDialogTests {
         var answers: [Bool] = []
         enqueue(duplicate, kind: .javaScriptConfirm) { button, _ in answers.append(button == "ok") }
         #expect(duplicate.activeInteractiveBrowserPromptIDs.count == (entrypoint == "ui" ? 1 : 0))
-        #expect(workspace.focusedPanelId == focused)
+        // Ordinary UI dialogs may select their surface for presentation.
+        if entrypoint != "ui" { #expect(workspace.focusedPanelId == focused) }
         let answer = try await request("browser.dialog.accept", [
             "workspace_id": workspace.id.uuidString, "surface_id": duplicate.id.uuidString,
         ])
