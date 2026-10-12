@@ -17,7 +17,11 @@ synthetic exports in a scratch folder (no real passwords):
      credit card file cmux must not import): the bookmark lands, the password is
      imported, the zip goes to the Trash, and its history shows in the omnibar;
   6. Chrome's Google Takeout history JSON (one row per visit; two pages) shows in the omnibar,
-     and Chrome's steps name takeout.google.com.
+     and Chrome's steps name takeout.google.com;
+  0. first, in light and dark (window snapshots in --out): the browser sheet; 1Password's and
+     Bitwarden's steps (passwords only); Arc's steps (its password page, no bookmarks step); the
+     Import step of the onboarding window opens the same browser sheet from its button; the
+     Passwords page's Import from Another Browser… button opens it too.
 
 Quits the app by PID and stops the tag's daemons at the end.
 """
@@ -157,6 +161,70 @@ def bookmark_urls():
     return [b.get("url") for b in rpc("bookmark.list", {"profile": "default"}).get("bookmarks", []) if b.get("kind") == "url"]
 
 
+def snapshot(name, kind="main"):
+    path = os.path.join(opts.out, f"{name}.png")
+    reply = rpc("debug.window_snapshot", {"kind": kind, "path": path})
+    check(os.path.exists(path), f"snapshot {name} ({reply.get('method') or reply.get('error')})")
+
+
+def steps_of(browser, shot=None):
+    """Picks `browser` on the open browser sheet; its steps sheet, then Cancel."""
+    rpc("debug.dialog", {"set": {"browser": browser}})
+    rpc("debug.dialog", {"press": "continue"})
+    steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
+    if steps and shot:
+        snapshot(shot)
+    rpc("debug.dialog", {"press": "cancel"})
+    wait_for(lambda: dialog("cmux.dialog.importFiles.steps") is None, f"{browser}'s steps close")
+    return steps or {}
+
+
+def open_browser_sheet(what):
+    reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
+    check(reply.get("performed") is True, f"the action runs as a person's palette run ({what}: {reply})")
+    return wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser sheet ({what})")
+
+
+def entries_and_steps():
+    for mode in ["light", "dark"]:
+        rpc("debug.appearance", {"mode": mode})
+        time.sleep(1.0)  # the window redraws in the new appearance (screenshot only)
+        if not open_browser_sheet(f"palette, {mode}"):
+            return
+        snapshot(f"browser-sheet-{mode}")
+        steps = steps_of("1password", f"steps-1password-{mode}")
+        lines = " ".join(steps.get("lines", []))
+        check("1Password" in steps.get("title", "") and "File > Export" in lines and "CSV" in lines,
+              f"1Password's steps say how it exports its CSV ({steps.get('title')}: {steps.get('lines')})")
+        if mode == "dark":
+            continue
+        open_browser_sheet("Bitwarden")
+        lines = " ".join(steps_of("bitwarden").get("lines", []))
+        check("Export Vault" in lines and "Bookmarks:" not in lines, f"Bitwarden's steps: passwords only ({lines})")
+        open_browser_sheet("Arc")
+        lines = " ".join(steps_of("arc").get("lines", []))
+        check("arc://password-manager/settings" in lines and "Bookmarks:" not in lines,
+              f"Arc's steps name its password page and no bookmarks export ({lines})")
+    # The onboarding window's Import step: its button opens the same sheet.
+    rpc("debug.onboarding", {"action": "open", "step": "importData"})
+    time.sleep(1.0)  # the window lays out (screenshot only)
+    snapshot("onboarding-import-dark", "onboarding")
+    rpc("debug.onboarding", {"action": "import_from_files"})
+    check(wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), "the browser sheet from onboarding") is not None,
+          "the onboarding Import step opens Import from Another Browser…")
+    snapshot("onboarding-browser-sheet-dark", "onboarding")
+    rpc("debug.dialog", {"press": "cancel"})
+    rpc("debug.onboarding", {"action": "close"})
+    rpc("debug.appearance", {"mode": "light"})
+    # The Passwords page's button (a click in the page, which the host takes as the person's).
+    rpc("action.run", {"action": "passwords.open", "focus": True})
+    clicked = wait_for(lambda: (rpc("debug.page", {"page": "cmux.passwords", "action": "click", "selector": ".pw-import-files"}) or {})
+                       .get("error") is None or None, "the Passwords page's import button", 30)
+    check(clicked is not None and wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), "the browser sheet from the page") is not None,
+          "the Passwords page's Import from Another Browser… opens the browser sheet")
+    rpc("debug.dialog", {"press": "cancel"})
+
+
 def import_through(browser, filename):
     """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog."""
     reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
@@ -200,6 +268,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    entries_and_steps()
     result = import_through("edge", "bookmarks.html")
     if isinstance(result, tuple):
         shown, steps = result
