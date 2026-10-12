@@ -1,5 +1,5 @@
 import AppKit
-import SwiftUI
+public import SwiftUI
 
 public extension View {
     /// The shared thin scroller (SCROLLBARS-THIN) for a SwiftUI `ScrollView`: on macOS it is an
