@@ -5,7 +5,7 @@ import Testing
 /// Palette rows act like menu rows: press, drag and release runs the row the release lands on,
 /// and a release off every row runs nothing (cx-bopcl).
 @MainActor
-@Suite(.serialized) struct PalettePressTests {
+struct PalettePressTests {
     private final class Rows: NSObject, NSTableViewDataSource {
         func numberOfRows(in tableView: NSTableView) -> Int { 3 }
     }
@@ -50,6 +50,23 @@ import Testing
                      event(.leftMouseUp, row: 1, in: table, window: window)])
         table.mouseDown(with: event(.leftMouseDown, row: 0, in: table, window: window))
         #expect(ran == [1])
+    }
+
+    /// A release over the search bar or footer lands on a row scrolled out of view, which the
+    /// reader never saw: it runs nothing.
+    @Test func releaseOnARowScrolledOutOfViewRunsNothing() {
+        let (window, table) = table()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 30, width: 200, height: 30))
+        scroll.documentView = table
+        window.contentView = scroll
+        table.scroll(NSPoint(x: 0, y: table.rect(ofRow: 1).minY))
+        var ran: [Int] = []
+        table.onClick = { ran.append($0) }
+        feed(table, [event(.leftMouseDragged, row: 2, in: table, window: window),
+                     event(.leftMouseUp, row: 2, in: table, window: window)])
+        table.mouseDown(with: event(.leftMouseDown, row: 1, in: table, window: window))
+        #expect(!table.visibleRect.contains(table.rect(ofRow: 2)))
+        #expect(ran.isEmpty)
     }
 
     @Test func releaseOffEveryRowRunsNothing() {
