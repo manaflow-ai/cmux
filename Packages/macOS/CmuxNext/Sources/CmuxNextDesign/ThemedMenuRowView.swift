@@ -189,6 +189,15 @@ public final class ThemedMenuRowView: NSView {
                                        owner: self))
     }
 
+    /// The highlight moved onto or off this row (arrow keys): redraw it. Counted for tests, since
+    /// a window's dirty state is not observable off-screen.
+    func highlightChanged() {
+        highlightChanges += 1
+        needsDisplay = true
+    }
+
+    private(set) var highlightChanges = 0
+
     public override func mouseEntered(with event: NSEvent) { needsDisplay = true }
     public override func mouseExited(with event: NSEvent) { needsDisplay = true }
 

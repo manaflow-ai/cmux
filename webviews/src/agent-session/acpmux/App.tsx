@@ -850,8 +850,12 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
   if (box.top < view.top || box.bottom > view.bottom)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
 }
-/// How long Find keeps a new match in view while its groups open and the rows above it measure.
+/// How long Find keeps a new match in view while its groups open and the rows above it measure:
+/// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
+/// match through the measures that come late. A page hidden meanwhile draws no frames and finishes
+/// the frames it has left once shown.
 const FIND_REVEAL_MS = 600;
+const FIND_REVEAL_FRAMES = 36;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1465,10 +1469,12 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
-  const revealUntil = useRef(0);
+  // The current match's reveal window: 0 until it starts, then the window's own number.
+  const revealWindow = useRef(0);
+  const revealWindows = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
-    revealUntil.current = 0;
+    revealWindow.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
@@ -1491,10 +1497,17 @@ export function VirtualTranscript({
     if (!current || revealing.current !== targetKey) return;
     // A match in a closed group is drawn before the group opens (with no size), and it moves as the
     // opened parts and the rows above it measure, so it is kept in view for a moment once drawn.
-    if (!revealUntil.current) revealUntil.current = performance.now() + FIND_REVEAL_MS;
-    if (performance.now() > revealUntil.current) {
-      revealing.current = undefined;
-      return;
+    if (!revealWindow.current) {
+      const opened = (revealWindow.current = ++revealWindows.current);
+      const start = performance.now();
+      let frames = 0;
+      const tick = () => {
+        if (revealWindow.current !== opened) return;
+        const elapsed = performance.now() - start;
+        if (++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) revealing.current = undefined;
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
     }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.

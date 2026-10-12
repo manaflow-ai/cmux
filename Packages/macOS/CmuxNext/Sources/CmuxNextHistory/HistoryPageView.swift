@@ -144,6 +144,7 @@ struct HistoryPageView: View {
                                 .onTapGesture(count: 2) { model.open(entry) }
                                 .contextMenu { HistoryPageMenu(entry: entry, model: model) }
                                 .listRowBackground(model.selection == entry.id ? colors.selection : Color.clear)
+                                .thinScrollers()
                         }
                     } header: {
                         Text(title(of: group)).font(Font(Typography.header)).foregroundStyle(colors.secondary)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real auto-update proof for cmux-next NIGHTLY (R114), socket-driven, no display.
+"""Real auto-update proof for cmux NEXT (R114), socket-driven, no display.
 
 Installs an older published nightly-next build into a scratch folder, starts
 terminals, asks Sparkle to check (the palette action), waits until the update
@@ -21,7 +21,9 @@ is staged (downloaded and verified, delta when the feed has one), then:
 Rollback refusal is reported PENDING until `cmux update rollback` exists.
 
 Host rules (coordinator 2026-10-04): an Aqua GUI session for this user, no
-com.cmuxterm.app.nightly installed or running, no /tmp/cmux-nightly.sock.
+cmux NEXT (com.cmuxterm.app.nightly.cmux-next) installed or running, no
+/tmp/cmux-nightly-cmux-next.sock. A classic cmux NIGHTLY may run beside it:
+cmux NEXT has its own identity (cx-x7hwx) and this run never touches it.
 Everything this run creates (scratch folder, Sparkle cache, defaults domain,
 state dirs) is removed at the end; anything that existed before is kept.
 
@@ -29,11 +31,14 @@ state dirs) is removed at the end; anything that existed before is kept.
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
-BUNDLE_ID = "com.cmuxterm.app.nightly"
-SOCKET = "/tmp/cmux-nightly.sock"
+# nightly-next ships as cmux NEXT (cx-x7hwx): a tagged nightly id with its
+# own socket, daemon session (cmux-app-cmux-next) and acpmux home.
+BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
+APP_NAME = "cmux NEXT.app"
+SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
 HOME = os.path.expanduser("~")
-# The nightly's acpmux (no tag): its home, socket and config.
-ACPMUX_HOME = os.path.join(HOME, ".acpmux")
+# cmux NEXT's acpmux (tag cmux-next): its home, socket and config.
+ACPMUX_HOME = os.path.join(HOME, ".acpmux", "tags", "cmux-next")
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
@@ -74,16 +79,16 @@ def wait(predicate, seconds, step=0.5):
 def preflight():
     if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
         sys.exit("refused: no Aqua GUI session for this user (launchctl print gui/<uid> failed)")
-    running = run("pgrep", "-fl", "cmux NIGHTLY.app/Contents/MacOS").stdout.strip()
+    running = run("pgrep", "-fl", f"{APP_NAME}/Contents/MacOS").stdout.strip()
     if running:
-        sys.exit(f"refused: a cmux NIGHTLY runs here:\n{running}")
+        sys.exit(f"refused: a cmux NEXT runs here:\n{running}")
     installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines() if p.endswith(".app")]
     if installed:
         sys.exit("refused: an app with bundle id %s is installed: %s" % (BUNDLE_ID, ", ".join(installed)))
     if os.path.exists(SOCKET):
-        sys.exit(f"refused: {SOCKET} exists (another nightly's socket)")
+        sys.exit(f"refused: {SOCKET} exists (another cmux NEXT's socket)")
     if os.path.exists(acpmux_socket()) and Acpmux().answers():
-        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another untagged cmux-next's)")
+        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another cmux NEXT's)")
 
 
 # What may be created: compared before/after; only new entries are removed.
@@ -136,7 +141,8 @@ def cleanup(before, work):
         if not os.path.lexists(path):
             continue
         name = path.lower()
-        if path.startswith(work) or "nightly" in name or any(h in name for h in hashes):
+        # Only cmux NEXT's paths: a classic cmux NIGHTLY may be writing beside it.
+        if path.startswith(work) or "cmux-next" in name or "cmux next" in name or any(h in name for h in hashes):
             print(f"removing created {path}")
             shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
     for path in sorted(tops):

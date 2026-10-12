@@ -876,9 +876,10 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
-      # SCROLLBARS-FOLLOW-MACOS: no forced scroller style, hidden indicators or
-      # custom web scrollbars; scrollers follow the macOS "Show scroll bars" setting.
-      - name: Scrollbars follow macOS
+      # SCROLLBARS-THIN: no forced scroller style, hidden indicators or
+      # custom web scrollbars outside the one shared style (SystemScrollers.swift,
+      # webviews/src/scrollers.ts): thin, shown only while scrolling.
+      - name: Scrollbars thin, one style
         id: scrollbars
         continue-on-error: true
         env:

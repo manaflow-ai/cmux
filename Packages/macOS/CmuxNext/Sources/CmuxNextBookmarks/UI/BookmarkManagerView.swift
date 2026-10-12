@@ -69,6 +69,7 @@ struct BookmarkManagerView: View {
                 }
             }
             .padding(Metrics.space3)
+            .thinScrollers()
         }
         .accessibilityIdentifier("cmux.bookmarks.manager.folders")
     }

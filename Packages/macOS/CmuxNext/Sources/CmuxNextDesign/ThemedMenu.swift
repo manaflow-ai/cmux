@@ -90,8 +90,9 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
-        menu.highlightedItem?.view?.needsDisplay = true
-        item?.view?.needsDisplay = true
+        for row in [menu.highlightedItem?.view, item?.view] {
+            if let row = row as? ThemedMenuRowView { row.highlightChanged() } else { row?.needsDisplay = true }
+        }
         forward?.menu?(menu, willHighlight: item)
     }
 

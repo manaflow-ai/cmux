@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Fails when cmux-next code stops following the macOS "Show scroll bars" setting
-# (spec SCROLLBARS-FOLLOW-MACOS): scrollers stay hidden until the user scrolls,
-# unless the user chose "Always".
+# Fails when cmux-next code styles a scrollbar outside the one shared style (spec
+# SCROLLBARS-THIN): every scroller is thin and stays hidden until the user
+# scrolls, also for the macOS "Show scroll bars" setting "Always". The style
+# lives in SystemScrollers.swift (native) and webviews/src/scrollers.ts (web).
 #
 # Swift (Packages/macOS/CmuxNext/Sources, Packages/Shared/CmuxMessagesLab/Sources):
 #   - no `scrollerStyle = .legacy` / `.overlay` (call SystemScrollers.follow or
 #     SystemScrollers.observe; only SystemScrollers.swift sets a style);
 #   - no `showsIndicators: false`, `.scrollIndicators(.never)`, `(.hidden)` or
 #     `(.visible)` (visible keeps an overlay scroller on screen at rest);
-#   - no `autohidesScrollers = false` (an empty track when everything fits).
+#   - no `autohidesScrollers = false` (an empty track when everything fits);
+#   - a SwiftUI ScrollView takes `.thinScrollers()` on its content, a List on its rows (CmuxNext only).
 # Web (webviews/src, tests excluded; CSS comments ignored):
 #   - no `overflow: scroll` (use `auto`), also as a Tailwind class
 #     (`overflow-y-scroll`) or a React style (`overflowY: "scroll"`);
@@ -37,11 +39,10 @@ WEB_ROOTS = ["webviews/src"]
 
 # path suffix -> reason
 ALLOWED = {
-    # The one place that applies the system's style.
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift": "applies NSScroller.preferredScrollerStyle",
+    # The one place that sets a native scroller style (SystemScrollers.nativeStyle).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift": "applies the shared native style",
     # The Home transcript (vendored MessagesLab): rows are drawn under the scroller across the
-    # full width, so a legacy scroller would cover them. Overlay: correct. "Always": hidden at
-    # rest (known gap, SCROLLBARS-FOLLOW-MACOS audit in .cmux-scratch/nx-scrollbars/STATUS.md).
+    # full width, so a legacy scroller would cover them. Overlay, as SCROLLBARS-THIN asks.
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift": "Home transcript, vendored",
     # The shared rules for library scrollers (strings, not page CSS).
     "webviews/src/scrollers.ts": "library scroller rules",
@@ -109,10 +110,27 @@ def scan(rel, path, rules, strip):
                 out.append(f"{rel}:{number}: {why}: {line.strip()}")
     return out
 
+# A SwiftUI ScrollView takes the shared thin scroller on its content, and a List on its rows
+# (`.thinScrollers()`); a file needs at least one per ScrollView or List.
+SWIFTUI_SCROLL = re.compile(r"(?<![A-Za-z])(?:ScrollView|List)\s*[({]")
+STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+
+def swiftui_scrolls(rel, path):
+    if rel in ALLOWED:
+        return []
+    lines = [STRING.sub('""', line).split("//", 1)[0] for line in open(path, encoding="utf-8", errors="replace").read().splitlines()]
+    scrolls = [number for number, code in enumerate(lines, 1) if SWIFTUI_SCROLL.search(code)]
+    if len(scrolls) <= sum(code.count(".thinScrollers()") for code in lines):
+        return []
+    return [f"{rel}:{number}: a SwiftUI ScrollView or List without .thinScrollers(): {lines[number - 1].strip()}"
+            for number in scrolls]
+
 problems = []
 for base in SWIFT_ROOTS:
     for rel, path in files(base, (".swift",)):
         problems += scan(rel, path, SWIFT_RULES, strip=False)
+        if base == "Packages/macOS/CmuxNext/Sources":
+            problems += swiftui_scrolls(rel, path)
 for base in WEB_ROOTS:
     for rel, path in files(base, WEB_EXT):
         problems += scan(rel, path, WEB_RULES, strip=True)
@@ -126,7 +144,7 @@ if problems and len(problems) <= warn_max:
 if problems:
     if warn_max:
         print(f"check-scrollbars: {len(problems)} hits are over the hard ceiling of {warn_max}")
-    print("check-scrollbars: scrollers must follow the macOS setting (SCROLLBARS-FOLLOW-MACOS)")
+    print("check-scrollbars: scrollbars use the one shared style (SCROLLBARS-THIN)")
     for p in problems:
         print("  " + p)
     sys.exit(1)
