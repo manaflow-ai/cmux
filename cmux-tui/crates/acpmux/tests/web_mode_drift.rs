@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn dir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("awd-{tag}-{}", std::process::id()));
+    let d = cmux_unix_socket::short_test_root().join(format!("awd-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("work")).unwrap();
     std::fs::canonicalize(&d).unwrap()

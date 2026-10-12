@@ -45,7 +45,7 @@ impl Rpc {
 
 fn scratch(tag: &str) -> PathBuf {
     // Short: the socket path must stay under the macOS limit.
-    let dir = std::env::temp_dir().join(format!("amx-{tag}-{}", std::process::id()));
+    let dir = cmux_unix_socket::short_test_root().join(format!("amx-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir

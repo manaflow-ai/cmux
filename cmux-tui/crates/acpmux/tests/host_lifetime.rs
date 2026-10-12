@@ -16,7 +16,8 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn scratch(tag: &str) -> PathBuf {
     // Short: socket paths must stay under the macOS limit.
-    let home = std::env::temp_dir().join(format!("ahl-{tag}-{}", std::process::id()));
+    let home =
+        cmux_unix_socket::short_test_root().join(format!("ahl-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(

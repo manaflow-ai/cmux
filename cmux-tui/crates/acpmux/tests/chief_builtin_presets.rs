@@ -59,7 +59,8 @@ impl Daemon {
     /// The real daemon, started the way the brain's LaunchAgent starts it:
     /// its Chief home and the cmux sockets in its own environment.
     fn start(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("acb-{tag}-{}", std::process::id()));
+        let dir =
+            cmux_unix_socket::short_test_root().join(format!("acb-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("mux")).unwrap();
         let dir = std::fs::canonicalize(&dir).unwrap();

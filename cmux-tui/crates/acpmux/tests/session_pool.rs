@@ -41,7 +41,8 @@ impl Daemon {
     /// `new` with another `fakeb` profile, written before the first start.
     fn with_fakeb(tag: &str, debounce_ms: u64, fakeb: &Value) -> Self {
         // Short: socket paths must stay under the macOS limit.
-        let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
+        let home =
+            cmux_unix_socket::short_test_root().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         let mut daemon = Self {

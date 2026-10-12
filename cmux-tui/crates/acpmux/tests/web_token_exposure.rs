@@ -192,7 +192,7 @@ fn saved(home: &std::path::Path) -> Value {
 #[test]
 fn a_saved_token_from_before_the_fix_rotates_once() {
     use std::os::unix::fs::PermissionsExt;
-    let home = std::env::temp_dir().join(format!("atr-{}", std::process::id()));
+    let home = cmux_unix_socket::short_test_root().join(format!("atr-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(
@@ -226,7 +226,7 @@ fn a_saved_token_from_before_the_fix_rotates_once() {
 
 #[test]
 fn a_first_run_token_is_new_and_never_rotated_again() {
-    let home = std::env::temp_dir().join(format!("atn-{}", std::process::id()));
+    let home = cmux_unix_socket::short_test_root().join(format!("atn-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     let (child, first) = start(&home, &[]);

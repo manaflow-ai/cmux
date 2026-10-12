@@ -30,7 +30,8 @@ impl Drop for Daemon {
 }
 
 fn start(tag: &str, peers: Value) -> Daemon {
-    let home = std::env::temp_dir().join(format!("asi-{tag}-{}", std::process::id()));
+    let home =
+        cmux_unix_socket::short_test_root().join(format!("asi-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join("config.json"), json!({"peers": peers}).to_string()).unwrap();
@@ -106,7 +107,8 @@ fn attacks(marker: &Path) -> Vec<String> {
 
 #[test]
 fn a_saved_option_shaped_peer_is_never_used_at_start() {
-    let marker_dir = std::env::temp_dir().join(format!("asi-mark-{}", std::process::id()));
+    let marker_dir =
+        cmux_unix_socket::short_test_root().join(format!("asi-mark-{}", std::process::id()));
     std::fs::create_dir_all(&marker_dir).unwrap();
     let marker = marker_dir.join("pwned");
     let _ = std::fs::remove_file(&marker);
@@ -132,7 +134,8 @@ fn a_saved_option_shaped_peer_is_never_used_at_start() {
 
 #[test]
 fn peer_add_refuses_an_option_shaped_ssh_url() {
-    let marker_dir = std::env::temp_dir().join(format!("asi-add-{}", std::process::id()));
+    let marker_dir =
+        cmux_unix_socket::short_test_root().join(format!("asi-add-{}", std::process::id()));
     std::fs::create_dir_all(&marker_dir).unwrap();
     let marker = marker_dir.join("pwned");
     let d = start("add", json!({}));

@@ -25,7 +25,7 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
-        let home = std::env::temp_dir().join(format!("awc-{}", std::process::id()));
+        let home = cmux_unix_socket::short_test_root().join(format!("awc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(

@@ -28,7 +28,8 @@ impl Drop for Daemon {
 }
 
 fn home(tag: &str) -> std::path::PathBuf {
-    let home = std::env::temp_dir().join(format!("awr-{tag}-{}", std::process::id()));
+    let home =
+        cmux_unix_socket::short_test_root().join(format!("awr-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     // A config another tool wrote with the umask's mode, holding the token.

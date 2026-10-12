@@ -87,6 +87,21 @@ pub fn check_path(_path: &Path) -> io::Result<()> {
 #[cfg(feature = "test-support")]
 pub use tempfile::TempDir as TestDir;
 
+/// The canonical `/tmp` (`/private/tmp` on macOS) on Unix, else `$TMPDIR`: the
+/// root for a test that names its own directory and puts a socket in it. A
+/// long `$TMPDIR` (a lent fleet worker's `/Library/Application
+/// Support/cmux-build-worker/...`) pushed such sockets past `sun_path`.
+///
+/// Test support only, like [`short_test_dir`].
+#[cfg(feature = "test-support")]
+pub fn short_test_root() -> std::path::PathBuf {
+    if cfg!(unix) {
+        std::fs::canonicalize("/tmp").unwrap_or_else(|_| std::env::temp_dir())
+    } else {
+        std::env::temp_dir()
+    }
+}
+
 /// A new directory for test sockets under the canonical `/tmp`
 /// (`/private/tmp` on macOS, so symlinked-directory checks accept it), named
 /// `<prefix><random>`, whatever `$TMPDIR` is. The directory and everything in
@@ -99,14 +114,9 @@ pub use tempfile::TempDir as TestDir;
 #[allow(clippy::expect_used)]
 pub fn short_test_dir(prefix: &str) -> TestDir {
     let prefix: String = prefix.chars().take(8).collect();
-    let root = if cfg!(unix) {
-        std::fs::canonicalize("/tmp").unwrap_or_else(|_| std::env::temp_dir())
-    } else {
-        std::env::temp_dir()
-    };
     tempfile::Builder::new()
         .prefix(&prefix)
-        .tempdir_in(root)
+        .tempdir_in(short_test_root())
         // crash-allow: test-support only (dev-dependencies); a test without its socket directory must fail
         .expect("create a short test socket directory")
 }

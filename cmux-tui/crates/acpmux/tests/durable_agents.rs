@@ -32,7 +32,8 @@ impl Daemon {
 
     fn with_env(tag: &str, policy: &str, env: &[(&str, &str)]) -> Self {
         // Short: socket paths must stay under the macOS limit.
-        let home = std::env::temp_dir().join(format!("amd-{tag}-{}", std::process::id()));
+        let home =
+            cmux_unix_socket::short_test_root().join(format!("amd-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(
@@ -479,7 +480,8 @@ async fn the_cli_shutdown_ends_every_agent_and_its_host() {
 /// of the harness group signal; `acpmux daemon shutdown` still ends it.
 #[tokio::test]
 async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
-    let helper_file = std::env::temp_dir().join(format!("amd-sid-{}", std::process::id()));
+    let helper_file =
+        cmux_unix_socket::short_test_root().join(format!("amd-sid-{}", std::process::id()));
     let _ = std::fs::remove_file(&helper_file);
     let mut daemon = Daemon::with_env(
         "clisid",

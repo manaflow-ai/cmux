@@ -32,7 +32,8 @@ impl Daemon {
     }
 
     fn start_with(tag: &str, env: &[(&'static str, &'static str)]) -> Self {
-        let home = std::env::temp_dir().join(format!("ala-{tag}-{}", std::process::id()));
+        let home =
+            cmux_unix_socket::short_test_root().join(format!("ala-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(

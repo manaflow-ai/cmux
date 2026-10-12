@@ -140,7 +140,8 @@ impl Daemon {
     /// The real daemon; `key` goes in on `--person-key-fd 3`, like the app's launcher.
     fn start(tag: &str, key: Option<&str>) -> Self {
         // Short: the socket path must stay under the macOS limit.
-        let dir = std::env::temp_dir().join(format!("amp-{tag}-{}", std::process::id()));
+        let dir =
+            cmux_unix_socket::short_test_root().join(format!("amp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("work")).unwrap();
         let dir = std::fs::canonicalize(&dir).unwrap();
@@ -685,7 +686,7 @@ fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::C
 }
 
 fn port_dir(tag: &str, port: u16) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amp-{tag}-{}", std::process::id()));
+    let dir = cmux_unix_socket::short_test_root().join(format!("amp-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let dir = std::fs::canonicalize(&dir).unwrap();
@@ -906,7 +907,7 @@ async fn initialize_names_the_daemon_run_that_decision_proofs_bind() {
 
 /// A config home for a daemon that `acpmux daemon start` launches.
 fn start_home(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("ams-{tag}-{}", std::process::id()));
+    let dir = cmux_unix_socket::short_test_root().join(format!("ams-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("work")).unwrap();
     let dir = std::fs::canonicalize(&dir).unwrap();

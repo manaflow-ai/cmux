@@ -24,7 +24,8 @@ impl User {
     fn new(tag: &str) -> Self {
         // Short: the socket path must stay under the macOS limit. One root
         // per test: the tests of this binary run at the same time.
-        let root = std::env::temp_dir().join(format!("byoh-{tag}-{}", std::process::id()));
+        let root =
+            cmux_unix_socket::short_test_root().join(format!("byoh-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for dir in ["home", "xdg", "amx", "work"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
