@@ -60,6 +60,15 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "arrow.right.square", "move-tab", extra: ["tab", "move", "reopen"], arguments: [profile], targets: [.tab]),
             descriptor("browserProfile.duplicateTab", text("action.browserProfile.duplicateTab", "Duplicate Tab into Browser Profile…"),
                        "plus.square.on.square", "duplicate-tab", extra: ["tab", "copy", "duplicate"], arguments: [profile], targets: [.tab]),
+            // cx-d0d.23, Chrome's Clear Browsing Data: the profile's history, cookies and site data,
+            // and cache over a time range (every kind, the last hour by default).
+            descriptor("browserProfile.clearBrowsingData", text("action.browserProfile.clearBrowsingData", "Clear Browsing Data…"),
+                       "eraser", "clear-browsing-data", extra: ["history", "cache", "privacy", "delete", "clear", "data"],
+                       arguments: [HistoryActionCatalog.historyRange.optional,
+                                   CatalogArgument.clearKind("history", text("argument.browsingData.history", "Browsing History")),
+                                   CatalogArgument.clearKind("cookies", text("argument.browsingData.cookies", "Cookies and Site Data")),
+                                   CatalogArgument.clearKind("cache", text("argument.browsingData.cache", "Cached Images and Files"))],
+                       targets: [.browserProfile], destructive: true),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
         ]
@@ -74,5 +83,10 @@ nonisolated extension CatalogArgument {
         ActionArgument(name: "browserProfile",
                        title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", table: "BrowserProfileActions", bundle: .module),
                        kind: .target(.browserProfile))
+    }
+
+    /// One kind of browsing data Clear Browsing Data clears (default on).
+    static func clearKind(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .bool, isRequired: false)
     }
 }
