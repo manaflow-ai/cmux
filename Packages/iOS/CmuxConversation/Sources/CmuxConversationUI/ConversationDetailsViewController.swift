@@ -223,7 +223,8 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         return ConversationDetailsHeaderGeometry.layout(
             width: width, safeTop: view.safeAreaInsets.top, offset: offset, showsTabs: tabBar != nil, isGroup: isGroup,
             titleHeight: header.titleHeight(width: width),
-            quickActionSize: ConversationDetailsHeaderView.quickActionSize(for: traitCollection)
+            quickActionSize: ConversationDetailsHeaderView.quickActionSize(for: traitCollection),
+            tabBarHeight: tabBar?.barHeight ?? ConversationDetailsHeaderGeometry.tabBarHeight
         )
     }
 
@@ -475,12 +476,19 @@ final class ConversationDetailsTabBar: UIView {
         }
     }
 
-    static let font = UIFont.systemFont(ofSize: 15, weight: .regular)
-    static let selectedFont = UIFont.systemFont(ofSize: 15, weight: .semibold)
+    /// Messages' labels: the subheadline style, regular and bold (15 pt at
+    /// Large, 49 at AX5; iOS 26.5).
+    private var font: UIFont { UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: traitCollection) }
+    private var selectedFont: UIFont {
+        let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .subheadline, compatibleWith: traitCollection)
+        return UIFont(descriptor: descriptor.withSymbolicTraits(.traitBold) ?? descriptor, size: 0)
+    }
     /// Each tab is its regular-weight title plus 14 pt a side ("Info" is
     /// 25.79 + 28 = 53.79 pt wide in Messages).
     static let padding: CGFloat = 14
-    static let capsuleHeight: CGFloat = 33.9
+    private var capsuleHeight: CGFloat { ConversationDetailsTabGeometry.capsuleHeight(lineHeight: font.lineHeight) }
+    /// The bar's height at the current text size (34 pt at Large).
+    var barHeight: CGFloat { ConversationDetailsTabGeometry.barHeight(capsuleHeight: capsuleHeight, scale: traitCollection.displayScale) }
 
     init(titles: [String]) {
         self.titles = titles
@@ -497,14 +505,14 @@ final class ConversationDetailsTabBar: UIView {
         for (index, title) in titles.enumerated() {
             let plain = UILabel()
             plain.text = title
-            plain.font = Self.font
+            plain.font = font
             plain.textColor = .secondaryLabel
             plain.textAlignment = .center
             plainLayer.addSubview(plain)
             plainLabels.append(plain)
             let bold = UILabel()
             bold.text = title
-            bold.font = Self.selectedFont
+            bold.font = selectedFont
             bold.textColor = .label
             bold.textAlignment = .center
             boldLayer.addSubview(bold)
@@ -528,12 +536,15 @@ final class ConversationDetailsTabBar: UIView {
     required init?(coder: NSCoder) { fatalError() }
 
     private var tabFrames: [CGRect] {
-        let widths = titles.map { ($0 as NSString).size(withAttributes: [.font: Self.font]).width + 2 * Self.padding }
-        var x = (bounds.width - widths.reduce(0, +)) / 2
+        let font = font
+        let widths = titles.map { ($0 as NSString).size(withAttributes: [.font: font]).width + 2 * Self.padding }
+        // Centered; at the largest sizes the two tabs fill the width and
+        // start at its edge rather than past it.
+        var x = max(0, (bounds.width - widths.reduce(0, +)) / 2)
         let y: CGFloat = 0
         return widths.map { width in
             defer { x += width }
-            return CGRect(x: x, y: y, width: width, height: Self.capsuleHeight)
+            return CGRect(x: x, y: y, width: width, height: capsuleHeight)
         }
     }
 
@@ -559,6 +570,24 @@ final class ConversationDetailsTabBar: UIView {
         outside.append(pill)
         plainMask.path = outside.cgPath
         CATransaction.commit()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { updateFonts() }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) { updateFonts() }
+    }
+
+    /// The labels follow Dynamic Type.
+    func updateFonts() {
+        let font = font, selectedFont = selectedFont
+        for label in plainLabels { label.font = font }
+        for label in boldLabels { label.font = selectedFont }
+        setNeedsLayout()
     }
 
     // MARK: Motion

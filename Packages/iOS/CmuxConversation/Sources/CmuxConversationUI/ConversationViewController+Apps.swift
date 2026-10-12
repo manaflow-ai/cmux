@@ -27,7 +27,7 @@ final class AppsMenuOverlay: UIView {
     /// Groups the menu with the glass it grows out of, so the shapes blend
     /// as one (`UIGlassContainerEffect` on iOS 26 and later).
     private let glassContainer: UIVisualEffectView
-    private let panel = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2)
+    private let panel = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, tint: ConversationTheme.systemMenuGlassTint)
     /// The rows at their open size, scaled to the panel's current size
     /// (horizontal and vertical scale on separate springs).
     private let contentX = UIView()

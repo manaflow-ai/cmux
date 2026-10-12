@@ -208,13 +208,33 @@ enum ConversationTheme {
         return UIColor.secondaryLabel.resolvedColor(with: traits)
     }
 
-    /// The composer's dictation microphone: lighter than the secondary
-    /// label. Messages draws it (180,184,191) on its white field and
-    /// (99,100,102) on the dark one (iOS 26.5).
+    /// The composer's dictation microphone: ChatKit's hierarchical symbol
+    /// color, opaque (180,184,191 light, 74,75,77 dark; iOS 26.5 and 27.0),
+    /// blended into the field by `composerInkCompositing`.
     static let composerMicTint = UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: 0.36)
-            : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: 0.37)
+            ? UIColor(red: 74 / 255, green: 75 / 255, blue: 77 / 255, alpha: 1)
+            : UIColor(red: 180 / 255, green: 184 / 255, blue: 191 / 255, alpha: 1)
+    }
+
+    /// Messages' menus (the long-press menu, the "+" send menu) are UIKit
+    /// context menus and popovers, whose glass reads lighter in dark mode
+    /// than a plain regular glass: 30,30,30 over black where ours read 16,
+    /// and 31,30,33 over the long-press dim where ours read 17,19,22 (iOS
+    /// 26.5). A faint white tint matches both (fitted); light mode needs none.
+    /// iOS 27's plain glass already reads as Messages' 32,32,32 there.
+    static let systemMenuGlassTint = UIColor { traits in
+        if #available(iOS 27, *) { return .clear }
+        return traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
+    }
+
+    /// How the composer's placeholder and microphone blend into the field:
+    /// Messages composites both with plus-darker in light mode and
+    /// plus-lighter in dark mode, so the gray ink reads against whatever the
+    /// field shows (on black the placeholder lands at 95,95,98, where
+    /// source-over drew 88,88,91).
+    static func composerInkCompositing(_ traits: UITraitCollection) -> String {
+        traits.userInterfaceStyle == .dark ? "plusL" : "plusD"
     }
 
     /// Captions straight over a conversation background (timestamps, status,

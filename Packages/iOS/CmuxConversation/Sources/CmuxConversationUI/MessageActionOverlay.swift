@@ -219,7 +219,7 @@ final class MessageActionOverlay: UIView {
         reactionBar = makeGlassView(cornerRadius: Metrics.barHeight / 2, tint: UIColor { traits in
             traits.userInterfaceStyle == .dark ? UIColor(white: 0.16, alpha: 0.85) : UIColor(white: 1, alpha: 0.85)
         })
-        menu = makeGlassView(cornerRadius: 26)
+        menu = makeGlassView(cornerRadius: 26, tint: ConversationTheme.systemMenuGlassTint)
         detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: 22) : nil
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.actions"
@@ -233,14 +233,19 @@ final class MessageActionOverlay: UIView {
         // against a blue-tinted 206 for long-press).
         let detail = mode == .reactionDetail
         let light = mode == .tapbacks
+        let neutralVeil: Bool
+        if #available(iOS 27, *) { neutralVeil = mode == .menu } else { neutralVeil = false }
         dim.backgroundColor = UIColor {
-            $0.userInterfaceStyle == .dark
+            // iOS 27 Messages: a neutral veil, white -> 204 and black stays 0.
+            if neutralVeil { return UIColor.black.withAlphaComponent(0.2) }
+            return $0.userInterfaceStyle == .dark
                 ? (detail ? UIColor.black.withAlphaComponent(0.5)
                     : light ? UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.08)
-                    : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.15))
+                    : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.21))
                 : detail ? UIColor.black.withAlphaComponent(0.25)
                 : light ? UIColor.black.withAlphaComponent(0.1)
-                // iOS 26.5 light mode (d01): white -> (206, 206, 210).
+                // iOS 26.5: white -> (206, 206, 210), black -> (5, 4, 9);
+                // the same veil in both modes.
                 : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.21)
         }
         dim.alpha = 0
