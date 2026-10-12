@@ -41,6 +41,7 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { rememberNewTabFrame(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
         if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
@@ -71,11 +72,15 @@ struct AgentTabContent {
         let paneView = pane.view
         guard paneView.launchImageView == nil,
               let image = pane.services.agentTabs.launchImages.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
-        else { return }
+        else { return BenchSpans.mark("newTab.cover.none \(paneView.contentHost.bounds.size) \(String(describing: Self.appearance(of: paneView)))") }
+        BenchSpans.mark("newTab.cover")
         paneView.showLaunchImage(image)
         // The image's deadline shows the page too, should its frame never be reported.
         paneView.onLaunchImageCleared = { [weak view] in if let view { AgentPageMoveCover.reveal(view) } }
-        AgentPageMoveCover.hide(view) { [weak paneView] in paneView?.clearLaunchImage() }
+        AgentPageMoveCover.hide(view) { [weak paneView] in
+            BenchSpans.mark("newTab.cover.cleared")
+            paneView?.clearLaunchImage()
+        }
     }
 
     /// `view`'s first frame, once it paints in this pane, when there is no New Tab frame for the
