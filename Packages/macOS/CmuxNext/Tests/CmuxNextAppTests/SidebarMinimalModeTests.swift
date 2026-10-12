@@ -77,6 +77,12 @@ struct SidebarMinimalModeTests {
         #expect(on.header < off.header)
         #expect(on.reported == on.quiet)
         #expect(sidebar.list.displayed.row(for: .workspace(reported))?.content?.status == nil)
+        // The thin header still opens its editor and menu under the whole header, from its name.
+        sidebar.layoutSubtreeIfNeeded()
+        let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        #expect(header.labelFrame.height == header.bounds.height)
+        #expect(header.labelFrame.minX <= header.titleFrame.minX)
         // Off again: the list is as it was.
         design.sidebarSections.minimal = false
         #expect(await Self.heights(sidebar, ids) { $0 == off } == off)
