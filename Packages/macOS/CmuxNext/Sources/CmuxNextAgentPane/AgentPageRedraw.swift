@@ -11,6 +11,7 @@ public final class AgentPageRedraw {
     /// The size the page last laid out at in a window.
     private var drawnSize: CGSize?
     private var waiters: [() -> Void] = []
+    private var frameWaiters: [() -> Void] = []
     private var probing = false
     private var generation: UInt64 = 0
 
@@ -52,6 +53,23 @@ public final class AgentPageRedraw {
             guard let self, self.generation == generation else { return }
             self.probing = false
             self.finish()
+        }
+    }
+
+    /// Runs `body` once the page rendered its next frame (one animation frame, then a task), now
+    /// when it has no web view.
+    public func afterNextFrame(_ body: @escaping () -> Void) {
+        guard let webView else { return body() }
+        frameWaiters.append(body)
+        guard frameWaiters.count == 1 else { return }
+        webView.callAsyncJavaScript(
+            "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));",
+            arguments: [:], in: nil, in: .defaultClient
+        ) { [weak self] _ in
+            guard let self else { return }
+            let waiting = frameWaiters
+            frameWaiters = []
+            waiting.forEach { $0() }
         }
     }
 

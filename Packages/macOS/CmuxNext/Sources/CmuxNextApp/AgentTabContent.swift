@@ -41,6 +41,7 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { rememberNewTabFrame(of: view) }
+        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
@@ -61,6 +62,20 @@ struct AgentTabContent {
             if let view, view.model.newTab == nil { view.showsLoadingState = true }
         }
         view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
+    }
+
+    /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
+    /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
+    /// the page stays clear, until its next frame there.
+    private func coverMove(of view: AgentPaneView) {
+        let paneView = pane.view
+        guard paneView.launchImageView == nil,
+              let image = pane.services.agentTabs.launchImages.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
+        else { return }
+        paneView.showLaunchImage(image)
+        // The image's deadline shows the page too, should its frame never be reported.
+        paneView.onLaunchImageCleared = { [weak view] in if let view { AgentPageMoveCover.reveal(view) } }
+        AgentPageMoveCover.hide(view) { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
     /// `view`'s first frame, once it paints in this pane, when there is no New Tab frame for the
