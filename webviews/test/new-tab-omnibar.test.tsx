@@ -11,7 +11,18 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -32,6 +43,12 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // The suggestions' Popover (Base UI and Floating UI) reads these.
+    Node: window.Node,
+    Element: window.Element,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
   });
   host = window.document.getElementById("root")!;
 });
@@ -89,7 +106,7 @@ async function type(text: string) {
   return field;
 }
 
-const rows = () => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
+const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 
 test('typing "reddit" offers reddit.com first, highlighted, and Return opens it in a browser tab', async () => {
@@ -112,15 +129,15 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
   expect(calls).toEqual([["open", "https://reddit.com"]]);
 });
 
-test("the rows float in a popover anchored under the composer, not in the page's flow", async () => {
+test("the rows float in a popover over the page, not in the page's flow", async () => {
   await render([]);
-  await type("reddit");
-  const box = host.querySelector(".nt-box")!;
-  const popover = host.querySelector('[role="listbox"]')!;
-  expect(popover.classList.contains("nt-popover")).toBe(true);
-  // The anchor holds the composer and its popover; the page's other sections stay where they were.
-  expect(popover.parentElement).toBe(box.parentElement);
-  expect(popover.parentElement!.classList.contains("nt-omnibox")).toBe(true);
+  const field = await type("reddit");
+  const popover = window.document.querySelector('[role="listbox"]')!;
+  expect(popover.closest(".nt-popover")).not.toBeNull();
+  // Portaled out of the page to the popup layer, so no section moves or covers it.
+  expect(popover.closest(".nt-screen")).toBeNull();
+  expect(popover.closest(".ui-positioner")).not.toBeNull();
+  expect(field.getAttribute("aria-controls")).toBe(popover.id);
 });
 
 test("a prompt's top row asks the agent, with a web search under it", async () => {

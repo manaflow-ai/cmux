@@ -6259,6 +6259,14 @@
               "name": "string"
             }
           }
+        },
+        "empty": {
+          "required": false,
+          "description": "True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no session yet) or a browser on `about:blank`. Recently Closed leaves it out. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false
@@ -14819,6 +14827,17 @@
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
           },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
+          },
           "max_files": {
             "required": false,
             "type": {
@@ -15373,6 +15392,17 @@
             },
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
           },
           "max_files": {
             "required": false,

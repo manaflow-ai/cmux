@@ -17,7 +17,7 @@ nonisolated enum ScreenStrings {
     static var untitledGroup: String { text("screens.group.untitled", "Unnamed Group") }
 
     // Refusals.
-    static func noScreenGroup(_ id: String) -> String { String(format: text("screens.refusal.noGroup", "no screen group %@"), id) }
+    static func noScreenGroup(_ id: String) -> String { text("screens.refusal.groupGone", "That screen group no longer exists.") }
     static var screenNotInGroup: String { text("screens.refusal.notInGroup", "the screen is not in a group") }
     static var pinnedCannotGroup: String { text("screens.refusal.pinnedCannotGroup", "pinned screens cannot be grouped") }
     static var screenAtEdge: String { text("screens.refusal.atEdge", "the screen is already at the edge") }

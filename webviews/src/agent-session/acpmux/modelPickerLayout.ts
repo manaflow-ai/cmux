@@ -15,7 +15,7 @@ export type ModelPickerProps = {
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
   /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
-  switching?: { harness: string; name: string };
+  switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
   /// The name of the model the agent's default resolves to, when known: the "Default" row draws

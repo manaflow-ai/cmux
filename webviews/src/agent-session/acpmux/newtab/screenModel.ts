@@ -217,13 +217,14 @@ export function recentChatCards(
   now = Date.now(),
   t: Translate = translate,
   device: DeviceChat[] = [],
+  count = CHAT_CARD_COUNT,
 ): ChatCard[] {
-  const live = liveChatCards(sessions, now, t);
+  const live = liveChatCards(sessions, now, t, count);
   const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
   const fill = [...device]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
-    .slice(0, Math.max(0, CHAT_CARD_COUNT - live.length))
+    .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({
       sessionId: chat.key,
       chatKey: chat.key,
@@ -235,8 +236,8 @@ export function recentChatCards(
   return [...live, ...fill];
 }
 
-function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate): ChatCard[] {
-  return recentSessions(sessions, CHAT_CARD_COUNT).map((session) => ({
+function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate, count: number): ChatCard[] {
+  return recentSessions(sessions, count).map((session) => ({
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.harness ? { harness: session.harness } : {}),

@@ -141883,7 +141883,7 @@
       }
     },
     "dictation.hideButton" : {
-      "comment" : "Agent pane: the dictation mic's right-click item; hides the mic in every composer until Settings shows it again",
+      "comment" : "Agent pane: the dictation mic's right-click item; hides the mic in every composer until a right-click on the composer's button row shows it again",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
@@ -141913,7 +141913,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide dictation button"
+            "value" : "Hide Dictation Button"
           }
         },
         "es" : {
@@ -142010,6 +142010,138 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "隱藏聽寫按鈕"
+          }
+        }
+      }
+    },
+    "dictation.showButton" : {
+      "comment" : "Agent pane: right-click item on the composer's button row; shows the dictation mic hidden from its own right-click, in every composer",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إظهار زر الإملاء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži dugme za diktiranje"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis dikteringsknap"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diktiertaste einblenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Dictation Button"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar el botón de dictado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afficher le bouton de dictée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra il pulsante di dettatura"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "音声入力ボタンを表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញប៊ូតុងនិយាយអោយសរសេរ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "받아쓰기 버튼 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis dikteringsknappen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokaż przycisk dyktowania"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar botão de ditado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показать кнопку диктовки"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงปุ่มบอกให้พิมพ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dikte düğmesini göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показати кнопку диктування"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện nút đọc chính tả"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示听写按钮"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示聽寫按鈕"
           }
         }
       }

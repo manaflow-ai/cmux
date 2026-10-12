@@ -84,12 +84,12 @@ const stop: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Dictate" }).getAttribute("aria-pressed") === "false");
 };
 
-/// Right-click Hide dictation button takes the mic out of the composer (every composer reads the
-/// same setting); the play puts it back as Settings would.
+/// Right-click Hide Dictation Button takes the mic out of the composer (every composer reads the
+/// same setting); the play puts it back as the button row's Show or Settings would.
 const hide: Play = async (ctx) => {
   const mic = ctx.find({ role: "button", name: "Dictate" });
   mic.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 100 }));
-  await ctx.click({ role: "menuitem", name: "Hide dictation button" });
+  await ctx.click({ role: "menuitem", name: "Hide Dictation Button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mic") === null);
   setComposerSettings({ showDictation: true });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mic") !== null);

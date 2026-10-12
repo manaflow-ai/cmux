@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AgentMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand, knownMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -134,7 +134,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       acpmuxHarness: entry.id,
       pickable: entry.pickable !== false,
       folder: entry.folder,
-      mark: entry.icon ?? entry.family ?? entry.id,
+      mark: knownMark(entry.icon, entry.family, entry.id),
     }));
   // Terminal and unknown harnesses are routing entries, not installed choices.
   const entries: HarnessChoice[] = catalog
@@ -554,7 +554,14 @@ export function ModelPicker(props: ModelPickerProps) {
   // The chip draws one harness: the one a switch to another harness is starting, else the running
   // one. Browsing another harness in the open menu changes neither its mark nor its name.
   const switchingTo = switching && !current?.ids.includes(switching.harness) ? switching : undefined;
-  const chipHarness = switchingTo?.harness ?? current?.id ?? harness;
+  // A folder profile draws its own mark (its icon or family), as its rail tab does, not its id's.
+  // A switch draws its target's mark: the one it names, else that harness's own.
+  const switchingMark = switchingTo
+    ? (switchingTo.mark ??
+      harnesses.find((entry) => entry.ids.includes(switchingTo.harness))?.mark ??
+      switchingTo.harness)
+    : undefined;
+  const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
@@ -683,7 +690,14 @@ export function ModelPicker(props: ModelPickerProps) {
                   }}
                   active={index === activeHarness}
                 >
-                  <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                  {agentBrand(entry.mark ?? entry.id) ? (
+                    <AgentMark agent={entry.mark ?? entry.id} size={16} />
+                  ) : (
+                    // A harness without a mark: its initial, never an empty tab.
+                    <span aria-hidden="true" className="text-control font-medium">
+                      {entry.name.trim().charAt(0).toUpperCase()}
+                    </span>
+                  )}
                   <span className="sr-only">{entry.name}</span>
                 </PickerOption>,
               ])}
@@ -795,7 +809,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         active={index === active}
                       >
                         {(starredView || searching) && (
-                          <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} />
+                          <AgentMark agent={owners.get(model)?.mark ?? owners.get(model)?.id} size={14} reserve />
                         )}
                         <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
                         {searching && (parsed.effort || parsed.fast) && (

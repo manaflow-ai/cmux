@@ -81,8 +81,9 @@ enum OmnibarStyle {
     // `performWithTheme` (theme-scoped).
     static var barFill: NSColor { Palette.chromeBackground } // theme-scoped
     static var barHoverFill: NSColor { Palette.elevatedBackground } // theme-scoped
-    /// Editing fill and popup card.
-    static var cardFill: NSColor { Palette.elevatedBackground } // theme-scoped
+    /// Editing fill and popup card: the solid popup surface, so no page text
+    /// shows through the suggestions (the field's editing card joins it).
+    static var cardFill: NSColor { Palette.popupSurface } // theme-scoped
     /// Neutral ring while editing with the popup closed.
     static var ring: NSColor { Palette.focusRing } // theme-scoped
     static var rowSelectedFill: NSColor { Palette.selectionFill } // theme-scoped

@@ -127,6 +127,34 @@ class ScopedChecksTests(unittest.TestCase):
                                  {'webviews/src/pages/zz/Orphan.tsx': ORPHAN})
         self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
 
+    def test_coverage_base_gap_warns_on_a_pr_changing_the_gallery_format(self):
+        # format.ts only validates entries, so editing it owns entry problems, not coverage gaps (#19699).
+        fmt = (WEBVIEWS / 'src/gallery/format.ts').read_text() + '// edited\n'
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},
+                                 {'webviews/src/gallery/format.ts': fmt})
+        self.assertRun(checkout.run(COVERAGE), False, 'pages/zz/Orphan.tsx#Orphan')
+
+    def test_coverage_pr_changing_the_entry_constructors_owns_every_finding(self):
+        # componentEntry and the other constructors build the covers the coverage tests read.
+        entry = (WEBVIEWS / 'src/gallery/entry.ts').read_text() + '// edited\n'
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},
+                                 {'webviews/src/gallery/entry.ts': entry})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
+
+    def test_coverage_pr_changing_the_gallery_format_owns_entry_problems(self):
+        settings = 'webviews/src/pages/settings/components'
+        duplicate = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        fmt = (WEBVIEWS / 'src/gallery/format.ts').read_text() + '// edited\n'
+        checkout = self.checkout({f'{settings}/AThemeTokens.gallery.tsx': duplicate},
+                                 {'webviews/src/gallery/format.ts': fmt})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages.settings.theme-tokens: duplicate id')
+
+    def test_coverage_pr_changing_the_check_owns_every_finding(self):
+        check = (WEBVIEWS / COVERAGE).read_text() + '// edited\n'
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},
+                                 {f'webviews/{COVERAGE}': check})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
+
     def test_coverage_pr_dropping_an_allowlist_line_owns_it(self):
         allowlist = WEBVIEWS / 'test/gallery-coverage.allowlist.json'
         text = allowlist.read_text()
