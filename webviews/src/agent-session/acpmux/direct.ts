@@ -383,7 +383,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private keepOrdered(id: string, row: AcpmuxRow, known: boolean): void {
     const ordered = this.ordered!;
     const index = this.orderedIndex.get(id);
-    if (known && index !== undefined && ordered[index]!.at === row.at) {
+    if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
       return;
     }
@@ -398,12 +398,24 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.ordered = undefined;
   }
 
+  /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
+  /// time (the tie-break, which a streamed delta moves) cannot move it.
+  private ownsSlot(index: number): boolean {
+    const ordered = this.ordered!;
+    const order = this.order.get(ordered[index]!.id);
+    const before = ordered[index - 1];
+    const after = ordered[index + 1];
+    return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
+  }
+
   /// An event was reduced (it may have made no row).
   saw(seq: number): void {
     this.latest = Math.max(this.latest, seq);
   }
 
   override delete(id: string): boolean {
+    // Every text delta drops the typing row, which is usually gone already.
+    if (!this.has(id)) return false;
     this.ordered = undefined;
     this.order.delete(id);
     this.local.delete(id);

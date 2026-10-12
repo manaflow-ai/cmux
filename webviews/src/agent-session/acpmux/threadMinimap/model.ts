@@ -63,9 +63,19 @@ export function popoverOffset(center: number, popoverHeight: number, viewportHei
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
-/// The transcript's turns; `previous` again when every turn is the same.
-export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurn[]): MinimapTurn[] {
-  const turns: MinimapTurn[] = [];
+/// The turns of `rows`, and the rows they were read from.
+export type MinimapTurns = { rows: readonly AcpmuxRow[]; sessionId: string; turns: MinimapTurn[] };
+
+/// The transcript's turns. A turn that ends before the first row that differs from
+/// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
+export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurns): MinimapTurns {
+  const reuse = previous?.sessionId === sessionId ? previous : undefined;
+  let from = 0;
+  if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
+  // A kept turn's rows all come before `from`: the next turn's prompt is at or before it.
+  let keep = 0;
+  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index <= from) keep += 1;
+  const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
@@ -88,7 +98,8 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
     user = undefined;
     reply = undefined;
   };
-  for (let index = 0; index < rows.length; index += 1) {
+  const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
+  for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (row.kind === "user") {
       close();
@@ -97,9 +108,9 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
     } else if (user && !reply && row.kind === "assistant" && row.text) reply = row;
   }
   close();
-  return previous && previous.length === turns.length && previous.every((turn, index) => turn === turns[index])
-    ? previous
-    : turns;
+  const old = reuse?.turns;
+  const same = old && old.length === turns.length && old.every((turn, index) => turn === turns[index]);
+  return { rows, sessionId, turns: same ? old : turns };
 }
 
 /// FNV-1a of `text`, as base 36.

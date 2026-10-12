@@ -10,17 +10,31 @@ export const SessionEditsContext = createContext<readonly AcpmuxRow[] | undefine
 
 const editRows = new WeakMap<AcpmuxRow, boolean>();
 
-/// The edit rows of `rows`, oldest first; `previous` when they are the same rows.
-export function sessionEdits(rows: readonly AcpmuxRow[], previous?: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
-  const edits: AcpmuxRow[] = [];
-  for (const row of rows) {
+/// A session's edit rows (`edits`, oldest first) and where each is in `rows`.
+export type SessionEdits = { rows: readonly AcpmuxRow[]; at: number[]; edits: readonly AcpmuxRow[] };
+
+/// The edit rows of `rows`. Rows before the first that differs from `previous.rows` (by object)
+/// keep their result, and `edits` stays `previous.edits` when they are the same rows.
+export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits): SessionEdits {
+  let from = 0;
+  if (previous)
+    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  let keep = 0;
+  if (previous) while (keep < previous.at.length && previous.at[keep]! < from) keep += 1;
+  const at = previous ? previous.at.slice(0, keep) : [];
+  const edits = previous ? previous.edits.slice(0, keep) : [];
+  for (let index = from; index < rows.length; index += 1) {
+    const row = rows[index]!;
     let edit = editRows.get(row);
     if (edit === undefined) editRows.set(row, (edit = isEditRow(row)));
-    if (edit) edits.push(row);
+    if (edit) {
+      at.push(index);
+      edits.push(row);
+    }
   }
-  return previous && previous.length === edits.length && previous.every((row, index) => row === edits[index])
-    ? previous
-    : edits;
+  const same =
+    previous && previous.edits.length === edits.length && previous.edits.every((row, index) => row === edits[index]);
+  return { rows, at, edits: same ? previous.edits : edits };
 }
 
 /// A row the transcript draws as an edited-files card (App.tsx `rowKind`).

@@ -224,6 +224,7 @@ export class AcpmuxPerf {
 
   /** Adds `ms` to the named span of the current frame (client reduce, row derivation, a flush). */
   span(name: string, ms: number): void {
+    if (!this.enabled) return;
     this.spansSinceMark.set(name, (this.spansSinceMark.get(name) ?? 0) + ms);
   }
 

@@ -77,32 +77,31 @@ export function turnView(
   // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
   while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
   const loadedFromStart = index === 0;
-  const turns: { user: AcpmuxRow; turn: AcpmuxRow[]; held: AcpmuxRow[] }[] = [];
+  // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
+  // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
+  // and neither ends the turn nor folds into it. Indexes, not arrays: a long chat's snapshot only
+  // copies the rows of a turn that changed (shapedTurn).
+  const starts: number[] = [];
+  const times: { promptAt: number; answerAt?: number }[] = [];
   while (index < rows.length) {
-    const user = rows[index++]!;
-    const turn: AcpmuxRow[] = [];
-    // A prompt not yet accepted (sent while this turn runs, or refused) sorts among this turn's
-    // rows by its send time; it neither ends the turn nor folds into it, and draws after it.
-    const held: AcpmuxRow[] = [];
+    const start = index++;
+    let answerAt: number | undefined;
     while (index < rows.length && (rows[index]!.kind !== "user" || isUnsent(rows[index]!))) {
-      const row = rows[index++]!;
-      (row.kind === "user" ? held : turn).push(row);
+      if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
+      index += 1;
     }
-    turns.push({ user, turn, held });
+    starts.push(start);
+    times.push({ promptAt: rows[start]!.at, answerAt });
   }
-  const dated = timestampTurns(
-    turns.map(({ user, turn }) => ({ promptAt: user.at, answerAt: [...turn].reverse().find(isAnswer)?.at })),
-    now,
-    loadedFromStart,
-  );
-  turns.forEach(({ user, turn, held }, at) => {
+  const dated = timestampTurns(times, now, loadedFromStart);
+  for (let at = 0; at < starts.length; at += 1) {
+    const start = starts[at]!;
+    const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
-    const last = at === turns.length - 1;
-    const live = working && last;
-    const shaped = shapedTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, dated[at]);
-    for (const row of shaped) out.push(row);
-    for (const row of held) out.push(row);
-  });
+    const last = at === starts.length - 1;
+    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!))
+      out.push(row);
+  }
   return out;
 }
 
@@ -110,49 +109,55 @@ export function turnView(
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
 /// the same objects, so the row memos and the height cache keep them.
 type ShapedTurn = {
-  turn: readonly AcpmuxRow[];
+  /// The turn's rows after its prompt, held prompts included, as last shaped.
+  source: readonly AcpmuxRow[];
   open: boolean;
   last: boolean;
-  retryable: boolean;
   clockOffset: number;
   dated: boolean;
   rows: AcpmuxRow[];
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 
+/// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
 function shapedTurn(
-  user: AcpmuxRow,
-  turn: AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
+  start: number,
+  end: number,
   expanded: ReadonlySet<string>,
   live: boolean,
   last: boolean,
-  retryable: boolean,
   clockOffset: number,
   dated: boolean,
 ): AcpmuxRow[] {
-  const shape = () => [
-    ...(dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : []),
-    user,
-    ...shapeTurn(user, turn, expanded, live, last, retryable, clockOffset),
-  ];
+  const user = rows[start]!;
+  const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
   // A running turn changes with every event.
-  if (live) return shape();
-  const open = expanded.has(`${WORKED}-${user.id}`);
-  const cached = shapedTurns.get(user);
+  const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
     cached.open === open &&
     cached.last === last &&
-    cached.retryable === retryable &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
-    cached.turn.length === turn.length &&
-    cached.turn.every((row, index) => row === turn[index])
-  )
-    return cached.rows;
-  const rows = shape();
-  shapedTurns.set(user, { turn, open, last, retryable, clockOffset, dated, rows });
-  return rows;
+    cached.source.length === end - start - 1
+  ) {
+    let same = true;
+    for (let index = start + 1; same && index < end; index += 1)
+      same = cached.source[index - start - 1] === rows[index];
+    if (same) return cached.rows;
+  }
+  const source = rows.slice(start + 1, end);
+  const turn = source.filter((row) => row.kind !== "user");
+  const held = turn.length === source.length ? [] : source.filter((row) => row.kind === "user");
+  const shaped = [
+    ...(dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : []),
+    user,
+    ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset),
+    ...held,
+  ];
+  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
+  return shaped;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";

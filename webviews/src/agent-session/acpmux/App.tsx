@@ -14,6 +14,7 @@ import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
   layoutConversation,
+  type ConversationLayout,
   type RowHeights,
   paneHeader,
   placeRows,
@@ -94,7 +95,7 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
-import { SessionEditsContext, sessionEdits } from "./turnChanges/sessionRows";
+import { SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
@@ -791,6 +792,9 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+/// How far around the last mounted range a row whose drawn height changed is looked for; farther
+/// (a jump), the whole transcript is placed again.
+const DRAWN_SEARCH_ROWS = 64;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
@@ -906,6 +910,10 @@ export function VirtualTranscript({
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
+  /// The last estimate, whose unchanged leading rows the next one keeps.
+  const lastEstimate = useRef<
+    { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
+  >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
   const measurementSession = useRef(sessionId);
@@ -957,7 +965,13 @@ export function VirtualTranscript({
   if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
-    const arrived = rows.filter((row) => !knownRows.current!.has(row.id));
+    // Rows before the first one that changed were all there last time.
+    const previous = knownFor.current ?? [];
+    let from = 0;
+    while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    const arrived: AcpmuxRow[] = [];
+    for (let index = from; index < rows.length; index += 1)
+      if (!knownRows.current.has(rows[index]!.id)) arrived.push(rows[index]!);
     for (const row of arrived) knownRows.current.add(row.id);
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
   }
@@ -977,10 +991,26 @@ export function VirtualTranscript({
     [sessionId],
   );
   // All of a commit's reports land in one update, before the frame paints.
+  /// Rows whose drawn height changed since the last placement, which places again from the first.
+  const changedDrawn = useRef(new Set<string>());
+  /// The last placement, and the mounted range it was drawn with.
+  const lastPlaced = useRef<
+    | {
+        rows: readonly AcpmuxRow[];
+        drawn: Map<string, DrawnHeight>;
+        layout: ConversationLayout;
+        width: number;
+        sessionId?: string;
+        first: number;
+        last: number;
+      }
+    | undefined
+  >(undefined);
   const flushDrawn = useCallback(() => {
     if (!pendingDrawn.current.size) return;
     const updates = pendingDrawn.current;
     pendingDrawn.current = new Map();
+    for (const id of updates.keys()) changedDrawn.current.add(id);
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
@@ -1025,7 +1055,11 @@ export function VirtualTranscript({
     const previous = previousRowList.current;
     previousRowList.current = rows;
     // Rows that only grew below the ones there (a streaming turn) left none behind.
-    if (previous && previous.length <= rows.length && previous.every((row, index) => row.id === rows[index]!.id))
+    if (
+      previous &&
+      previous.length <= rows.length &&
+      previous.every((row, index) => row === rows[index] || row.id === rows[index]!.id)
+    )
       return;
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
@@ -1077,32 +1111,73 @@ export function VirtualTranscript({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
+    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId;
     if (rowHeights.current.registry !== registry) rowHeights.current = { registry, heights: new WeakMap() };
+    const rowWidth = transcriptRowWidth(width);
+    const last = lastEstimate.current;
     const layout = layoutConversation(
       rows,
-      transcriptRowWidth(width),
+      rowWidth,
       cache,
-      (row, rowWidth) => registry[rowKind(row)]?.measure?.(row, rowWidth),
+      (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
+      !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
     );
+    lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, width]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
     const rowWidth = transcriptRowWidth(width);
+    const last = lastPlaced.current;
+    // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
+    const drawnChanged = drawn !== last?.drawn;
+    const changed = drawnChanged ? changedDrawn.current : new Set<string>();
+    if (drawnChanged) changedDrawn.current = new Set();
+    // Rows before the first that changed (by object, or by drawn height) keep their places. A
+    // drawn height comes from a mounted row, so its index is looked for around the mounted range.
+    let kept = 0;
+    if (last && last.width === rowWidth && last.sessionId === sessionId && drawn.size > 0) {
+      const limit = Math.min(rows.length, last.rows.length);
+      while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      if (changed.size > 0) {
+        let found = 0;
+        const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
+        const to = Math.min(rows.length, last.last + DRAWN_SEARCH_ROWS);
+        for (let index = from; index < to && found < changed.size; index += 1)
+          if (changed.has(rows[index]!.id)) {
+            kept = Math.min(kept, index);
+            found += 1;
+          }
+        if (found < changed.size) kept = 0;
+      }
+    }
     const layout =
       drawn.size === 0
         ? estimated.layout
-        : placeRows(estimated.layout, (index) => {
-            const known = drawn.get(rows[index].id);
-            return known &&
-              known.sessionId === sessionId &&
-              known.version === rows[index].version &&
-              known.width === rowWidth
-              ? known.height
-              : undefined;
-          });
+        : placeRows(
+            estimated.layout,
+            (index) => {
+              const known = drawn.get(rows[index].id);
+              return known &&
+                known.sessionId === sessionId &&
+                known.version === rows[index].version &&
+                known.width === rowWidth
+                ? known.height
+                : undefined;
+            },
+            last && kept > 0 ? { layout: last.layout, kept } : undefined,
+          );
+    lastPlaced.current = {
+      rows,
+      drawn,
+      layout,
+      width: rowWidth,
+      sessionId,
+      first: last?.first ?? 0,
+      last: last?.last ?? 0,
+    };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, rows, sessionId, width]);
   const layout = measured.layout;
@@ -1110,6 +1185,10 @@ export function VirtualTranscript({
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
   const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
+  if (lastPlaced.current) {
+    lastPlaced.current.first = range.first;
+    lastPlaced.current.last = range.last;
+  }
   // A session can reuse row ids. Until the reset effect commits, render the new session as a
   // fresh transcript so a stale focus or range never flashes on its first paint.
   const effectiveActiveRowId = sessionChanged ? rows[0]?.id : activeRowId;
@@ -1847,13 +1926,18 @@ function AcpmuxPane() {
   // A folder without a trust answer is asked about beside the chat's other permission asks as
   // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
   // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
+  const promptCount = useMemo(() => {
+    let count = 0;
+    for (const row of snapshot.rows) if (row.kind === "user") count += 1;
+    return count;
+  }, [snapshot.rows]);
   const trustAsk = useFolderTrustAsk(
     trustSource,
     {
       sessionId: snapshot.sessionId,
       cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
       family: snapshot.summary?.family || snapshot.summary?.harness,
-      prompts: snapshot.rows.filter((row) => row.kind === "user").length,
+      prompts: promptCount,
     },
     snapshot.origin !== "remote",
   );
@@ -1889,11 +1973,11 @@ function AcpmuxPane() {
     [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName],
   );
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
-  const lastEditRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
     const edits = sessionEdits(snapshot.rows, lastEditRows.current);
     lastEditRows.current = edits;
-    return edits;
+    return edits.edits;
   }, [snapshot.rows]);
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
@@ -2265,9 +2349,17 @@ function AcpmuxPane() {
   // The header's Changes: the last turn that edited files, with its checkpoint's counts once loaded.
   const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[] }>(undefined);
   const lastEditTurn = useMemo(() => {
-    const edit = [...snapshot.rows].reverse().find((row) => rowKind(row) === "editedFiles");
-    if (!edit) return undefined;
-    const activity = turnRows(snapshot.rows, edit.id).filter((row) => row.kind === "activity");
+    const rows = snapshot.rows;
+    let at = rows.length - 1;
+    while (at >= 0 && rowKind(rows[at]!) !== "editedFiles") at -= 1;
+    if (at < 0) return undefined;
+    const edit = rows[at]!;
+    // Its turn: from its prompt to the next one (diff.ts turnRows, from the index found here).
+    let start = at;
+    while (start > 0 && rows[start]!.kind !== "user") start -= 1;
+    let end = at + 1;
+    while (end < rows.length && rows[end]!.kind !== "user") end += 1;
+    const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
     const key = `${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;

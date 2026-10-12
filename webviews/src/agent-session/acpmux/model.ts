@@ -508,11 +508,21 @@ export function layoutConversation(
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
   known?: RowHeights,
+  /// The last layout at this width, whose rows (by object) the new rows may start with: those
+  /// keep their places, and only the rows after the first change are placed again.
+  previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
-  let top = 0;
-  for (let index = 0; index < rows.length; index += 1) {
+  let start = 0;
+  if (previous) {
+    const limit = Math.min(rows.length, previous.rows.length);
+    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    tops.set(previous.layout.tops.subarray(0, start));
+    heights.set(previous.layout.heights.subarray(0, start));
+  }
+  let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
     const kept = known?.get(row);
@@ -534,14 +544,22 @@ export function layoutConversation(
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
+/// `kept` rows at the start keep their places from `previous` (the last placement, which they
+/// had the same heights in).
 export function placeRows(
   estimate: ConversationLayout,
   heightAt: (index: number) => number | undefined,
+  previous?: { layout: ConversationLayout; kept: number },
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  let top = 0;
-  for (let index = 0; index < heights.length; index += 1) {
+  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  if (kept > 0) {
+    tops.set(previous!.layout.tops.subarray(0, kept));
+    heights.set(previous!.layout.heights.subarray(0, kept));
+  }
+  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  for (let index = kept; index < heights.length; index += 1) {
     tops[index] = top;
     const known = heightAt(index);
     const height = known !== undefined && known > 0 ? known : estimate.heights[index];
