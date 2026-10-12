@@ -76,6 +76,17 @@ extension AppDelegate {
         return false
     }
 
+    /// View menu Next/Previous Surface: steps the focused Dock's pane when the Dock owns the
+    /// keyboard, otherwise the focused pane of `tabManager`'s selected workspace. A one-tab pane
+    /// stays put; this never moves between sidebar workspaces.
+    func stepFocusedSurface(forward: Bool, tabManager: TabManager?, preferredWindow: NSWindow?) {
+        if let dock = focusedDockStoreForShortcut(preferredWindow: preferredWindow) {
+            _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
+            return
+        }
+        if forward { tabManager?.selectNextSurface() } else { tabManager?.selectPreviousSurface() }
+    }
+
     /// Reuses the configured workspace reorder keys when a Cloud machine
     /// header owns keyboard focus. Text fields keep their existing key routing.
     func moveFocusedCloudMachine(by offset: Int, event: NSEvent) -> Bool {
