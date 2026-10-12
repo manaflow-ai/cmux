@@ -339,7 +339,8 @@ export default componentEntry<GalleryProps>({
     "agent-session/acpmux/changes/ReviewThread.tsx#ReviewThread",
   ],
   load: async () => GalleryDiffPanel,
-  styles: () => Promise.all([import("./styles.css"), import("./changes/changes.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./changes/changes.css")]),
   widths: { narrow: 520, normal: 860, wide: 1180 },
   height: 620,
   variants: {
