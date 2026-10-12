@@ -86,6 +86,14 @@ public final class AgentPaneSeedSource {
             && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil
     }
 
+    /// The seed names a chat of this Mac: an outside chat it resumes (`adopt`) or a past chat of
+    /// this Mac's chat list (`pastChat`). Such a seed never opens in a tab of another machine
+    /// (cx-k21v). A seed still to be read (another tab's selection) names neither.
+    public var namesLocalChat: Bool {
+        guard read == nil, let value else { return false }
+        return value.adopt != nil || value.pastChat != nil
+    }
+
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero

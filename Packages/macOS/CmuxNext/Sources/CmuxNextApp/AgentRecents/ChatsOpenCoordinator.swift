@@ -149,6 +149,9 @@ final class ChatsOpenCoordinator {
         let page = services.agentTabs.resolve(page)
         guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page),
               let pane = services.paneController(for: model) else { return false }
+        // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
+        // new workspace of this Mac instead, as before open-here.
+        guard pane.daemon.isLocal else { return false }
         let placed = NewTabSlot.placing(after: slot, services: services) { [weak pane] (_: String) in
             pane?.close([StripTabID(page)])
         }
