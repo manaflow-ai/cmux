@@ -19,10 +19,12 @@ public struct ThemedField: NSViewRepresentable {
     /// - Parameters:
     ///   - text: The field's text.
     ///   - placeholder: The hint shown while it is empty, in the scope's hint ink.
-    ///   - secure: A secure field: its characters never reach the screen or the pasteboard.
+    ///   - secure: A secure field: its characters never reach the screen or the pasteboard. Read
+    ///     once, when the field is made; a later value doesn't swap the field.
     ///   - font: The text's font.
-    ///   - height: The box's height.
-    ///   - focusOnAppear: Takes the keyboard when it first appears in a window.
+    ///   - height: The box's height; a change resizes it.
+    ///   - focusOnAppear: Takes the keyboard each time it appears in a window (its tab shown again
+    ///     too), as an `.onAppear` focus does.
     ///   - identifier: The field's accessibility identifier.
     ///   - onSubmit: Return.
     ///   - onMove: Up (-1) and Down (1); nil leaves them to the field.
@@ -59,6 +61,8 @@ public struct ThemedField: NSViewRepresentable {
         if field.placeholderString != placeholder { field.placeholderString = placeholder }
         if field.font != font { field.font = font }
         if let identifier, field.accessibilityIdentifier() != identifier { field.setAccessibilityIdentifier(identifier) }
+        host.box.height = height
+        host.focusOnAppear = focusOnAppear
     }
 
     public func sizeThatFits(_ proposal: ProposedViewSize, nsView: ThemedFieldHost, context: Context) -> CGSize? {
@@ -95,7 +99,7 @@ public struct ThemedField: NSViewRepresentable {
     }
 }
 
-/// `ThemedField`'s view: its box, and the keyboard on first appearance when asked.
+/// `ThemedField`'s view: its box, and the keyboard each time it moves into a window when asked.
 public final class ThemedFieldHost: NSView {
     public let box: ThemedFieldBox
     fileprivate var focusOnAppear = false
@@ -116,8 +120,7 @@ public final class ThemedFieldHost: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard focusOnAppear, let window else { return }
-        focusOnAppear = false
+        guard focusOnAppear, let window, box.field.currentEditor() == nil else { return }
         window.makeFirstResponder(box.field)
     }
 }
