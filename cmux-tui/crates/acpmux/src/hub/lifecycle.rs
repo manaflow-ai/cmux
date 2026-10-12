@@ -161,11 +161,10 @@ impl Hub {
         // An agent that started fresh instead of resuming fails creation.
         if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
             self.check_resumed(&session, a, agent).await?;
-            // The adopted chat shows its past at once: Claude Code's resume replays nothing (Codex
-            // resumes through ACP session/load, which streams the history itself).
-            if family == "claude"
-                && let Some(file) = adopted_file.clone()
-            {
+            // The adopted chat shows its past at once: Claude Code's resume replays nothing, and a
+            // Codex session/load that streamed no history gets its rollout replayed too
+            // (`replay_adopted` skips a session that already has history).
+            if let Some(file) = adopted_file.clone() {
                 self.replay_adopted(&session, &family, file).await;
             }
         }
