@@ -41,6 +41,17 @@ impl KeybindingsDaemon {
 
     /// `cmux --json raw operation <op> --params-json <params>`.
     fn op(&self, operation: &str, params: serde_json::Value, mutation: bool) -> Output {
+        self.op_with_key(operation, params, mutation, None)
+    }
+
+    /// `op` with a global `--idempotency-key` (a retry reuses it).
+    fn op_with_key(
+        &self,
+        operation: &str,
+        params: serde_json::Value,
+        mutation: bool,
+        key: Option<&str>,
+    ) -> Output {
         let mut params = params;
         params["machine"] = serde_json::json!("current");
         params["session"] = serde_json::json!("current");
@@ -48,6 +59,7 @@ impl KeybindingsDaemon {
         command
             .args(["--json", "--socket"])
             .arg(&self.server.socket)
+            .args(key.map(|key| ["--idempotency-key", key]).into_iter().flatten())
             .args(["raw", "operation", operation, "--params-json", &params.to_string()])
             .env("LC_ALL", "C")
             .env_remove("CMUX_TUI_SOCKET")
@@ -164,6 +176,46 @@ fn keybindings_owner_writes_what_cmux_json_cannot_hold_and_it_survives_a_restart
     assert!(!entries.iter().any(|entry| entry["command"] == "newTab"), "{entries:?}");
     assert!(daemon.file().contains("// split with the leader"));
     assert!(daemon.config.exists());
+
+    // A palette key has neither cmd nor ctrl: its default can still be
+    // removed (as the app's loader allows), and reset brings it back.
+    daemon.ok(
+        "keybindings.remove",
+        serde_json::json!({"command": "paletteKey.escape", "key": "escape"}),
+        true,
+    );
+    assert!(
+        daemon.entries().iter().any(|entry| entry["command"] == "paletteKey.escape"
+            && entry["removal"] == true
+            && entry["keys"] == serde_json::json!(["escape"])),
+        "{}",
+        daemon.file()
+    );
+    daemon.ok("keybindings.reset", serde_json::json!({"command": "paletteKey.escape"}), true);
+    assert!(!daemon.file().contains("paletteKey.escape"), "{}", daemon.file());
+
+    // A retry with the same idempotency key writes once; the key with
+    // another op is a conflict.
+    let set = serde_json::json!({"command": "splitDown", "key": "cmd+j d"});
+    for _ in 0..2 {
+        let output = daemon.op_with_key("keybindings.set", set.clone(), true, Some("retry-1"));
+        assert_success(&output);
+    }
+    let bound = daemon.entries().iter().filter(|entry| entry["command"] == "splitDown").count();
+    assert_eq!(bound, 1, "a retry wrote the binding again:\n{}", daemon.file());
+    let output = daemon.op_with_key(
+        "keybindings.remove",
+        serde_json::json!({"command": "splitDown", "key": "cmd+j d"}),
+        true,
+        Some("retry-1"),
+    );
+    assert!(!output.status.success(), "the reused key was not refused");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(text.contains("idempotency.conflict"), "{text}");
 }
 
 #[test]
