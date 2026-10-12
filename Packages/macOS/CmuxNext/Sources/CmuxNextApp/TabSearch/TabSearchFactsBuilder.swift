@@ -35,16 +35,18 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
-        return DaemonClosedHistory.entries([.tab], in: services).map { entry in
-            let item = entry.item, tab = item.tabs.first, daemon = entry.daemon
+        // Untouched New Tab pages are left out, as in Recently Closed (HistoryService.isWorthReopening).
+        return DaemonClosedHistory.entries([.tab], in: services).filter { HistoryService.isWorthReopening($0.item) }.map { entry in
+            let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
             let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
             // One close gesture of several tabs is one item: its row reopens all of them.
             let title = item.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(item.tabs.count)
-                : item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? ""
+                : HistoryService.realText(item.name) ?? HistoryService.realText(tab?.name)
+                    ?? HistoryService.realText(tab?.url) ?? tab?.cwd ?? ""
             return ControlClosedTab(
                 id: DaemonClosedHistory.historyID(item.id), kind: tab?.kind == "browser" ? "browser" : "terminal",
-                title: title, url: tab?.url, cwd: tab?.cwd,
+                title: title, url: HistoryService.realText(tab?.url), cwd: tab?.cwd,
                 workspaceTitle: workspaceTitle,
                 machine: local ? nil : services.machines.machineName(daemon.machineID) ?? daemon.machineID,
                 closedAt: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), isAvailable: daemon.connection != nil)

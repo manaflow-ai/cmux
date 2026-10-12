@@ -330,6 +330,26 @@ export function DiffPanel({
     const lines = hunk.lines.map((line) => (line.type === "add" ? "+" : line.type === "del" ? "-" : " ") + line.text);
     changeIndex(source.stageHunk(withPrevious(path, load.changeSet), lines, hunkUnstages));
   });
+  // Show more lines (cx-ncc.85): each file is read whole once per load of the scope, when it
+  // comes into view; a rename's old name would be lost from a one-path read, so it isn't.
+  const wholeReads = useRef<{
+    load: typeof load;
+    reads: Map<string, ReturnType<NonNullable<FileActions["wholeFile"]>>>;
+  }>(undefined);
+  const wholeFile = useStableCallback((path: string) => {
+    if (!source?.wholeFile || scope === "lastTurn" || load.state !== "loaded") return Promise.resolve(undefined);
+    const named = withPrevious(path, load.changeSet);
+    if (named.length !== 1) return Promise.resolve(undefined);
+    if (wholeReads.current?.load !== load) wholeReads.current = { load, reads: new Map() };
+    const { reads } = wholeReads.current;
+    let read = reads.get(path);
+    if (!read) {
+      const name = named[0]!;
+      read = source.wholeFile(scope, name).then((value) => ({ named: name, value }));
+      reads.set(path, read);
+    }
+    return read;
+  });
   const canStage = source?.stage !== undefined && unstages !== undefined;
   const canStageHunk = source?.stageHunk !== undefined && hunkUnstages !== undefined;
   const hunkKey = canStageHunk ? (hunkUnstages ? "u" : "s") : undefined;
@@ -339,6 +359,7 @@ export function DiffPanel({
       openFile,
       stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
       stageHunk: canStageHunk ? { unstage: hunkUnstages === true, run: stageHunk } : undefined,
+      wholeFile: source?.wholeFile && scope !== "lastTurn" ? wholeFile : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -362,7 +383,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk],
+    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk, source, scope, wholeFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
