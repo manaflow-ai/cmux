@@ -71,7 +71,11 @@ for mode in 0 1; do
     continue
   fi
   sleep 3
-  python3 "$app_rpc" "$socket" action.run '{"action":"palette.newAgentChat"}' >/dev/null 2>&1
+  if ! opened="$(python3 "$app_rpc" "$socket" action.run '{"action":"palette.newAgentChat"}' 2>&1)"; then
+    echo "mode $mode: no agent chat opened: $opened" | tee "$out/$mode-error.txt"
+    stop_app
+    continue
+  fi
   sleep 4
   rpc '{"action":"seed_rows","count":5000}' >/dev/null
   sleep 3

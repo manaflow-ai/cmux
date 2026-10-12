@@ -7,8 +7,8 @@ The socket speaks JSON lines: {"id":1,"method":...,"params":...} in, one
 {"id":1,"result":...} line out (scripts/cmux-debug-cli.sh's `rpc` does the
 same). The bench needs this because the bundled bin/cmux is the cmux-tui
 binary, which has no command for the app's debug methods. Prints the result
-as JSON, or the whole reply when it has none; exits 1 when the socket does not
-answer.
+as JSON; prints the whole reply and exits 1 when the app answers with an error
+or the socket does not answer.
 """
 
 from __future__ import annotations
@@ -44,8 +44,11 @@ def main(argv: list[str]) -> int:
     except ValueError:
         print(json.dumps({"error": "not JSON", "reply": reply.decode(errors="replace").strip()}))
         return 1
-    result = response.get("result", response) if isinstance(response, dict) else response
-    print(json.dumps(result, separators=(",", ":")))
+    if isinstance(response, dict) and (response.get("ok") is False or "result" not in response):
+        # ControlWire's failure reply: {"id":..,"ok":false,"error":{code,message}}.
+        print(json.dumps(response, separators=(",", ":")))
+        return 1
+    print(json.dumps(response["result"] if isinstance(response, dict) else response, separators=(",", ":")))
     return 0
 
 

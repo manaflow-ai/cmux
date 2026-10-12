@@ -66,7 +66,10 @@ class FakeApp:
                 elif request["method"] == "action.run":
                     result = {"ok": True}
                 else:
-                    result = {"error": "unexpected"}
+                    # ControlWire's failure reply.
+                    failure = {"id": request["id"], "ok": False, "error": {"code": "not_found", "message": "no agent pane"}}
+                    conn.sendall((json.dumps(failure) + "\n").encode())
+                    continue
                 conn.sendall((json.dumps({"id": request["id"], "result": result}) + "\n").encode())
 
     def close(self) -> None:
@@ -108,6 +111,18 @@ def test_a_new_chat_opens_through_the_app_action() -> None:
             app.close()
         assert done.returncode == 0, done.stderr
         assert app.calls == [{"id": 1, "method": "action.run", "params": {"action": "palette.newAgentChat"}}]
+
+
+def test_an_app_error_fails_with_its_reason() -> None:
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+        sock = os.path.join(tmp, "app.sock")
+        app = FakeApp(sock)
+        try:
+            failed = app_rpc(sock, "debug.agent_pane", {"action": "seed_rows"})
+        finally:
+            app.close()
+        assert failed.returncode == 1, failed
+        assert json.loads(failed.stdout)["error"]["message"] == "no agent pane"
 
 
 def test_bench_sh_uses_the_app_socket_for_every_request() -> None:
