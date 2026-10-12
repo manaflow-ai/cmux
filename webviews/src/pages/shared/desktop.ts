@@ -5,6 +5,7 @@
 import "./desktop.css";
 import { installScrollers } from "../../scrollers";
 import { installTooltips } from "../../ui/titleTooltips";
+((globalThis as any).__cmuxT ??= {}).desktopBody = performance.now(); // diag (to drop)
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";

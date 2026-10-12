@@ -3,6 +3,7 @@ import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
 import { agentKey } from "../shared/agentKey";
 import { agentBrand } from "../shared/agentBrands.generated";
+((globalThis as any).__cmuxT ??= {}).modelCatalog = performance.now(); // diag (to drop)
 
 // The composer's model catalog as data (decision M2; contract .cmux-scratch/nx-model-catalog/
 // CONTRACT.md). Three layers meet here: the cmux catalog (the server's projection of the public

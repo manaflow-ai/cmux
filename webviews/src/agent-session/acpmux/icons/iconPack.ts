@@ -1,5 +1,6 @@
 import bundled from "./cmuxIcons.json";
 import type { IconAccent, IconLayer, IconPack, IconStyle } from "./types";
+((globalThis as any).__cmuxT ??= {}).iconPack = performance.now(); // diag (to drop)
 
 /// The pack built into the pane.
 export const bundledIconPack = bundled as IconPack;

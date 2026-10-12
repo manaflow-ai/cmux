@@ -28,6 +28,7 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
+((globalThis as any).__cmuxT ??= {}).directBody = performance.now(); // diag (to drop)
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;

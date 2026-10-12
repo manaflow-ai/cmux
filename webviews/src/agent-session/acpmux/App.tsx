@@ -182,6 +182,7 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { experimentArm } from "../../experiments/experiment";
+((globalThis as any).__cmuxT ??= {}).appBody = performance.now(); // diag (to drop)
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
