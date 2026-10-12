@@ -297,6 +297,8 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
