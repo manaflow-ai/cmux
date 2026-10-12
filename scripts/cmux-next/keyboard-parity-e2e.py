@@ -80,19 +80,22 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-# The web page: a local server this script starts (and stops). Loading adds `#b` to the URL, so
-# the page has a history entry to go back to; its title is the load time, so a reload shows.
-PAGE = b"""<!doctype html><title>t</title><p>parity page</p><input id=q>
-<script>document.title='load '+Date.now();if(!location.hash)setTimeout(()=>{location.hash='b'},200)</script>"""
+# The web page: a local server this script starts (and stops). /a goes on to /b, so the page has
+# a history entry to go back to. Both are no-store, so Back, Forward and Reload each fetch again,
+# and the server's request log shows which page loaded.
+PAGES = {"/a": b"<!doctype html><title>a</title><p>page a</p><script>setTimeout(()=>{location.href='/b'},300)</script>",
+         "/b": b"<!doctype html><title>b</title><p>page b</p><input id=q>"}
+REQUESTS = []
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        REQUESTS.append(self.path)
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(PAGE)
+        self.wfile.write(PAGES.get(self.path, b"<!doctype html><title>x</title>"))
 
     def log_message(self, *args):
         pass
@@ -100,7 +103,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 SERVER = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=SERVER.serve_forever, daemon=True).start()
-PAGE_URL = f"http://127.0.0.1:{SERVER.server_address[1]}/parity.html"
+PAGE_URL = f"http://127.0.0.1:{SERVER.server_address[1]}/a"
+
+
+def fetched(path, since):
+    """`path` was requested after the first `since` requests."""
+    return path in REQUESTS[since:]
 
 
 def state():
@@ -116,11 +124,6 @@ def state():
             "overlays": model.get("overlays") or [], "responder": appkit.get("first_responder"),
             "classified": appkit.get("classified"), "tabs": tabs, "tab_ids": {t.split(":")[0] for t in tabs},
             "palette": ((report.get("context") or {}).get("palette_open")) is True}
-
-
-def page():
-    reply = rpc("debug.browser.page_status") or {}
-    return {} if reply.get("error") else reply
 
 
 def sidebar():
@@ -201,8 +204,9 @@ def setup(focus):
         ok = wait(lambda: state().get("resolved") == "agentPage" and
                   (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is not True or None, 10)
     elif focus == "page":
+        since = len(REQUESTS)
         run("openBrowser", {"url": PAGE_URL})
-        ok = wait(lambda: "#b" in str(page().get("url", "")) or None, 15)
+        ok = wait(lambda: fetched("/b", since) or None, 15)
         ok = ok and wait(lambda: state().get("resolved") == "browserPage" or None, 8)
     elif focus == "settings":
         before = state()["tab_ids"]
@@ -278,18 +282,18 @@ def chat_search(pre, post, ctx):
 
 
 def page_back(pre, post, ctx):
-    url = str(page().get("url", ""))
-    return "#b" not in url, f"url={url[-24:]}"
+    ok = wait(lambda: fetched("/a", ctx["requests"]) or None, 5)
+    return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
 def page_forward(pre, post, ctx):
-    url = str(page().get("url", ""))
-    return "#b" in url, f"url={url[-24:]}"
+    ok = wait(lambda: fetched("/b", ctx["requests"]) or None, 5)
+    return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
 def page_reload(pre, post, ctx):
-    title = wait(lambda: page().get("title") != ctx.get("title") and page().get("title"), 5)
-    return bool(title), f"title {ctx.get('title')} -> {page().get('title')}"
+    ok = wait(lambda: fetched("/b", ctx["requests"]) or None, 5)
+    return bool(ok), f"loads after the key: {REQUESTS[ctx['requests']:]}"
 
 
 def focus_moved(pre, post, ctx):
@@ -323,7 +327,12 @@ def selected_row(nth):
 
 
 def first_item(pre, post, ctx):
-    return selected_row(0)
+    """The first item (Home when the sidebar shows it, which is not a keyed row): the key ran
+    Select by Number and the selection left the start workspace."""
+    ok, note = ran(ctx, "selectWorkspaceByNumber")
+    rows = [r for r in sidebar().get("rows") or [] if r.get("key")]
+    chosen = next((r.get("title") for r in rows if r.get("selected")), None)
+    return ok and chosen != ctx.get("workspace"), f"{note}; selected={chosen} start={ctx.get('workspace')}"
 
 
 def last_item(pre, post, ctx):
@@ -358,12 +367,11 @@ def prepare(name, focus, ctx):
             wait(lambda: not (state()["tab_ids"] & extra) or None, 8)
         refocus(focus, ctx)
     elif name == "Cmd-]":
+        since = len(REQUESTS)
         run("browserBack" if focus == "page" else "focusHistoryBack")
         if focus == "page":
-            wait(lambda: "#b" not in str(page().get("url", "")) or None, 5)
+            wait(lambda: fetched("/a", since) or None, 5)
         time.sleep(0.5)  # test harness: the focus move settles
-    elif name == "Cmd-R" and focus == "page":
-        ctx["title"] = page().get("title")
     elif name == "Esc":
         run("commandPalette")
         wait(lambda: state()["palette"] or None, 5)
@@ -418,6 +426,7 @@ def main():
             prepare(name, focus, ctx)
             routed = decision(key, modifiers)
             pre = state()
+            ctx["requests"] = len(REQUESTS)
             ctx["last_before"] = last_key()
             sent = press(key, modifiers)
             time.sleep(1.2)  # test harness: let the key's effect land
