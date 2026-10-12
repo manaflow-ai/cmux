@@ -237,8 +237,8 @@ struct CloudWelcomeTests {
         ) == ["0.65.1", "0.65.2"].contains(appVersion))
     }
 
-    @Test("an absent or older marker upgrades to 0.65.1 and prevents a repeat", arguments: [nil, "0.64.25", "0.65.0"] as [String?])
-    func campaignMarkerUpgradeAndNoRepeat(previousMarker: String?) throws {
+    @Test("an absent or older marker upgrades to 0.65.1 and prevents a repeat", arguments: [nil, "0.64.25", "0.65.0"] as [String?], ["0.65.1", "0.65.2"])
+    func campaignMarkerUpgradeAndNoRepeat(previousMarker: String?, appVersion: String) throws {
         let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -249,7 +249,7 @@ struct CloudWelcomeTests {
         }
         #expect(CloudWelcomeWindowController.shouldPresentAutomatically(
             defaults: defaults,
-            appVersion: CloudWelcomeWindowController.campaignVersion,
+            appVersion: appVersion,
             policy: policy
         ))
 
@@ -260,7 +260,7 @@ struct CloudWelcomeTests {
             defaults.set(cloudIsOn, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             #expect(!CloudWelcomeWindowController.shouldPresentAutomatically(
                 defaults: defaults,
-                appVersion: CloudWelcomeWindowController.campaignVersion,
+                appVersion: appVersion,
                 policy: policy
             ))
         }
