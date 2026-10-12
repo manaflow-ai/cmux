@@ -47,7 +47,10 @@ import Testing
         let content = try #require(window.contentView)
         let tabs = try #require(Self.all(NSSegmentedControl.self, in: content).first)
         let bezel = try #require(tabs.selectedSegmentBezelColor, "the selected segment has a theme color, not the system's")
-        #expect(ThemedOverlayColorsTests.same(bezel, scope.perform { Palette.selectionFill }), "\(bezel)")
+        // The theme's selection fill made opaque on the window background (and kept legible).
+        let tokens = scope.tokens
+        let fill = tokens.chip(tokens.selectionFill.composited(over: tokens.windowBackground.withAlpha(1))).fill
+        #expect(ThemedOverlayColorsTests.same(bezel, fill.nsColor), "\(bezel)")
         // Still the stock control (its keys and VoiceOver): two segments, the first selected.
         #expect(tabs.segmentCount == 2 && tabs.selectedSegment == 0)
     }
