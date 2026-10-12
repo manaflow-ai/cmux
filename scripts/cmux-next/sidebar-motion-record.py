@@ -28,6 +28,7 @@ parser.add_argument("--socket", required=True, help="the tagged app's debug sock
 parser.add_argument("--out", required=True)
 parser.add_argument("--only", action="append", default=[])
 parser.add_argument("--seconds", type=float, default=1.5)
+parser.add_argument("--reduce-motion", action="store_true", help="Reduce Motion on, in memory")
 opts = parser.parse_args()
 
 
@@ -146,6 +147,10 @@ def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
     os.makedirs(opts.out, exist_ok=True)
+    # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
+    rpc("debug.motion", {"action": "speed", "value": "fast"})
+    if opts.reduce_motion:
+        rpc("debug.motion", {"action": "reduce", "value": True})
     set_tab_rows(False)  # the default
     action("workspace.selectFirst")
     while len(rows("workspace")) < 6:

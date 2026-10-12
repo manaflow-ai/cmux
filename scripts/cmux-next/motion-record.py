@@ -16,9 +16,12 @@ Surfaces:
   focus  focus moves between panes (left, right)
   toasts a toast appears (pin a tab), a second stacks under it (close a tab),
          and the newest ends (undo) while the other slides back down
+  switch workspace switches: to the next workspace, back, and across several
+
+--reduce-motion records with Reduce Motion on (in memory, `debug.motion reduce`).
 
 Usage: motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock --out DIR
-       [--surface NAME ...] [--only SCENARIO ...]
+       [--surface NAME ...] [--only SCENARIO ...] [--reduce-motion]
 """
 import argparse, json, os, socket, sys, time
 
@@ -28,6 +31,7 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--surface", action="append", default=[])
 parser.add_argument("--only", action="append", default=[])
 parser.add_argument("--seconds", type=float, default=1.5)
+parser.add_argument("--reduce-motion", action="store_true")
 parser.add_argument("--window-height", type=float, default=720, help="the window's height in points (frames are window-sized)")
 opts = parser.parse_args()
 
@@ -471,6 +475,26 @@ def everyday():
         record("everyday", f"{index:02d}-{name}", trigger, seconds=1.6)
         time.sleep(0.3)  # test harness: settle between steps
 
+def switch():
+    # Workspace switches by number, as Cmd-1 to Cmd-9: to the next one, back,
+    # and across several (each workspace keeps its own tabs and content).
+    while len([r for r in ((rpc("debug.sidebar_rows") or {}).get("windows") or [{}])[0].get("rows") or []
+               if str(r.get("key", "")).startswith("workspace")]) < 4:
+        action("workspace.newAtBottom")
+        time.sleep(0.4)  # test harness: one workspace at a time
+    # The last workspace's terminal holds a full screen of lines, so a switch to it shows
+    # whether the whole screen or only the prompt redraws.
+    action("selectWorkspaceByNumber", args={"index": 4})
+    time.sleep(0.8)  # test harness: the terminal shows
+    action("terminal.sendText", args={"text": "for i in $(seq 1 40); do echo line $i; done\r"})
+    time.sleep(1.0)  # test harness: the lines print
+    action("selectWorkspaceByNumber", args={"index": 1})
+    time.sleep(0.6)  # test harness: the switch settles
+    save_layout("switch")
+    for name, index in (("next", 2), ("back", 1), ("across", 4), ("across-back", 1)):
+        record("switch", name, lambda index=index: action("selectWorkspaceByNumber", args={"index": index}))
+
+
 def hovercard():
     # A tab hover card shows after the pointer rests on a tab, then moves to
     # the next tab (a retarget: one tab's thumbnail replaces the other's).
@@ -493,7 +517,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
 
 
 def main():
@@ -502,10 +526,14 @@ def main():
     os.makedirs(opts.out, exist_ok=True)
     # Capture slots can launch with ui.animationSpeed "off"; record at the default speed (in memory only).
     rpc("debug.motion", {"action": "speed", "value": "fast"})
+    if opts.reduce_motion:
+        print("reduce motion:", json.dumps(rpc("debug.motion", {"action": "reduce", "value": True}))[:120], flush=True)
     action("workspace.selectFirst")
     time.sleep(1.0)  # test harness: the workspace settles
     for name in opts.surface or list(SURFACES):
         SURFACES[name]()
+    if opts.reduce_motion:
+        rpc("debug.motion", {"action": "reduce", "value": None})
     print("\nRESULT PASS (recorded)")
 
 
