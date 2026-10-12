@@ -153,11 +153,13 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
             }
         }
+        let museumArt = MuseumArtSession()
+        provider.museumArt = museumArt
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          userImages: SettingsWindowService.userImages)
+                                                          userImages: SettingsWindowService.userImages, museum: museumArt)
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)

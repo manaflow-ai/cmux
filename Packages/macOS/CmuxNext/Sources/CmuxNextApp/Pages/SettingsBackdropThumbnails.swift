@@ -13,14 +13,22 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     static let prefix = "backdrop"
     private let allowed: Set<String>
     private let userImages: BackdropUserImages?
+    private let museum: MuseumArtSession?
     private var cache: [String: Data] = [:]
 
-    init(choices: [BackdropSelection], userImages: BackdropUserImages?) {
+    init(choices: [BackdropSelection], userImages: BackdropUserImages?, museum: MuseumArtSession? = nil) {
         allowed = Set(choices.map(\.id))
         self.userImages = userImages
+        self.museum = museum
     }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
+        // Browse more art: a result's thumbnail, only for a key the latest searches returned.
+        if request.prefix == MuseumArtSession.thumbnailPrefix, request.path.count == 1,
+           let key = request.path[0].removingPercentEncoding, let data = await museum?.thumbnail(key: key) {
+            // Commons thumbnails of PNG files are PNGs; everything else answers JPEG.
+            return PageResource(data: data, mimeType: data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg")
+        }
         guard request.prefix == Self.prefix, request.path.count == 1,
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
               allowed.contains(id) || userImages?.contains(selection) == true else { return nil }

@@ -36,6 +36,7 @@ import {
   type HostLists,
   type ListRow,
   type ManagedInfo,
+  type MuseumArtResult,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -283,6 +284,19 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.backdrop.choose_image", {});
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** Browse More Art: the works matching `query`, or null when the host could not search. */
+  async searchMuseumArt(query: string): Promise<MuseumArtResult[] | null> {
+    const reply = await this.request("cmux.settings.art.search", { query });
+    return reply.ok ? reply.value.results : null;
+  }
+
+  /** Downloads the work `key` and sets it as the background; false when that failed. */
+  async useMuseumArt(key: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.art.use", { key });
+    if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
+    return reply.ok;
   }
 
   /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */
