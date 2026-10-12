@@ -20,8 +20,9 @@ final class PaletteSearchFieldCell: NSTextFieldCell {
         guard attribute == .description || attribute == .identifier, Thread.isMainThread else {
             return super.accessibilityAttributeValue(attribute)
         }
-        return MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
+        let value: String? = MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
             attribute == .description ? accessibilityLabel() : accessibilityIdentifier()
         }
+        return value
     }
 }
