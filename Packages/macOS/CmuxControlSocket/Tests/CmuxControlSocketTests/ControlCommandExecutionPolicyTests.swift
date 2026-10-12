@@ -3,6 +3,12 @@ import Testing
 
 @Suite("ControlCommandExecutionPolicy")
 struct ControlCommandExecutionPolicyTests {
+    @Test func browserPickerMethodsKeepBlockingWaitOffMainActor() {
+        for method in ["browser.picked", "browser.picked.clear", "browser.picked.wait"] {
+            #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
+        }
+    }
+
     @Test func vmPrefixedMethodsRunOnTheSocketWorker() {
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.anything.else").runsOnSocketWorker)
