@@ -47,6 +47,18 @@ struct CloudWelcomeTests {
         #expect(!relaunched.claimLaunchPresentation(defaults: relaunchedDefaults, appVersion: "0.65.1", policy: policy))
     }
 
+    @Test("users who saw the 0.65.0 welcome still get the 0.65.1 card")
+    @MainActor
+    func earlierWelcomeDoesNotSuppressCampaign() throws {
+        let suiteName = "CloudWelcomeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        // 0.65.0 recorded its welcome under this boolean key.
+        defaults.set(true, forKey: "cmux.cloud.welcome.seen")
+        #expect(CloudWelcomeWindowController().claimLaunchPresentation(defaults: defaults, appVersion: "0.65.1", policy: policy))
+    }
+
     @Test("a blocked first window waits for the next launch, even when policy changes")
     @MainActor
     func blockedLaunchDoesNotReconsiderOrConsumeCampaign() throws {
