@@ -257,6 +257,134 @@ fn an_access_request_outside_any_grant_waits_for_the_person_and_one_inside_is_an
     }
 }
 
+/// A fake secret: no real credential is ever used.
+const FAKE_SECRET: &str = "fake-npm-token-0123456789";
+
+/// An agent on the machine asking for the secret `name`.
+fn ask_secret(vm: &Machine, session: &str, name: &str) -> Child {
+    vm.command()
+        .env("CMUX_AGENT_SESSION", session)
+        .args(["link", "access", "request", "--socket"])
+        .arg(&vm.socket)
+        .args(["--timeout", "60", "--reason", "to publish", "--secret", name])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+#[test]
+fn a_secret_access_request_waits_for_the_person_and_its_value_is_read_once() {
+    let root = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(root.path()).unwrap();
+    let mac = Mac::new(&root);
+    let vm = Machine::start(
+        &root,
+        "vm",
+        vec![
+            ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
+            ("CMUX_VM_ID", "vm-secret-request-journey".to_owned()),
+            ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
+        ],
+    );
+    let socket = vm.socket.to_str().unwrap();
+
+    let shared = ask_secret(&vm, CHAT, "NPM_TOKEN");
+    let refused = ask_secret(&vm, CHAT, "AWS_SECRET_ACCESS_KEY");
+    let requests = wait_until(30, "two secret requests on the machine", || {
+        let requests = pending(&vm);
+        (requests.len() == 2).then_some(requests)
+    });
+    let id_named = |name: &str| {
+        requests.iter().find(|r| r["name"] == name).unwrap()["request_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let (shared_id, refused_id) = (id_named("NPM_TOKEN"), id_named("AWS_SECRET_ACCESS_KEY"));
+
+    // Nothing answers a secret but the person.
+    let (ok, triaged) =
+        mac.access(&["triage", "--socket", socket, "--machine", "vm-1", "--session", CHAT]);
+    assert!(ok, "{triaged}");
+    assert_eq!(triaged["answered"], json!([]), "{triaged}");
+    let asked = triaged["ask"].as_array().unwrap();
+    assert_eq!(asked.len(), 2, "{triaged}");
+    assert!(asked.iter().all(|a| a["kind"] == "secret" && a["path"].is_null()), "{triaged}");
+
+    let answer = |request: &str, args: &[&str], input: &str| -> (bool, Value, String) {
+        let mut child = Command::new(bin())
+            .env("HOME", &mac.home)
+            .env("CMUX_TUI_STATE_DIR", &mac.state)
+            .env_remove("CMUX_AGENT_SESSION")
+            .env_remove("CMUX_TUI_SOCKET")
+            .args(["link", "access", "answer", "--socket", socket, "--machine", "vm-1"])
+            .args(["--session", CHAT, "--request", request])
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write as _;
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        let printed = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line = serde_json::from_str(stdout.lines().last().unwrap_or_default())
+            .unwrap_or_else(|_| panic!("no JSON line: {printed}"));
+        (output.status.success(), line, printed)
+    };
+    // The value comes on stdin, for the name the person saw, and once.
+    let (ok, changed, _) = answer(&shared_id, &["--share-secret", "GITHUB_TOKEN"], FAKE_SECRET);
+    assert!(!ok, "{changed}");
+    assert_eq!(changed["error_code"], "request_changed", "{changed}");
+    let (ok, as_file, _) =
+        answer(&shared_id, &["--allow", mac.home.join("notes/todo.txt").to_str().unwrap()], "");
+    assert!(!ok, "{as_file}");
+    assert_eq!(as_file["error_code"], "request_changed", "{as_file}");
+    let (ok, shared_answer, printed) =
+        answer(&shared_id, &["--share-secret", "NPM_TOKEN"], FAKE_SECRET);
+    assert!(ok, "{shared_answer}");
+    assert!(!printed.contains(FAKE_SECRET), "the Mac printed the secret: {printed}");
+    let (ok, refused_answer, _) = answer(&refused_id, &["--deny"], "");
+    assert!(ok, "{refused_answer}");
+
+    let (ok, got) = answered(shared);
+    assert!(ok, "{got}");
+    assert_eq!(got["name"], "NPM_TOKEN", "{got}");
+    assert_eq!(got["value"], FAKE_SECRET, "{got}");
+    let (ok, got) = answered(refused);
+    assert!(!ok, "{got}");
+    assert_eq!(got["error_code"], "access_denied", "{got}");
+    // The machine kept it for the first read only.
+    let status = vm.rpc(json!({"id": 3, "cmd": "access-request-status", "request_id": shared_id}));
+    assert_eq!(status["data"]["state"], "delivered", "{status}");
+    assert_eq!(status["data"]["taken"], true, "{status}");
+    assert!(!status.to_string().contains(FAKE_SECRET), "{status}");
+    // A secret answer of a file request is refused by the machine.
+    let file = ask(&vm, CHAT, &mac.home.join("notes/todo.txt"), "5");
+    let file_id = wait_until(30, "a file request", || {
+        pending(&vm).first().and_then(|r| r["request_id"].as_str().map(str::to_owned))
+    });
+    let wrong = vm.rpc(json!({"id": 4, "cmd": "access-request-answer", "request_id": file_id,
+                              "outcome": "delivered", "value": FAKE_SECRET}));
+    assert_eq!(wrong["error_code"], "access_request.bad_request", "{wrong}");
+    let _ = answered(file);
+    // Nowhere on disk on either side: homes, state folders, daemon logs.
+    for (path, bytes) in files_below(&root) {
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains(FAKE_SECRET),
+            "{} holds the secret",
+            path.display()
+        );
+    }
+}
+
 #[test]
 fn a_daemon_that_is_not_a_cloud_machine_takes_no_access_requests() {
     let root = tempfile::tempdir().unwrap();
