@@ -697,6 +697,7 @@ tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
         )
         .unwrap();
         fs::set_permissions(fake_bin.join("npm"), fs::Permissions::from_mode(0o755)).unwrap();
+        settle_executable(&fake_bin.join("npm"));
 
         let rejected = root.join("rejected");
         let script = root.join("ssh");
