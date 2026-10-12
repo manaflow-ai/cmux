@@ -9209,7 +9209,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true, autoLayout: Bool = false
+        allowTextBoxFocusDefault: Bool = true, autoLayout: Bool = false,
+        honorsGhosttySplitInheritance: Bool = false
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
@@ -9264,7 +9265,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout,
+            honorsGhosttySplitInheritance: honorsGhosttySplitInheritance
         ) else { return .failed }
         return .created(panel)
     }
@@ -9281,7 +9283,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool, autoLayout: Bool
+        allowTextBoxFocusDefault: Bool, autoLayout: Bool,
+        honorsGhosttySplitInheritance: Bool
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9344,7 +9347,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         // Resolve cwd as explicit request, source reported cwd, source requested
         // startup cwd, then workspace currentDirectory.
-        let cwdResolution = resolveRemoteTerminalWorkingDirectory(requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId, startupEnvironment: effectiveStartupEnvironment, explicitRemoteInitialWorkingDirectory: explicitRemoteInitialWorkingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil, inheritWorkingDirectoryFallback: true, resolveLocalFallback: true)
+        // Only user splits follow Ghostty's split key; layout and restore
+        // scaffolds keep inheriting their anchor's directory.
+        let ghosttyDefaultWorkingDirectory = honorsGhosttySplitInheritance
+            ? ghosttyDefaultWorkingDirectoryIfNotInheriting(\.split, requestedWorkingDirectory: workingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil)
+            : nil
+        let inheritsWorkingDirectory = ghosttyDefaultWorkingDirectory == nil
+        let cwdResolution = resolveRemoteTerminalWorkingDirectory(requestedWorkingDirectory: ghosttyDefaultWorkingDirectory ?? workingDirectory, sourcePanelId: panelId, startupEnvironment: effectiveStartupEnvironment, explicitRemoteInitialWorkingDirectory: explicitRemoteInitialWorkingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil, inheritWorkingDirectoryFallback: inheritsWorkingDirectory, resolveLocalFallback: inheritsWorkingDirectory)
         let splitWorkingDirectory = cwdResolution.resolvedWorkingDirectory
         let localWorkingDirectory = cwdResolution.localWorkingDirectory
         effectiveStartupEnvironment = cwdResolution.startupEnvironment
@@ -9679,7 +9688,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let cwdResolution = resolveRemoteTerminalWorkingDirectory(requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId, startupEnvironment: effectiveStartupEnvironment, explicitRemoteInitialWorkingDirectory: explicitRemoteInitialWorkingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil, inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback, resolveLocalFallback: inheritWorkingDirectoryFallback && startupCommand == nil)
+        let ghosttyDefaultWorkingDirectory = inheritWorkingDirectoryFallback
+            ? ghosttyDefaultWorkingDirectoryIfNotInheriting(\.tab, requestedWorkingDirectory: workingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil)
+            : nil
+        let inheritsWorkingDirectory = inheritWorkingDirectoryFallback && ghosttyDefaultWorkingDirectory == nil
+        let cwdResolution = resolveRemoteTerminalWorkingDirectory(requestedWorkingDirectory: ghosttyDefaultWorkingDirectory ?? workingDirectory, sourcePanelId: fallbackSourcePanelId, startupEnvironment: effectiveStartupEnvironment, explicitRemoteInitialWorkingDirectory: explicitRemoteInitialWorkingDirectory, isRemoteStartup: remoteStartupCommandForEnvironment != nil, inheritWorkingDirectoryFallback: inheritsWorkingDirectory, resolveLocalFallback: inheritsWorkingDirectory && startupCommand == nil)
         let localWorkingDirectory = cwdResolution.localWorkingDirectory
         effectiveStartupEnvironment = cwdResolution.startupEnvironment
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
