@@ -25,6 +25,7 @@ type HeaderToolsProps = {
   folder?: string;
   readStatus?: () => Promise<unknown>;
   onApplyWorktree?: (key: string) => Promise<unknown>;
+  onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
 };
 
 const menuRows = (): ChatMenuItem[] => [
@@ -115,6 +116,15 @@ const worktreeApplied: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-header-worktree" });
   await ctx.click({ role: "button", name: "Apply to main checkout" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-apply output"));
+};
+
+// The pill's popover after Remove (cx-lyqio.5): the worktree holds work found nowhere else, so it
+// stays, and only "Remove anyway" would discard it.
+const worktreeRemoveRefused: Play = async (ctx) => {
+  await worktreePill(ctx);
+  await ctx.click({ selector: ".acpmux-header-worktree" });
+  await ctx.click({ role: "button", name: "Remove worktree" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-remove [role=alert]"));
 };
 
 // A click on the chip opens its status: title, state and review, then each check, failing first
@@ -239,6 +249,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/PullRequestMerge.tsx#PullRequestMerge",
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
+    "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -330,6 +341,29 @@ export default componentEntry<HeaderToolsProps>({
         }),
       },
       play: worktreeApplied,
+    },
+    "worktree-remove": {
+      note: "Remove keeps a worktree with uncommitted work and says so inline; only Remove anyway discards it (cx-lyqio.5).",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        onApplyWorktree: async () => ({ value: { main_root: "/Users/me/Projects/cmux", files: [] } }),
+        onRemoveWorktree: async () => {
+          throw Object.assign(new Error("refused"), {
+            code: "operation.failed",
+            details: { reason: "uncommitted_changes", extra: { files: ["src/login.ts", "notes.md"], count: 2 } },
+          });
+        },
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+        }),
+      },
+      play: worktreeRemoveRefused,
     },
     "customize-menu": {
       note: "Right-clicking a quick action moves it, picks toggle or open, and shows or hides each button (cx-00n1).",

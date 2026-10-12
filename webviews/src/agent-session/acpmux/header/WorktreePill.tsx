@@ -2,13 +2,15 @@
 // worktree (New Worktree, cx-lyqio.2) works on a branch of its own beside the user's checkout. The
 // session host's `git.status` names the main checkout of a linked worktree (`worktree.main_root`)
 // and the base the branch started from; the pill shows the branch and its tooltip both. A click
-// opens them, with Apply for a chat that has work to bring back (WorktreeApply.tsx, cx-lyqio.4).
+// opens them, with Apply for a chat that has work to bring back (WorktreeApply.tsx, cx-lyqio.4) and
+// Remove to clean the worktree up (WorktreeRemove.tsx, cx-lyqio.5).
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { WorktreeApply, type Applying } from "./WorktreeApply";
+import { WorktreeRemove, type Removing } from "./WorktreeRemove";
 
 export interface HeaderWorktree {
   readonly branch: string;
@@ -54,16 +56,23 @@ export function useWorktree(
 export function WorktreePill({
   worktree,
   onApply,
+  onRemove,
 }: {
   worktree: HeaderWorktree;
   /// Apply (WorktreeApply.tsx, cx-lyqio.4); absent for a chat with nothing to apply yet.
   onApply?: (key: string) => Promise<unknown>;
+  /// Remove (WorktreeRemove.tsx, cx-lyqio.5); absent for a chat without a session yet.
+  onRemove?: (key: string, discard: boolean) => Promise<unknown>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // Where Apply stands for this branch, kept here: the popover's content unmounts on close.
   const [apply, setApply] = useState<{ branch: string; applying: Applying }>();
   const applying = apply?.branch === worktree.branch ? apply.applying : { step: "idle" as const };
+  const [remove, setRemove] = useState<{ branch: string; removing: Removing }>();
+  const removing = remove?.branch === worktree.branch ? remove.removing : { step: "idle" as const };
+  // A removed worktree has nothing left to apply.
+  const removed = removing.step === "removed";
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
@@ -102,12 +111,22 @@ export function WorktreePill({
       >
         <div className="acpmux-pr-title">{worktree.branch}</div>
         <div className="acpmux-pr-facts">{title}</div>
-        {onApply && (
+        {onApply && !removed && (
           <WorktreeApply
             worktree={worktree}
             applying={applying}
             setApplying={(next) => setApply({ branch: worktree.branch, applying: next })}
             apply={onApply}
+            busy={removing.step === "removing"}
+          />
+        )}
+        {onRemove && (
+          <WorktreeRemove
+            worktree={worktree}
+            removing={removing}
+            setRemoving={(next) => setRemove({ branch: worktree.branch, removing: next })}
+            remove={onRemove}
+            busy={applying.step === "applying"}
           />
         )}
       </Popover>

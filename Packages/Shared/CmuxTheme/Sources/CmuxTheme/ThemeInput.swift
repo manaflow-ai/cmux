@@ -23,6 +23,9 @@ public struct ThemeInput: Hashable, Sendable {
     public var backgroundBlur: Int
     /// Where the chrome's accent comes from (`appearance.accent`, not the Ghostty config).
     public var accent: ThemeAccent = .neutral
+    /// The theme's own accent: a per-theme edit (`<theme>/accent` in `appearance.themeEdits`) or the
+    /// theme file's `# cmux-accent = #rrggbb` line. Wins over ``accent`` for this theme.
+    public var accentColor: ThemeRGB?
 
     /// A theme from its colors.
     ///

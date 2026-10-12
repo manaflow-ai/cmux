@@ -53,7 +53,7 @@ use topology_lookup::active_screen;
 use topology_lookup::delete_delta;
 use topology_lookup::find_screen;
 pub(super) use topology_lookup::new_workspace_position;
-use topology_lookup::pane_value;
+pub(super) use topology_lookup::pane_value;
 use topology_lookup::pane_value_with_flags;
 use topology_lookup::pane_value_with_zoom;
 use topology_lookup::registry_workspace;
