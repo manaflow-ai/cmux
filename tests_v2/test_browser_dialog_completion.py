@@ -60,8 +60,30 @@ def main():
             assert [r["dialog"]["type"] for r in responses] == ["confirm", "prompt", "alert"]
             count = client._call("browser.eval", {**params, "script": "window.completedDialogs"})
             assert count["value"] == len(cases), count
+
+            # A timer can raise its dialog after the triggering command has
+            # returned. The surface must retain automation ownership.
+            armed, _ = run_with_dialogs(socket_path, "browser.eval", {
+                **params,
+                "script": "setTimeout(() => { window.timerAnswer = confirm('timer'); }, 0); 'armed'",
+            }, [(True, None)])
+            assert armed["value"] == "armed", armed
+            assert client._call("browser.eval", {**params, "script": "window.timerAnswer"})["value"] is True
+
+            # A caller may answer only after its original eval has timed out.
+            # Recovery must not replace the document or lose its completion.
+            try:
+                client._call("browser.eval", {
+                    **params, "script": "window.timeoutAnswer = confirm('timeout')",
+                })
+            except cmuxError as error:
+                assert "timed out" in str(error).lower(), str(error)
+            else:
+                raise AssertionError("Unanswered confirm should keep eval blocked")
+            assert client._call("browser.dialog.accept", params)["accepted"] is True
+            assert client._call("browser.eval", {**params, "script": "window.timeoutAnswer"})["value"] is True
             assert client.identify().get("focused") == focused
-            print(json.dumps({"passed": len(cases) + 1, "hidden_workspace": True,
+            print(json.dumps({"passed": len(cases) + 3, "hidden_workspace": True,
                               "focus_preserved": True, "results": results}, indent=2))
         finally:
             client.close_workspace(workspace)

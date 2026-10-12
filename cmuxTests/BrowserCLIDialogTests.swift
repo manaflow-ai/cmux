@@ -157,8 +157,9 @@ struct BrowserCLIDialogTests {
     private func request(_ method: String, _ params: [String: String]) async throws -> [String: Any] {
         let data = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
         let line = String(decoding: data, as: UTF8.self)
+        let controller = TerminalController.shared
         let response = await Task.detached {
-            TerminalController.shared.handleSocketLine(line)
+            controller.handleSocketLine(line)
         }.value
         return try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
     }
