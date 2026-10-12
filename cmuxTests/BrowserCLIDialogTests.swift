@@ -171,6 +171,47 @@ struct BrowserCLIDialogTests {
         }
     }
 
+    @Test(arguments: ["tab.action", "surface.action", "ui"])
+    func duplicationKeepsDialogsWithItsCaller(entrypoint: String) async throws {
+        let manager = TabManager()
+        defer {
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let source = try #require(workspace.newBrowserSurface(inPane: pane, focus: false))
+        let focused = workspace.focusedPanelId
+        TerminalController.shared.setActiveTabManager(manager)
+        let duplicate: BrowserPanel
+        if entrypoint == "ui" {
+            duplicate = try #require(workspace.duplicateBrowserToRight(panelId: source.id, focus: false))
+        } else {
+            let response = try await request(entrypoint, [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": source.id.uuidString,
+                "action": "duplicate",
+            ])
+            #expect(response["ok"] as? Bool == true)
+            let result = try #require(response["result"] as? [String: Any])
+            let createdID = try #require((result["created_surface_id"] as? String).flatMap(UUID.init(uuidString:)))
+            duplicate = try #require(workspace.browserPanel(for: createdID))
+        }
+        // No browser automation command may claim this panel before the page's
+        // first dialog: creation itself must establish the correct owner.
+        var answers: [Bool] = []
+        enqueue(duplicate, kind: .javaScriptConfirm) { button, _ in answers.append(button == "ok") }
+        #expect(duplicate.activeInteractiveBrowserPromptIDs.count == (entrypoint == "ui" ? 1 : 0))
+        #expect(workspace.focusedPanelId == focused)
+        let answer = try await request("browser.dialog.accept", [
+            "workspace_id": workspace.id.uuidString, "surface_id": duplicate.id.uuidString,
+        ])
+        #expect(answer["ok"] as? Bool == true)
+        #expect(answers == [true])
+        #expect(duplicate.activeInteractiveBrowserPromptIDs.isEmpty)
+        #expect(duplicate.pendingJavaScriptDialogs.isEmpty)
+    }
+
     private func withPanel(_ body: (BrowserPanel, [String: String]) async throws -> Void) async throws {
         let manager = TabManager()
         defer {
