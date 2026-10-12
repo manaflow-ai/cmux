@@ -6,8 +6,7 @@ over (no page loads for it), with no blank or intermediate frame: the window as 
 server composited it, read frame after frame around the key (`debug.new_tab` frame_strip),
 changes outside the pane's content area in one step (each frame equals the one before the key
 or the settled one), and the content area never turns one flat color it was not before the key.
-Fails on any such frame
-and prints where the frame strips are.
+Fails on any such frame and prints where the frame strips are.
 
 The app runs already (a capture slot: `capture-host launch`), with its debug socket.
 
