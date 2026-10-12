@@ -67,7 +67,38 @@ import Testing
         }
     }
 
+    @Test func buttonsAndPickersDrawTheThemeBezel() throws {
+        let scope = try Self.purpleRoom()
+        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        let restart = TerminalRestartButton()
+        let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
+        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
+            .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
+        ], buttons: [.ok()]))
+        let compose = HomeComposeSheet(contacts: [])
+        let views: [NSView] = [sidebar, restart, placeholder, dialog, compose.view]
+        for view in views { scope.root(view) }
+
+        // The sheets' factory-made buttons keep the system's automatic style, so they are named.
+        let found = views.flatMap(Self.pushButtons(in:))
+        #expect(found.count >= 7)
+        let buttons = found + [compose.cancelButton, compose.inviteButton]
+        let fill = scope.perform { Palette.selectionFill }
+        for button in buttons {
+            let bezel = try #require(button.bezelColor, "\(button.title)")
+            #expect(Self.same(bezel, fill), "\(button.title)")
+        }
+    }
+
     // MARK: Helpers
+
+    /// Every bordered push button and pop-up under `view`, `view` included.
+    static func pushButtons(in view: NSView) -> [NSButton] {
+        var found: [NSButton] = []
+        if let button = view as? NSButton, button.isBordered, button.bezelStyle == .push { found.append(button) }
+        for subview in view.subviews { found += pushButtons(in: subview) }
+        return found
+    }
 
     /// Every read-only text field under `view`.
     static func labels(in view: NSView) -> [NSTextField] {

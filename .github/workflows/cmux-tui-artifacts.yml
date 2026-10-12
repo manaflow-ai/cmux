@@ -637,8 +637,7 @@ jobs:
   # nightly-next stalled until the stub was regenerated. When the build fails
   # and only macOS artifacts are missing, this run builds those targets on a
   # Mac (darwin_builder=mac, the real SDK) and publishes with them; a missing
-  # Linux target still fails the run. A failed run is not retried
-  # (cmux-tui-artifacts-retry.yml is not on the default branch), so the
+  # Linux target still fails the run. A rerun would hit the same stub, so the
   # fallback runs in the same run.
   darwin-fallback-plan:
     name: plan the macOS fallback build
@@ -850,9 +849,10 @@ jobs:
             exit "$status"
           fi
 
-  # Failed runs are retried by cmux-tui-artifacts-retry.yml after they
-  # complete (a run cannot rerun itself while it is in progress), never for an
-  # immutable R2 conflict.
+  # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
+  # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only
+  # from the default branch), unless their tree published or an immutable R2
+  # conflict failed them.
 
   publish-ref-notice:
     # A dispatch from a branch outside main / feat-cmux-next / cmux-tui-pin-*

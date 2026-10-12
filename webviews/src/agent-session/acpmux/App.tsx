@@ -77,6 +77,7 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
@@ -96,7 +97,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
 import { SessionCwdContext, SessionRowsContext, isEditRow } from "./turnChanges/sessionRows";
-import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
@@ -1771,7 +1772,6 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
-  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
   // another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -1813,6 +1813,7 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck]);
+  const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -1942,6 +1943,7 @@ function AcpmuxPane() {
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
+  const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
   const openFold = useCallback(
     (fold: string) => setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold))),
     [],
@@ -2554,10 +2556,13 @@ function AcpmuxPane() {
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
-        if (name === "find") findRef.current?.show();
-        if (name === "findNext") findRef.current?.next();
-        if (name === "findPrevious") findRef.current?.previous();
-        if (name === "hideFind") findRef.current?.hide();
+        // With the keyboard in the changes view (or the view covering the transcript) they find there.
+        const diff = diffFindRef.current;
+        const target = diff?.owns() ? diff.find : findRef.current;
+        if (name === "find") target?.show();
+        if (name === "findNext") target?.next();
+        if (name === "findPrevious") target?.previous();
+        if (name === "hideFind") target?.hide();
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
@@ -4410,6 +4415,7 @@ function AcpmuxPane() {
                     onGitIntentHandled={clearGitIntent}
                     writeKeys={writeKeysFor(diffView.sessionId)}
                     onAddressThread={addressThread}
+                    findHandle={diffFindRef}
                   />
                 )}
               </div>

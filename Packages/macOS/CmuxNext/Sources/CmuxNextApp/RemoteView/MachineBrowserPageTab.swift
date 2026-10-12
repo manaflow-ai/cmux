@@ -116,7 +116,7 @@ final class MachineBrowserStateView: NSView {
     private let message = NSTextField(wrappingLabelWithString: "")
     private let queued = NSTextField(wrappingLabelWithString: "")
     let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
-    private let retryButton = NSButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
+    private let retryButton = ThemedBezelButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
     var onRetry: (() -> Void)?
     /// The message shown (tests, debug).

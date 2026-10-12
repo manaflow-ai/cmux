@@ -54,6 +54,49 @@ describe("gallery browse variants", () => {
     ]);
   });
 
+  test("starts mixed entries on a motion variant when showing motion previews", () => {
+    expect(filterBrowseItems(entries, "", "motion", "entries").map(({ variant }) => variant)).toEqual(["streaming"]);
+    expect(filterBrowseItems(entries, "idle", "motion", "entries").map(({ variant }) => variant)).toEqual([
+      "streaming",
+    ]);
+  });
+
+  test("starts an entry on its shareable pick when that pick matches the active kind", () => {
+    expect(
+      filterBrowseItems(entries, "", "all", "entries", { "composer.picker": "disabled" }).map(({ variant }) => variant),
+    ).toEqual(["disabled", "idle"]);
+    expect(
+      filterBrowseItems(entries, "", "motion", "entries", { "transcript.motion": "streaming" }).map(
+        ({ variant }) => variant,
+      ),
+    ).toEqual(["streaming"]);
+    expect(
+      filterBrowseItems(entries, "", "motion", "entries", { "transcript.motion": "idle" }).map(
+        ({ variant }) => variant,
+      ),
+    ).toEqual(["streaming"]);
+  });
+
+  test("shows static variants from mixed entries and excludes motion-only entries", () => {
+    const motionOnly = {
+      ...entries[1]!,
+      id: "motion-only",
+      variants: { streaming: entries[1]!.variants.streaming! },
+    } as GalleryEntry;
+    expect(
+      filterBrowseItems([...entries, motionOnly], "", "static", "entries").map(({ entry, variant }) => [
+        entry.id,
+        variant,
+      ]),
+    ).toEqual([
+      ["composer.picker", "keyboard"],
+      ["transcript.motion", "idle"],
+    ]);
+    expect(filterBrowseItems(entries, "streaming", "static", "entries").map(({ variant }) => variant)).toEqual([
+      "idle",
+    ]);
+  });
+
   test("expands every real variant for the all-variants contact sheet", () => {
     expect(browseItems(entries, "variants").map(({ entry, variant }) => `${entry.id}#${variant}`)).toEqual([
       "composer.picker#keyboard",

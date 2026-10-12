@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "stage แล้ว",
   "diffViewer.sourceUncommitted": "ยังไม่คอมมิต",
   "diffViewer.sourceUnstaged": "ยังไม่ stage",
+  "diffViewer.splitDiffNeedsWiderPane": "diff แบบแยกต้องใช้บานหน้าต่างที่กว้างกว่านี้",
   "diffViewer.switchToSplitDiff": "สลับเป็น diff แบบแยก",
   "diffViewer.switchToUnifiedDiff": "สลับเป็น diff แบบรวม",
   "diffViewer.untitled": "ไม่มีชื่อ",
