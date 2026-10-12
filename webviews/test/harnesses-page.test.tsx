@@ -156,7 +156,7 @@ test("Custom harness… starts the harness guide chat in this tab, never another
   expect(String(started[1]!.params.text)).toContain("cmux harness guide");
 });
 
-test("the New Tab tools row has no Integrate a harness button", async () => {
+test("the New Tab page has no Integrate a harness button (and no tools row)", async () => {
   const container = installDom();
   Object.assign(dom!.window, {
     ResizeObserver: class {
@@ -171,7 +171,6 @@ test("the New Tab tools row has no Integrate a harness button", async () => {
     root!.render(
       <NewTabScreen
         snapshot={{ ...noChat(), catalog: acpmux }}
-        tools={[{ id: "newTab.terminal", title: "Terminal", symbol: "terminal", menu: [] }]}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -179,11 +178,11 @@ test("the New Tab tools row has no Integrate a harness button", async () => {
         onJump={noop}
         onOpenSession={noop}
         onShowAll={noop}
-        onRunAction={noop}
         onAddHarness={noop}
       />,
     );
   });
-  expect(container.querySelector(".nt-tools .nt-tool")).not.toBeNull();
-  expect(container.querySelector(".nt-tools .nt-add-harness")).toBeNull();
+  // The calm default New Tab has no tools row (Leo 2026-10-11).
+  expect(container.querySelector(".nt-tools")).toBeNull();
+  expect(container.querySelector(".nt-add-harness")).toBeNull();
 });
