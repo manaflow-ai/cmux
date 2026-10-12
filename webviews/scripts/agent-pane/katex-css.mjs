@@ -2,7 +2,11 @@
 // The pane's CSP allows fonts only from data: (build-agent-pane-web.sh), and WebKit reads
 // woff2, so the woff and ttf fallbacks are dropped.
 //
-//   node scripts/agent-pane/katex-css.mjs > katex.css
+// With --script it prints a classic script that adds the sheet to the page instead: the pane
+// loads it with KaTeX (conversation/Math.tsx), so the page does not parse the fonts before its
+// first frame (bd cx-z9kz0). The CSP allows same-origin scripts and inline styles.
+//
+//   node scripts/agent-pane/katex-css.mjs [--script] > katex.css
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -24,4 +28,12 @@ if (!fonts || /url\(fonts\//.test(inlined)) {
   console.error("katex-css: KaTeX's @font-face rules changed; update the pattern");
   process.exit(1);
 }
-process.stdout.write(`${inlined}\n`);
+if (process.argv.includes("--script")) {
+  // A script file of its own, never inside HTML, so the sheet needs no </script> escaping.
+  const sheet = JSON.stringify(inlined);
+  process.stdout.write(
+    `(() => {\n  const style = document.createElement("style");\n  style.dataset.katex = "";\n  style.textContent = ${sheet};\n  document.head.append(style);\n})();\n`,
+  );
+} else {
+  process.stdout.write(`${inlined}\n`);
+}

@@ -1,7 +1,8 @@
 // TeX in agent replies, typeset by KaTeX: fractions, scripts, roots, matrices, `aligned`
 // and the other environments a reply writes. The output is KaTeX's HTML with MathML beside
 // it for VoiceOver; its stylesheet and fonts ship with the pane (build-agent-pane-web.sh
-// inlines them as data URLs, so the page's CSP needs no font source). `trust` stays off, so
+// inlines the fonts as data URLs, so the page's CSP needs no font source) and are applied with
+// KaTeX (`loadStyles`). `trust` stays off, so
 // a reply's TeX cannot draw links, classes, styles or HTML. TeX that does not parse draws
 // as its source, as written. KaTeX is its own chunk: the pane's first frame does not wait to
 // parse it, and math drawn before it arrives shows its source until it does.
@@ -12,9 +13,24 @@ let katex: KaTeX | null = null;
 const listeners = new Set<() => void>();
 let loading: Promise<void> | null = null;
 function load() {
-  loading ??= import("katex").then((module) => {
+  loading ??= Promise.all([import("katex"), loadStyles()]).then(([module]) => {
     katex = module.default;
     for (const listener of listeners) listener();
+  });
+}
+
+/// The bundled page's KaTeX sheet, `katex-styles.js` beside index.html: kept out of the page, whose
+/// first frame would otherwise parse its fonts (bd cx-z9kz0). The dev server and the gallery import
+/// the sheet; there this resolves at once.
+function loadStyles(): Promise<void> {
+  if (typeof location === "undefined" || (location.protocol !== "cmux-agent:" && location.protocol !== "cmux-page:"))
+    return Promise.resolve();
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = new URL("katex-styles.js", location.href).href;
+    // Math without its sheet still reads; KaTeX draws it either way.
+    script.onload = script.onerror = () => resolve();
+    document.head.append(script);
   });
 }
 // Fetched after the first frame, or sooner by the first math drawn.

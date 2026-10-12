@@ -65,8 +65,9 @@ cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # KaTeX's rules and fonts (data URLs: the CSP below allows fonts only from data:) for the
-# transcript's math (conversation/Math.tsx).
-bun scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
+# transcript's math ship as katex-styles.js beside index.html, which conversation/Math.tsx loads
+# with KaTeX: inlined here they were most of the page, parsed before its first frame (bd cx-z9kz0).
+bun scripts/agent-pane/katex-css.mjs --script > "$WORK/katex-styles.js"
 # One surface for every menu and popover (the pane does not load ui.css, which imports it).
 cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
 # The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
@@ -125,6 +126,7 @@ cp "$WORK/pane/pane.js" "$OUT/pane.js"
 rm -rf "$OUT/chunks"
 cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
+cp "$WORK/katex-styles.js" "$OUT/katex-styles.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"
