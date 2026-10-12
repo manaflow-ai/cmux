@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextIcons
 
 /// "Open Link in Browser Profile ▸" in a page's or a terminal's context
@@ -43,18 +44,22 @@ enum BrowserProfileLinkMenu {
     }
 
     /// `icon` in a 16 pt square: a symbol as the menu tints it, an emoji centered in its own
-    /// colors, or the empty square.
+    /// colors, or the empty square (also for an uploaded image, too detailed at this size).
     private static func iconImage(_ icon: String?) -> NSImage {
         let size = NSSize(width: 16, height: 16)
-        guard let icon, !icon.isEmpty else { return NSImage(size: size) }
-        if NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil {
-            return NSImage.icon(symbol: icon, size: size.width)
-        }
-        return NSImage(size: size, flipped: false) { rect in
-            let text = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 13)])
-            let drawn = text.size()
-            text.draw(at: NSPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2))
-            return true
+        switch IconValue(wire: icon) {
+        case .symbol(let name) where NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil:
+            return NSImage.icon(symbol: name, size: size.width)
+        case .emoji(let emoji):
+            return NSImage(size: size, flipped: false) { rect in
+                // 12 pt: a color emoji's glyph runs past its point size.
+                let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: 12)])
+                let drawn = text.size()
+                text.draw(at: NSPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2))
+                return true
+            }
+        default:
+            return NSImage(size: size)
         }
     }
 }
