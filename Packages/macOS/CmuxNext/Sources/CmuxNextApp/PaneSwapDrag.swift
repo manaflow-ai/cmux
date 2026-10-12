@@ -69,6 +69,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         let target = layout.visiblePane(at: recognizer.location(in: layout)).flatMap { $0.pane == pane ? nil : $0 }
         switch recognizer.state {
         case .began, .changed:
+            guard armed else { return }
             if recognizer.state == .began { watchEscape(recognizer) }
             if let target, let window = layout.window {
                 layout.showTabDragOutline(screenRect: window.convertToScreen(layout.convert(target.frame, to: nil)))
@@ -76,17 +77,21 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
                 layout.hideTabDragHighlight()
             }
         case .ended:
+            // Escape disarmed it: the release swaps nothing.
+            let swaps = armed
             end(layout)
-            if let target { swap(pane, target.pane) }
+            if swaps, let target { swap(pane, target.pane) }
         default:
             end(layout)
         }
     }
 
-    /// Escape cancels the drag: the recognizer turned off and on ends it as cancelled.
+    /// Escape cancels the drag: it ends here (outline gone, disarmed), and the recognizer turned
+    /// off and on stops tracking.
     private func watchEscape(_ recognizer: NSPanGestureRecognizer) {
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak recognizer] event in
-            guard event.keyCode == 53, let recognizer else { return event }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak recognizer] event in
+            guard event.keyCode == 53, let self, let recognizer else { return event }
+            if let layout = layout() { end(layout) }
             recognizer.isEnabled = false
             recognizer.isEnabled = true
             return nil
