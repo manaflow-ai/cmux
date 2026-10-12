@@ -649,6 +649,18 @@
             }
           },
           {
+            "key" : "settings.group.terminalLinks",
+            "rows" : [
+              "browser.openTerminalLinksInCmuxBrowser",
+              "browser.hostsToOpenInEmbeddedBrowser",
+              "browser.urlsToAlwaysOpenExternally"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalLinks",
+              "text" : "Terminal Links"
+            }
+          },
+          {
             "key" : "settings.group.memory",
             "rows" : [
               "browser.hibernation",
@@ -15817,6 +15829,167 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openTerminalLinks.help",
+        "text" : "When off, links clicked in terminal output open in your default browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openTerminalLinksInCmuxBrowser",
+      "keywords" : [
+        "link",
+        "url",
+        "click",
+        "default browser"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openTerminalLinksInCmuxBrowser"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.openTerminalLinks",
+        "text" : "Open Terminal Links in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "localhost",
+          "*.example.com"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.hostWhitelist.help",
+        "text" : "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.hostsToOpenInEmbeddedBrowser",
+      "keywords" : [
+        "allowlist",
+        "whitelist",
+        "domain",
+        "link"
+      ],
+      "kind" : "host_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "hostsToOpenInEmbeddedBrowser"
+      ],
+      "refuses" : [
+        "localhost",
+        [
+          1
+        ]
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.hostWhitelist",
+        "text" : "Hosts to Open in Embedded Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.externalPatterns.help",
+        "text" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.urlsToAlwaysOpenExternally",
+      "keywords" : [
+        "denylist",
+        "blocklist",
+        "regex",
+        "external",
+        "default browser"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "urlsToAlwaysOpenExternally"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.externalPatterns",
+        "text" : "URLs to Always Open Externally"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -18601,7 +18774,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ebe7550509f8f8fa23746dfa1ce91036c822038f050a7a1592d52267761e37f2",
+  "schema_hash" : "6baff1efb4cfb9c41111f9488b3740f75b1d19952f3dea4fb3d24c9ce50b6c77",
   "sections" : [
     {
       "id" : "general",
