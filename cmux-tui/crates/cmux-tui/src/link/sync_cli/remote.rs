@@ -137,8 +137,13 @@ impl Remote {
     /// The kind of the entry at `path` (`file`, `dir`, `symlink`, `other`);
     /// None when nothing is there.
     pub(super) fn kind(&mut self, path: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.stat(path)?.and_then(|stat| stat["kind"].as_str().map(str::to_string)))
+    }
+
+    /// The `fs.stat` answer for `path`; None when nothing is there.
+    pub(super) fn stat(&mut self, path: &str) -> anyhow::Result<Option<Value>> {
         match self.call("fs.stat", json!({ "path": path })) {
-            Ok(stat) => Ok(stat["kind"].as_str().map(str::to_string)),
+            Ok(stat) => Ok(Some(stat)),
             Err(error) if refusal_code(&error) == Some("fs.not_found") => Ok(None),
             Err(error) => Err(error),
         }
