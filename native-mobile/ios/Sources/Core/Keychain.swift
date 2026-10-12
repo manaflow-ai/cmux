@@ -32,27 +32,33 @@ struct Keychain: Sendable {
 /// simulator build has no Keychain access; DEBUG builds fall back to
 /// UserDefaults there so agent test runs survive relaunches.
 final class SessionTokenStore: @unchecked Sendable {
+    /// One cache for every instance (the app model and the push manager each
+    /// make one): a sign-in or sign-out through one is seen by the others.
+    private struct Cache {
+        var value: String?
+        var loaded = false
+    }
+
+    nonisolated(unsafe) private static var cache = Cache()
+    private static let lock = NSLock()
     private let keychain = Keychain(service: "dev.cmux.next.native")
-    private let lock = NSLock()
-    private var cached: String?
-    private var loaded = false
 
     var value: String? {
         get {
-            lock.lock(); defer { lock.unlock() }
-            if !loaded {
-                loaded = true
-                cached = keychain.read("session")
+            Self.lock.lock(); defer { Self.lock.unlock() }
+            if !Self.cache.loaded {
+                Self.cache.loaded = true
+                Self.cache.value = keychain.read("session")
                 #if DEBUG
-                if cached == nil { cached = UserDefaults.standard.string(forKey: "debug.session") }
+                if Self.cache.value == nil { Self.cache.value = UserDefaults.standard.string(forKey: "debug.session") }
                 #endif
             }
-            return cached
+            return Self.cache.value
         }
         set {
-            lock.lock(); defer { lock.unlock() }
-            loaded = true
-            cached = newValue
+            Self.lock.lock(); defer { Self.lock.unlock() }
+            Self.cache.loaded = true
+            Self.cache.value = newValue
             keychain.write("session", newValue)
             #if DEBUG
             if keychain.read("session") != newValue { UserDefaults.standard.set(newValue, forKey: "debug.session") }
