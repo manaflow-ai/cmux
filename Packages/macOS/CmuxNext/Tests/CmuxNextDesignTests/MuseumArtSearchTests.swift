@@ -31,14 +31,20 @@ import Testing
     {"query": {"pages": {
       "1": {"pageid": 1, "index": 1, "title": "File:Van Gogh - Starry Night - Google Art Project.jpg", "imageinfo": [{
         "mime": "image/jpeg",
-        "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Starry.jpg/2400px-Starry.jpg",
+        "thumburl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Starry.jpg/3840px-Starry.jpg?utm_content=thumbnail",
         "url": "https://upload.wikimedia.org/wikipedia/commons/e/ea/Starry.jpg",
         "descriptionurl": "https://commons.wikimedia.org/wiki/File:Starry.jpg",
         "extmetadata": {"LicenseShortName": {"value": "Public domain"},
           "Artist": {"value": "<bdi><a href=\\"https://en.wikipedia.org/wiki/Vincent_van_Gogh\\">Vincent van Gogh</a></bdi>"},
           "ObjectName": {"value": "<i>The Starry Night</i>"},
           "DateTimeOriginal": {"value": "1889<div style=\\"display: none;\\">date QS:P571,+1889</div>"}}}]},
-      "2": {"pageid": 2, "index": 2, "title": "File:Recent photo.jpg", "imageinfo": [{
+      "3": {"pageid": 3, "index": 2, "title": "File:Small night.jpg", "imageinfo": [{
+        "mime": "image/jpeg",
+        "thumburl": "https://upload.wikimedia.org/wikipedia/commons/6/66/Small_night.jpg?utm_content=thumbnail_unscaled",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/6/66/Small_night.jpg",
+        "descriptionurl": "https://commons.wikimedia.org/wiki/File:Small_night.jpg",
+        "extmetadata": {"LicenseShortName": {"value": "Public domain"}}}]},
+      "2": {"pageid": 2, "index": 3, "title": "File:Recent photo.jpg", "imageinfo": [{
         "mime": "image/jpeg", "thumburl": "https://upload.wikimedia.org/x/2400px-p.jpg",
         "descriptionurl": "https://commons.wikimedia.org/wiki/File:Recent_photo.jpg",
         "extmetadata": {"LicenseShortName": {"value": "CC BY-SA 4.0"}}}]}
@@ -60,7 +66,7 @@ import Testing
 
     @Test func aSearchKeepsOnlyPublicDomainWorksWithTheirImages() async throws {
         let results = await MuseumArtSearch(fetch: Self.answers()).search("night")
-        #expect(results.map(\.key) == ["aic:154235", "cleveland:149108", "commons:1"])
+        #expect(results.map(\.key) == ["aic:154235", "cleveland:149108", "commons:1", "commons:3"])
         let munch = try #require(results.first)
         #expect(munch.title == "The Girl by the Window" && munch.artist == "Edvard Munch" && munch.date == "1893")
         #expect(munch.image.absoluteString == "https://www.artic.edu/iiif/2/d7df2633-3b40-f570-c906-211503a37cde/full/1686,/0/default.jpg")
@@ -68,13 +74,17 @@ import Testing
         #expect(results[1].image.lastPathComponent == "1977.37.4_print.jpg")
         let starry = results[2]
         #expect(starry.title == "The Starry Night" && starry.artist == "Vincent van Gogh" && starry.date == "1889")
-        #expect(starry.thumbnail.lastPathComponent == "400px-Starry.jpg")
+        // Commons answers its nearest standard width (or the original) and serves only standard
+        // thumbnail widths, so the grid asks for 500 pixels either way.
+        #expect(starry.thumbnail.absoluteString == "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Starry.jpg/500px-Starry.jpg?utm_content=thumbnail")
+        #expect(results[3].thumbnail.absoluteString == "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/Small_night.jpg/500px-Small_night.jpg")
+        #expect(results[3].title == "Small night")
         #expect(starry.page.absoluteString == "https://commons.wikimedia.org/wiki/File:Starry.jpg")
     }
 
     @Test func aCollectionThatFailsLeavesTheOthers() async {
         let results = await MuseumArtSearch(fetch: Self.answers(failing: ["api.artic.edu"])).search("night")
-        #expect(results.map(\.key) == ["cleveland:149108", "commons:1"])
+        #expect(results.map(\.key) == ["cleveland:149108", "commons:1", "commons:3"])
         #expect(await MuseumArtSearch(fetch: Self.answers()).search("   ").isEmpty)
     }
 
