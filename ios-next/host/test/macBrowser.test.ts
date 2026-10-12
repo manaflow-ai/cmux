@@ -198,3 +198,26 @@ describe("browser.* mirroring the Mac's tabs", () => {
     await waitFor(() => events.some(([t, p]) => t === "browser.closed" && p.tabId === "CEF1"));
   });
 });
+
+describe("devtools.json discovery", () => {
+  it("finds the bridged tagged build's file by its bundle id", async () => {
+    const { findDevtoolsFile } = await import("../src/bridge/macBrowser.ts");
+    const { mkdirSync } = await import("node:fs");
+    const home = mkdtempSync(join(tmpdir(), "cnh-home-"));
+    cleanups.push(() => rmSync(home, { recursive: true, force: true }));
+    const support = join(home, "Library", "Application Support");
+    for (const b of ["com.cmuxterm.app", "com.cmuxterm.app.debug.nx.cefdt.v2", "com.cmuxterm.app.debug.other"]) {
+      mkdirSync(join(support, b), { recursive: true });
+      writeFileSync(join(support, b, "devtools.json"), "{}");
+    }
+    const prevHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      expect(findDevtoolsFile("nx-cefdt-v2")).toBe(join(support, "com.cmuxterm.app.debug.nx.cefdt.v2", "devtools.json"));
+      expect(findDevtoolsFile(null)).toBe(join(support, "com.cmuxterm.app", "devtools.json"));
+      expect(findDevtoolsFile("missing-tag")).toBe(join(support, "com.cmuxterm.app.debug.missing.tag", "devtools.json"));
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+});

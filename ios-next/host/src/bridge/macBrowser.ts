@@ -16,7 +16,7 @@ import { execFile } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Logger } from "../util.ts";
 import { fetchVersion } from "../providers/browser/chrome.ts";
 
@@ -40,7 +40,10 @@ export interface MacBrowserStatus {
 export function findDevtoolsFile(tag?: string | null): string {
   if (process.env.CMUX_NEXT_DEVTOOLS_FILE) return process.env.CMUX_NEXT_DEVTOOLS_FILE;
   const support = join(homedir(), "Library", "Application Support");
-  const fallback = join(support, tag ? `com.cmuxterm.app.debug.${tag}` : "com.cmuxterm.app", "devtools.json");
+  // A tagged build's bundle id carries the tag with "-" and "_" as "."
+  // (session cmux-app-nx-cefdt-v2 -> com.cmuxterm.app.debug.nx.cefdt.v2).
+  const bundleTag = tag ? tag.replace(/[-_]/g, ".") : null;
+  const fallback = join(support, bundleTag ? `com.cmuxterm.app.debug.${bundleTag}` : "com.cmuxterm.app", "devtools.json");
   let dirs: string[] = [];
   try {
     dirs = readdirSync(support).filter((d) => d.startsWith("com.cmuxterm.app"));
@@ -50,9 +53,11 @@ export function findDevtoolsFile(tag?: string | null): string {
   const found = dirs
     .map((d) => join(support, d, "devtools.json"))
     .filter((f) => existsSync(f))
-    .map((f) => ({ f, mtime: statSync(f).mtimeMs, tagged: Boolean(tag && dirname(f).endsWith(`.${tag}`)) }))
+    .map((f) => ({ f, mtime: statSync(f).mtimeMs, tagged: Boolean(bundleTag && dirname(f).endsWith(`.${bundleTag}`)) }))
     .sort((a, b) => Number(b.tagged) - Number(a.tagged) || b.mtime - a.mtime);
-  return found[0]?.f ?? fallback;
+  // A tagged bridge must not read another build's file.
+  if (bundleTag) return found.find((x) => x.tagged)?.f ?? fallback;
+  return found.find((x) => basename(dirname(x.f)) === "com.cmuxterm.app")?.f ?? fallback;
 }
 
 /** @deprecated kept for callers; same as findDevtoolsFile(). */
