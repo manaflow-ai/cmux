@@ -11,8 +11,9 @@ import CmuxNextTabs
 /// or blank page's address, falls back to "New Tab".
 @MainActor
 struct TabTitleResolver {
-    /// The tabs still on the New Tab page (`AgentTabs.pageTabs`).
-    var newTabPages: Set<String>
+    /// Whether a tab shows the New Tab page (`RestoredNewTabPages`: one opened as it, or
+    /// one restored after a relaunch that has not shown yet).
+    var showsNewTabPage: @MainActor (TabModel) -> Bool
     /// A New Tab page tab's own title (`AgentHistoryPage.title`), if it has one.
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
@@ -26,7 +27,8 @@ struct TabTitleResolver {
 
     /// The app's live sources.
     init(services: AppServices) {
-        newTabPages = services.agentTabs.pageTabs.ids
+        let agentTabs = services.agentTabs
+        showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0) } ?? false }
         newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
@@ -43,18 +45,19 @@ struct TabTitleResolver {
 
     /// The agent tabs' New Tab pages and `pages`' page tabs (tests).
     init(agentTabs: AgentTabStore, pages: InternalPageTabStore? = nil) {
-        self.init(newTabPages: SidebarBridge.newTabPages(agentTabs, in: nil), pages: pages)
+        self.init(pages: pages)
+        showsNewTabPage = { RestoredNewTabPages.shows($0, in: agentTabs) }
     }
 
     /// Fixed sources (tests).
     init(newTabPages: Set<String> = [], pages: InternalPageTabStore? = nil) {
-        self.newTabPages = newTabPages
+        showsNewTabPage = { newTabPages.contains($0.id) }
         if let pages { page = { tab in tab.page != nil ? pages.storeTabItem(tab) : nil } }
     }
 
     /// Whether `tab` is a New Tab page (an agent tab still on that page).
     func isNewTabPage(_ tab: TabModel) -> Bool {
-        tab.agentSession != nil && newTabPages.contains(tab.id)
+        tab.agentSession != nil && showsNewTabPage(tab)
     }
 
     /// The name `tab` shows when its program or page gave none (`fallback`

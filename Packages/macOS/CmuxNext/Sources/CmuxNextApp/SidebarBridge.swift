@@ -281,7 +281,7 @@ final class SidebarBridge {
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
     /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
     static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
-        tabs.pageTabs.ids
+        RestoredNewTabPages.ids(in: store, tabs: tabs)
     }
 
     static func tabTitle(_ services: AppServices) -> TabTitle {
