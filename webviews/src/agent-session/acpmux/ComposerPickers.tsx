@@ -13,10 +13,12 @@ import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
+import { rememberPick } from "./lastPick";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
-import { setComposerSettings, useComposerSettings } from "./composerSettings";
+import { HideableChrome } from "../../ui/HideableChrome";
+import { useComposerChrome } from "./composerChrome";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
@@ -107,6 +109,8 @@ type Props = {
   /// row of that harness was picked: the switch carries it, so the new chat starts on that model
   /// and draws it at once, also before it opens (a New Tab's deferred switch).
   onHarness?(harness: string, model?: string): void;
+  /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
+  folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
@@ -124,8 +128,6 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
-  /// Writes `agentPane.showContextUsage` (the ring's Hide and the footer's Show Context Usage).
-  onShowContextUsage?(show: boolean): void;
 };
 
 /// The composer bar's controls: the
@@ -142,6 +144,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -149,26 +152,29 @@ export function ComposerPickers({
   onCompact,
   catalogRefresh,
   pickerCatalog,
-  onShowContextUsage,
 }: Props) {
   const t = useT();
-  const { showContextUsage } = useComposerSettings();
-  // The ring goes or comes back at once; the host's write then pushes the same value.
-  const showUsage = (show: boolean) => {
-    setComposerSettings({ showContextUsage: show });
-    onShowContextUsage?.(show);
-  };
+  // The ring hides from its right-click; the composer's button row shows it again (composerChrome.tsx).
+  const chrome = useComposerChrome();
   const summary = snapshot.summary;
+  // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
+  // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
+  // probe alone (a timeout) keeps it.
   const pickerEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
-        ...pickerCatalog.harnesses.map((entry) => ({
-          id: entry.acpmuxHarness ?? entry.id,
-          name: entry.name,
-          models: entry.models,
-          ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-          pickable: entry.pickable && entry.acpmuxHarness !== null,
-          ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
-        })),
+        ...pickerCatalog.harnesses
+          .filter(
+            (entry) =>
+              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
+          )
+          .map((entry) => ({
+            id: entry.acpmuxHarness ?? entry.id,
+            name: entry.name,
+            models: entry.models,
+            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+            pickable: entry.pickable && entry.acpmuxHarness !== null,
+            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+          })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
@@ -265,9 +271,12 @@ export function ComposerPickers({
   }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
   // that model offering it (the effect above); the same model only changes the effort.
+  // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
+  const remembers = !summary?.host && summary?.hostKind !== "cloud";
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current = pickedEffort
         ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
@@ -293,6 +302,7 @@ export function ComposerPickers({
     if (picked.harness !== harness) {
       if (!onHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
+      if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
       onHarness(picked.harness, picked.model);
       return;
     }
@@ -384,11 +394,8 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {showContextUsage && (usage || summary?.sessionId) && (
-        <ContextMenu
-          className="acpmux-context-usage-menu"
-          items={[{ id: "hide", label: t("context.hide"), onSelect: () => showUsage(false) }]}
-        >
+      {(usage || summary?.sessionId) && (
+        <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
             size={usage?.size}
@@ -396,7 +403,7 @@ export function ComposerPickers({
             onCompact={compact}
             working={snapshot.isWorking}
           />
-        </ContextMenu>
+        </HideableChrome>
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
@@ -460,17 +467,7 @@ export function ComposerPickers({
       )}
     </div>
   );
-  // Hidden, the ring's way back is a right-click anywhere on the footer's controls.
-  return showContextUsage ? (
-    chips
-  ) : (
-    <ContextMenu
-      className="acpmux-context-usage-menu"
-      items={[{ id: "show", label: t("context.show"), onSelect: () => showUsage(true) }]}
-    >
-      {chips}
-    </ContextMenu>
-  );
+  return chips;
 }
 
 /** The permission control stays quiet in the footer: a lock names the control and the menu
@@ -1018,6 +1015,13 @@ export const MicIcon = () => (
   <Icon>
     <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
+  </Icon>
+);
+/// The context usage ring, as its Hide and Show menu items draw it.
+export const RingIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" opacity="0.35" />
+    <path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" />
   </Icon>
 );
 export const SlashIcon = () => (

@@ -3,7 +3,7 @@ import { useState, type ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { DiffPanel } from "./DiffPanel";
-import { diffHunks, diffLines, type TurnFile } from "./diff";
+import { diffHunks, diffLines, editPatch, type TurnFile } from "./diff";
 import type { ChangeScope, ChangesSource } from "./changes/model";
 
 type PanelProps = ComponentProps<typeof DiffPanel>;
@@ -128,6 +128,30 @@ const hunkSource: ChangesSource = {
     document.documentElement.dataset.diffGalleryHunk = JSON.stringify({ paths, hunk, unstage });
   },
 };
+// Show more lines (cx-ncc.85): a file changed near its top and near its end, and the same file read
+// with every unchanged line, as the session host answers `git.diff` with `context_lines`.
+const routeBefore = Array.from({ length: 40 }, (_, index) => `  route("/v${index + 1}", handler${index + 1});`);
+const routeAfter = routeBefore.map((line, index) =>
+  index === 2 ? '  route("/v3", handler3, { auth: true });' : index === 33 ? '  route("/v34", handler34Next);' : line,
+);
+const routesPatch = (context?: number) =>
+  editPatch(
+    { path: "src/routes.ts", displayPath: "src/routes.ts", edits: [], additions: 2, deletions: 2, created: false },
+    {
+      toolId: "git",
+      hunks: diffHunks(diffLines(`${routeBefore.join("\n")}\n`, `${routeAfter.join("\n")}\n`), 1, context),
+      numbered: true,
+    },
+  );
+const routesScope = (patch: string) => ({
+  root: "/Users/you/src/cmux",
+  files: [{ path: "src/routes.ts", status: "modified", additions: 2, deletions: 2, patch }],
+});
+const moreLinesSource: ChangesSource = {
+  diff: async () => routesScope(routesPatch()),
+  wholeFile: async () => routesScope(routesPatch(1_000_000)),
+};
+
 /// The Branch scope with the pull request's review threads: one on the added line (23), one
 /// resolved on the first hunk's line 1, one outdated whose line is gone, one on a file changed here
 /// since the pull request's head (moved), and one on a file the scope does not list.
@@ -317,6 +341,18 @@ const addressThread: Play = async (ctx) => {
     throw new Error("a sent thread sent again");
 };
 
+/// The file is read whole as it shows; the separator between its hunks then shows the lines hidden
+/// there.
+const showMoreLines: Play = async (ctx) => {
+  await chooseScope(ctx, "Unstaged");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-diff-file[data-whole-file]"));
+  const shadow = () => ctx.document.querySelector(".acpmux-diff-file[data-whole-file] diffs-container")?.shadowRoot;
+  const between = () => shadow()?.querySelector<HTMLElement>("[data-expand-button][data-expand-both]");
+  await ctx.waitFor(() => between());
+  between()!.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+  await ctx.waitFor(() => (shadow()?.textContent ?? "").includes("handler18"));
+};
+
 const showLoading: Play = async (ctx) => {
   await chooseScope(ctx, "Uncommitted");
   await ctx.waitFor(() => ctx.find({ selector: ".acpmux-changes-state-body" }));
@@ -378,6 +414,11 @@ export default componentEntry<GalleryProps>({
       note: "In Unstaged each hunk has Stage hunk; n moves to the second hunk and s stages it alone.",
       props: { files, source: hunkSource },
       play: stageSecondHunk,
+    },
+    "more-lines": {
+      note: "A git scope's file is read whole as it shows (cx-ncc.85): its hunk separators expand, and the play shows the lines between its two hunks.",
+      props: { files, source: moreLinesSource },
+      play: showMoreLines,
     },
     "review-threads": {
       note: "Branch shows the pull request's review threads under their lines; an outdated one sits above the diff.",

@@ -7,7 +7,7 @@
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
 import { useCallback, useRef, useState } from "react";
 import { Tabs } from "@base-ui/react/tabs";
-import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { AgentMark, knownMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
@@ -76,7 +76,9 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
           {t("settingsPage.agents.refresh")}
         </button>
       </div>
-      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted">{t("settingsPage.agents.intro")}</p>
+      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted" data-intro="">
+        {t("settingsPage.agents.intro")}
+      </p>
       {state && <AgentsBody state={state} panel={panel} setPanel={setPanel} run={run} />}
       {state?.status === "unreachable" && state.message && (
         <output className="my-2 block text-[12px] text-warning">{state.message}</output>
@@ -166,7 +168,7 @@ function HarnessRow({
   return (
     <div className="border-0 border-b border-solid border-edge px-3 py-2 last:border-b-0" data-agent-harness={row.id}>
       <div className="flex items-center gap-2.5">
-        <AgentMark agent={row.icon ?? row.family ?? row.id} size={16} />
+        <AgentMark agent={knownMark(row.icon, row.family, row.id)} size={16} reserve />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] text-fg">
             <span className="truncate">{row.name}</span>

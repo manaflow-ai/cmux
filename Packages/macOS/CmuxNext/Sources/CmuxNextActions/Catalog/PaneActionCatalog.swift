@@ -97,7 +97,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
+                // Ctrl-Cmd-H: Cmd-Opt-Left is a Chrome tab key (KeyBindingDefaults.tabSwitching).
+                defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
             ),
@@ -105,7 +106,8 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
+                // Ctrl-Cmd-L: Cmd-Opt-Right is a Chrome tab key (KeyBindingDefaults.tabSwitching).
+                defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
             ),

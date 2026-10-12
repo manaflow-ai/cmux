@@ -18,9 +18,16 @@ export function manifestFor(name: string, files: string[]): Manifest {
 }
 `;
 
-/// A file's change as git reports it: counts and the patch from its first `@@` on.
-function changed(path: string, status: ChangedFile["status"], before: string | undefined, after: string): ChangedFile {
-  const hunks = diffHunks(diffLines(before, after));
+/// A file's change as git reports it: counts and the patch from its first `@@` on, with
+/// `context` unchanged lines around each change (`git diff --unified`).
+function changed(
+  path: string,
+  status: ChangedFile["status"],
+  before: string | undefined,
+  after: string,
+  context?: number,
+): ChangedFile & { before?: string; after: string } {
+  const hunks = diffHunks(diffLines(before, after), 1, context);
   const file: TurnFile = { path, displayPath: path, edits: [], additions: 0, deletions: 0, created: before == null };
   const patch = editPatch(file, { toolId: "git", hunks, numbered: true }).split("\n").slice(3).join("\n");
   const lines = hunks.flatMap((hunk) => hunk.lines);
@@ -30,6 +37,8 @@ function changed(path: string, status: ChangedFile["status"], before: string | u
     additions: lines.filter((line) => line.type === "add").length,
     deletions: lines.filter((line) => line.type === "del").length,
     patch,
+    before,
+    after,
   };
 }
 
@@ -40,7 +49,7 @@ const unstaged = [
   changed(test.path, "modified", test.before, test.after),
 ];
 const committed = [changed("Sources/Fleet/manifest.ts", "modified", manifestBefore, manifestAfter)];
-const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ChangedFile[]> = {
+const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ReturnType<typeof changed>[]> = {
   uncommitted: [...staged, ...unstaged],
   unstaged,
   staged,
@@ -54,11 +63,20 @@ const outsideGit = new Set(mockSessions.filter((session) => session.cwd === "~/c
 const rootOf = (sessionId: string) =>
   mockSessions.find((session) => session.sessionId === sessionId)?.cwd ?? workedSources.root;
 
-/// A GitDiffResult: patches only when asked for, as the session host does.
-export function mockGitDiff(sessionId: string, scope: ChangeScope, includePatch: boolean) {
+/// A GitDiffResult: patches only when asked for, as the session host does; `narrow` keeps only
+/// `paths` and reads them with `context` unchanged lines (Show more lines, changes/wholeFile.ts).
+export function mockGitDiff(
+  sessionId: string,
+  scope: ChangeScope,
+  includePatch: boolean,
+  narrow: { paths?: string[]; context?: number } = {},
+) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
   if (!Object.hasOwn(workedScopes, scope)) throw new Error(`Unknown scope ${scope}`);
-  const files = sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [];
+  const { paths, context } = narrow;
+  const files = (sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [])
+    .filter((file) => !paths || paths.includes(file.path))
+    .map((file) => (context === undefined ? file : changed(file.path, file.status, file.before, file.after, context)));
   // The compared commit: the merge base for branch, HEAD's first parent for committed.
   const base = scope === "branch" ? "origin/main" : scope === "committed" ? "4be1c2e~1" : undefined;
   return {

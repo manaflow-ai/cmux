@@ -499,6 +499,10 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
+  /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
+  /// is "pending" from its question, or from arriving while one is open, until it completes.
+  private openQuestions = new Set<string>();
+  private heldEdits = new Set<string>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -817,6 +821,8 @@ export class AcpmuxDirectClient {
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
+    this.openQuestions.clear();
+    this.heldEdits.clear();
     this.commands = [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
@@ -1033,9 +1039,10 @@ export class AcpmuxDirectClient {
     return postNative("file.search", { cwd, query, limit });
   }
 
-  /// The selected session's repository changes in one git scope (changes/model.ts).
-  gitDiff(scope: string): Promise<unknown> {
-    return this.git("git.diff", { scope, include_patch: true });
+  /// The selected session's repository changes in one git scope (changes/model.ts); `narrow` names
+  /// files (`paths`) and their unchanged context (`context_lines`, changes/wholeFile.ts).
+  gitDiff(scope: string, narrow: { paths?: string[]; context_lines?: number } = {}): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: true, ...narrow });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
@@ -1360,11 +1367,14 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") {
+      this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
     } else if (event.kind === "permission_decision") {
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
+      if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
+      else this.openQuestions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
         this.pendingPermission = this.permissions.state.supported
           ? undefined
@@ -1451,6 +1461,8 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
+        this.openQuestions.clear();
+        this.heldEdits.clear();
         // A new row, never an in-place change: emitted snapshots share row objects, and the
         // transcript's memo compares the drawn row's version with the next one.
         this.endAssistantSegment();
@@ -1548,7 +1560,10 @@ export class AcpmuxDirectClient {
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at);
+      const item = this.holdEdit(
+        mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
+        event.kind === "tool_call",
+      );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
       this.rows.set(id, {
@@ -1595,9 +1610,10 @@ export class AcpmuxDirectClient {
     }
   }
 
-  /// A call that asks before it runs waits on its permission ("pending") until an update moves it
-  /// on: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
+  /// A call that asks before it runs waits on its permission ("pending") until it completes or
+  /// fails: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
   private markAwaitingPermission(callId: unknown): void {
+    if (callId != null) this.heldEdits.add(String(callId));
     const id = callId == null ? undefined : this.toolRows.get(String(callId));
     const row = id ? this.rows.get(id) : undefined;
     if (!row) return;
@@ -1607,6 +1623,22 @@ export class AcpmuxDirectClient {
         : item,
     );
     this.rows.set(row.id, { ...row, version: row.version + 1, items });
+  }
+
+  /// `item` as the transcript shows it: an edit that waits on a permission question stays
+  /// "pending". Claude asks one question at a time, so an edit that arrives while another's
+  /// question is open sends its diff before its own question, and waits too.
+  private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
+    const tool = item.tool;
+    if (!tool) return item;
+    if (tool.status === "completed" || tool.status === "failed") {
+      this.heldEdits.delete(tool.id);
+      return item;
+    }
+    const isEdit = tool.kind === "edit" || tool.kind === "fileChange";
+    if (isNew && isEdit && this.openQuestions.size > 0) this.heldEdits.add(tool.id);
+    if (!this.heldEdits.has(tool.id) || tool.status === "pending") return item;
+    return { ...item, tool: { ...tool, status: "pending" } };
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
@@ -2450,6 +2482,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
+    ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
   }));
 }
 

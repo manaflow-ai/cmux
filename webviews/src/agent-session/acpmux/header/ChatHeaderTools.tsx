@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { useShortcut, withShortcut } from "../shortcuts";
+import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
@@ -183,7 +183,7 @@ export function ChatHeaderTools({
               className="acpmux-header-tool"
               aria-label={t("header.changes")}
               aria-pressed={on(HEADER_ACTIONS.changes, mode)}
-              title={withShortcut(t("header.changes"), changesKey)}
+              {...tooltipProps(t("header.changes"), changesKey)}
               onClick={() => onChanges(mode)}
             >
               <Icon name="diff.file" size={15} />
@@ -230,7 +230,7 @@ export function ChatHeaderTools({
             className="acpmux-header-tool"
             aria-label={t("header.terminal")}
             aria-pressed={on(HEADER_ACTIONS.terminal, mode)}
-            title={withShortcut(t("header.terminal"), terminalKey)}
+            {...tooltipProps(t("header.terminal"), terminalKey)}
             onClick={() => onTerminal(mode)}
           >
             <Icon name="terminal" size={15} />
@@ -243,7 +243,7 @@ export function ChatHeaderTools({
             className="acpmux-header-tool"
             aria-label={t("header.browser")}
             aria-pressed={on(HEADER_ACTIONS.browser, mode)}
-            title={withShortcut(t("header.browser"), browserKey)}
+            {...tooltipProps(t("header.browser"), browserKey)}
             onClick={() => onBrowser(mode)}
           >
             <Icon name="browser" size={15} />

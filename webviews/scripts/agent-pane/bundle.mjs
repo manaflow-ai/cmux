@@ -1,7 +1,10 @@
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
-//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>]
+//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>] [--split]
+//
+// --split writes the code behind dynamic imports (shiki's grammars, KaTeX) as chunks/ beside
+// <outfile>, so the page's first script is only what its first frame runs.
 //
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
@@ -15,6 +18,7 @@ import path from "node:path";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
+import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -23,6 +27,7 @@ if (!entry || !shikiAlias || !outfile) {
 }
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
+const split = rest.includes("--split");
 const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
 
 const mode = reactCompilerMode();
@@ -46,8 +51,15 @@ await build({
   legalComments: "none",
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
-  outfile,
-  plugins: [reactCompiler, tailwindPlugin],
+  ...(split
+    ? {
+        splitting: true,
+        outdir: path.dirname(outfile),
+        entryNames: path.basename(outfile, ".js"),
+        chunkNames: "chunks/[name]-[hash]",
+      }
+    : { outfile }),
+  plugins: [reactCompiler, tailwindPlugin, jsonParsePlugin],
 });
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));

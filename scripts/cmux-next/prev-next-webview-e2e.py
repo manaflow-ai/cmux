@@ -3,8 +3,8 @@
 
 Leo 2026-10-12: Cmd-Tab is the macOS app switcher, so the in-app keys must be solid. With the
 keyboard in a New Tab page's field (the agent pane's webview) of a one-tab workspace, each of
-Ctrl-Tab, Ctrl-Shift-Tab, Cmd-Shift-] and Cmd-Shift-[ must be taken by `navigate.next` /
-`navigate.previous` and move the sidebar selection one workspace, wrapping. The palette must
+Ctrl-Tab, Ctrl-Shift-Tab, Cmd-Shift-] and Cmd-Shift-[ must be taken by `nextSidebarTab` /
+`prevSidebarTab` (the Chrome tab keys, Leo 2026-10-12) and move the sidebar selection one workspace, wrapping. The palette must
 list both commands with their keys.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
@@ -88,7 +88,7 @@ def press(label, key, modifiers, step):
     expected = keys[(keys.index(before) + step) % len(keys)] if before in keys else None
     after = wait(lambda: shown() if shown() != before else None, 5)
     action = reply.get("action")
-    want = "navigate.next" if step > 0 else "navigate.previous"
+    want = "nextSidebarTab" if step > 0 else "prevSidebarTab"
     row(f"{label} from the New Tab field", f"{want}, one workspace {'down' if step > 0 else 'up'}",
         f"field focused={focused} action={action} handled_by={reply.get('handled_by')} {before} -> {after}",
         focused and before is not None and action == want and after == expected)
@@ -118,7 +118,7 @@ def main():
     path = os.path.join(opts.out, "palette-entries.json")
     rpc("debug.palette.entries", {"path": path})
     text = open(path).read() if os.path.exists(path) else ""
-    for title in ("Next Tab or Workspace", "Previous Tab or Workspace"):
+    for title in ("Next Sidebar Item", "Previous Sidebar Item"):
         row(f"palette lists {title}", "listed", "listed" if title in text else "missing", title in text)
 
     passed = sum(ROWS)

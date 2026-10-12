@@ -82,6 +82,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
+    // The context-usage-menu play draws it beside Hide Context Usage.
+    "agent-session/acpmux/ComposerPickers.tsx#RingIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -426,7 +428,7 @@ export default agentPaneEntry({
       },
     },
     "context-usage-menu": {
-      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the composer's button row then offers Show Context Usage.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-usage",

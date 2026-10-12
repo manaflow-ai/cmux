@@ -40,7 +40,7 @@ public final class ShareCmuxView: NSView {
     /// (tests record it instead).
     public init(writeToPasteboard: @escaping @MainActor (String) -> Void = ShareCmuxView.writeToGeneralPasteboard) {
         self.writeToPasteboard = writeToPasteboard
-        surface = OverlaySurfaceView(interactive: true)
+        surface = OverlaySurfaceView(material: .opaque, interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
         closeButton = NSButton(image: NSImage.icon(.actionClose, size: 12),

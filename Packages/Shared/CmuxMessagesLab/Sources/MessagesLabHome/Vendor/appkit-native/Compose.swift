@@ -246,7 +246,17 @@ final class FieldTextView: NSTextView {
     // Block observers on queue: .main (inline for AppKit's post on main), not selectors: a selector
     // into this main-actor view traps on a post off main (cmux-next's objc_observer rule).
     private var keyObservers: [NSObjectProtocol] = []
-    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
+    deinit {
+        keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        storageObserver.map(NotificationCenter.default.removeObserver)
+    }
+    /// The text storage's edits (its `didProcessEditing` posts), the container's width and the layout
+    /// objects when `caretRect` last laid out the whole text.
+    private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
+    private var laidOut: LayoutState?
+    private var storageEdits = 0
+    private var storageObserver: NSObjectProtocol?
+    private var observedStorage: ObjectIdentifier?
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
@@ -292,12 +302,35 @@ final class FieldTextView: NSTextView {
     /// The caret's rect at INDEX in the document (as `updateCaret` places it): from TextKit 2's
     /// caret segment, after the field's whole text is laid out (TextKit 2 lays out only lines near
     /// the viewport, and a line outside it has an estimated place: lab e2e 2026-10-10, Up to line 1
-    /// left the field at its end). The field's text is short.
+    /// left the field at its end).
     /// UPSTREAM: the caret at a soft wrap is at the end of the line above (the selection's affinity).
     private func caretRect(at index: Int, upstream: Bool = false) -> CGRect? {
         guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
               let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
-        tlm.ensureLayout(for: tlm.documentRange)
+        // The whole text is laid out again only when an edit or a new container width can have
+        // changed a line since the last time (or the caret's own line is not laid out): over a laid-out
+        // text, `ensureLayout` still walks every line (caret bench, 20,000 characters: 0.15 ms per
+        // call, 2 to 3 calls per key; arrow keys edit nothing).
+        let storage = textStorage.map(ObjectIdentifier.init)
+        if observedStorage != storage {
+            storageObserver.map(NotificationCenter.default.removeObserver)
+            storageObserver = textStorage.map {
+                NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: $0, queue: .main) { [weak self] _ in
+                    self?.storageEdits += 1
+                }
+            }
+            observedStorage = storage
+            laidOut = nil
+        }
+        let state = LayoutState(edits: storageEdits, width: textContainer?.size.width ?? -1,
+                                manager: ObjectIdentifier(tlm), container: textContainer.map(ObjectIdentifier.init))
+        // The caret at the end of the text is in the last line's fragment (no fragment begins there).
+        let end = index > 0 && loc.compare(tcm.documentRange.endLocation) == .orderedSame
+        let probe = end ? tcm.location(loc, offsetBy: -1) ?? loc : loc
+        if laidOut != state || tlm.textLayoutFragment(for: probe)?.state != .layoutAvailable {
+            tlm.ensureLayout(for: tlm.documentRange)
+            laidOut = state
+        }
         var line: CGRect?
         tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
             line = r; return false
