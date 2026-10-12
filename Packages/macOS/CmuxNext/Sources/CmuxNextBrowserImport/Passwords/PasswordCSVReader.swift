@@ -21,13 +21,27 @@ public struct PasswordCSVReader: Sendable {
 
     public init() {}
 
-    public func read(_ bytes: UnsafeRawBufferPointer) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
+    /// `columns`: the person's match for a header with no known names (the column sheet); nil
+    /// reads the header's names.
+    public func read(_ bytes: UnsafeRawBufferPointer,
+                     columns: PasswordCSVColumns? = nil) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         var records = Self.records(in: bytes)
         guard !records.isEmpty else { throw .noPasswordColumns }
         let header = records.removeFirst().map { Self.text($0, in: bytes).trimmingCharacters(in: .whitespaces).lowercased() }
-        guard let urlColumn = header.firstIndex(where: Self.urlColumns.contains),
-              let passwordColumn = header.firstIndex(where: Self.passwordColumns.contains) else { throw .noPasswordColumns }
-        let usernameColumns = Self.usernameColumns.compactMap(header.firstIndex(of:))
+        let urlColumn: Int, passwordColumn: Int, usernameColumns: [Int]
+        if let columns {
+            guard columns.url != columns.password, header.indices.contains(columns.url), header.indices.contains(columns.password)
+            else { throw .noPasswordColumns }
+            urlColumn = columns.url
+            passwordColumn = columns.password
+            usernameColumns = columns.username.flatMap { $0 == passwordColumn || !header.indices.contains($0) ? nil : [$0] } ?? []
+        } else {
+            guard let url = header.firstIndex(where: Self.urlColumns.contains),
+                  let password = header.firstIndex(where: Self.passwordColumns.contains) else { throw .noPasswordColumns }
+            urlColumn = url
+            passwordColumn = password
+            usernameColumns = Self.usernameColumns.compactMap(header.firstIndex(of:))
+        }
         // Firefox lists HTTP authentication sign-ins with their realm; those are not web forms.
         let httpRealmColumn = header.firstIndex(of: "httprealm")
 

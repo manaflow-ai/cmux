@@ -19,13 +19,21 @@ extension HistoryService {
     /// Entries from the daemon (every kind but locations) merged with the app's own trail.
     func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
         let wantsLocations = query.kinds.isEmpty || query.kinds.contains(.location)
-        let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting([.location]) : query.kinds.subtracting([.location])
+        let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
+        // Commands are the daemons' terminal command rows (terminal-command-history-v1), read by
+        // `commands`; the history module no longer folds them from the journal.
+        let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
+        let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : query.kinds.subtracting(appOwned)
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
             all = rows.compactMap { $0.historyEntry() }
         }
         if wantsLocations { all += HistoryQuery(text: query.text, kinds: [.location], range: query.range).apply(to: locationEntries()) }
+        if wantsCommands {
+            await commands.refresh()
+            all += HistoryQuery(text: query.text, kinds: [.command], range: query.range).apply(to: commands.entries())
+        }
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
         return all
@@ -35,6 +43,10 @@ extension HistoryService {
     /// entries of the id's kind.
     func daemonEntry(id: String, _ daemon: DaemonHistoryClient) async -> HistoryEntry? {
         if id.hasPrefix("location:") { return locationEntries().first { $0.id == id } }
+        if id.hasPrefix("command:") {
+            await commands.refresh()
+            return commands.entries().first { $0.id == id }
+        }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
         return rows.first { $0.id == id }?.historyEntry()

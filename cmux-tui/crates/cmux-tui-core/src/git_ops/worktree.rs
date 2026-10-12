@@ -30,7 +30,7 @@ use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
 const OPERATION: &str = "git.worktree.create";
-const BRANCH_PREFIX: &str = "cmux/";
+pub(super) const BRANCH_PREFIX: &str = "cmux/";
 const MAX_NAME_CHARS: usize = 48;
 /// Suffixes tried after a taken name: `name-2` up to this.
 const MAX_SUFFIX: usize = 99;
