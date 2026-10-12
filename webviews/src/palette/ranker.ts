@@ -892,7 +892,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         exactName: entry.demoted === true && titleIsQuery(entry.title, query.raw),
         shortcut: entry.hasShortcut === true,
         lifted: false,
-        aliased: entry.actionID != null && aliased.has(entry.actionID),
+        aliased: entry.isEnabled !== false && entry.actionID != null && aliased.has(entry.actionID),
         highlights: match.highlights,
       });
     });
@@ -921,16 +921,20 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     if (lifted) lifted.lifted = true;
   }
   // The user's alias names its row: the row is there even when the query matches none of its
-  // text (or the user hid it).
+  // text (or the user hid it). One row per action, and only a row this page shows while typing.
   if (aliased.size) {
-    const present = new Set(scored.map((item) => item.index));
+    const present = new Set(scored.map((item) => entries[item.index].actionID));
     entries.forEach((entry, index) => {
-      if (!entry.actionID || !aliased.has(entry.actionID) || present.has(index)) return;
+      const id = entry.actionID;
+      if (!id || !aliased.has(id) || present.has(id) || entry.isEnabled === false) return;
+      if (gated && entry.hidesWhenTyping) return;
+      if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
+      present.add(id);
       scored.push({
         index,
-        score: entry.isEnabled === false ? -disabledPenalty : 0,
+        score: 0,
         tier: 0,
-        enabled: entry.isEnabled !== false,
+        enabled: true,
         demoted: entry.demoted === true,
         exactName: false,
         shortcut: entry.hasShortcut === true,

@@ -1052,19 +1052,34 @@
     },
     {
       "query": "",
-      "expect": ["action:splitRight"],
+      "expect": ["action:newTab.default"],
       "at": 1,
       "group": "settings",
-      "pins": ["splitRight"],
-      "note": "a pinned Suggested row shows once, as a pin (the next Suggested row follows)"
+      "pins": ["newTab.default"],
+      "note": "a pinned Suggested row shows once, as a pin"
+    },
+    {
+      "query": "",
+      "expect": ["action:splitRight"],
+      "at": 2,
+      "group": "settings",
+      "pins": ["newTab.default"],
+      "note": "Suggested follows the pins without repeating them (Split Right is Suggested's second row)"
     },
     {
       "query": "",
       "expect": ["action:newTab.default"],
       "at": 2,
       "group": "settings",
-      "pins": ["splitRight"],
-      "note": "Suggested follows the pins without repeating them"
+      "pins": ["newWindow"],
+      "replay": [
+        {
+          "query": "new w",
+          "pick": "action:newWindow",
+          "daysAgo": 0
+        }
+      ],
+      "note": "a pinned Recent row shows once, as a pin: Suggested follows at once"
     }
   ]
 }

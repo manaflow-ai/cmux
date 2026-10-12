@@ -35,7 +35,7 @@ describe("palette ranking eval", () => {
     const failed = report.results
       .filter((r) => r.rank !== 1)
       .map((r) => `${JSON.stringify(r.query)}: ${r.top.join(", ")}`);
-    expect(report.cases).toBeGreaterThanOrEqual(11);
+    expect(report.cases).toBeGreaterThanOrEqual(12);
     expect(failed).toEqual([]);
   });
 
