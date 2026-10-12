@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -55,31 +56,58 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         present(over: parent)
     }
 
-    /// Help and launch share the same feature-list layout.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
+    /// Help and launch share the same feature-list layout. `activates: false`
+    /// (debug screenshot proof) orders the window in without taking focus.
+    func present(
+        over parent: NSWindow?,
+        sliderShowsFeatureList: Bool = true,
+        sliderListUsesDots: Bool = false,
+        activates: Bool = true
+    ) {
         window?.close()
-        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
+        let screen = parent?.screen ?? NSScreen.main
+        let window = makeWindow(
+            availableSize: screen?.visibleFrame.size,
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots
+        )
         self.window = window
         position(window, over: parent)
+        guard activates else {
+            window.orderFront(nil)
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
-        let rootView = CloudWelcomeAccountView(
-            accountFlow: AppDelegate.shared?.auth?.accountFlow,
-            sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots,
-            onNotNow: { [weak self] in self?.dismiss() },
-            onNext: { [weak self] step in self?.perform(step) }
-        )
-        let hosting = NSHostingView(rootView: rootView)
+    private func makeWindow(availableSize: CGSize?, sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
+        func rootView(scrollHeight: CGFloat?) -> some View {
+            CloudWelcomeAccountView(
+                accountFlow: AppDelegate.shared?.auth?.accountFlow,
+                availableSize: availableSize,
+                scrollHeight: scrollHeight,
+                sliderShowsFeatureList: sliderShowsFeatureList,
+                sliderListUsesDots: sliderListUsesDots,
+                onNotNow: { [weak self] in self?.dismiss() },
+                onNext: { [weak self] step in self?.perform(step) }
+            )
+            // A cmux-owned SwiftUI root: its text follows cmux's text size setting.
+            .cmuxFontMagnificationEnvironment()
+        }
+        let hosting = NSHostingView(rootView: rootView(scrollHeight: nil))
         // The content clears the traffic lights with its own top padding, so it
         // needs no titlebar safe area. Tracking it also loops in the app: the
         // hosting view keeps invalidating its safe area and constraints until
         // AppKit aborts (too many Update Constraints passes, 2026-10-04).
         hosting.safeAreaRegions = []
-        let size = hosting.fittingSize
+        var size = hosting.fittingSize
+        // Too tall for the screen (large text on a short display): cap the
+        // window and scroll the top, so the buttons stay on screen.
+        if let room = availableSize.map({ $0.height - CloudWelcomeLayout.screenMargin }), size.height > room {
+            hosting.rootView = rootView(scrollHeight: room)
+            size.height = room
+        }
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
@@ -159,6 +187,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 /// the plan once on show, so the view itself stays free of app objects.
 private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
+    let availableSize: CGSize?
+    let scrollHeight: CGFloat?
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
     let onNotNow: () -> Void
@@ -174,7 +204,9 @@ private struct CloudWelcomeAccountView: View {
             onNotNow: onNotNow,
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots
+            sliderListUsesDots: sliderListUsesDots,
+            availableSize: availableSize,
+            scrollHeight: scrollHeight
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

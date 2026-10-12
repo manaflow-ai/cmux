@@ -5656,7 +5656,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
 #if DEBUG
         // Keep the first-run welcome available from Help while iterating on the
-        // app, but do not interrupt every development launch with it.
+        // app, but do not interrupt every development launch with it. Screenshot
+        // proof opts in, and the welcome then leaves focus with the user's app.
+        if ProcessInfo.processInfo.environment["CMUX_DEBUG_SHOW_CLOUD_WELCOME"] == "1" {
+            DispatchQueue.main.async { [weak self, weak window] in
+                self?.cloudWelcomeWindowController.present(over: window, activates: false)
+            }
+        }
         return
 #else
         let env = ProcessInfo.processInfo.environment

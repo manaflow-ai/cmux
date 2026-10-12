@@ -151,4 +151,110 @@ struct CloudWelcomeTests {
         #expect(!CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 3.99))
         #expect(CloudWelcomeMediaCarousel.shouldAdvanceAfterMovie(elapsed: 4))
     }
+
+    @Test("the default welcome shows the feature list beside a large, sharp clip")
+    func defaultLayout() {
+        let layout = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 1, available: CGSize(width: 1470, height: 920))
+        #expect(layout == CloudWelcomeLayout(showsFeatureList: true, windowWidth: 840, mediaSize: CGSize(width: 480, height: 300)))
+        // Half the smallest recorded clip's pixels, so 2x stays sharp.
+        #expect(layout.mediaSize.width * 2 <= 1010 && layout.mediaSize.height * 2 <= 640)
+    }
+
+    @Test("large cmux text shrinks the clip beside the list, then stacks the list")
+    func largeTextAdaptsLayout() {
+        let screen = CGSize(width: 1470, height: 920)
+        let medium = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 1.3, available: screen)
+        #expect(medium.showsFeatureList)
+        #expect(medium.mediaSize.width < CloudWelcomeLayout.listMaxMediaWidth)
+
+        let large = CloudWelcomeLayout.resolve(prefersFeatureList: true, textScale: 2, available: screen)
+        #expect(!large.showsFeatureList)
+        #expect(large.windowWidth == CloudWelcomeLayout.stackedWindowWidth)
+    }
+
+    @Test("the welcome fits small screens", arguments: [
+        CGSize(width: 1024, height: 640), CGSize(width: 800, height: 600), CGSize(width: 1280, height: 520),
+    ])
+    func smallScreensFit(screen: CGSize) {
+        for scale in [1.0, 1.5, 2.0] as [CGFloat] {
+            for prefersList in [true, false] {
+                let layout = CloudWelcomeLayout.resolve(prefersFeatureList: prefersList, textScale: scale, available: screen)
+                #expect(layout.windowWidth <= screen.width - CloudWelcomeLayout.screenMargin)
+                #expect(layout.mediaSize.width <= layout.windowWidth - CloudWelcomeLayout.horizontalPadding * 2)
+                #expect(abs(layout.mediaSize.width / layout.mediaSize.height - CloudWelcomeLayout.mediaAspect) < 0.02)
+                if layout.showsFeatureList {
+                    // The titles keep their column at this text size.
+                    #expect(layout.mediaSize.width + CloudWelcomeLayout.listSpacing + CloudWelcomeLayout.listColumnWidth * scale
+                        <= layout.windowWidth - CloudWelcomeLayout.horizontalPadding * 2)
+                }
+            }
+        }
+    }
+
+    @Test("the light-mode badge text meets WCAG AA on a gray glass backdrop", arguments: [
+        NSColor.systemBlue, NSColor.systemPurple, NSColor.systemPink, NSColor.systemRed,
+        NSColor.systemOrange, NSColor.systemYellow, NSColor.systemGreen, NSColor.systemGray,
+    ])
+    func lightBadgeContrast(accent: NSColor) throws {
+        let light = try #require(NSAppearance(named: .aqua))
+        var text = NSColor.black
+        light.performAsCurrentDrawingAppearance {
+            text = CloudWelcomeBadgeStyle.lightText(accent: accent)
+        }
+        // The gray an inactive light window's glass shows (~0.67) and darker.
+        for backdrop in [0.67, CloudWelcomeBadgeStyle.darkestBackdropWhite] as [CGFloat] {
+            let alpha = CloudWelcomeBadgeStyle.lightFillOpacity
+            let fill = NSColor(white: CloudWelcomeBadgeStyle.lightFillWhite * alpha + backdrop * (1 - alpha), alpha: 1)
+            let ratio = CloudWelcomeBadgeStyle.contrast(text, fill)
+            #expect(ratio >= 4.5, "\(accent) badge text contrast \(ratio) on backdrop \(backdrop)")
+        }
+        // Blue stays recognizably the accent: darkened, not black.
+        if accent == .systemBlue {
+            #expect(text.usingColorSpace(.sRGB)!.blueComponent > 0.4)
+        }
+    }
+
+    @Test("Reduce Motion holds the clip still until the viewer presses Play")
+    @MainActor
+    func reduceMotionHoldsStill() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        playback.setReducesMotion(true)
+        #expect(playback.isPaused)
+        // Picking another feature still shows it still.
+        playback.startNewSlide(at: 1)
+        #expect(playback.isPaused)
+        #expect(playback.elapsed(at: Date()) == 0)
+
+        playback.setPaused(false)
+        #expect(!playback.isPaused)
+        // Once the viewer chose Play, later slides play too.
+        playback.startNewSlide(at: 2)
+        #expect(!playback.isPaused)
+        playback.setPaused(true)
+        #expect(playback.isPaused)
+    }
+
+    @Test("turning Reduce Motion off resumes only its own hold")
+    @MainActor
+    func reduceMotionOffResumes() {
+        let held = CloudWelcomeMediaCarousel.Playback()
+        held.setReducesMotion(true)
+        held.setReducesMotion(false)
+        #expect(!held.isPaused)
+
+        let viewerPaused = CloudWelcomeMediaCarousel.Playback()
+        viewerPaused.setPaused(true)
+        viewerPaused.setReducesMotion(true)
+        viewerPaused.setReducesMotion(false)
+        #expect(viewerPaused.isPaused)
+    }
+
+    @Test("without Reduce Motion a new slide plays")
+    @MainActor
+    func newSlidePlays() {
+        let playback = CloudWelcomeMediaCarousel.Playback()
+        playback.setPaused(true)
+        playback.startNewSlide(at: 1)
+        #expect(!playback.isPaused)
+    }
 }
