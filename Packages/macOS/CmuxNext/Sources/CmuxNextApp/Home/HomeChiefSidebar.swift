@@ -22,8 +22,8 @@ final class HomeChiefSidebar: NSView {
     private let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let stats = ThemedLabel(wrappingLabelWithString: "")
     private let replies = ThemedLabel(wrappingLabelWithString: "")
-    private let nameField = NSTextField(string: "")
-    private let avatarField = NSTextField(string: "")
+    private let nameField = ThemedTextField(string: "")
+    private let avatarField = ThemedTextField(string: "")
     /// The avatar text the field last showed, so an unchanged commit writes nothing.
     private var shownAvatar = ""
     private let stack = NSStackView()
@@ -67,8 +67,6 @@ final class HomeChiefSidebar: NSView {
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.addArrangedSubview(title)
         // Name and avatar of this Chief.
-        nameField.focusRingType = .none
-        avatarField.focusRingType = .none
         for (field, label, action) in [(nameField, HomeEngineStrings.name, #selector(renamed)),
                                        (avatarField, HomeEngineStrings.avatar, #selector(avatarChanged))] {
             let caption = ThemedLabel(labelWithString: label)
@@ -78,9 +76,11 @@ final class HomeChiefSidebar: NSView {
             field.action = action
             field.setAccessibilityLabel(label)
             field.placeholderString = label
+            field.font = Typography.body
+            let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
             stack.addArrangedSubview(caption)
-            stack.addArrangedSubview(field)
-            field.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+            stack.addArrangedSubview(box)
+            box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
