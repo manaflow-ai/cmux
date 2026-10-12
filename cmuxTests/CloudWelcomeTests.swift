@@ -126,8 +126,9 @@ struct CloudWelcomeTests {
 
     @Test("the one prominent button is the next step for this account")
     func nextStepFollowsSignInAndPlan() {
-        #expect(CloudWelcomeNextStep.resolve(isAuthenticated: false, isPlanKnown: false, isPro: false) == .signIn)
-        #expect(CloudWelcomeNextStep.resolve(isAuthenticated: false, isPlanKnown: true, isPro: true) == .signIn)
+        // Signed out reads like Free: Upgrade to Pro.
+        #expect(CloudWelcomeNextStep.resolve(isAuthenticated: false, isPlanKnown: false, isPro: false) == .upgrade)
+        #expect(CloudWelcomeNextStep.resolve(isAuthenticated: false, isPlanKnown: true, isPro: true) == .upgrade)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: false, isPro: false) == .openCloud)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: false) == .upgrade)
         #expect(CloudWelcomeNextStep.resolve(isAuthenticated: true, isPlanKnown: true, isPro: true) == .enable)
@@ -135,7 +136,7 @@ struct CloudWelcomeTests {
 
     @Test("feature clips keep their stable product order")
     func featureClipIDsAreStable() {
-        #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "keeps-running", "displays", "invite", "team"])
+        #expect(CloudWelcomeSlide.all.map(\.id) == ["spin-up", "displays", "invite", "team", "keeps-running"])
         #expect(Set(CloudWelcomeSlide.all.map(\.id)).count == CloudWelcomeSlide.all.count)
     }
 

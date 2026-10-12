@@ -56,20 +56,55 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     }
 
     /// Help and launch share the same feature-list layout.
-    func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = true, sliderListUsesDots: Bool = false) {
+    /// `posterHeadline` swaps "cmux cloud" in the poster for a headline (debug
+    /// builds compare both from Help).
+    /// The poster/footer flags pick a debug variation of the launch card.
+    func present(
+        over parent: NSWindow?,
+        sliderShowsFeatureList: Bool = true,
+        sliderListUsesDots: Bool = false,
+        posterHeadline: String? = nil,
+        posterShowsTitle: Bool = true,
+        posterShowsIcon: Bool = true,
+        showsNewBadge: Bool = false,
+        footerHasNotNow: Bool = false
+    ) {
         window?.close()
-        let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
+        let window = makeWindow(
+            sliderShowsFeatureList: sliderShowsFeatureList,
+            sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow
+        )
         self.window = window
         position(window, over: parent)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    private func makeWindow(sliderShowsFeatureList: Bool, sliderListUsesDots: Bool) -> NSWindow {
+    private func makeWindow(
+        sliderShowsFeatureList: Bool,
+        sliderListUsesDots: Bool,
+        posterHeadline: String?,
+        posterShowsTitle: Bool,
+        posterShowsIcon: Bool,
+        showsNewBadge: Bool,
+        footerHasNotNow: Bool
+    ) -> NSWindow {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .newCloudMachine)
         let rootView = CloudWelcomeAccountView(
             accountFlow: AppDelegate.shared?.auth?.accountFlow,
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            newMachineShortcut: shortcut.isUnbound ? nil : shortcut.displayString,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow,
             onNotNow: { [weak self] in self?.dismiss() },
             onNext: { [weak self] step in self?.perform(step) }
         )
@@ -87,7 +122,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
-        window.title = String(localized: "cloud.welcome.title", defaultValue: "Your work, wherever you go")
+        window.title = String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
@@ -97,9 +132,27 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = false
+        if sliderShowsFeatureList {
+            // The launch card's own × (and Escape) is Not Now; Cmd+W still closes.
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(kind)?.isHidden = true
+            }
+        }
         window.contentView = hosting
+        if sliderShowsFeatureList {
+            // The launch card is opaque: the window takes the card's colour.
+            window.isOpaque = true
+            window.backgroundColor = CloudWelcomeView.launchCardColor
+            // Hosted in a plain container: as the window's own content view the
+            // hosting view reserves the hidden titlebar's height above the clip.
+            let container = NSView(frame: NSRect(origin: .zero, size: size))
+            hosting.frame = container.bounds
+            hosting.autoresizingMask = [.width, .height]
+            container.addSubview(hosting)
+            window.contentView = container
+        }
         #if compiler(>=6.2)
-        if #available(macOS 26.0, *) {
+        if !sliderShowsFeatureList, #available(macOS 26.0, *) {
             // The window is the glass: content goes inside it, edge to edge, and the
             // window's own frame rounds the corners.
             let glass = NSGlassEffectView()
@@ -161,6 +214,12 @@ private struct CloudWelcomeAccountView: View {
     let accountFlow: HostAccountFlow?
     let sliderShowsFeatureList: Bool
     let sliderListUsesDots: Bool
+    let posterHeadline: String?
+    let newMachineShortcut: String?
+    let posterShowsTitle: Bool
+    let posterShowsIcon: Bool
+    let showsNewBadge: Bool
+    let footerHasNotNow: Bool
     let onNotNow: () -> Void
     let onNext: (CloudWelcomeNextStep) -> Void
 
@@ -174,7 +233,13 @@ private struct CloudWelcomeAccountView: View {
             onNotNow: onNotNow,
             onNext: onNext,
             sliderShowsFeatureList: sliderShowsFeatureList,
-            sliderListUsesDots: sliderListUsesDots
+            sliderListUsesDots: sliderListUsesDots,
+            posterHeadline: posterHeadline,
+            newMachineShortcut: newMachineShortcut,
+            posterShowsTitle: posterShowsTitle,
+            posterShowsIcon: posterShowsIcon,
+            showsNewBadge: showsNewBadge,
+            footerHasNotNow: footerHasNotNow
         )
         .task {
             // The plan decides between Upgrade and Enable; ask once on show.

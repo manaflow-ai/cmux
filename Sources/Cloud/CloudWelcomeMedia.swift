@@ -14,23 +14,15 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
     let title: String
     let caption: String
 
+    /// Five features, ending on the one only Cloud can do.
     static let all: [CloudWelcomeSlide] = [
         CloudWelcomeSlide(
             id: "spin-up",
             symbol: "bolt",
             title: String(localized: "cloud.welcome.slide.spinUp.title", defaultValue: "Create machines in seconds"),
             caption: String(
-                localized: "cloud.welcome.slide.spinUp.caption",
-                defaultValue: "Each one opens as a regular cmux workspace with a terminal ready."
-            )
-        ),
-        CloudWelcomeSlide(
-            id: "keeps-running",
-            symbol: "terminal",
-            title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
-            caption: String(
-                localized: "cloud.welcome.slide.keepsRunning.caption",
-                defaultValue: "Agents and terminals keep running after you close your laptop. Use the cmux CLI to connect local agents to your Cloud machines."
+                localized: "cloud.welcome.slide.spinUp.line",
+                defaultValue: "Give every agent task its own machine, ready in seconds."
             )
         ),
         CloudWelcomeSlide(
@@ -38,8 +30,8 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "display",
             title: String(localized: "cloud.welcome.slide.displays.title", defaultValue: "See the machine’s desktop"),
             caption: String(
-                localized: "cloud.welcome.slide.displays.caption",
-                defaultValue: "Open a display next to your terminal and watch apps and browsers run."
+                localized: "cloud.welcome.slide.displays.line",
+                defaultValue: "Watch agents drive a real browser on the machine."
             )
         ),
         CloudWelcomeSlide(
@@ -47,8 +39,8 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "person.badge.plus",
             title: String(localized: "cloud.welcome.slide.invite.title", defaultValue: "Invite your team"),
             caption: String(
-                localized: "cloud.welcome.slide.invite.caption",
-                defaultValue: "Add teammates by email so they can use your team’s Cloud machines."
+                localized: "cloud.welcome.slide.invite.line",
+                defaultValue: "Add teammates by email to your team’s machines."
             )
         ),
         CloudWelcomeSlide(
@@ -56,8 +48,17 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "person.2",
             title: String(localized: "cloud.welcome.slide.team.title", defaultValue: "Work together on one machine"),
             caption: String(
-                localized: "cloud.welcome.slide.team.caption",
-                defaultValue: "Invite teammates to the same machine and collaborate in a shared workspace."
+                localized: "cloud.welcome.slide.team.line",
+                defaultValue: "Work on the same machine as your teammates, live."
+            )
+        ),
+        CloudWelcomeSlide(
+            id: "keeps-running",
+            symbol: "moon",
+            title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
+            caption: String(
+                localized: "cloud.welcome.slide.keepsRunning.line",
+                defaultValue: "Close your laptop. Your agents keep working."
             )
         ),
     ]
@@ -82,6 +83,20 @@ struct CloudWelcomeMediaCarousel: View {
     /// List variant: a bar for the current feature and a dot for each other one,
     /// each centered on its text, in place of a bar per feature.
     var listUsesDots = false
+    /// A headline under "Introducing cmux cloud" in the poster; nil shows
+    /// "Introducing" over "cmux cloud".
+    var posterHeadline: String? = nil
+    /// The user's New Cloud Machine shortcut, shown on the Create row.
+    var newMachineShortcut: String? = "⇧⌘Y"
+    /// The title sits in a dark band under the clip; false runs the clip full
+    /// bleed and puts the title under it, above the features.
+    var posterShowsTitle = true
+    /// The app icon beside the title in the band.
+    var posterShowsIcon = true
+    /// A "New" badge after the title (title under the clip only).
+    var showsNewBadge = false
+    /// The card's width; the clip fills it at 16:10.
+    var cardWidth: CGFloat = CloudWelcomeMediaCarousel.posterWidth
 
     /// How long a slide without a clip (or with an unreadable one) stays up.
     private static let fallbackDuration: Double = 4
@@ -105,13 +120,18 @@ struct CloudWelcomeMediaCarousel: View {
     var body: some View {
         Group {
             if showsFeatureList {
-                HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
+                    poster
+                    if !posterShowsTitle {
+                        bodyTitle
+                            .padding(.horizontal, 24)
+                            .padding(.top, 18)
+                    }
                     featureList
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    media
+                        .padding(.horizontal, 24)
+                        .padding(.top, 18)
                 }
-                .padding(.leading, 28)
-                .padding(.trailing, 28)
             } else {
                 stacked
             }
@@ -149,7 +169,121 @@ struct CloudWelcomeMediaCarousel: View {
     /// Beside the list the clip takes the room the titles don't need, so it
     /// reads larger (same 16:10, so recorded clips fit either layout).
     private var mediaFrame: CGSize {
-        showsFeatureList ? CGSize(width: 390, height: 244) : mediaSize
+        showsFeatureList ? CGSize(width: cardWidth, height: cardWidth / 1.6) : mediaSize
+    }
+
+    // MARK: Poster
+
+    static let posterWidth: CGFloat = 460
+    /// The dark band under the clip that holds the app icon and the title.
+    private static let posterBandHeight: CGFloat = 64
+    /// How much of the clip's bottom edge fades into the band.
+    private static let posterFeather: CGFloat = 44
+
+    /// The clip edge to edge, its bottom fading into a dark band with the app
+    /// icon and "Introducing cmux cloud", and a hairline that fills with the clip.
+    /// Always dark, like the clips, whatever the window's appearance.
+    private var poster: some View {
+        VStack(spacing: 0) {
+            if posterShowsTitle {
+            media
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 1 - Self.posterFeather / mediaFrame.height),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            Color.clear.frame(height: Self.posterBandHeight)
+            } else {
+                media
+            }
+        }
+        .background(Color(white: 0.05))
+        .overlay(alignment: .bottomLeading) {
+            if posterShowsTitle {
+                posterTitle
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1.5)
+                .overlay {
+                    TimelineView(.animation(paused: playback.isPaused || reduceMotion || !autoplays)) { context in
+                        RailFill(fraction: progress(at: context.date), vertical: false)
+                    }
+                }
+        }
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var posterTitle: some View {
+        HStack(spacing: 11) {
+            if posterShowsIcon {
+                // The asset carries the icon grid's margin; 44 pt draws a ~38 pt tile.
+                Image(nsImage: NSImage(named: "AppIconDark") ?? NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 44, height: 44)
+                    .padding(EdgeInsets(top: -3, leading: -5, bottom: -3, trailing: -3))
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(introducingText)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.white.opacity(0.55))
+                Text(titleText)
+                    .cmuxFont(size: posterShowsIcon ? 20 : 22, weight: .semibold)
+                    .tracking(-0.3)
+                    .foregroundStyle(.white)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The title under a full-bleed clip, above the features, with an optional
+    /// "New" badge.
+    private var bodyTitle: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(introducingText)
+                .cmuxFont(size: 12.5)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(titleText)
+                    .cmuxFont(size: 19, weight: .semibold)
+                    .tracking(-0.2)
+                if showsNewBadge {
+                    Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New"))
+                        .cmuxFont(size: 10.5, weight: .semibold)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 7)
+                        .frame(height: 18)
+                        .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.16)))
+                        .alignmentGuide(.firstTextBaseline) { $0[.firstTextBaseline] + 2 }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var introducingText: String {
+        posterHeadline == nil
+            ? String(localized: "cloud.welcome.introducing", defaultValue: "Introducing")
+            : String(localized: "cloud.welcome.introducingCloud", defaultValue: "Introducing cmux cloud")
+    }
+
+    private var titleText: String {
+        posterHeadline ?? String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud")
     }
 
     // MARK: Feature list
@@ -172,38 +306,48 @@ struct CloudWelcomeMediaCarousel: View {
         }
     }
 
-    /// A feature: a segment of the rail and its title; the selected one lights
-    /// its segment and opens to show its line, the rest stay quiet until hovered.
+    /// A feature as text only: the playing one bright with its line open, the
+    /// rest dimmed until hovered or their turn.
     private func featureRow(_ slide: CloudWelcomeSlide, isCurrent: Bool, action: @escaping () -> Void) -> some View {
         let isHovered = hoveredRow == slide.id
+        let ink = Color.primary.opacity(isCurrent ? 1 : (isHovered ? 0.62 : 0.42))
         return Button(action: action) {
-            HStack(alignment: listUsesDots ? .center : .top, spacing: 12) {
-                if listUsesDots {
-                    dotMarker(isCurrent: isCurrent, isHovered: isHovered)
-                } else {
-                    // Inset top and bottom so each feature has its own bar, with a
-                    // clear gap to the next one.
-                    railSegment(isCurrent: isCurrent)
-                        .frame(width: 2.5)
-                        .padding(.vertical, 4)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: slide.symbol)
+                    .cmuxFont(size: 13)
+                    .foregroundStyle(ink)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(slide.title)
-                        .cmuxFont(size: 13, weight: .medium)
-                        .foregroundStyle(isCurrent || isHovered ? Color.primary : Color.secondary)
+                        .cmuxFont(size: 13.5, weight: .medium)
+                        .foregroundStyle(ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if isCurrent {
+                        // One line, so the card keeps its height in every language.
                         Text(slide.caption)
-                            .cmuxFont(size: 11.5)
+                            .cmuxFont(size: 12.5)
                             .foregroundStyle(.secondary)
-                            .lineSpacing(1)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .transition(Self.captionTransition)
                     }
                 }
-                .padding(.vertical, 7)
                 Spacer(minLength: 0)
             }
+            // Beside the title only, so the line under it keeps the full width.
+            .overlay(alignment: .topTrailing) {
+                if slide.id == "spin-up", let newMachineShortcut {
+                    Text(newMachineShortcut)
+                        .cmuxFont(size: 11.5)
+                        .tracking(0.6)
+                        .foregroundStyle(Color.primary.opacity(isCurrent ? 0.55 : 0.42))
+                        .padding(.top, 1)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -220,7 +364,7 @@ struct CloudWelcomeMediaCarousel: View {
     // MARK: Media
 
     private var media: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: showsFeatureList ? 0 : 10, style: .continuous)
         return ZStack {
             slideMedia(currentSlide)
                 .id(currentSlide.id)
@@ -229,8 +373,15 @@ struct CloudWelcomeMediaCarousel: View {
         .frame(width: mediaFrame.width, height: mediaFrame.height)
         .background(shape.fill(Color.black.opacity(0.35)))
         .contentShape(shape)
-        .onTapGesture {
-            if autoplays { setPaused(!playback.isPaused) }
+        // The launch card has no pause, so its clip doesn't take the click
+        // and the window still drags by it.
+        .gesture(
+            TapGesture().onEnded { if autoplays { setPaused(!playback.isPaused) } },
+            including: showsFeatureList ? .subviews : .all
+        )
+        // Reduce Motion on the launch card: each clip holds its first frame.
+        .task(id: currentSlide.id) {
+            if showsFeatureList && reduceMotion { setPaused(true) }
         }
         // Keep the controls outside the clip's gesture so one button click
         // cannot also toggle playback through the surrounding media surface.
@@ -239,14 +390,16 @@ struct CloudWelcomeMediaCarousel: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHoveringMedia = hovering }
         }
-        .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .overlay(shape.strokeBorder(Color.primary.opacity(showsFeatureList ? 0 : 0.12), lineWidth: 0.5))
     }
 
     /// Autoplay: a pause button while the pointer is over the clip (a play button
     /// stays while paused). Manual: previous and next arrows on hover.
     @ViewBuilder
     private var mediaControls: some View {
-        if autoplays {
+        if showsFeatureList {
+            EmptyView()
+        } else if autoplays {
             if isHoveringMedia || playback.isPaused {
                 controlButton(
                     symbol: playback.isPaused ? "play.fill" : "pause.fill",
@@ -361,46 +514,6 @@ struct CloudWelcomeMediaCarousel: View {
             }
             // The finished fill stays inside the pill as it springs closed.
             .clipShape(Capsule(style: .continuous))
-    }
-
-    /// Dots variant: the current feature's bar spans its title and line (and
-    /// fills with the clip when autoplaying); the others are dots centered on
-    /// their title. The dot stretches into the bar as a row becomes current.
-    private func dotMarker(isCurrent: Bool, isHovered: Bool) -> some View {
-        ZStack {
-            if isCurrent {
-                railSegment(isCurrent: true)
-                    .frame(width: 2.5)
-                    .padding(.vertical, 8)
-                    .transition(.scale(scale: 0.1, anchor: .center).combined(with: .opacity))
-            } else {
-                Circle()
-                    .fill(Color.primary.opacity(isHovered ? 0.5 : 0.25))
-                    .frame(width: 5, height: 5)
-                    .transition(.opacity)
-            }
-        }
-        .frame(width: 5)
-        .frame(maxHeight: .infinity)
-    }
-
-    /// A row's part of the rail. Manual: the selected one is lit. Autoplay: the
-    /// selected one fills top to bottom with its clip, then the next row takes over.
-    @ViewBuilder
-    private func railSegment(isCurrent: Bool) -> some View {
-        if isCurrent && autoplays && !reduceMotion {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.16))
-                .overlay {
-                    TimelineView(.animation(paused: playback.isPaused)) { context in
-                        RailFill(fraction: progress(at: context.date), vertical: true)
-                    }
-                }
-                .clipShape(Capsule(style: .continuous))
-        } else {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(isCurrent ? 0.9 : 0.12))
-        }
     }
 
     /// The clip's playhead when it is a movie, so the pill never drifts from
