@@ -19,7 +19,9 @@ struct AgentChatMute {
     /// Mutes the chat, or unmutes a muted one. False when it is not a chat of this Mac's acpmux.
     func toggle(_ chat: AgentSessionRef) async throws -> Bool {
         guard let session = chat.session, let muted = isMuted(chat) else { return false }
-        _ = (session, muted)
+        let tag = AgentTurnStates.muteTag
+        try await environment.tag(session: session, set: muted ? [:] : [tag: AgentTurnStates.mutedValue],
+                                  remove: muted ? [tag] : [])
         return true
     }
 }

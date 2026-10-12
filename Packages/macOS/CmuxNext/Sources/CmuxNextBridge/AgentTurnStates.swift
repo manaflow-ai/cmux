@@ -73,7 +73,7 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
 
     /// Whether a summary's chat is muted (its `tags`).
     public static func muted(_ summary: [String: Any]) -> Bool {
-        false
+        (summary["tags"] as? [String: Any])?[muteTag] as? String == mutedValue
     }
 
     /// The muted sessions of a watch result.
