@@ -55,6 +55,8 @@ use super::{Manifest, Pushed, base, names};
 
 /// Most bytes one file of the machine may have.
 const MAX_FILE_BYTES: u64 = 4 << 30;
+/// Most entries of all the machine folder's listings together.
+const MAX_ENTRIES: usize = 2_000_000;
 
 /// What a pull did, or the paths that stopped it.
 pub(super) enum Pulled {
@@ -111,8 +113,19 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     let root = Dir::open(&local)?;
 
     let hooks = if git.is_some() { hook_folders(&local)? } else { Vec::new() };
-    let MachineFiles { found, mut skipped, fenced } =
+    let MachineFiles { found, mut skipped, mut fenced } =
         machine_files(&mut remote, remote_root, &local, git.is_some(), &manifest, &hooks)?;
+    // A repository here in a folder the push sent, whether or not the
+    // machine still lists it: nothing in it is deleted.
+    for dir in pushed_folders(&manifest) {
+        if !fenced.iter().any(|folder| names::folded_within(&dir, folder))
+            && local_names(&local, &dir)
+                .iter()
+                .any(|name| names::is_dotgit(name) || names::is_repository_marker(name))
+        {
+            fenced.insert(dir);
+        }
+    }
     let mut conflicts = Vec::new();
     let mut planned = Vec::new();
     let mut unchanged = 0u64;
@@ -120,7 +133,7 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
         .files
         .keys()
         .filter(|path| is_tree_path(path))
-        .filter(|path| !fenced.iter().any(|folder| is_within(path, folder)))
+        .filter(|path| !fenced.iter().any(|folder| names::folded_within(path, folder)))
         .collect();
     paths.extend(found.keys());
     for relative in paths {
@@ -179,8 +192,8 @@ pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     let mut git_plan: Option<GitPlan> = None;
     let mut reasons = Vec::new();
     if let Some(dirs) = &git {
-        match git_back::plan(&mut remote, remote_root, &local, &dirs.common, &manifest, &staging.0)?
-        {
+        let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
+        match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
             Ok(plan) => git_plan = plan,
             Err(git_conflicts) => {
                 for (path, why) in git_conflicts {
@@ -356,15 +369,8 @@ fn machine_files(
     manifest: &Manifest,
     hook_folders: &[String],
 ) -> anyhow::Result<MachineFiles> {
-    let pushed_dirs: BTreeSet<String> = manifest
-        .files
-        .keys()
-        .filter(|path| is_tree_path(path))
-        .flat_map(|path| {
-            let parts: Vec<&str> = path.split('/').collect();
-            (1..parts.len()).map(move |end| parts[..end].join("/"))
-        })
-        .collect();
+    let pushed_dirs = pushed_folders(manifest);
+    let mut listed = 0usize;
     let mut found = BTreeMap::new();
     let mut skipped = 0u64;
     let mut fenced = BTreeSet::new();
@@ -376,6 +382,10 @@ fn machine_files(
                 if dir.is_empty() { remote_root.into() } else { format!("{remote_root}/{dir}") };
             // Every listed name is one plain component (`Remote::list`).
             let Some(entries) = remote.list(&path)? else { continue };
+            listed += entries.len();
+            if listed > MAX_ENTRIES {
+                bail!("the machine's folder has over {MAX_ENTRIES} entries");
+            }
             let here = local_names(local, &dir);
             // A repository below the top, on either side (a `.git`, or a
             // bare repository's or linked worktree's shape): nothing in it
@@ -406,7 +416,8 @@ fn machine_files(
                     continue;
                 }
                 let relative = if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") };
-                let hooks = hook_folders.iter().any(|folder| is_within(&relative, folder));
+                let hooks =
+                    hook_folders.iter().any(|folder| names::folded_within(&relative, folder));
                 if (top_shaped && names::is_repository_part(&name)) || hooks {
                     skipped += 1;
                     fenced.insert(relative);
@@ -438,9 +449,17 @@ fn machine_files(
     Ok(MachineFiles { found, skipped, fenced })
 }
 
-/// Whether `relative` is `folder` or below it.
-fn is_within(relative: &str, folder: &str) -> bool {
-    relative.strip_prefix(folder).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+/// The folders the push sent files in, relative to the top.
+fn pushed_folders(manifest: &Manifest) -> BTreeSet<String> {
+    manifest
+        .files
+        .keys()
+        .filter(|path| is_tree_path(path))
+        .flat_map(|path| {
+            let parts: Vec<&str> = path.split('/').collect();
+            (1..parts.len()).map(move |end| parts[..end].join("/"))
+        })
+        .collect()
 }
 
 /// The names in this Mac's folder `dir` (relative to `local`); none when it
@@ -462,12 +481,18 @@ fn local_names(local: &Path, dir: &str) -> Vec<String> {
 /// above it for husky's `.husky/_` (whose hooks call `.husky/<hook>`).
 fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
     let Some(path) = git_back::hooks_path(local)? else { return Ok(Vec::new()) };
-    let path = Path::new(&path);
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let path = match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(&path),
+    };
     let inside = if path.is_absolute() {
+        // `local` is canonical; so is the hooks folder when it exists.
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
         let Ok(inside) = path.strip_prefix(local) else { return Ok(Vec::new()) };
         inside.to_path_buf()
     } else {
-        path.to_path_buf()
+        path
     };
     let mut parts: Vec<String> = Vec::new();
     for part in inside.components() {
@@ -578,8 +603,11 @@ struct Staging(PathBuf, std::cell::Cell<u64>, std::cell::Cell<bool>);
 
 impl Staging {
     fn make(parent: &Path) -> anyhow::Result<Self> {
-        let path = parent.join(format!(".cmux-sync-pull-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&path);
+        // A name of its own: a folder a failed pull kept is never reused.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        let path = parent.join(format!(".cmux-sync-pull-{}-{nanos}", std::process::id()));
         std::fs::DirBuilder::new()
             .mode(0o700)
             .create(&path)

@@ -37,6 +37,11 @@ fn widen<T: TryInto<u32>>(value: T) -> u32 {
     value.try_into().unwrap_or_default()
 }
 
+/// A `dev_t` or `ino_t` (their widths and signs vary) as u64.
+fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
+    value.try_into().unwrap_or_default()
+}
+
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
     if result < 0 { Err(io::Error::last_os_error()) } else { Ok(result) }
 }
@@ -131,6 +136,27 @@ impl Dir {
         Ok(unsafe { File::from_raw_fd(fd) })
     }
 
+    /// The (device, inode) of the entry `name`, not following a symlink;
+    /// None when it is missing.
+    fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
+        let c = c_name(name)?;
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor, C string and out pointer.
+        let result = unsafe {
+            libc::fstatat(self.0.as_raw_fd(), c.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW)
+        };
+        match check(result) {
+            // dev_t and ino_t differ in width and sign across platforms.
+            Ok(_) => Ok(Some((
+                widen_u64(stat.st_dev),
+                widen_u64(stat.st_ino),
+            ))),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     fn mkdir(&self, name: &str) -> io::Result<()> {
         let c = c_name(name)?;
         // SAFETY: a valid descriptor and C string.
@@ -206,7 +232,8 @@ enum Undo {
     /// A folder this pull made.
     MadeDir { folder: String },
     /// A file this pull placed at `relative`, and where what it replaced went.
-    Placed { relative: String, aside: Option<Aside> },
+    /// `placed` is its file's (device, inode): roll back removes only that.
+    Placed { relative: String, aside: Option<Aside>, placed: Option<(u64, u64)> },
     /// A file this pull deleted, moved aside.
     Removed { relative: String, aside: Aside },
 }
@@ -264,7 +291,8 @@ impl Transaction {
             }
             return Err(error);
         }
-        self.undo.push(Undo::Placed { relative: relative.into(), aside });
+        let placed = dir.inode(&name).ok().flatten();
+        self.undo.push(Undo::Placed { relative: relative.into(), aside, placed });
         Ok(())
     }
 
@@ -289,7 +317,11 @@ impl Transaction {
         let mut left = Vec::new();
         while let Some(undo) = self.undo.pop() {
             let undone = match &undo {
-                Undo::Placed { relative, aside } => self.at(relative).and_then(|(dir, name)| {
+                Undo::Placed { relative, aside, placed } => self.at(relative).and_then(|(dir, name)| {
+                    // A file saved over it since stays, and so does the aside.
+                    if placed.is_none() || dir.inode(&name)? != *placed {
+                        return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+                    }
                     dir.unlink(&name, false)?;
                     aside.as_ref().map_or(Ok(()), |aside| self.put_back(&dir, &name, aside))
                 }),
@@ -315,7 +347,7 @@ impl Transaction {
     /// folders the deletes left empty go too (never the top folder).
     pub(super) fn finish(mut self) {
         for undo in std::mem::take(&mut self.undo) {
-            if let Undo::Placed { relative, aside: Some(aside) } | Undo::Removed { relative, aside } =
+            if let Undo::Placed { relative, aside: Some(aside), .. } | Undo::Removed { relative, aside } =
                 undo
                 && !aside.in_staging
                 && let Ok((dir, _)) = self.at(&relative)
@@ -484,11 +516,12 @@ fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<
             let _ = from.unlink(from_name, false);
             Ok(())
         }
+        // ENOTSUP and EOPNOTSUPP are one value on Linux, two on macOS.
         Err(error)
-            if matches!(
-                error.raw_os_error(),
-                Some(libc::EPERM | libc::ENOTSUP | libc::EOPNOTSUPP | libc::EMLINK | libc::ENOSYS)
-            ) =>
+            if error.raw_os_error().is_some_and(|code| {
+                [libc::EPERM, libc::ENOTSUP, libc::EOPNOTSUPP, libc::EMLINK, libc::ENOSYS]
+                    .contains(&code)
+            }) =>
         {
             if !matches!(to.entry(to_name)?, Entry::Missing) {
                 return Err(io::Error::from(io::ErrorKind::AlreadyExists));

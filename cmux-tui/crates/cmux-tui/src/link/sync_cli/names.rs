@@ -41,6 +41,25 @@ pub(super) fn is_repository_marker(name: &str) -> bool {
     matches!(hfs_folded(name).as_str(), "head" | "commondir")
 }
 
+/// Whether `relative` is `folder` or below it, as a Mac's disk compares
+/// names (case and HFS-ignorable code points ignored).
+pub(super) fn folded_within(relative: &str, folder: &str) -> bool {
+    let mut parts = relative.split('/');
+    folder
+        .split('/')
+        .all(|name| parts.next().is_some_and(|part| hfs_folded(part) == hfs_folded(name)))
+}
+
+/// Whether a path of a tree the machine sends (a commit, staged entries)
+/// carries a repository or a hook here: a `.git` under any spelling, a
+/// repository marker in a subfolder, or anything in `hooks`.
+pub(super) fn carries_repository_or_hook(relative: &str, hooks: &[String]) -> bool {
+    let parts: Vec<&str> = relative.split('/').collect();
+    parts.iter().any(|name| is_dotgit(name))
+        || (parts.len() > 1 && parts.last().is_some_and(|name| is_repository_marker(name)))
+        || hooks.iter().any(|folder| folded_within(relative, folder))
+}
+
 /// The names of a repository's own files and folders: what stays out of a
 /// top folder that has a [`is_repository_marker`] name.
 pub(super) fn is_repository_part(name: &str) -> bool {

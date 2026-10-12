@@ -26,7 +26,7 @@ use anyhow::{Context as _, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::Manifest;
+use super::{Manifest, names};
 use super::remote::Remote;
 
 /// Most bytes one object file or pack of the machine may have; streamed to
@@ -80,16 +80,26 @@ pub(super) struct GitPlan {
 /// A conflict of the git leg: `.git/HEAD` or `.git/index`, and why.
 pub(super) type GitConflict = (String, String);
 
+/// Where a pull's git leg works: the working copy, its common git folder,
+/// and this pull's own folder (the quarantine goes under it).
+pub(super) struct Where<'a> {
+    pub folder: &'a Path,
+    pub common_dir: &'a Path,
+    pub staging: &'a Path,
+}
+
 /// Compares the machine's git state with the pushed base and this Mac's.
-/// `staging` is this pull's own folder; the quarantine goes under it.
+/// A commit or staged tree that would add or change a hook (in `hooks`) or
+/// a repository here is a conflict ([`names::carries_repository_or_hook`]):
+/// once in the branch or index, any checkout would write it out.
 pub(super) fn plan(
     remote: &mut Remote,
     remote_root: &str,
-    folder: &Path,
-    common_dir: &Path,
+    at: &Where<'_>,
     manifest: &Manifest,
-    staging: &Path,
+    hooks: &[String],
 ) -> anyhow::Result<Result<Option<GitPlan>, Vec<GitConflict>>> {
+    let Where { folder, common_dir, staging } = *at;
     let here = base_of(folder)?;
     let remote_git = format!("{remote_root}/.git");
     let (vm_ref, vm_head) = machine_head(remote, &remote_git)?;
@@ -177,6 +187,15 @@ pub(super) fn plan(
             }
         }
     }
+    if let Some(why) = carried(&quarantine, base.head.as_deref(), head.as_deref(), hooks)? {
+        conflicts.push(head_conflict(&why));
+    }
+    if staged.is_some() {
+        let tree_of = head.as_deref().or(here.head.as_deref());
+        if let Some(why) = carried(&quarantine, tree_of, staged.as_deref(), hooks)? {
+            conflicts.push((".git/index".into(), why));
+        }
+    }
     if !conflicts.is_empty() {
         return Ok(Err(conflicts));
     }
@@ -184,6 +203,30 @@ pub(super) fn plan(
         return Ok(Ok(None));
     }
     Ok(Ok(Some(GitPlan { quarantine, local: here, head, staged, settled })))
+}
+
+/// Why the commit `new` can't come back over `old` (None: nothing before):
+/// a path it adds or changes carries a hook or a repository here.
+fn carried(
+    quarantine: &Path,
+    old: Option<&str>,
+    new: Option<&str>,
+    hooks: &[String],
+) -> anyhow::Result<Option<String>> {
+    let Some(new) = new else { return Ok(None) };
+    let mut command = quarantine_git(quarantine);
+    match old {
+        Some(old) => {
+            command.args(["diff-tree", "-r", "-z", "--no-renames", "--name-only"]).arg(old)
+        }
+        None => command.args(["ls-tree", "-r", "-z", "--name-only"]),
+    };
+    let paths = checked(command.arg(new))?;
+    let hit = paths
+        .split(|byte| *byte == 0)
+        .map(String::from_utf8_lossy)
+        .find(|path| !path.is_empty() && names::carries_repository_or_hook(path, hooks));
+    Ok(hit.map(|path| format!("the machine's changes add a hook or a repository: {path}")))
 }
 
 fn head_conflict(why: &str) -> GitConflict {
