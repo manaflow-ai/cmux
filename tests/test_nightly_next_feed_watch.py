@@ -12,6 +12,9 @@ import datetime as dt
 import importlib.util
 from pathlib import Path
 import sys
+import urllib.error
+import urllib.parse
+import unittest.mock
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/nightly_next_feed_watch.py"
@@ -40,6 +43,8 @@ JOBS = {
     8: [{"name": "build / build x86_64-apple-darwin", "conclusion": "failure",
          "steps": [{"name": "Build the macOS binaries on Linux (no Apple SDK)", "conclusion": "failure"}]}],
     9: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "failure", "steps": []}],
+    10: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "cancelled", "steps": []}],
+    11: [{"name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "steps": []}],
 }
 
 
@@ -71,6 +76,67 @@ class AssessTests(unittest.TestCase):
         stage = assess([run(1, 6)], nightly=[run(6, 0.5, status="in_progress", conclusion=None), run(7, 2, conclusion="failure")])
         self.assertIn("runs/6", stage.reason)
         self.assertIn("still building", stage.reason)
+
+    def test_a_green_nightly_that_did_not_publish_is_named(self):
+        stage = assess([run(1, 6)], nightly=[run(6, 1), run(7, 2, conclusion="failure")])
+        self.assertIn("runs/6", stage.reason)
+        self.assertIn("did not publish", stage.reason)
+
+    def test_release_compile_is_read_from_the_newest_decided_run(self):
+        # Superseded pushes cancel their compile; that is not the stuck stage.
+        stage = assess([run(1, 5)], compiles=[run(10, 1), run(9, 2)])
+        self.assertIn("is failure: https://github.com/o/r/actions/runs/9", stage.reason)
+        stage = assess([run(1, 5)], compiles=[run(10, 1), run(11, 2), run(9, 3)])
+        self.assertNotIn("Release compile", stage.reason)
+
+
+class PagedGitHub(watch.GitHub):
+    """Runs come newest first, 100 a page; the oldest push is on the last page."""
+
+    def __init__(self, pushes, published=None):
+        super().__init__("o/r", "t", dry_run=True)
+        self.pushes = pushes
+        self.published = published
+        self.queries = []
+
+    def call(self, method, path, body=None):
+        self.queries.append(path)
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query))
+        if "head_sha" in query:
+            runs = [self.published] if self.published and self.published["head_sha"] == query["head_sha"] else []
+            return {"total_count": len(runs), "workflow_runs": runs}
+        bound = query["created"]
+        after = watch.parse_time(bound.lstrip(">="))
+        runs = [r for r in self.pushes if (watch.parse_time(r["created_at"]) > after if not bound.startswith(">=") else watch.parse_time(r["created_at"]) >= after)]
+        per_page, page = int(query.get("per_page", 30)), int(query.get("page", 1))
+        return {"total_count": len(runs), "workflow_runs": runs[(page - 1) * per_page:page * per_page]}
+
+
+class WindowTests(unittest.TestCase):
+    def test_the_oldest_waiting_push_is_found_past_the_first_page(self):
+        pushes = [run(1000 + i, i * 0.05) for i in range(250)]  # 250 pushes over 12.5h
+        oldest = watch.oldest_waiting_push(PagedGitHub(pushes), "", NEWEST)
+        self.assertEqual(oldest["id"], 1249)
+
+    def test_a_push_during_the_published_build_still_waits(self):
+        # X was promoted and pushed 6h ago, Y landed while X built; X then published 5h ago.
+        x, y = run(1, 6), run(2, 5.5)
+        gh = PagedGitHub([y, x], published=x)
+        self.assertEqual(watch.oldest_waiting_push(gh, x["head_sha"], NOW - dt.timedelta(hours=5))["id"], 2)
+        self.assertIsNone(watch.oldest_waiting_push(PagedGitHub([x], published=x), x["head_sha"], NOW - dt.timedelta(hours=5)))
+
+
+class MainTests(unittest.TestCase):
+    def test_a_github_error_warns_instead_of_failing_the_schedule(self):
+        def boom(*_args, **_kwargs):
+            raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
+        original = watch.GitHub.call, watch.read_feed
+        watch.GitHub.call, watch.read_feed = boom, lambda url: NEWEST
+        try:
+            with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+                self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        finally:
+            watch.GitHub.call, watch.read_feed = original
 
 
 class FakeGitHub:
