@@ -1,7 +1,6 @@
-// The New Tab field's Return glyph (dogfood run, hq #1893): it looked like the send button, but a
-// click on it did nothing; only the Return key sent the prompt. It is the Send button now, and a
-// click asks the agent as Return does.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+// The New Tab composer's project chip names the folder a prompt starts in (screenActions onAsk):
+// a real pick, else the host's start folder; never the home ~ a Cmd-N tab inherits (cx-7fje0).
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -61,6 +60,12 @@ const noop = () => {};
 
 /// The New Tab page as Cmd-N opens it: its tab inherited `cwd`, and the chat it starts begins in
 /// `startCwd` (the host's start folder) unless the person picks a project.
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+});
+
 async function mount(cwd: string, startCwd?: string) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -96,6 +101,12 @@ test("a Cmd-N New Tab whose host names a start folder shows that folder", async 
   expect(await mount("/Users/you", "/Users/you/src/app")).toBe("app");
 });
 
-test("a New Tab that inherited a project folder names it", async () => {
-  expect(await mount("/Users/you/src/app")).toBe("app");
+test("a New Tab that inherited a project folder names the folder its host starts the chat in", async () => {
+  expect(await mount("/Users/you/src/app", "/Users/you/src/app")).toBe("app");
+});
+
+// With no start folder from the host yet, a prompt starts in the private agent-home folder (App's
+// chat.new fills none): the chip asks for a project rather than name the inherited folder.
+test("before the host names a start folder, the chip asks for a project", async () => {
+  expect(await mount("/Users/you/src/app")).toBe("Choose project");
 });
