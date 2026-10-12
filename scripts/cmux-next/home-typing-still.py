@@ -2,9 +2,9 @@
 """Tagged-app still of the Swift Home's typing indicator on the app's theme (MessagesLab 5c56f4f).
 
 Launches the tagged app with no activation, opens the DEBUG Home fixture (the real transcript view
-over a HomeStore over the mock owner, whose Chief types for 1.5 s before it answers), sends a message
-through the field's send path (debug.home.drive type + send) and takes window snapshots while the
-Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
+over a HomeStore over the mock owner: after a send its Chief waits 1.5 s, types for 1.5 s, then
+answers, MockHomeSource.scheduleReplies), sends a message through the field's send path
+(debug.home.drive type + send) and takes window snapshots at 2.0 s and 2.6 s, while the Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
 Passes when the send goes and the snapshots exist. Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
@@ -61,9 +61,6 @@ def poll(predicate, timeout=20):
     return None
 
 
-def shown():
-    return ((rpc("debug.home") or {}).get("page") or {}).get("shown")
-
 
 if os.path.exists(sock):
     os.unlink(sock)
@@ -88,8 +85,8 @@ try:
     sent = rpc("debug.home.drive", {"action": "send"}) or {}
     check("the send goes", bool(sent.get("ok")), sent)
     shots = []
-    for delay in (0.6, 0.4):
-        time.sleep(delay)  # test harness: the mock Chief types for 1.5 s after the send
+    for delay in (2.0, 0.6):
+        time.sleep(delay)  # test harness: the mock Chief types from 1.5 s to 3.0 s after the send
         path = os.path.join(opts.out, "typing-%d.png" % len(shots))
         rpc("debug.window_snapshot", {"path": path})
         shots.append(path)
