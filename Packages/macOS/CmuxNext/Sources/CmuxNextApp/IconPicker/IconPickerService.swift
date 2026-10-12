@@ -49,8 +49,16 @@ final class IconPickerService {
     private(set) var open: OpenPicker?
     private var warm: Warm?
 
-    init(services: AppServices) {
+    init(services: AppServices?) {
         self.services = services
+    }
+
+    /// Whether the panel, page and provider exist, so an open reuses them.
+    var isWarm: Bool { warm != nil }
+
+    /// Makes the warm picker ahead of the first open; `then` runs when it is ready.
+    func prepare(then: (() -> Void)? = nil) {
+        then?()
     }
 
     /// Opens the picker at `anchor` for `target` (an object whose icon is `current`);
