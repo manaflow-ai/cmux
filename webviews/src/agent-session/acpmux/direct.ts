@@ -1431,7 +1431,10 @@ export class AcpmuxDirectClient {
           this.promptAccepts.get(fallbackPromptId)?.();
         }
         this.subagents.closeBatch();
-        this.endAssistantSegment();
+        // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
+        // reply still streams after the steer's row and stays in its row above it, and the next
+        // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
+        if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
