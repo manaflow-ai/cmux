@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// `debug.key {"sequence": [...]}` (DEBUG builds): a keyboard's raw
 /// transitions, in order and with their gaps, as a remapper such as
@@ -23,7 +24,14 @@ extension DebugKey {
         59: .maskControl, 62: .maskControl, 58: .maskAlternate, 61: .maskAlternate,
     ]
 
-    static func sendSequence(_ steps: [JSONValue]) -> JSONValue {
+    /// The sequence being played: its events and the timer that posts each.
+    @MainActor private static var queued: [NSEvent] = []
+    @MainActor private static var timers: [DemandTimer] = []
+
+    @MainActor static func sendSequence(_ steps: [JSONValue]) -> JSONValue {
+        timers.forEach { $0.cancel() }
+        timers = []
+        queued = []
         let source = CGEventSource(stateID: .privateState)
         var flags: CGEventFlags = []
         var delay = 0.0
@@ -41,8 +49,13 @@ extension DebugKey {
             cgEvent.flags = flags
             guard let event = NSEvent(cgEvent: cgEvent) else { continue }
             scheduled += 1
+            queued.append(event)
             // Posted at its offset from now: the gaps are the sequence's, not this call's.
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { NSApp.postEvent(event, atStart: false) }
+            let index = queued.count - 1, timer = DemandTimer(owner: "debug.key.sequence")
+            timer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor in
+                if queued.indices.contains(index) { NSApp.postEvent(queued[index], atStart: false) }
+            }
+            timers.append(timer)
         }
         return .object(["scheduled": .number(Double(scheduled)), "duration_ms": .number(delay * 1000)])
     }
