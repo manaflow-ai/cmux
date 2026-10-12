@@ -181,6 +181,10 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       if (!installed) return;
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
       await openChat(page);
+      // A loaded machine (#19761 CI): the fold the match opens and the rows above it measure long
+      // after the match is first drawn, and Find still lands it in view.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 40 });
       // Only in the test command's output: found, its group opened, highlighted and in view.
       await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
       await page.waitForSelector(".acpmux-find__field");
@@ -204,21 +208,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect(output.count).toBe("1 of 1");
       expect(output.active).toEqual(["1504.40ms"]);
       expect(output.inView).toBe(true);
-
-      // On a slow machine the rows above the match can measure well after it is drawn (#19761 CI):
-      // the match stays in view until the reader scrolls, however late they move it.
-      await page.waitForTimeout(800);
-      await page.evaluate(() => {
-        const match = [
-          ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
-        ][0]!.getBoundingClientRect();
-        const above = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll [data-row-id]")].find(
-          (row) => row.getBoundingClientRect().top < match.top,
-        );
-        above!.style.paddingTop = "1500px";
-      });
-      await settleInView(page);
-      expect((await state(page)).inView).toBe(true);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
 
       // Only in the edit of upload.test.ts: found, and its edits group opens on the diff. (The diff
       // draws in @pierre/diffs' shadow root, where the page's highlights do not reach.)

@@ -843,6 +843,8 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
   if (box.top < view.top || box.bottom > view.bottom)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
 }
+/// How long Find keeps a new match in view while its groups open and the rows above it measure.
+const FIND_REVEAL_MS = 600;
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1456,8 +1458,10 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
+  const revealUntil = useRef(0);
   useLayoutEffect(() => {
     revealing.current = targetKey;
+    revealUntil.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
@@ -1479,8 +1483,12 @@ export function VirtualTranscript({
     );
     if (!current || revealing.current !== targetKey) return;
     // A match in a closed group is drawn before the group opens (with no size), and it moves as the
-    // opened parts and the rows above it measure, however long that takes on a slow machine, so it
-    // is kept in view until the reader scrolls or Find moves to another match.
+    // opened parts and the rows above it measure, so it is kept in view for a moment once drawn.
+    if (!revealUntil.current) revealUntil.current = performance.now() + FIND_REVEAL_MS;
+    if (performance.now() > revealUntil.current) {
+      revealing.current = undefined;
+      return;
+    }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.
     for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
@@ -1554,12 +1562,9 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
-    // The reader scrolling ends a pending jump to latest and, outside Find's own bar (it sits in
-    // the scroller), Find keeping its match in view.
-    const reader = (event: Event) => {
+    const reader = () => {
       clearTimeout(settle.current);
       settle.current = undefined;
-      if (!(event.target instanceof Element && event.target.closest(".acpmux-find"))) revealing.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
