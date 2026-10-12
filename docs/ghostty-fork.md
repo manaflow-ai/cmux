@@ -27,6 +27,9 @@ When we change the fork, update this document and the parent submodule SHA.
   background. The fill is still skipped. The GLSL shader is unchanged.
 - Coverage: `cmuxTests/GhosttyMinimumContrastLayerBackgroundTests` reads the
   presented IOSurface for Flexoki Light colors with `minimum-contrast = 2`.
+- GhosttyKit: built by
+  [run 38266643043](https://github.com/manaflow-ai/cmux/actions/runs/38266643043),
+  archive SHA-256 `64b7197f9d5f3b7dadc9617324a6016d6c6aad21ed3095d7bd04d40acc84ea21`.
 - Conflict notes: keep the opaque fallback next to the `global_bg` load in
   `cell_text_vertex` if upstream reworks that blend.
 
