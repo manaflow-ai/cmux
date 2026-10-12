@@ -14,7 +14,8 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
     RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
-    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
@@ -145,19 +146,7 @@ impl Mux {
                     .cloned()
                     .collect::<Vec<_>>();
                 all_tabs.extend(tabs.iter().cloned());
-                let mut terminal_tab_order =
-                    terminal_tab_ids_in_canonical_order(all_tabs.iter().filter_map(|tab| {
-                        match &tab.content_id {
-                            ContentPublicId::Terminal(id) => Some((
-                                id.clone(),
-                                tab.pane_id.clone(),
-                                tab.position,
-                                tab.public_id.clone(),
-                            )),
-                            ContentPublicId::Browser(_) => None,
-                        }
-                    }));
-                let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
+                let terminal_tab_ids = terminal_tab_ids(&all_tabs, &terminal_id);
                 let durable = match &first {
                     Some((_, record)) => record.clone(),
                     None => registry.terminal_record(&host_id)?.context("no durable host")?,
@@ -168,7 +157,35 @@ impl Mux {
                     Some(terminal.as_ref()),
                     terminal_tab_ids,
                 )?;
-                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
+                // The destination screen's layout lists its panes' tabs, so
+                // the new view restates the screen, as a tab create's
+                // projection does (cx-gzh.24): a client that builds pane
+                // tabs from the layout shows the view in this delta.
+                let screen = topology
+                    .screens
+                    .iter()
+                    .find(|screen| screen.public_id == destination_pane.screen_id)
+                    .context("destination pane has no durable screen")?;
+                let mut panes = topology.panes.clone();
+                for candidate in &mut panes {
+                    if candidate.public_id == pane_id {
+                        *candidate = destination_pane.clone();
+                    }
+                }
+                let screen_value = crate::resource_screen::public_screen_value(
+                    &topology,
+                    screen,
+                    &crate::resource_screen::tabs_by_pane(&all_tabs),
+                    &crate::resource_screen::panes_by_id(&panes),
+                )?;
+                let mut deltas = Vec::with_capacity(tabs.len().saturating_add(2));
+                deltas.push(json!({
+                    "kind":"upsert",
+                    "sequence":0,
+                    "resource":"screen",
+                    "id":screen.public_id,
+                    "value":screen_value,
+                }));
                 for tab in &tabs {
                     push_tab_delta(
                         &mut deltas,
@@ -339,22 +356,30 @@ impl Mux {
                     .find(|tab| tab.public_id == source_tab_id)
                     .cloned()
                     .context("selected terminal view has no durable tab")?;
+                // The result is the terminal's public snapshot (the catalog's
+                // TerminalSnapshot), from the one terminal builder, read from
+                // the terminal's runtime as the session snapshot reads it.
                 let terminal_surface = state
-                    .surfaces
-                    .get(&surface)
+                    .terminal_catalog
+                    .get(&terminal_id)
+                    .or_else(|| state.surfaces.get(&surface))
+                    .cloned()
                     .context("terminal selector resolved a missing surface")?;
-                let (terminal_cols, terminal_rows) = terminal_surface.size();
-                let mut terminal_value = json!({
-                    "id":terminal_id,
-                    "tab_id":source_tab.public_id,
-                    "title":terminal_surface.title(),
-                    "cols":terminal_cols.max(1),
-                    "rows":terminal_rows.max(1),
-                    "running":!terminal_surface.is_dead(),
-                });
-                if let Some(cwd) = terminal_surface.spawn_cwd() {
-                    terminal_value["cwd"] = json!(cwd);
-                }
+                let host_id = self
+                    .resource_terminal_host_identity(&terminal_surface)
+                    .map(|host| host.terminal_id)
+                    .or_else(|| source_tab.terminal_id.clone())
+                    .context("terminal omitted its durable host identity")?;
+                let durable_terminal =
+                    registry.terminal_record(&host_id)?.context("terminal has no durable host")?;
+                let terminal_snapshot = |tabs: &[RegistryTab]| {
+                    public_terminal_snapshot(
+                        &terminal_id,
+                        &durable_terminal,
+                        Some(terminal_surface.as_ref()),
+                        terminal_tab_ids(tabs, &terminal_id),
+                    )
+                };
                 let source_pane_id = source_tab.pane_id.clone();
                 let structural = source_pane_slot != target_pane_slot
                     && state.panes.get(&source_pane_slot).is_some_and(|pane| pane.tabs.len() == 1);
@@ -368,7 +393,7 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        json!({"terminal":terminal_id,"value":terminal_value}),
+                        json!({"terminal":terminal_id,"value":terminal_snapshot(&topology.tabs)?}),
                     );
                 }
                 let mut source_pane = topology
@@ -465,6 +490,23 @@ impl Mux {
                     .cloned()
                     .context("destination screen is absent from durable topology")?;
                 target_screen.active_pane = target_pane_id.clone();
+                // The topology after the move, for the screens it restates.
+                let mut after = topology.clone();
+                after.screens.retain(|screen| screen.public_id != target_screen.public_id);
+                after.screens.push(target_screen.clone());
+                let target_screen_public = target_screen.public_id.clone();
+                after.panes.retain(|pane| {
+                    pane.public_id != source_pane.public_id && pane.public_id != target_pane_id
+                });
+                after.panes.push(source_pane.clone());
+                if target_pane_id != source_pane_id {
+                    after.panes.push(target_pane.clone());
+                }
+                after.active_workspace = Some(target_workspace_id.clone());
+                after.active_screens.retain(|(workspace, _)| workspace != &target_workspace_id);
+                after
+                    .active_screens
+                    .push((target_workspace_id.clone(), Some(target_screen_id.clone())));
                 changes.push(ResourceChange::UpsertScreen(target_screen));
                 let durable_workspace = snapshot
                     .workspaces
@@ -481,19 +523,46 @@ impl Mux {
                     workspace_id: Some(target_workspace_id),
                 });
 
+                let moved_tabs = topology
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.pane_id != source_pane_id && tab.pane_id != target_pane_id)
+                    .chain(&source_tabs)
+                    .chain(&target_tabs)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let terminal_value = terminal_snapshot(&moved_tabs)?;
+                after.tabs = moved_tabs;
+                // The source and destination screens list the moved tab in
+                // their layouts, and a focus change unfocuses the screen that
+                // was focused: the delta restates them first, as a tab
+                // create's projection does (cx-gzh.25).
+                let mut restated = vec![source_pane.screen_id.clone(), target_screen_public];
+                if let Some(workspace) = &topology.active_workspace
+                    && let Some((_, Some(screen))) =
+                        topology.active_screens.iter().find(|(candidate, _)| candidate == workspace)
+                {
+                    restated.push(screen.clone());
+                }
+                let mut seen = HashSet::new();
+                restated.retain(|screen| seen.insert(screen.clone()));
+                let mut deltas = screen_upserts(&after, &restated)?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
                 let target_delta_tabs = target_tabs.clone();
                 let source_delta_pane = source_pane;
                 let target_delta_pane = target_pane;
-                let deltas = move_deltas(
+                deltas.extend(move_deltas(
                     &source_delta_pane,
                     &target_delta_pane,
                     &source_delta_tabs,
                     &target_delta_tabs,
                     source_pane_id == target_pane_id,
-                );
+                ));
+                for (sequence, delta) in deltas.iter_mut().enumerate() {
+                    delta["sequence"] = json!(sequence);
+                }
 
                 let source_old_index = state
                     .panes
@@ -818,6 +887,52 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
             "zoomed": false,
         },
     }));
+}
+
+/// Upserts of `screens` as `topology` holds them, from the one screen
+/// builder, so each equals the session snapshot at the delta's revision.
+fn screen_upserts(
+    topology: &ResourceTopologySnapshot,
+    screens: &[crate::resource::ScreenPublicId],
+) -> anyhow::Result<Vec<Value>> {
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+    let panes_by_id = crate::resource_screen::panes_by_id(&topology.panes);
+    screens
+        .iter()
+        .enumerate()
+        .map(|(sequence, id)| {
+            let screen = topology
+                .screens
+                .iter()
+                .find(|screen| &screen.public_id == id)
+                .context("restated screen is absent from durable topology")?;
+            let value = crate::resource_screen::public_screen_value(
+                topology,
+                screen,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?;
+            Ok(json!({
+                "kind": "upsert",
+                "sequence": sequence,
+                "resource": "screen",
+                "id": id,
+                "value": value,
+            }))
+        })
+        .collect()
+}
+
+/// `terminal`'s tab ids in canonical order among `tabs`.
+fn terminal_tab_ids(tabs: &[RegistryTab], terminal: &TerminalPublicId) -> Vec<TabPublicId> {
+    terminal_tab_ids_in_canonical_order(tabs.iter().filter_map(|tab| match &tab.content_id {
+        ContentPublicId::Terminal(id) => {
+            Some((id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone()))
+        }
+        ContentPublicId::Browser(_) => None,
+    }))
+    .remove(terminal)
+    .unwrap_or_default()
 }
 
 fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {

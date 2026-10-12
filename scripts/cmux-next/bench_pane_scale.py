@@ -50,6 +50,7 @@ or more of those into an HTML table.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import math
 import os
@@ -64,6 +65,50 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+
+
+class _ThreadInfo(ctypes.Structure):
+    """struct proc_threadinfo (sys/proc_info.h)."""
+    _fields_ = [("user_time", ctypes.c_uint64), ("system_time", ctypes.c_uint64), ("cpu_usage", ctypes.c_int32),
+                ("policy", ctypes.c_int32), ("run_state", ctypes.c_int32), ("flags", ctypes.c_int32),
+                ("sleep_time", ctypes.c_int32), ("curpri", ctypes.c_int32), ("priority", ctypes.c_int32),
+                ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
+
+
+_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+
+
+def thread_times(pid):
+    """{thread handle: (name, cpu_ns)} for every thread of `pid`, read from
+    outside (proc_pidinfo PROC_PIDLISTTHREADS / PROC_PIDTHREADINFO), so the
+    probe adds no wakeup to the app."""
+    handles = (ctypes.c_uint64 * 4096)()
+    size = _libproc.proc_pidinfo(pid, 6, ctypes.c_uint64(0), handles, ctypes.sizeof(handles))
+    out = {}
+    for handle in handles[:max(0, size) // 8]:
+        info = _ThreadInfo()
+        if _libproc.proc_pidinfo(pid, 5, ctypes.c_uint64(handle), ctypes.byref(info), ctypes.sizeof(info)) <= 0:
+            continue
+        out[handle] = (info.name.decode(errors="replace") or "(unnamed)", info.user_time + info.system_time)
+    return out
+
+
+def thread_activity(before, after, wall):
+    """Threads that ran during the window, grouped by name: how many threads
+    of that name exist, how many ran, and their CPU (us/s)."""
+    groups = {}
+    for handle, (name, cpu) in after.items():
+        entry = groups.setdefault(name, {"name": name, "threads": 0, "ran": 0, "cpu_us_per_s": 0.0})
+        entry["threads"] += 1
+        # A thread started inside the window counts from zero.
+        delta = cpu - before[handle][1] if handle in before else cpu
+        if delta > 0:
+            entry["ran"] += 1
+            entry["cpu_us_per_s"] += delta / 1000 / wall
+    rows = [g for g in groups.values() if g["ran"]]
+    for g in rows:
+        g["cpu_us_per_s"] = round(g["cpu_us_per_s"], 1)
+    return sorted(rows, key=lambda g: -g["cpu_us_per_s"])
 
 
 def sysctl_int(name):
@@ -238,7 +283,12 @@ class Bench:
     def idle(self):
         time.sleep(self.args.settle)  # test script: let the layout settle
         self.debug("debug.wakeups", {"reset": True})
+        threads_before = thread_times(self.app_pid)
         measured, _ = self.window(self.args.idle)
+        threads_after = thread_times(self.app_pid)
+        # Which app threads woke while idle (wakeups are per process only;
+        # a thread that ran has CPU time), grouped by thread name.
+        measured["app_threads"] = thread_activity(threads_before, threads_after, measured["wall_s"])[:20]
         report = self.debug("debug.wakeups") or {}
         measured["ledger"] = [e for e in report.get("ledger", []) if e.get("per_second", 0) > 0][:12]
         measured["active_frame_clients"] = report.get("active_frame_clients", [])
@@ -296,11 +346,19 @@ class Bench:
         if layout_before is not None and layout_after is not None:
             measured["layout"] = diff_counters(layout_before, layout_after, len(ops))
         if isinstance(passes, dict):
-            by_class = passes.get("passesByClass") or passes.get("passes_by_class") or []
-            total = sum(p[1] if isinstance(p, list) else p.get("passes", 0) for p in by_class)
-            measured["layout_passes"] = {"total": total, "per_op": round(total / len(ops), 2) if ops else None,
-                                         "max_in_one_turn": passes.get("maxPassesInOneTurn") or passes.get("max_passes_in_one_turn"),
-                                         "top": sorted(by_class, key=lambda p: -(p[1] if isinstance(p, list) else p.get("passes", 0)))[:5]}
+            # debug.layers layout_passes (LayoutPassGuard): top_classes are the
+            # busiest view classes since the reset at the phase start (top 20),
+            # max_in_one_turn the most layout calls of one view in one window
+            # layout, with its view class, window class and that window's limit.
+            by_class = passes.get("top_classes") or []
+            total = sum(p.get("passes", 0) for p in by_class)
+            measured["layout_passes"] = {"top20_total": total, "top20_per_op": round(total / len(ops), 2) if ops else None,
+                                         "max_in_one_window_layout": passes.get("max_in_one_turn"),
+                                         "max_view_class": passes.get("max_view_class"),
+                                         "max_window_class": passes.get("max_window_class"),
+                                         "max_window_limit": passes.get("max_window_limit"),
+                                         "loops": passes.get("loops") or [],
+                                         "top": by_class[:5]}
         return measured
 
     def phases(self, panes):
@@ -372,6 +430,8 @@ def main():
     parser.add_argument("--label", default="run")
     parser.add_argument("--out")
     parser.add_argument("--keep-running", action="store_true")
+    parser.add_argument("--sample-seconds", type=int, default=0,
+                        help="after each idle window, /usr/bin/sample the app for N seconds into the out dir")
     args = parser.parse_args()
 
     sha = subprocess.run(["git", "-C", args.repo_root, "rev-parse", "--short=12", "HEAD"],
@@ -458,6 +518,16 @@ def main():
                   f"build {checkpoint['build']['seconds']} s, create rtt p50 {checkpoint['build']['rtt_ms']['p50']} ms",
                   flush=True)
             checkpoint["idle"] = bench.idle()
+            for row in checkpoint["idle"].get("app_threads", [])[:8]:
+                print(f"   idle thread {row['name'][:40]:<40} {row['ran']}/{row['threads']} ran, {row['cpu_us_per_s']} us/s", flush=True)
+            if args.sample_seconds:
+                # After the idle window (sample suspends threads): stacks of what woke.
+                path = os.path.join(args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench"),
+                                    f"sample-{args.label}-{panes}.txt")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                subprocess.run(["/usr/bin/sample", str(app.pid), str(args.sample_seconds), "-mayDie", "-file", path],
+                               capture_output=True, timeout=args.sample_seconds + 120)
+                checkpoint["sample"] = path
             for kind, row in sorted(checkpoint["idle"]["processes"].items()):
                 print(f"   idle {kind:<14} x{row['count']:<5} {row['cpu_percent']:>7.3f}% CPU "
                       f"{row['wakeups_per_s']:>8.2f} wk/s {row['footprint_mb']:>9.1f} MB", flush=True)

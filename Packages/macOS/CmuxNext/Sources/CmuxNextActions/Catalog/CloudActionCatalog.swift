@@ -66,6 +66,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "share"], category: .cloud, symbol: "hand.raised", surfaces: [.palette],
                 requires: [.cloudWorkspace], targets: [.machine], cliName: "cloud hand-off-machine"
             ),
+            // Move to Cloud (cmuxterm-hq#1874 slice 3): the palette, the tab and chat
+            // right-click menus and `cmux cloud move` run this one action on a chat tab.
+            ActionDescriptor(
+                id: "cloudMove",
+                title: String(localized: "action.cloudMove", defaultValue: "Move to Cloud", bundle: .module),
+                keywords: ["vm", "cloud", "move", "chat", "agent", "remote", "sync"], category: .cloud,
+                symbol: "icloud.and.arrow.up", surfaces: [.palette, .contextMenu],
+                arguments: [CatalogArgument.optionalPathString, CatalogArgument.optionalMachine], targets: [.tab],
+                cliName: "cloud move"
+            ),
             ActionDescriptor(
                 id: "cloudSSH",
                 title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),

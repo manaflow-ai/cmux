@@ -49,7 +49,7 @@ struct HistoryPageView: View {
         VStack(alignment: .leading, spacing: Metrics.panelInset * 1.5) {
             titleRow
             TextField(HistoryStrings.searchPlaceholder, text: $model.text)
-                .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focused($searchFocused)
+                .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focusEffectDisabled().focused($searchFocused)
                 .onKeyPress(.downArrow) { model.moveSelection(1); return .handled }
                 .onKeyPress(.upArrow) { model.moveSelection(-1); return .handled }
                 .onSubmit { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } }

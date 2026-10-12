@@ -98,7 +98,8 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, forkSeq, retry, retryWith, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
+  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
+    useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -148,7 +149,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {t("turn.signInAgain")}
           </button>
         )}
-        {fork && seq !== undefined && seq === forkSeq && (
+        {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"
