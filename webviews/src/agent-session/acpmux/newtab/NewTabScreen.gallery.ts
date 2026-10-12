@@ -86,6 +86,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
+    "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -316,6 +317,35 @@ export default agentPaneEntry({
         },
       }),
       snapshot: noChat(manySessions(3)),
+    },
+    "dictation-mic": {
+      note: "The agent composer's mic, beside send (cx-32bdm): the same dictation, its words land in this field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-enter"),
+        );
+      },
+    },
+    "dictation-menu": {
+      note: "Right-click on the mic offers Hide dictation button, which hides it in every composer until Settings shows it (cx-32bdm).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The mic's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening the mic's menu must not move the page." },
+      },
+      play: async (ctx) => {
+        const mic = ctx.find({ selector: ".nt-pickers .acpmux-mic" });
+        const box = mic.getBoundingClientRect();
+        mic.dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+        );
+        await ctx.waitFor(
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide dictation button",
+        );
+      },
     },
     "template-composer": {
       note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
