@@ -4,7 +4,8 @@ import AppKit
 /// window's bottom edge, where toasts live, as it fades in; when a toast
 /// below it goes, it slides down to its new slot from where it is on screen;
 /// it fades out in place when it ends. A toast replaced by a newer one with
-/// its id goes in one frame, so two different toasts never crossfade.
+/// its id goes in one frame, so two different toasts never crossfade; the
+/// newest one's successor takes its slot in that frame, without arriving.
 /// Reduce Motion keeps the fades and drops the movement (`Motion.set` snaps
 /// it).
 @MainActor
