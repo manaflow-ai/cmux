@@ -134,12 +134,16 @@ public protocol HostAcceptorDelegate: AnyObject, Sendable {
     func hostAcceptor(_ acceptor: any HostAcceptor, didOpen channel: any LinkChannel, from peer: LinkPeer)
     func hostAcceptor(_ acceptor: any HostAcceptor, peerDidConnect peer: LinkPeer, path: LinkPathInfo?)
     func hostAcceptor(_ acceptor: any HostAcceptor, peerDidDisconnect peer: LinkPeer)
+    /// The peer sent nothing on any channel for `idle` and is being dropped;
+    /// `peerDidDisconnect` follows.
+    func hostAcceptor(_ acceptor: any HostAcceptor, peerDidTimeOut peer: LinkPeer, idle: Duration)
     func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState)
 }
 
 extension HostAcceptorDelegate {
     public func hostAcceptor(_ acceptor: any HostAcceptor, peerDidConnect peer: LinkPeer, path: LinkPathInfo?) {}
     public func hostAcceptor(_ acceptor: any HostAcceptor, peerDidDisconnect peer: LinkPeer) {}
+    public func hostAcceptor(_ acceptor: any HostAcceptor, peerDidTimeOut peer: LinkPeer, idle: Duration) {}
     public func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState) {}
 }
 

@@ -140,6 +140,10 @@ final class ChannelRouter: HostAcceptorDelegate {
         onEvent(.peerDisconnected(peer))
     }
 
+    func hostAcceptor(_ acceptor: any HostAcceptor, peerDidTimeOut peer: LinkPeer, idle: Duration) {
+        log("\(peer) timed out (no traffic \(idle.components.seconds) s)")
+    }
+
     func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState) {
         log("acceptor \(type(of: acceptor)): \(state)")
         onEvent(.acceptor(state))

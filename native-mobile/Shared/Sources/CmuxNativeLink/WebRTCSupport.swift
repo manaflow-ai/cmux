@@ -207,13 +207,16 @@ final class WebRTCLinkChannel: NSObject, LinkChannel, RTCDataChannelDelegate, Se
     private let drained = Mutex<[CheckedContinuation<Void, Never>]>([])
     private let sendLock = SendSerializer()
     private let onClose: Mutex<(@Sendable () -> Void)?>
+    /// Called for every inbound transport message (host liveness).
+    private let onActivity: (@Sendable () -> Void)?
 
     var incoming: AsyncStream<Data> { lines.stream }
 
-    init(channel: RTCDataChannel, onClose: (@Sendable () -> Void)? = nil) {
+    init(channel: RTCDataChannel, onClose: (@Sendable () -> Void)? = nil, onActivity: (@Sendable () -> Void)? = nil) {
         self.channel = channel
         self.label = channel.label
         self.onClose = Mutex(onClose)
+        self.onActivity = onActivity
         super.init()
         channel.delegate = self
         if channel.readyState == .open { opened.open() }
@@ -276,6 +279,7 @@ final class WebRTCLinkChannel: NSObject, LinkChannel, RTCDataChannelDelegate, Se
     }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        onActivity?()
         if !lines.deliver(message: buffer.data) { close() }
     }
 

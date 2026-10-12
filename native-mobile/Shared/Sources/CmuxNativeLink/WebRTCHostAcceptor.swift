@@ -34,8 +34,12 @@ public final class WebRTCHostAcceptor: HostAcceptor {
         )
     }
 
-    public init(signaling: @escaping SignalingConnector, iceServers: @escaping IceServerProvider, relayOnly: Bool = false) {
-        engine = HostAcceptorEngine(signaling: signaling, iceServers: iceServers, relayOnly: relayOnly)
+    public convenience init(signaling: @escaping SignalingConnector, iceServers: @escaping IceServerProvider, relayOnly: Bool = false) {
+        self.init(signaling: signaling, iceServers: iceServers, relayOnly: relayOnly, clock: .continuous)
+    }
+
+    init(signaling: @escaping SignalingConnector, iceServers: @escaping IceServerProvider, relayOnly: Bool, clock: LinkClock) {
+        engine = HostAcceptorEngine(signaling: signaling, iceServers: iceServers, relayOnly: relayOnly, clock: clock)
         engine.owner.withLock { $0 = WeakAcceptor(self) }
     }
 
@@ -64,16 +68,49 @@ final class HostPeer: Sendable {
     let peer: LinkPeer
     let pc: RTCPeerConnection
     let proxy: PeerEventProxy
-    let channels = Mutex<[WebRTCLinkChannel]>([])
+    /// Open channels by a per-peer id; a channel removes itself on close.
+    let channels = Mutex<(nextID: Int, open: [Int: WebRTCLinkChannel])>((0, [:]))
     let state = Mutex<(connected: Bool, remoteSet: Bool, pending: [IceCandidate], closed: Bool)>((false, false, [], false))
+    /// Last inbound message on any channel.
+    let activity: PeerActivity
+    let liveness = Mutex<Task<Void, Never>?>(nil)
 
-    init(peer: LinkPeer, pc: RTCPeerConnection, proxy: PeerEventProxy) {
+    init(peer: LinkPeer, pc: RTCPeerConnection, proxy: PeerEventProxy, clock: LinkClock) {
         self.peer = peer
         self.pc = pc
         self.proxy = proxy
+        self.activity = PeerActivity(clock: clock)
     }
 
     var isConnected: Bool { state.withLock { $0.connected } }
+    var hasOpenChannels: Bool { channels.withLock { !$0.open.isEmpty } }
+
+    /// Wraps a data channel the phone opened and tracks it until it closes.
+    /// Returns nil when the peer is already closed.
+    func adopt(_ dc: RTCDataChannel) -> WebRTCLinkChannel? {
+        let id = channels.withLock { c in
+            defer { c.nextID += 1 }
+            return c.nextID
+        }
+        let channel = WebRTCLinkChannel(
+            channel: dc,
+            onClose: { [weak self] in _ = self?.channels.withLock { $0.open.removeValue(forKey: id) } },
+            onActivity: { [weak self] in self?.activity.touch() }
+        )
+        let adopted = state.withLock { s -> Bool in
+            guard !s.closed else { return false }
+            channels.withLock { $0.open[id] = channel }
+            return true
+        }
+        // A channel that was already closed ran `onClose` before it was added.
+        guard adopted, dc.readyState == .open || dc.readyState == .connecting else {
+            _ = channels.withLock { $0.open.removeValue(forKey: id) }
+            channel.close()
+            return nil
+        }
+        activity.touch()
+        return channel
+    }
 
     func close() {
         let first = state.withLock { s -> Bool in
@@ -81,10 +118,16 @@ final class HostPeer: Sendable {
             return !s.closed
         }
         guard first else { return }
-        let all = channels.withLock { c in
-            defer { c = [] }
-            return c
+        liveness.withLock { t in
+            t?.cancel()
+            t = nil
         }
+        let all = channels.withLock { c in
+            defer { c.open = [:] }
+            return Array(c.open.values)
+        }
+        // Closing a channel finishes its `incoming`, which ends the delegate's
+        // consumer (a daemon bridge closes its daemon socket).
         for channel in all { channel.close() }
         pc.close()
         proxy.finish()
@@ -101,15 +144,17 @@ actor HostAcceptorEngine {
     private let signalingConnector: SignalingConnector
     private let iceProvider: IceServerProvider
     private let relayOnly: Bool
+    private let clock: LinkClock
     private var supervisor: Task<Void, Never>?
     private var signaling: (any SignalingTransport)?
     private var peers: [String: HostPeer] = [:]
     private var pendingCandidates: [String: [IceCandidate]] = [:]
 
-    init(signaling: @escaping SignalingConnector, iceServers: @escaping IceServerProvider, relayOnly: Bool) {
+    init(signaling: @escaping SignalingConnector, iceServers: @escaping IceServerProvider, relayOnly: Bool, clock: LinkClock) {
         self.signalingConnector = signaling
         self.iceProvider = iceServers
         self.relayOnly = relayOnly
+        self.clock = clock
     }
 
     private var isClosed: Bool { closedFlag.load(ordering: .acquiring) }
@@ -246,12 +291,11 @@ actor HostAcceptorEngine {
         let holder = Mutex<HostPeer?>(nil)
         let proxy = PeerEventProxy(onDataChannel: { dc in
             // Runs on WebRTC's signaling thread before any message arrives.
-            let channel = WebRTCLinkChannel(channel: dc)
             guard let peer = holder.withLock({ $0 }) else {
-                channel.close()
+                WebRTCLinkChannel(channel: dc).close()
                 return
             }
-            peer.channels.withLock { $0.append(channel) }
+            guard let channel = peer.adopt(dc) else { return }
             guard dc.label != PhoneLinkEngine.controlLabel else { return }
             if let d = self.delegate.withLock({ $0 }), let o = self.owner.withLock({ $0?.value }) {
                 d.hostAcceptor(o, didOpen: channel, from: linkPeer)
@@ -262,12 +306,26 @@ actor HostAcceptorEngine {
         guard let pc = try? RTCEnvironment.shared.makePeerConnection(iceServers: ice, relayOnly: relayOnly, delegate: proxy) else {
             return nil
         }
-        let peer = HostPeer(peer: linkPeer, pc: pc, proxy: proxy)
+        let peer = HostPeer(peer: linkPeer, pc: pc, proxy: proxy, clock: clock)
         holder.withLock { $0 = peer }
         peers[sid] = peer
         publishPeers()
         Task { await self.pump(peer) }
+        peer.liveness.withLock { t in
+            t = Task {
+                guard let idle = await peer.activity.waitForTimeout(hasOpenChannels: { peer.hasOpenChannels }) else { return }
+                self.timeOut(peer, idle: idle)
+            }
+        }
         return peer
+    }
+
+    /// The peer's channels went silent past `PeerActivity.idleTimeout` while
+    /// WebRTC still reported no failure (seen after the phone app is killed).
+    private func timeOut(_ peer: HostPeer, idle: Duration) {
+        guard peers[peer.peer.sid] === peer else { return }
+        notify { $0.hostAcceptor($1, peerDidTimeOut: peer.peer, idle: idle) }
+        removePeer(peer.peer.sid, ifSame: peer)
     }
 
     private func pump(_ peer: HostPeer) async {
@@ -286,6 +344,7 @@ actor HostAcceptorEngine {
                     watchdog?.cancel()
                     watchdog = nil
                     peer.state.withLock { $0.connected = true }
+                    peer.activity.touch()
                     let info = await peer.pc.selectedPath()
                     notify { $0.hostAcceptor($1, peerDidConnect: peer.peer, path: info) }
                 case .disconnected:
