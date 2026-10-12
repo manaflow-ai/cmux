@@ -23,15 +23,19 @@ struct AgentChatTabTitleTests {
         let acpmux = try TaggingAcpmux(
             sessions: ["titled": [:], "prompted": [:], "named": [:], "fresh": [:]],
             fields: [
-                "titled": ["name": "claude-sr", "title": "Fix the flaky upload test", "lastPrompt": "the upload test flakes"],
-                "prompted": ["name": "claude-sr-2", "lastPrompt": "Tighten the retry comment"],
-                "named": ["name": "Release notes", "title": "Draft the notes"],
-                "fresh": ["name": "claude-sr-3"],
+                "titled": [
+                    "harness": "claude-sr", "name": "claude-sr", "title": "Fix the flaky upload test",
+                    "lastPrompt": "the upload test flakes",
+                ],
+                "prompted": ["harness": "claude-sr", "name": "claude-sr-2", "lastPrompt": "Tighten the retry comment"],
+                "named": ["harness": "claude-sr", "name": "Release notes", "title": "Draft the notes"],
+                "fresh": ["harness": "claude-sr", "name": "claude-sr-3"],
             ])
         let turns = AgentTurnStateStore()
         let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
         feed.start(localHost: Self.host)
-        try await until { turns.isMuted(Self.chat("titled")) != nil }
+        // The watch's first page carries the titles; a chat's mute is known (false) before it lands.
+        try await until { AgentChatTabTitle.untitled(Self.chat("titled"), turns: turns) != AgentPaneModel.tabTitle }
 
         #expect(AgentChatTabTitle.untitled(Self.chat("titled"), turns: turns) == "Fix the flaky upload test")
         #expect(AgentChatTabTitle.untitled(Self.chat("prompted"), turns: turns) == "Tighten the retry comment")
