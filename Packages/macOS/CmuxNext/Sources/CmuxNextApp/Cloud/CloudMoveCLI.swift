@@ -19,8 +19,10 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// The `cmux` binary (the bundled cmux-tui).
     let binary: URL
-    /// A first sync of a big repository, or a long chat, can take minutes.
-    static let timeout: Duration = .seconds(30 * 60)
+    /// How long one run may take (``CloudMoveSetup/timeout``); past it the run is killed and throws.
+    var timeout: Duration = .seconds(30 * 60)
+    /// The error code of an answer that isn't a JSON line (a crash, a kill).
+    static let badAnswer = "bad_answer"
 
     /// `cmux link sync push`: copies the working copy `local` to `remote` on
     /// the machine whose daemon `socket` reaches.
@@ -37,13 +39,13 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     private func run(_ arguments: [String]) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
-                                                 timeout: Self.timeout, clock: ContinuousClock())
+                                                 timeout: timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
               let ok = object["ok"] as? Bool else {
             let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            return Answer(ok: false, errorCode: "bad_answer", error: detail.isEmpty ? "exit \(result.status)" : detail)
+            return Answer(ok: false, errorCode: Self.badAnswer, error: detail.isEmpty ? "exit \(result.status)" : detail)
         }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                       sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String)

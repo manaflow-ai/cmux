@@ -25,6 +25,10 @@ enum CloudMoveStrings {
         String(localized: "cloud.move.homeFolder", defaultValue: "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first.",
                table: "Cloud", bundle: .module)
     }
+    static func relativePath(_ path: String) -> String {
+        String(format: String(localized: "cloud.move.relativePath", defaultValue: "Move to Cloud needs a full folder path, not %@.", table: "Cloud", bundle: .module),
+               path)
+    }
     static func noSuchMachine(_ id: String) -> String {
         String(format: String(localized: "cloud.move.noSuchMachine", defaultValue: "No Cloud machine has the id %@.", table: "Cloud", bundle: .module), id)
     }

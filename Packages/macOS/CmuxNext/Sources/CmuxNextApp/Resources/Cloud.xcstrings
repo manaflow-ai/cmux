@@ -13624,6 +13624,137 @@
           }
         }
       }
+    },
+    "cloud.move.relativePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Cloud needs a full folder path, not %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج النقل إلى Cloud إلى مسار مجلد كامل، وليس %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premještanje u Cloud traži punu putanju mape, a ne %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt til Cloud kræver en fuld mappesti, ikke %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Cloud verschieben braucht einen vollständigen Ordnerpfad, nicht %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a Cloud necesita la ruta completa de una carpeta, no %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer vers le Cloud a besoin d’un chemin de dossier complet, pas de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta su Cloud richiede il percorso completo di una cartella, non %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud に移動するには、%@ ではなくフォルダのフルパスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ទីទៅ Cloud ត្រូវការផ្លូវថតពេញលេញ មិនមែន %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud로 이동하려면 %@이(가) 아닌 전체 폴더 경로가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt til Cloud trenger en fullstendig mappebane, ikke %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeniesienie do Cloud wymaga pełnej ścieżki folderu, a nie %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para o Cloud precisa do caminho completo de uma pasta, não %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для переноса в Cloud нужен полный путь к папке, а не %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การย้ายไปยัง Cloud ต้องใช้พาธโฟลเดอร์แบบเต็ม ไม่ใช่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud'a taşımak için %@ değil, tam klasör yolu gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для перенесення в Cloud потрібен повний шлях до теки, а не %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển lên Cloud cần đường dẫn thư mục đầy đủ, không phải %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至 Cloud 需要完整的文件夹路径，而不是 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至 Cloud 需要完整的資料夾路徑，而不是 %@。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

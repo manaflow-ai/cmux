@@ -9,18 +9,34 @@ nonisolated struct CloudMoveFolder: Sendable, Equatable {
     /// The chat's folder inside ``root``; empty for ``root`` itself.
     let subpath: String
 
-    init(chat folder: String) {
-        // The path as the chat reports it: standardizing would turn /private/tmp into /tmp.
-        var start = folder
-        while start.count > 1, start.hasSuffix("/") { start.removeLast() }
+    /// Nil for a relative folder, or one whose `..` parts climb above the disk's root.
+    init?(chat folder: String) {
+        guard let start = Self.normalized(folder) else { return nil }
         // The folder and each folder above it, up to the disk's root ("/" is its own parent).
         let folders = sequence(first: start) { folder in
             let parent = (folder as NSString).deletingLastPathComponent
             return parent == folder || parent.isEmpty ? nil : parent
         }
         let top = folders.first { FileManager.default.fileExists(atPath: ($0 as NSString).appendingPathComponent(".git")) } ?? start
+        // `top` is `start` or a folder above it, so the chat's folder never escapes the synced one.
+        guard start == top || start.hasPrefix(top == "/" ? "/" : top + "/") else { return nil }
         root = top
         subpath = String(start.dropFirst(top.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    /// `path` with its `.` and `..` parts resolved and no trailing slash, as written otherwise:
+    /// standardizing would also turn /private/tmp into /tmp, a path the chat never reported.
+    static func normalized(_ path: String) -> String? {
+        guard path.hasPrefix("/") else { return nil }
+        var parts: [Substring] = []
+        for part in path.split(separator: "/") {
+            switch part {
+            case ".": continue
+            case "..": if parts.popLast() == nil { return nil }
+            default: parts.append(part)
+            }
+        }
+        return "/" + parts.joined(separator: "/")
     }
 
     /// The home folder or the disk's root: never copied to a machine.
