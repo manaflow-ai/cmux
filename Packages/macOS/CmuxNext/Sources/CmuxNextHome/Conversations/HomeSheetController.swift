@@ -31,7 +31,15 @@ public class HomeSheetController: NSViewController {
     required init?(coder: NSCoder) { nil }
 
     public override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
+        // The sheet's window background is the system's: the sheet paints the theme's popup
+        // surface (`Palette.popupSurface`) over it, re-resolved on every theme change.
+        let root = ThemeChangeView(frame: NSRect(x: 0, y: 0, width: 420, height: 200))
+        root.wantsLayer = true
+        root.onThemeChange = { [weak root] in
+            guard let root else { return }
+            root.layer?.backgroundColor = root.performWithTheme { Palette.popupSurface.cgColor }
+        }
+        root.onThemeChange?()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
@@ -133,15 +141,20 @@ public class HomeSheetController: NSViewController {
     @objc func cancel(_ sender: Any?) { close(showing: nil) }
     @objc func primary(_ sender: Any?) { if canSubmit, !isRunning { submit() } }
 
-    /// A text field with a placeholder, as wide as the sheet.
-    static func field(placeholder: String, identifier: String) -> NSTextField {
-        let field = NSTextField()
+    /// A themed text field with a placeholder; `boxed` gives it its field box.
+    static func field(placeholder: String, identifier: String) -> ThemedTextField {
+        let field = ThemedTextField()
+        field.font = Typography.body
         field.placeholderString = placeholder
-        field.focusRingType = .none
         field.setAccessibilityLabel(placeholder)
         field.setAccessibilityIdentifier(identifier)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
         return field
+    }
+
+    /// `field` on the theme's field fill, as wide as the sheet.
+    static func boxed(_ field: NSTextField) -> ThemedFieldBox {
+        let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
+        box.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
+        return box
     }
 }
