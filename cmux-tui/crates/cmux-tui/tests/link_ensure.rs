@@ -166,6 +166,27 @@ fn link_ensure_refuses_another_install_or_port() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("port_mismatch"));
 }
 
+/// The app owns its link (`--handoff`): after a sign-out and a new sign-in
+/// (a new install), ensure stops the old link and starts one as the new
+/// install with a new WireGuard key.
+#[test]
+fn link_ensure_with_handoff_replaces_the_link_of_another_install() {
+    let base = Scratch::new("reinst");
+    let app = base.app("a");
+    let dir = app.state_dir();
+    let dir = dir.to_str().unwrap();
+    let old = app.ensure(&["--install", "inst_old", "--port", "0", "--handoff"]);
+    let old_key = app.json(&["link", "show", "--state-dir", dir])["public_key"].clone();
+    let new = app.ensure(&["--install", "inst_new", "--handoff"]);
+    assert_eq!(new["status"], "restarted", "{new}");
+    assert_ne!(pid(&new), pid(&old));
+    assert!(!alive(pid(&old)) || app.status()["pid"] != old["pid"], "the old link still serves");
+    assert_eq!(app.status()["install"], "inst_new");
+    let new_key = app.json(&["link", "show", "--state-dir", dir])["public_key"].clone();
+    assert_ne!(new_key, old_key, "a new install got the old install's key");
+    assert_eq!(app.status()["port"], 0, "the port stays");
+}
+
 #[test]
 fn link_ensure_needs_an_install_the_first_time() {
     let base = Scratch::new("first");
