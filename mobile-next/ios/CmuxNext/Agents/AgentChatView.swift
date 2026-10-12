@@ -56,11 +56,13 @@ struct AgentChatView: View {
     enum DisplayEntry: Identifiable {
         case item(TranscriptItem)
         case worked(duration: TimeInterval?, steps: Int, expanded: Bool)
+        case edited([FileDiff])
 
         var id: String {
             switch self {
             case .item(let item): item.id
             case .worked: "worked"
+            case .edited: "edited"
             }
         }
     }
@@ -90,8 +92,25 @@ struct AgentChatView: View {
         }
         guard !work.isEmpty else { return turn.items.map(DisplayEntry.item) }
         let steps = work.filter { if case .tool = $0 { true } else { false } }.count
-        return head + [.worked(duration: duration, steps: steps, expanded: expanded)]
+        // The turn's edits, last version per file, as one card under the answer.
+        var byPath: [String: FileDiff] = [:]
+        var order: [String] = []
+        for item in work {
+            guard case .tool(let call) = item, call.status != .failed else { continue }
+            for diff in call.diffs {
+                if byPath[diff.path] == nil { order.append(diff.path) }
+                let first = byPath[diff.path]
+                byPath[diff.path] = FileDiff(path: diff.path, oldText: first?.oldText ?? diff.oldText, newText: diff.newText)
+            }
+        }
+        let edits = order.compactMap { byPath[$0] }
+        var result = head + [.worked(duration: duration, steps: steps, expanded: expanded)]
             + (expanded ? work.map(DisplayEntry.item) : []) + tail
+        if !edits.isEmpty {
+            let at = result.lastIndex { if case .item(.turnEnd) = $0 { true } else { false } } ?? result.count
+            result.insert(.edited(edits), at: at)
+        }
+        return result
     }
 
     static func blocks(text: String, images: [ComposerImage]) -> [JSONValue] {
@@ -124,6 +143,8 @@ struct AgentChatView: View {
                                         row(item, lastID: transcript.items.last?.id, transcript: transcript)
                                             .id(item.id)
                                             .transition(.opacity)
+                                    case .edited(let diffs):
+                                        EditedFilesCard(diffs: diffs)
                                     case .worked(let duration, let steps, let expanded):
                                         WorkedRow(duration: duration, steps: steps, expanded: expanded) {
                                             withAnimation(.snappy) {
@@ -314,6 +335,60 @@ struct AgentChatView: View {
     }
 }
 
+/// "2 files changed +14 −3 ›" under a turn's answer; opens the full diffs.
+struct EditedFilesCard: View {
+    let diffs: [FileDiff]
+    @State private var reviewing = false
+
+    var body: some View {
+        Button { reviewing = true } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.badge.ellipsis").font(.system(size: 13))
+                    Text(diffs.count == 1 ? String(localized: "1 file changed") : String(localized: "\(diffs.count) files changed"))
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("+\(diffs.reduce(0) { $0 + $1.added })").foregroundStyle(CmuxTheme.success)
+                    Text("−\(diffs.reduce(0) { $0 + $1.removed })").foregroundStyle(CmuxTheme.danger)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                ForEach(diffs.prefix(4), id: \.path) { diff in
+                    HStack(spacing: 6) {
+                        Text((diff.path as NSString).lastPathComponent).font(.system(size: 13, design: .monospaced)).lineLimit(1)
+                        Spacer()
+                        Text("+\(diff.added)").foregroundStyle(CmuxTheme.success)
+                        Text("−\(diff.removed)").foregroundStyle(CmuxTheme.danger)
+                    }
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .padding(14)
+            .background(CmuxTheme.chrome, in: .rect(cornerRadius: 14, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("agent.edited")
+        .sheet(isPresented: $reviewing) {
+            NavigationStack {
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(diffs, id: \.path) { DiffView(diff: $0) }
+                    }
+                    .padding(16)
+                }
+                .navigationTitle(diffs.count == 1 ? String(localized: "1 file changed") : String(localized: "\(diffs.count) files changed"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { reviewing = false }.accessibilityIdentifier("edited.done") }
+                }
+            }
+            .presentationDetents([.large])
+        }
+    }
+}
+
 /// "Worked for 1m 12s · 6 steps ›": the folded work of a finished turn.
 struct WorkedRow: View {
     let duration: TimeInterval?
@@ -496,6 +571,7 @@ struct ToolCallRow: View {
 
 struct DiffView: View {
     let diff: FileDiff
+    @State private var cardWidth: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -523,7 +599,10 @@ struct DiffView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                // Row tints span the card even when every line is short.
+                .frame(minWidth: cardWidth, alignment: .leading)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { cardWidth = $0 }
             .frame(maxHeight: 320)
         }
         .background(CmuxTheme.chrome, in: .rect(cornerRadius: 10, style: .continuous))

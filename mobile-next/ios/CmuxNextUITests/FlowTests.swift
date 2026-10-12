@@ -199,6 +199,14 @@ final class FlowTests: XCTestCase {
         pause(25)
         app.swipeDown()
         snap(app, "53-done")
+        let edited = app.buttons["agent.edited"]
+        if edited.waitForExistence(timeout: 5) {
+            edited.tap()
+            pause(1.2)
+            snap(app, "53b-review")
+            app.buttons["edited.done"].tap()
+            pause(1)
+        }
         let field2 = app.textFields["agent.field"]
         field2.tap()
         field2.typeText("Now show me the final greet.py.")
