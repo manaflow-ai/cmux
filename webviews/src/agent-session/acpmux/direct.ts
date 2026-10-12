@@ -126,6 +126,11 @@ const COMMANDS_KIND = "available_commands_update";
 const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
+/// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
+const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
+/// or the agent stopped waiting.
+const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -1166,7 +1171,7 @@ export class AcpmuxDirectClient {
     const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
     });
@@ -1988,7 +1993,15 @@ export class AcpmuxDirectClient {
   async secret(secretId: string, value?: string): Promise<void> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
-    await this.request("_acpmux/secret_submit", { sessionId, secretId, ...(value ? { value } : {}) });
+    try {
+      await this.request("_acpmux/secret_submit", { sessionId, secretId, ...(value ? { value } : {}) });
+    } catch (error) {
+      // A card acpmux no longer has never gets its answer: close it. Any other refusal keeps it.
+      const message = error instanceof Error ? error.message : "";
+      if (!SECRET_GONE.some((gone) => message.includes(gone))) throw error;
+      if (this.pendingSecret?.secretId === secretId) this.pendingSecret = undefined;
+      this.emit();
+    }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);
