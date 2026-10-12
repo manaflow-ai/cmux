@@ -22,7 +22,8 @@ final class DividerHandleView: NSView {
 
     let kind: Kind
     private(set) var axis: SplitAxis
-    var lineThickness: CGFloat = 1 { didSet { needsLayout = true } }
+    /// The screen sets it on every sync (a focus move too): only a new thickness moves the line.
+    var lineThickness: CGFloat = 1 { didSet { if lineThickness != oldValue { needsLayout = true } } }
     /// Draws the split line at rest. Off while panes have a border (the
     /// borders separate them); hover and drag still show the line.
     var showsIdleLine = true {
@@ -97,8 +98,9 @@ final class DividerHandleView: NSView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
         super.setFrameSize(newSize)
-        needsLayout = true
+        if newSize != old { needsLayout = true }
     }
 
     override func resetCursorRects() {
