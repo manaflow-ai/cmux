@@ -114,6 +114,7 @@ public final class PageInfoController {
         observation = nil
         loadTask?.cancel()
         panel.onResignKey = nil
+        panel.onKeyElsewhere = nil
         fade.close(panel, toward: anchorRect)
         if pageHadFocus { onReturnFocus?() }
     }

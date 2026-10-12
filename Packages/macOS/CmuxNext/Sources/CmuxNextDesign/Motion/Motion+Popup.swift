@@ -70,6 +70,7 @@ public final class PopupFade {
         generation += 1
         let opening = !window.isVisible || isClosing
         isClosing = false
+        window.ignoresMouseEvents = false
         if !window.isVisible { window.alphaValue = 0 }
         if window.parent !== parent {
             window.parent?.removeChildWindow(window)
@@ -80,8 +81,13 @@ public final class PopupFade {
     }
 
     /// Fades `window` out toward `anchor`, then takes it off its window.
+    /// Keys and clicks go back to the window under it now, not when the
+    /// fade ends (like `SidebarGroupEditor.dismiss`).
     public func close(_ window: NSWindow, toward anchor: CGRect) {
         guard window.isVisible, !isClosing else { return }
+        window.ignoresMouseEvents = true
+        window.makeFirstResponder(nil)
+        if window.isKeyWindow, let parent = window.parent, parent.isVisible { parent.makeKey() }
         generation += 1
         isClosing = true
         let closing = generation

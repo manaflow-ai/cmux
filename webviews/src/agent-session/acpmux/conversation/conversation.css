@@ -1308,18 +1308,15 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-code-handoff.is-fading .cv-code-handoff__real {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
+/* Opacity only, so it runs under Reduce Motion too (desktop.css exempts it). */
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-fresh {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
+.cv-fresh {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
