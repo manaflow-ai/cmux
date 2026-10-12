@@ -85,6 +85,11 @@ enum Action {
 }
 
 enum Reducer {
+    /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
+    /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
+    static func canSend(_ d: Draft) -> Bool {
+        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
         let stamp = Instant.format(now)
@@ -93,8 +98,8 @@ enum Reducer {
             s.ui.draft.text = text
         case .send:
             let d = s.ui.draft
+            guard canSend(d) else { return nil }
             let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty || !d.attachments.isEmpty else { return nil }
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
             let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
@@ -417,6 +422,10 @@ final class Store {
     private func apply(_ action: Action, at t: Double) {
         let old = state
         let sent = Reducer.reduce(&state, action, now: date(at: t), newID: { makeID("local") })
+        // A rejected send (Return on an empty field) changed nothing and is not committed: the
+        // window ran the field's send flash and started the send morph again on my last message.
+        // Messages shows nothing for it.
+        if case .send = action, sent == nil { return }
         if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }

@@ -20,7 +20,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
     /// Says how to reach someone when the user has no teammates or contacts yet.
     let emptyLabel = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
     let groupName = HomeSheetController.field(placeholder: HomeConversationStrings.composeGroupName, identifier: "cmux.home.compose.group")
-    let inviteButton = NSButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
+    let inviteButton = ThemedBezelButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
     private let contacts: [HomeContact]
     private(set) var chosen: [HomeRecipient] = []
     /// The rows under the search field: a typed address first, then contacts.

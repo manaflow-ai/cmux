@@ -291,6 +291,7 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
@@ -477,7 +478,7 @@ export default agentPaneEntry({
         longFrameFailMs: {
           value: 80,
           reason:
-            "The key that opens the closed Worked for fold re-renders the whole pane (Find state lives in AcpmuxPane) in dev React: 19-35 ms to two frames alone, 56-64 ms on a loaded runner; moving Find state down is cx-ncc.86.",
+            "The key that opens the closed Worked for fold still re-renders the whole pane once (the fold state lives in AcpmuxPane; Find state moved below it in cx-ncc.86): 70-120 ms at 4x CPU throttle in dev React, other keys now render the transcript alone.",
         },
         layoutShiftMax: {
           value: 0.01,

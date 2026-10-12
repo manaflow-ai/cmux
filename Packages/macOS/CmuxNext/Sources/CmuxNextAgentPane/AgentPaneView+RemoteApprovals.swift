@@ -15,7 +15,7 @@ extension AgentPaneView {
         var views: [NSView] = [title, detail]
         remoteApprovals = approvals
         if approvals != nil {
-            let restart = NSButton(title: Self.remoteApprovalsRestart, target: self, action: #selector(restartWithApprovals(_:)))
+            let restart = ThemedBezelButton(title: Self.remoteApprovalsRestart, target: self, action: #selector(restartWithApprovals(_:)))
             restart.bezelStyle = .rounded
             views.append(restart)
         }
