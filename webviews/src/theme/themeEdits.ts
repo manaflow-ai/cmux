@@ -3,13 +3,17 @@
 // never change the theme itself: the theme's colors, then its edits.
 import type { GhosttyTheme } from "./ghosttyTheme";
 
-/** The tokens an edit can set: background, foreground, cursor, selection and ANSI 0-15. */
+/**
+ * The tokens an edit can set: background, foreground, cursor, selection, ANSI 0-15, and the app
+ * accent for this theme (`accent`, over appearance.accent; no Ghostty color).
+ */
 export const THEME_EDIT_TOKENS = [
   "background",
   "foreground",
   "cursor",
   "selection",
   ...Array.from({ length: 16 }, (_, index) => String(index)),
+  "accent",
 ] as const;
 
 export type ThemeEditToken = (typeof THEME_EDIT_TOKENS)[number];
@@ -54,6 +58,7 @@ export function withEdits(theme: GhosttyTheme, edits: ThemeEditMap | null | unde
     foreground: found.foreground ?? theme.foreground,
     cursorColor: found.cursor ?? theme.cursorColor,
     selectionBackground: found.selection ?? theme.selectionBackground,
+    accent: found.accent ?? theme.accent,
     palette,
   };
 }

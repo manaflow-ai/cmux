@@ -41,7 +41,12 @@ test("without an edit the swatch shows the accent the app derives, and a file's 
   expect(swatch.getAttribute("aria-label")).toContain(deriveAppTheme(dracula).tokens.accent);
   expect(swatch.hasAttribute("data-edited")).toBe(false);
 
-  const saved = parseGhosttyTheme("Mine", "# Mine: saved by cmux\nbackground = #101010\nforeground = #eeeeee\n# cmux-accent = #EB6F92\n");
+  const saved = parseGhosttyTheme(
+    "Mine",
+    "# Mine: saved by cmux\nbackground = #101010\nforeground = #eeeeee\n# cmux-accent = #EB6F92\n",
+  );
   expect(saved?.accent).toBe("#eb6f92");
-  expect(parseGhosttyTheme("Plain", "background = #101010\nforeground = #eeeeee\n# accent = #eb6f92\n")?.accent).toBeUndefined();
+  expect(
+    parseGhosttyTheme("Plain", "background = #101010\nforeground = #eeeeee\n# accent = #eb6f92\n")?.accent,
+  ).toBeUndefined();
 });

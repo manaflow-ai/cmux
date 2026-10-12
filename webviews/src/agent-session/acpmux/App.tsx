@@ -2791,7 +2791,11 @@ function AcpmuxPane() {
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
-        if (host.prompt && typeof host.promptTicket?.promptId === "string" && typeof host.promptTicket.ticket === "string")
+        if (
+          host.prompt &&
+          typeof host.promptTicket?.promptId === "string" &&
+          typeof host.promptTicket.ticket === "string"
+        )
           pendingTicket = { promptId: host.promptTicket.promptId, ticket: host.promptTicket.ticket };
         if (typeof host.harness === "string" && host.harness) pendingHarness = host.harness;
         // Mock mode runs this same client against an in-page daemon.

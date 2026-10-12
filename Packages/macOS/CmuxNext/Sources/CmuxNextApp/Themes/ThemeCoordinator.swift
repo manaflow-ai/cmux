@@ -94,8 +94,17 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
-        catalog.load()
         let catalog = catalog
+        // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
+        ThemeBridge.accent = { name in
+            GhosttyRuntime.themeEdits.accent(for: name).flatMap { ThemeRGB(cssHex: $0) } ?? catalog.colors[name]?.accent
+        }
+        // File accents arrive with the catalog's colors, which no config reload reports.
+        catalog.onRead = { [weak self] in
+            ThemeBridge.refresh()
+            self?.resolver.changed()
+        }
+        catalog.load()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
         }
