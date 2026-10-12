@@ -24,6 +24,10 @@ struct FeedItem: Identifiable, Sendable, Hashable {
     var answered: String?
 
     var needsAttention: Bool { (kind == .question || kind == .permission) && answered == nil }
+    /// Only a question or permission post offers its numbered choices; a
+    /// finished agent's numbered list is prose, and tapping it would type a
+    /// digit into the idle prompt.
+    var takesOptions: Bool { kind == .question || kind == .permission }
 }
 
 struct FeedOption: Sendable, Hashable, Identifiable {
@@ -104,7 +108,7 @@ final class FeedStore {
             title: notification.title,
             body: notification.body.isEmpty ? (notification.subtitle ?? "") : notification.body,
             quote: nil,
-            options: FeedTextParser.options(in: notification.body),
+            options: kind == .question || kind == .permission ? FeedTextParser.options(in: notification.body) : [],
             createdAt: notification.createdAtMs.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date(),
             read: notification.acknowledged ?? false,
             answered: nil
@@ -152,7 +156,7 @@ final class FeedStore {
         let parsed = FeedTextParser.parse(text, columns: connection.tab(surface: surface)?.size?.cols)
         if items[current].quote == nil { items[current].quote = parsed.lastPrompt }
         if items[current].body.count < 40, let reply = parsed.lastReply { items[current].body = reply }
-        if items[current].options.isEmpty { items[current].options = parsed.options }
+        if items[current].options.isEmpty, items[current].takesOptions { items[current].options = parsed.options }
     }
 
     func markRead(_ item: FeedItem) {
