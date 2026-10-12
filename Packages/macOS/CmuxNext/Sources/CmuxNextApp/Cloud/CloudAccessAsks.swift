@@ -6,11 +6,13 @@ import Foundation
 /// a connected Cloud machine (``CloudMovedChats``) exist, the app runs `cmux link access triage`
 /// for each machine's chats every ``CloudMoveSetup/accessPoll`` (one run at a time), which answers
 /// what needs no person, and shows each file ask left as a card in that chat's tab on the machine
-/// (``AgentToolCards``, never a sheet): Allow once, Always for its folder, Deny. Only the person's
-/// click (a real gesture in the pane, ``AgentPaneToolCard``) answers, with exactly what the card
-/// showed; nothing is answered from the ask's own `exists` or `shareable`. The chat's granted
-/// folders are copied again every ``CloudMoveSetup/accessSync``, and Bring Back Local ends its
-/// grants (``chatBroughtBack(machineID:session:services:)``).
+/// (``AgentToolCards``, never a sheet; ``CloudAccessCard``): Allow once, Always for its folder,
+/// Deny. Only the person's click (a real gesture in the pane, ``AgentPaneToolCard``) answers, with
+/// exactly what the card showed, and only while the chat is still on the machine; nothing is
+/// answered from the ask's own `exists` or `shareable`. Each chat's granted folders are copied
+/// again every ``CloudMoveSetup/accessSync``, and Bring Back Local ends its grants
+/// (``CloudAccessRevokes``). The polling stops with no moved chat and nothing to revoke; a move
+/// starts it again.
 ///
 /// The ask's text comes from the machine (its path and reason); the card names the machine, not
 /// the chat, as the asker, since the session an ask names is the machine's claim. Only asks of the
@@ -19,26 +21,15 @@ import Foundation
 final class CloudAccessAsks {
     /// The cards' owner in ``AgentToolCards``.
     static let owner = "cloudAccess"
-
-    private enum Action: String {
-        case allow, always, deny
-    }
-
-    /// One ask shown on a card, with what answering it names.
-    private struct Shown: Equatable {
-        var ask: CloudAccessCLI.FileAsk
-        /// The chat's session on the machine, from the ledger (the ask's own matched it).
-        var session: String
-        var machineID: String
-        var machineName: String
-        var socket: String
-        var remoteRoot: String
-        var card: String { "cloud-access-" + ask.requestID }
-    }
+    /// The longest a machine whose triage fails waits, and how long one without access requests waits.
+    private static let longestBackoff: Duration = .seconds(120), unavailableBackoff: Duration = .seconds(600)
 
     private var loop: Task<Void, Never>?
-    /// The asks shown, by chat tab.
-    private var shown: [String: [Shown]] = [:]
+    /// The asks the last triages listed, by chat tab, and the answers that failed.
+    private var asks: [String: [CloudAccessAsk]] = [:]
+    private var failures: [String: [CloudAccessAsk]] = [:]
+    /// The cards set, by tab.
+    private var shown: [String: [AgentPaneToolCard]] = [:]
     /// Requests whose answer is running.
     private var answering: Set<String> = []
     /// Requests answered, with the triage count when their answer ended: a triage that began by then
@@ -46,8 +37,10 @@ final class CloudAccessAsks {
     private var answered: [String: Int] = [:]
     private var triages = 0
     private var lastSync: [String: ContinuousClock.Instant] = [:]
+    private var backoff: [String: (until: ContinuousClock.Instant, delay: Duration)] = [:]
+    let revokes = CloudAccessRevokes()
 
-    /// Starts polling; it ends with this object or `services`.
+    /// Starts polling unless it runs; it stops with no moved chat and nothing to revoke, and with this object or `services`.
     func start(services: AppServices) {
         guard loop == nil else { return }
         loop = Task { @MainActor [weak self, weak services] in
@@ -58,69 +51,90 @@ final class CloudAccessAsks {
         }
     }
 
-    /// Bring Back Local moved chat `session` off machine `machineID`: its grants there end. A
-    /// failure is logged, never the bring back's.
+    /// Bring Back Local moved chat `session` off machine `machineID`: its grants there end, now
+    /// or once its machine is reachable.
     func chatBroughtBack(machineID: String, session: String, services: AppServices) {
+        revokes.add(CloudAccessRevokes.Chat(machineID: machineID, session: session))
+        start(services: services)
         guard let binary = services.cloud.move.cli else { return }
-        let logger = services.cloud.logger
+        let revokes = revokes
         Task { @MainActor [weak services] in
-            let socket = await services?.machines.session(machineID)?.daemon.connection?.endpoint?.socketPath
-            do {
-                let answer = try await CloudAccessCLI(binary: binary).revoke(socket: socket, machine: machineID, session: session)
-                if !answer.ok { logger.error("cloud access revoke: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)") }
-            } catch {
-                logger.error("cloud access revoke: \(String(describing: error), privacy: .public)")
-            }
+            guard let services else { return }
+            await revokes.run(CloudAccessCLI(binary: binary), services: services)
         }
     }
 
-    /// One round over the machines; how long to wait before the next, nil once `services` is gone.
+    /// One round over the machines; how long to wait before the next, nil to stop.
     private func poll(_ services: AppServices?) async -> Duration? {
-        guard let services else { return nil }
-        let setup = services.cloud.move
-        let chats = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
-        guard let binary = setup.cli, !chats.isEmpty else {
-            show([:], services: services)
-            return setup.accessPoll
+        guard let services, let binary = services.cloud.move.cli else { return stop() }
+        let setup = services.cloud.move, cli = CloudAccessCLI(binary: binary)
+        let ledger = services.cloud.movedChats.all()
+        for entry in ledger where entry.broughtBack != nil { revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session)) }
+        await revokes.run(cli, services: services)
+        let chats = ledger.filter { $0.broughtBack == nil }
+        // Turned off by the organization: no request goes out, and the cards go.
+        guard !chats.isEmpty, !services.machines.isFeatureDisabled(.cloud) else {
+            asks = [:]
+            render(services: services)
+            return chats.isEmpty && revokes.isEmpty ? stop() : setup.accessPoll
         }
         triages += 1
         let triage = triages
-        let cli = CloudAccessCLI(binary: binary)
-        var next: [String: [Shown]] = [:]
+        var next: [String: [CloudAccessAsk]] = [:]
         for (machineID, machineChats) in Dictionary(grouping: chats, by: \.machineID).sorted(by: { $0.key < $1.key }) {
             guard let machine = services.machines.session(machineID), let socket = await machine.daemon.connection?.endpoint?.socketPath else { continue }
+            let sessions = Array(Set(machineChats.map(\.session))).sorted()
+            if let wait = backoff[machineID], ContinuousClock.now < wait.until {
+                for (tab, list) in asks where list.contains(where: { $0.machineID == machineID }) { next[tab] = list }
+                continue
+            }
             if lastSync[machineID].map({ $0.duration(to: .now) >= setup.accessSync }) ?? true {
                 lastSync[machineID] = .now
-                await sync(cli, socket: socket, machine: machineID, services: services)
+                for session in sessions { await sync(cli, socket: socket, machine: machineID, session: session, services: services) }
             }
             let answer: CloudAccessCLI.Answer
             do {
-                answer = try await cli.triage(socket: socket, machine: machineID, sessions: Array(Set(machineChats.map(\.session))).sorted())
+                answer = try await cli.triage(socket: socket, machine: machineID, sessions: sessions)
             } catch {
                 answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
             }
             guard answer.ok else {
                 services.cloud.logger.error("cloud access triage: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
-                // Keep this machine's cards as they were; the next round asks again.
-                for (tab, asks) in shown where asks.contains(where: { $0.machineID == machineID }) { next[tab] = asks }
+                // Keep this machine's cards as they were and ask it less often; a machine with no
+                // access requests (an older image) much less.
+                let delay = answer.errorCode == "access_request.unavailable" ? Self.unavailableBackoff
+                    : min((backoff[machineID]?.delay ?? setup.accessPoll) * 2, Self.longestBackoff)
+                backoff[machineID] = (ContinuousClock.now + delay, delay)
+                for (tab, list) in asks where list.contains(where: { $0.machineID == machineID }) { next[tab] = list }
                 continue
             }
+            backoff[machineID] = nil
             if answer.failures > 0 { services.cloud.logger.error("cloud access triage: \(answer.failures) requests failed") }
-            for ask in answer.asks where !answering.contains(ask.requestID) && answered[ask.requestID].map({ triage > $0 }) ?? true {
+            for ask in answer.asks {
                 guard let chat = machineChats.first(where: { $0.session == ask.session }), let tab = Self.tab(of: chat, on: machine, services: services),
                       let root = Self.remoteRoot(chat.remoteFolder, roots: setup.workRoots) else { continue }
-                answered[ask.requestID] = nil
-                next[tab, default: []].append(Shown(ask: ask, session: chat.session, machineID: machineID, machineName: machine.machine.title, socket: socket, remoteRoot: root))
+                next[tab, default: []].append(CloudAccessAsk(ask: ask, host: chat.host, session: chat.session, machineID: machineID,
+                                                             machineName: machine.machine.title, socket: socket, remoteRoot: root))
             }
         }
+        // Checked after every await: a triage that began before an answer ended may list it still;
+        // one that began after shows it again.
+        next = next.mapValues { list in list.filter { !answering.contains($0.ask.requestID) && answered[$0.ask.requestID].map { triage > $0 } ?? true } }
+        for list in next.values { for ask in list { answered[ask.ask.requestID] = nil } }
         answered = answered.filter { $0.value >= triage }
-        show(next, services: services)
+        asks = next.filter { !$0.value.isEmpty }
+        render(services: services)
         return setup.accessPoll
     }
 
-    private func sync(_ cli: CloudAccessCLI, socket: String, machine: String, services: AppServices) async {
+    private func stop() -> Duration? {
+        loop = nil
+        return nil
+    }
+
+    private func sync(_ cli: CloudAccessCLI, socket: String, machine: String, session: String, services: AppServices) async {
         do {
-            let answer = try await cli.sync(socket: socket, machine: machine)
+            let answer = try await cli.sync(socket: socket, machine: machine, session: session)
             if !answer.ok || answer.failures > 0 {
                 services.cloud.logger.error("cloud access sync: \(answer.errorCode ?? "", privacy: .public) \(answer.failures) copies failed")
             }
@@ -129,34 +143,43 @@ final class CloudAccessAsks {
         }
     }
 
-    /// Shows `next` (by tab), at most ``AgentPaneToolCard/maximumShown`` per chat, and removes the
-    /// cards of tabs it no longer has.
-    private func show(_ next: [String: [Shown]], services: AppServices) {
-        for tab in Set(shown.keys).union(next.keys) {
-            let asks = Array((next[tab] ?? []).prefix(AgentPaneToolCard.maximumShown))
-            guard asks != shown[tab] ?? [] else { continue }
-            set(asks, tab: tab, services: services)
-        }
+    /// Whether `ask`'s chat is still on its machine: a chat brought back (or coming back) is never answered.
+    private static func isLive(_ ask: CloudAccessAsk, services: AppServices) -> Bool {
+        guard let entry = services.cloud.movedChats.entry(host: ask.host, session: ask.session) else { return false }
+        return entry.broughtBack == nil && entry.machineID == ask.machineID
     }
 
-    private func set(_ asks: [Shown], tab: String, services: AppServices) {
-        let shownNow = services.cloud.toolCards.set(asks.map(Self.card), owner: Self.owner, tab: tab) { [weak self, weak services] card, action in
-            guard let self, let services, let action = Action(rawValue: action) else { return }
-            self.answer(card, action, tab: tab, services: services)
+    /// Sets each tab's cards (failed answers first, then the asks of chats still on their machines),
+    /// at most ``AgentPaneToolCard/maximumShown`` per chat, and removes those of tabs with none.
+    private func render(services: AppServices) {
+        for tab in Set(shown.keys).union(asks.keys).union(failures.keys) {
+            let list = (failures[tab] ?? []) + (asks[tab] ?? []).filter { Self.isLive($0, services: services) && !answering.contains($0.ask.requestID) }
+            let cards = list.prefix(AgentPaneToolCard.maximumShown).map(CloudAccessCard.card)
+            guard cards != shown[tab] ?? [] else { continue }
+            let ok = services.cloud.toolCards.set(cards, owner: Self.owner, tab: tab) { [weak self, weak services] card, action in
+                guard let self, let services, let action = CloudAccessCard.Action(rawValue: action) else { return }
+                self.answer(card, action, tab: tab, services: services)
+            }
+            // A chat with no page to show them is tried again next round.
+            shown[tab] = cards.isEmpty || !ok ? nil : cards
         }
-        // A chat with no page to show them is tried again next round.
-        shown[tab] = asks.isEmpty || !shownNow ? nil : asks
     }
 
     /// The person's click on `action` of card `card`: the card goes, and the answer names exactly what it showed.
-    private func answer(_ card: String, _ action: Action, tab: String, services: AppServices) {
-        guard let asks = shown[tab], let ask = asks.first(where: { $0.card == card }), let how = Self.how(action, ask.ask),
-              let binary = services.cloud.move.cli else { return }
+    private func answer(_ card: String, _ action: CloudAccessCard.Action, tab: String, services: AppServices) {
+        if action == .dismiss {
+            failures[tab]?.removeAll { $0.card == card }
+            if failures[tab]?.isEmpty == true { failures[tab] = nil }
+            return render(services: services)
+        }
+        guard let ask = asks[tab]?.first(where: { $0.card == card }), Self.isLive(ask, services: services),
+              let how = CloudAccessCard.how(action, ask.ask), let binary = services.cloud.move.cli else { return }
         let id = ask.ask.requestID
         answering.insert(id)
-        set(asks.filter { $0.card != card }, tab: tab, services: services)
+        asks[tab]?.removeAll { $0.card == card }
+        render(services: services)
         let logger = services.cloud.logger
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak services] in
             let answer: CloudAccessCLI.Answer
             do {
                 answer = try await CloudAccessCLI(binary: binary).answer(socket: ask.socket, machine: ask.machineID, session: ask.session,
@@ -164,46 +187,17 @@ final class CloudAccessAsks {
             } catch {
                 answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
             }
-            // `request_changed`: this Mac sees the path differently now; the next round shows it again as it is.
-            if !answer.ok { logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)") }
             guard let self else { return }
             answering.remove(id)
             answered[id] = triages
+            // A changed or gone request: the next triage shows it again as it is now, if it still waits.
+            guard !answer.ok, answer.errorCode != "request_changed", answer.errorCode != "request_gone" else { return }
+            logger.error("cloud access answer: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
+            var failed = ask
+            failed.failure = CloudAccessCard.failure(answer.errorCode, ask.ask)
+            failures[tab, default: []].append(failed)
+            if let services { render(services: services) }
         }
-    }
-
-    /// The answer `action` gives `ask`, nil when its card doesn't offer it.
-    private static func how(_ action: Action, _ ask: CloudAccessCLI.FileAsk) -> CloudAccessCLI.How? {
-        switch action {
-        case .allow:
-            guard allowsOnce(ask), let target = ask.target else { return nil }
-            return .allow(path: ask.path, target: target)
-        case .always:
-            guard let target = ask.target, let folder = ask.alwaysFolder else { return nil }
-            return .always(path: ask.path, target: target, folder: folder)
-        case .deny:
-            return .deny
-        }
-    }
-
-    private static func allowsOnce(_ ask: CloudAccessCLI.FileAsk) -> Bool { ask.shareable && ask.folder == false && ask.target != nil }
-
-    private static func card(_ shown: Shown) -> AgentPaneToolCard {
-        let ask = shown.ask
-        let shareable = ask.shareable && ask.target != nil
-        var text = shareable ? CloudAccessStrings.ask(shown.machineName, ask.path) : CloudAccessStrings.unshareable(shown.machineName, ask.path)
-        if shareable, let target = ask.target, target != ask.path { text += " " + CloudAccessStrings.leadsTo(target) }
-        if let reason = ask.reason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
-            text += " " + CloudAccessStrings.reason(reason.count > 200 ? String(reason.prefix(200)) + "…" : reason)
-        }
-        var actions: [AgentPaneToolCard.Action] = []
-        if shareable, allowsOnce(ask) { actions.append(.init(id: Action.allow.rawValue, title: CloudAccessStrings.allowOnce)) }
-        if shareable, let folder = ask.alwaysFolder {
-            actions.append(.init(id: Action.always.rawValue, title: CloudAccessStrings.always(URL(fileURLWithPath: folder).lastPathComponent),
-                                 hint: CloudAccessStrings.alwaysHint(folder)))
-        }
-        actions.append(.init(id: Action.deny.rawValue, title: CloudAccessStrings.deny))
-        return AgentPaneToolCard(id: shown.card, state: .ask, text: text, actions: actions)
     }
 
     /// The tab of moved chat `chat` on `machine`: the one bound to its session through its `registry:` host.

@@ -150,6 +150,8 @@ struct CloudBringBack {
         var committed = entry
         committed.broughtBack = back
         services.cloud.movedChats.record(committed)
+        // The chat is back: its grants on the machine end (never failing the bring back).
+        services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
         try await finish(Self.shown(committed, back), tab: tab)
         return name
     }
@@ -173,10 +175,7 @@ struct CloudBringBack {
         } catch {
             throw Failure(message: CloudBringBackStrings.tabFailed(String(describing: error)), retry: .show(shown))
         }
-        if let host = shown.host, let moved = shown.movedSession {
-            services.cloud.movedChats.forget(host: host, session: moved)
-            services.cloud.accessAsks.chatBroughtBack(machineID: shown.machineID, session: moved, services: services)
-        }
+        if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
         // Reopen Closed never offers it.
         do {
             let daemon = services.machines.daemon(forTab: tab)

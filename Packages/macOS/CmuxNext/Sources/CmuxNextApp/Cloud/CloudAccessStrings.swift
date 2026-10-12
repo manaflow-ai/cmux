@@ -24,5 +24,14 @@ enum CloudAccessStrings {
         String(format: String(localized: "cloud.access.alwaysHint", defaultValue: "Share %@ with this chat, read-only, until it comes back", table: "Cloud",
                               bundle: .module), folder)
     }
+    static func alwaysShares(_ folder: String) -> String {
+        String(format: String(localized: "cloud.access.alwaysShares", defaultValue: "Always shares %@ read-only.", table: "Cloud", bundle: .module), folder)
+    }
+    static func grantRefused(_ path: String) -> String {
+        String(format: String(localized: "cloud.access.grantRefused", defaultValue: "This Mac can't share %@.", table: "Cloud", bundle: .module), path)
+    }
+    static func answerFailed(_ path: String) -> String {
+        String(format: String(localized: "cloud.access.answerFailed", defaultValue: "Couldn't answer the request for %@.", table: "Cloud", bundle: .module), path)
+    }
     static var deny: String { String(localized: "cloud.access.deny", defaultValue: "Deny", table: "Cloud", bundle: .module) }
 }

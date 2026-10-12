@@ -59,9 +59,9 @@ nonisolated struct CloudAccessCLI: Sendable {
                               "--request", request, "--remote-root", remoteRoot] + flags)
     }
 
-    /// `sync`: copies the machine's granted folders again.
-    func sync(socket: String, machine: String) async throws -> Answer {
-        try await run(["link", "access", "sync", "--socket", socket, "--machine", machine])
+    /// `sync`: copies chat `session`'s granted folders on the machine again.
+    func sync(socket: String, machine: String, session: String) async throws -> Answer {
+        try await run(["link", "access", "sync", "--socket", socket, "--machine", machine, "--session", session])
     }
 
     /// `revoke --all`: ends chat `session`'s grants; with `socket`, also deletes their read-only copies there.
