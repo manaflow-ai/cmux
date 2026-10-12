@@ -16,10 +16,14 @@ public struct ComposerFieldMeasurement: Equatable, Sendable {
     }
 
     /// Whether a layout pass that gives the text `textWidth` needs the draft
-    /// measured again.
+    /// measured again: before the first measure, or at a width that differs
+    /// by more than `tolerance` (pixel rounding never re-measures).
     public func needsRemeasure(textWidth: CGFloat) -> Bool {
-        false
+        guard let measured = self.textWidth else { return true }
+        return abs(measured - textWidth) > Self.tolerance
     }
+
+    public static let tolerance: CGFloat = 0.5
 
     /// Whole lines in a text view `textHeight` tall (its fitting height,
     /// including `verticalPadding` above and below the text).
