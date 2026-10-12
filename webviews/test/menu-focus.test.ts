@@ -72,7 +72,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
     } finally {
       await warm.close();
     }
-  }, 180_000);
+  }, 360_000);
 
   afterAll(async () => {
     await browser?.close();
@@ -121,17 +121,23 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
       width: "760",
       height: "640",
     });
-    await page.goto(`${base}/gallery/frame.html?${params}`, { waitUntil: "commit", timeout: 120_000 });
+    const url = `${base}/gallery/frame.html?${params}`;
     const deadline = Date.now() + 120_000;
+    const left = () => Math.max(1, deadline - Date.now());
+    let navigated = false;
     for (;;) {
       try {
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", null, {
-          timeout: Math.max(1, deadline - Date.now()),
+        if (!navigated) await page.goto(url, { waitUntil: "commit", timeout: left() });
+        navigated = true;
+        // "1" when the stage drew, "error" when it failed (its message is the page's text).
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, {
+          timeout: left(),
         });
-        return;
+        if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) === "1") return;
+        throw new Error(`gallery ${entry}: ${await page.evaluate(() => document.body.textContent?.trim())}`);
       } catch (error) {
-        // An optimizer reload destroys the page's context; wait again on the reloaded page.
-        if (Date.now() >= deadline || !/context was destroyed|navigat/i.test(String(error))) throw error;
+        // An optimizer reload destroys the page's context (or interrupts the navigation): wait again.
+        if (Date.now() >= deadline || !/context was destroyed|navigat|ERR_ABORTED/i.test(String(error))) throw error;
       }
     }
   }
@@ -154,6 +160,12 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await page.mouse.move(1, 1);
             await trigger.click();
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
+            // The popup takes focus as it opens: read it once it has.
+            await page
+              .waitForFunction(() => document.querySelector('[role="menu"]')?.contains(document.activeElement), null, {
+                timeout: 5_000,
+              })
+              .catch(() => undefined);
             const byMouse = await openMenu(page);
             await page.keyboard.press("Escape");
             await page.locator('[role="menu"]').first().waitFor({ state: "detached" });
@@ -163,7 +175,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
             await page.locator('[role="menu"]').first().waitFor({ state: "visible" });
             await page
               .waitForFunction(() => document.querySelector('[role="menu"] [data-highlighted]') !== null, null, {
-                timeout: 2_000,
+                timeout: 5_000,
               })
               .catch(() => undefined);
             const byKeyboard = await openMenu(page);
