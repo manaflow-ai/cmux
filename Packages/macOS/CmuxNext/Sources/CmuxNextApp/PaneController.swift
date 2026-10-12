@@ -159,7 +159,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
                 item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
             }
-            TabItemMapping.shared.applyUserIcon(tab, to: &item)
+            TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
