@@ -199,13 +199,21 @@ export function continueAfterResponse(work: Promise<unknown>, label: string): vo
 /** Most continuations one function instance runs at once (see withVmAnswerDeadline). */
 export const VM_MAX_BACKGROUND_CONTINUATIONS = 64;
 
-/** The continuations running in this process; a counter, never a gate requests wait on. */
-export const backgroundContinuations = (() => {
+/** Counts running continuations; a counter, never a gate requests wait on. */
+export type BackgroundContinuations = {
+  tryAcquire(key?: string): boolean;
+  release(key?: string): void;
+  hasKey(key: string): boolean;
+  readonly running: number;
+};
+
+/** A fresh continuation counter with its own cap (tests get their own). */
+export function createBackgroundContinuations(cap: number = VM_MAX_BACKGROUND_CONTINUATIONS): BackgroundContinuations {
   let running = 0;
   const keys = new Set<string>();
   return {
     tryAcquire(key?: string): boolean {
-      if (running >= VM_MAX_BACKGROUND_CONTINUATIONS) return false;
+      if (running >= cap) return false;
       running += 1;
       if (key !== undefined) keys.add(key);
       return true;
@@ -220,13 +228,11 @@ export const backgroundContinuations = (() => {
     get running(): number {
       return running;
     },
-    /** Tests only: forget every continuation (each test starts from none). */
-    resetForTests(): void {
-      running = 0;
-      keys.clear();
-    },
   };
-})();
+}
+
+/** The continuations running in this process. */
+export const backgroundContinuations: BackgroundContinuations = createBackgroundContinuations();
 
 /** One structured line per continuation outcome: route, outcome, and its cause or limit. */
 export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): void {
@@ -260,6 +266,8 @@ export type VmAnswerDeadlineOptions<A, E, R> = {
    * deadline and leaves the work to the continuation already running.
    */
   readonly continuationKey?: string;
+  /** The continuation counter; defaults to the process's {@link backgroundContinuations}. */
+  readonly continuations?: BackgroundContinuations;
   /** Where unfinished work goes after the deadline; defaults to {@link continueAfterResponse}. */
   readonly continueInBackground?: (work: Promise<unknown>, label: string) => void;
 };
@@ -287,18 +295,19 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     );
     if (Option.isSome(exit)) return yield* exit.value;
     const log = continuationLogContext(options);
+    const continuations = options.continuations ?? backgroundContinuations;
     if (options.continueForMs <= 0) {
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
-    if (options.continuationKey !== undefined && backgroundContinuations.hasKey(options.continuationKey)) {
+    if (options.continuationKey !== undefined && continuations.hasKey(options.continuationKey)) {
       // The same re-entrant operation on the same machine is already running
       // in the background: this retry adds no second continuation.
       logContinuationResult(options.label, "superseded", log);
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
-    if (!backgroundContinuations.tryAcquire(options.continuationKey)) {
+    if (!continuations.tryAcquire(options.continuationKey)) {
       // Past the cap the request does not answer "in progress" for work it
       // would then have to stop: it waits for the work inline, up to the
       // time the work would have had in the background.
@@ -329,7 +338,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
         onFailure: () => Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
           .pipe(Effect.andThen(Fiber.interruptFork(fiber))),
       }),
-      Effect.ensuring(Effect.sync(() => backgroundContinuations.release(key))),
+      Effect.ensuring(Effect.sync(() => continuations.release(key))),
     );
     const runtime = yield* Effect.runtime<never>();
     (options.continueInBackground ?? continueAfterResponse)(Runtime.runPromise(runtime)(bounded), options.label);

@@ -608,6 +608,10 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 export function freestylePauseState(state: VmData["state"] | null | undefined): VmPauseState {
   if (state === "paused") return "paused";
   if (state === "pausing" || state === "starting") return "in_progress";
+  // Powered off: not pausable (Freestyle refuses), and recorded as our
+  // `paused` row state, as getStatus already does. Resume calls start() for
+  // both, which cold-boots a stopped machine (the systemd units bring the
+  // daemon back); only memory and running sessions differ.
   if (state === "stopped") return "stopped";
   return "not_paused";
 }

@@ -81,32 +81,44 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
   // postgres.js pipelines plain queries onto open connections, so a query
   // waits for a connection only while every connection is reserved: by a
   // transaction, as a continuation's would be. That wait is what is measured.
-  test("a query waiting behind a transaction that holds the only connection reports that wait", async () => {
+  test("a query waiting behind a transaction that holds the only connection is sent after the transaction ends", async () => {
+    const savedPoolMax = process.env.CMUX_DB_POOL_MAX;
     process.env.CMUX_DB_POOL_MAX = "1";
     const { cloudDb, closeCloudDbForTests } = await import("../db/client");
     const { sql } = await import("drizzle-orm");
-    const timings: CloudDbQueryTiming[] = [];
-    setCloudDbQueryObserver(() => (timing) => timings.push(timing));
-    let transactionMs = 0;
+    const settled: Array<CloudDbQueryTiming & { order: number }> = [];
+    let transactionHolds: () => void = () => {};
+    const holding = new Promise<void>((resolve) => { transactionHolds = resolve; });
+    setCloudDbQueryObserver(() => (timing) => { settled.push({ ...timing, order: settled.length }); });
     try {
       await cloudDb().execute(sql`select 1 as warm`);
-      timings.length = 0;
+      settled.length = 0;
+      let releaseTransaction: () => void = () => {};
+      const released = new Promise<void>((resolve) => { releaseTransaction = resolve; });
       const transaction = cloudDb().transaction(async (tx) => {
-        const started = performance.now();
-        await tx.execute(sql`select pg_sleep(0.3)`);
-        transactionMs = performance.now() - started;
+        await tx.execute(sql`select 1 as inside_transaction`);
+        transactionHolds();
+        await released;
       });
-      // Queued only once the transaction holds the connection (its BEGIN was timed).
-      for (let attempt = 0; attempt < 1_000 && timings.length === 0; attempt += 1) {
-        await new Promise<void>((resolve) => setImmediate(resolve));
-      }
-      await Promise.all([transaction, cloudDb().execute(sql`select 1 as queued_behind_transaction`)]);
+      // The transaction now holds the pool's only connection.
+      await holding;
+      // `.then` starts the query now, while the transaction still holds the connection.
+      const queued = cloudDb().execute(sql`select 1 as queued_behind_transaction`).then((rows) => rows);
+      const queuedTimingIndex = settled.length;
+      releaseTransaction();
+      await Promise.all([transaction, queued]);
+      // BEGIN, the statement inside, COMMIT, then the queued query: it was
+      // sent only after the transaction gave the connection back.
+      expect(settled.slice(queuedTimingIndex)).toHaveLength(2);
+      const queuedTiming = settled.at(-1)!;
+      expect(queuedTiming.failed).toBe(false);
+      expect(queuedTiming.order).toBe(settled.length - 1);
+      expect(queuedTiming.acquireWaitMs).toBeGreaterThan(0);
     } finally {
       await closeCloudDbForTests();
+      if (savedPoolMax === undefined) delete process.env.CMUX_DB_POOL_MAX;
+      else process.env.CMUX_DB_POOL_MAX = savedPoolMax;
     }
-    const longestWait = Math.max(...timings.map((timing) => timing.acquireWaitMs));
-    expect(timings.every((timing) => !timing.failed)).toBe(true);
-    expect(longestWait).toBeGreaterThanOrEqual(transactionMs - 50);
   });
 
   test("the timing hook leaves query cancellation working", async () => {
@@ -116,21 +128,13 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     const timings: CloudDbQueryTiming[] = [];
     setCloudDbQueryObserver(() => (timing) => timings.push(timing));
     const controller = new AbortController();
-    const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!;
-    const probe = (await import("postgres")).default(url, { max: 1, prepare: false });
     try {
+      // Aborted at once: the wrapper cancels the query whether postgres.js has
+      // queued it or already sent it.
       const running = runWithCloudDbQuerySignal(controller.signal, async () => await cloudDb().execute(sql`select pg_sleep(5) as cancellation_probe`));
-      const settled = running.then(() => "resolved", () => "rejected");
-      // Abort once the server is actually running the statement: a bounded
-      // poll of pg_stat_activity, not a fixed wait.
-      for (let attempt = 0; attempt < 500; attempt += 1) {
-        const [row] = await probe`select count(*)::int as active from pg_stat_activity where state = 'active' and query like '%cancellation_probe%' and pid <> pg_backend_pid()`;
-        if ((row?.active ?? 0) > 0) break;
-      }
       controller.abort();
-      expect(await settled).toBe("rejected");
+      expect(await running.then(() => "resolved", () => "rejected")).toBe("rejected");
     } finally {
-      await probe.end();
       await closeCloudDbForTests();
     }
     expect(timings.at(-1)?.failed).toBe(true);

@@ -9,7 +9,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_MAX_BACKGROUND_CONTINUATIONS, VM_ROUTE_DEADLINES, backgroundContinuations, createRouteAnswerDeadline, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
+import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_ROUTE_DEADLINES, createBackgroundContinuations, createRouteAnswerDeadline, type BackgroundContinuations, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
 // on a Freestyle background request that then failed 502, long after the
@@ -198,13 +198,13 @@ describe("stuck guests and background work", () => {
   });
 
   test("background work is interrupted when its continuation window ends", async () => {
-    backgroundContinuations.resetForTests();
+    const continuations = createBackgroundContinuations();
     let interrupted = false;
     const background: Promise<unknown>[] = [];
     await Effect.runPromise(Effect.gen(function* () {
       const fiber = yield* Effect.fork(withVmAnswerDeadline(Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))), {
         answerWithinMs: 1_000, onDeadline: () => Effect.succeed("in progress"), continueForMs: 2_000, label: "test",
-        continueInBackground: (work) => { background.push(work); },
+        continuations, continueInBackground: (work) => { background.push(work); },
       }));
       yield* TestClock.adjust(1_000);
       expect(yield* Fiber.join(fiber)).toBe("in progress");
@@ -214,7 +214,7 @@ describe("stuck guests and background work", () => {
     }).pipe(Effect.provide(TestContext.TestContext)));
     expect(background).toHaveLength(1);
     expect(interrupted).toBe(true);
-    expect(backgroundContinuations.running).toBe(0);
+    expect(continuations.running).toBe(0);
   });
 });
 
@@ -265,61 +265,61 @@ describe("Freestyle raw pause state", () => {
 // progress" for work it would then stop, and a retry of a re-entrant
 // operation must not add a second continuation for the same machine.
 describe("continuation limits", () => {
-  beforeEach(() => backgroundContinuations.resetForTests());
-  afterEach(() => backgroundContinuations.resetForTests());
-  const onTestClock = <A>(program: Effect.Effect<A, string>) => Effect.runPromise(Effect.gen(function* () {
+  // Each test owns its continuation counter: no state is shared with the
+  // process-wide one or between tests.
+  let continuations: BackgroundContinuations;
+  beforeEach(() => { continuations = createBackgroundContinuations(); });
+  /** Runs `program` on the fake clock, advancing it by `advanceMs`, and returns its answer. */
+  const onTestClock = <A>(program: Effect.Effect<A, string>, advanceMs: number) => Effect.runPromise(Effect.gen(function* () {
     const fiber = yield* Effect.fork(program.pipe(Effect.either));
-    for (let step = 0; step < 40 && Option.isNone(yield* Fiber.poll(fiber)); step += 1) {
-      yield* TestClock.adjust(500);
-      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-    }
+    yield* TestClock.adjust(advanceMs);
     return yield* Fiber.join(fiber);
   }).pipe(Effect.provide(TestContext.TestContext)));
 
   test("past the cap the request waits for its work inline instead of answering in progress", async () => {
-    for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.tryAcquire();
+    continuations = createBackgroundContinuations(1);
+    expect(continuations.tryAcquire()).toBe(true);
     {
       const background: Promise<unknown>[] = [];
       const answer = await onTestClock(withVmAnswerDeadline(
         Effect.sleep("3 seconds").pipe(Effect.as("paused")),
         { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "pause",
-          continueInBackground: (work) => { background.push(work); } },
-      ));
+          continuations, continueInBackground: (work) => { background.push(work); } },
+      ), 3_000);
       expect(answer._tag === "Right" ? answer.right : null).toBe("paused");
       expect(background).toHaveLength(0);
     }
   });
 
   test("a retry for a machine whose attach already continues adds no second continuation", async () => {
-    expect(backgroundContinuations.tryAcquire("attach:vm-1")).toBe(true);
+    expect(continuations.tryAcquire("attach:vm-1")).toBe(true);
     {
       let interrupted = false;
       const background: Promise<unknown>[] = [];
       const answer = await onTestClock(withVmAnswerDeadline(
         (Effect.never as Effect.Effect<string, string>).pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))),
         { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "attach",
-          continuationKey: "attach:vm-1", continueInBackground: (work) => { background.push(work); } },
-      ));
+          continuations, continuationKey: "attach:vm-1", continueInBackground: (work) => { background.push(work); } },
+      ), 1_000);
       expect(answer._tag).toBe("Left");
       expect(background).toHaveLength(0);
-      await new Promise<void>((resolve) => setImmediate(resolve));
       expect(interrupted).toBe(true);
-      expect(backgroundContinuations.running).toBe(1);
+      expect(continuations.running).toBe(1);
     }
   });
 
   test("a continuation for another machine is not blocked by one already running", async () => {
-    expect(backgroundContinuations.tryAcquire("attach:vm-1")).toBe(true);
+    expect(continuations.tryAcquire("attach:vm-1")).toBe(true);
     const background: Promise<unknown>[] = [];
     const answer = await onTestClock(withVmAnswerDeadline(
       Effect.never as Effect.Effect<string, string>,
       { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "attach",
-        continuationKey: "attach:vm-2", continueInBackground: (work) => { background.push(work); } },
-    ));
+        continuations, continuationKey: "attach:vm-2", continueInBackground: (work) => { background.push(work); } },
+    ), 1_000);
     expect(answer._tag).toBe("Left");
     expect(background).toHaveLength(1);
-    expect(backgroundContinuations.running).toBe(2);
-    expect(backgroundContinuations.hasKey("attach:vm-2")).toBe(true);
+    expect(continuations.running).toBe(2);
+    expect(continuations.hasKey("attach:vm-2")).toBe(true);
   });
 
   // Every continuation's result is logged with its route, outcome, and a
@@ -339,18 +339,16 @@ describe("continuation limits", () => {
         const fiber = yield* Effect.fork(withVmAnswerDeadline(
           (work as Effect.Effect<string, unknown>),
           { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 5_000, label: "/api/vm/[id]/pause",
-            continuationKey: "pause:vm-9", continueInBackground: (promise) => { background.push(promise); } },
+            continuations, continuationKey: "pause:vm-9", continueInBackground: (promise) => { background.push(promise); } },
         ).pipe(Effect.either));
         yield* TestClock.adjust(1_000);
         yield* Fiber.join(fiber);
-        expect(backgroundContinuations.running).toBe(1);
-        for (let step = 0; step < 10; step += 1) {
-          yield* TestClock.adjust(1_000);
-          yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-        }
+        expect(continuations.running).toBe(1);
+        // Past the work's end (2 s) and its window (5 s): the continuation settles.
+        yield* TestClock.adjust(10_000);
         yield* Effect.promise(() => Promise.all(background));
       }).pipe(Effect.provide(TestContext.TestContext)));
-      expect(backgroundContinuations.running).toBe(0);
+      expect(continuations.running).toBe(0);
       const line = lines.find((entry) => entry.includes("continuation"));
       expect(line).toContain(`"outcome":"${outcome}"`);
       expect(line).toContain('"route":"/api/vm/[id]/pause"');
