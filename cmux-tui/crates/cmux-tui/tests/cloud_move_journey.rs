@@ -30,7 +30,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use journey_support::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 const HISTORY: &str = "hello from the mac";
 const QUEUED: &str = "queued for the cloud";
@@ -194,4 +194,119 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
     let events = mac_acpmux.events(&session);
     assert!(events.iter().any(|e| e["kind"] == "transferred"), "no transferred record");
     assert_eq!(count(&events, "user_message", USER_TEXT, QUEUED), 0, "ran on the Mac too");
+}
+
+/// A plain chat on `acpmux` with one finished turn.
+fn plain_chat(acpmux: &mut Acpmux, cwd: &Path, text: &str) -> String {
+    let created = acpmux.call("session/new", json!({"cwd": cwd, "mcpServers": []}));
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    acpmux.call("session/prompt", prompt(&session, text, &format!("p-{text}")));
+    session
+}
+
+fn ok(reply: Value) -> Value {
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    reply["data"].clone()
+}
+
+/// The pump's steps up to the finish, over the two daemons' sockets: begin on
+/// `from`, receive on `to` in `cwd` and every bundle page copied. Answers the
+/// begin's transfer id and the receive id.
+fn begin_and_receive(from: &Machine, surface: u64, to: &Machine, cwd: &Path) -> (String, String) {
+    let begun = ok(from.rpc(json!({"id": 10, "cmd": "agent-transfer-begin", "surface": surface})));
+    let transfer_id = begun["transfer_id"].as_str().unwrap().to_owned();
+    let manifest = begun["manifest"].clone();
+    let received = ok(to.rpc(json!({"id": 11, "cmd": "agent-transfer-receive",
+                                   "manifest": manifest, "cwd": cwd})));
+    let receive_id = received["receive_id"].as_str().unwrap().to_owned();
+    for file in manifest["files"].as_array().unwrap() {
+        let (path, size) = (file["path"].as_str().unwrap(), file["size"].as_u64().unwrap());
+        let mut offset = 0;
+        while offset < size {
+            let page = ok(from.rpc(json!({"id": 12, "cmd": "agent-transfer-read",
+                "transfer_id": transfer_id, "path": path, "offset": offset})));
+            let written = ok(to.rpc(json!({"id": 13, "cmd": "agent-transfer-write",
+                "receive_id": receive_id, "path": path, "offset": offset,
+                "data": page["data"]})));
+            offset = written["next"].as_u64().unwrap();
+        }
+    }
+    (transfer_id, receive_id)
+}
+
+/// Stops the machine's daemon and starts it again on the same state (its
+/// acpmux keeps running, as it does when only the daemon restarts).
+fn restart_daemon(machine: &Machine) {
+    let stopped = machine.server("stop").output().unwrap();
+    assert!(stopped.status.success(), "stop: {}", String::from_utf8_lossy(&stopped.stderr));
+    let ensure = machine.server("ensure").output().unwrap();
+    assert!(ensure.status.success(), "ensure: {}", String::from_utf8_lossy(&ensure.stderr));
+}
+
+/// cx-rppd.7: the pump settles a move whose finish answer it lost by asking
+/// the VM daemon (`agent-transfer-receive-abort`). That question still gets a
+/// real answer after the VM daemon restarts: a finished move answers landed,
+/// an unfinished one is forgotten there (so it can never land later) and
+/// answers not landed, so the Mac commits or gives the chat back instead of
+/// leaving it frozen or running in two places.
+#[test]
+fn cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts() {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    let root = PathBuf::from("/tmp").join(format!("cmr-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let root = fs::canonicalize(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+
+    let mac = Machine::start(&root, "mac", Vec::new());
+    let vm = Machine::start(
+        &root,
+        "vm",
+        vec![
+            ("CMUX_TEST_CLOUD_ETC", cloud_etc(&root).to_string_lossy().into_owned()),
+            ("CMUX_VM_ID", "vm-cloud-move-restart".to_owned()),
+            ("CMUX_CODEROUTER_URL", "http://127.0.0.1:9".to_owned()),
+        ],
+    );
+    let here = mac.home().join("app");
+    let there = vm.home().join("work/app");
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&there).unwrap();
+    let mut mac_acpmux = mac.acpmux();
+
+    // A move whose finish landed the chat on the VM, its answer lost.
+    let landed = plain_chat(&mut mac_acpmux, &here, "landed-chat");
+    let landed_tab = bound_agent_tab(&mac, &landed);
+    let (_, landed_receive) = begin_and_receive(&mac, landed_tab, &vm, &there);
+    ok(vm.rpc(json!({"id": 14, "cmd": "agent-transfer-finish", "receive_id": landed_receive})));
+
+    // A move whose finish never reached the VM.
+    let stranded = plain_chat(&mut mac_acpmux, &here, "stranded-chat");
+    let stranded_tab = bound_agent_tab(&mac, &stranded);
+    let (_, stranded_receive) = begin_and_receive(&mac, stranded_tab, &vm, &there);
+
+    restart_daemon(&vm);
+
+    // The finished move: landed.
+    let asked = vm.rpc(json!({"id": 15, "cmd": "agent-transfer-receive-abort",
+                              "receive_id": landed_receive}));
+    let answer = ok(asked);
+    assert_eq!(answer["landed"], json!(true), "{answer}");
+    // Asked again (the pump retries a lost answer): the same.
+    let again = ok(vm.rpc(json!({"id": 16, "cmd": "agent-transfer-receive-abort",
+                                 "receive_id": landed_receive})));
+    assert_eq!(again["landed"], json!(true), "{again}");
+
+    // The unfinished move: forgotten on the VM, not landed.
+    let asked = ok(vm.rpc(json!({"id": 17, "cmd": "agent-transfer-receive-abort",
+                                 "receive_id": stranded_receive})));
+    assert_eq!(asked["landed"], json!(false), "{asked}");
+    assert_eq!(asked["forgotten"], json!(true), "{asked}");
+    let mut vm_acpmux = vm.acpmux();
+    assert!(vm_acpmux.summary(&stranded).is_none(), "the stranded chat landed on the VM");
+    assert!(vm_acpmux.summary(&landed).is_some(), "the landed chat is not on the VM");
+
+    // A receive id this daemon never answered stays unknown.
+    let unknown = vm.rpc(json!({"id": 18, "cmd": "agent-transfer-receive-abort",
+                                "receive_id": "rcv-never-made-here"}));
+    assert_eq!(unknown["error_code"], json!("agent_transfer.unknown_receive"), "{unknown}");
 }
