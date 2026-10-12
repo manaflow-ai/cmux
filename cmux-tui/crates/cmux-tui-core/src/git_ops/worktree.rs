@@ -229,7 +229,7 @@ fn described(attempt: &Attempt, common_dir: &Path) -> Value {
 
 /// The main checkout's folder: the common git directory's parent, unless
 /// the repository is bare.
-fn main_root(common_dir: &Path) -> Option<&Path> {
+pub(super) fn main_root(common_dir: &Path) -> Option<&Path> {
     if common_dir.file_name()? == ".git" { common_dir.parent() } else { None }
 }
 

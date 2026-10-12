@@ -556,6 +556,11 @@ status and line counts, adds patches only with `--patch` (each cut at
 `--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
+one `git worktree create` recorded for the current branch
+(`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
+default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
+linked worktree `git status` adds `worktree.main_root`, its main checkout.
 `git files` (`git.files.search`) lists the files under the target folder whose
 path holds the query's characters in order, case-insensitively and ignoring
 spaces, best first: tracked files still in the working tree and untracked
