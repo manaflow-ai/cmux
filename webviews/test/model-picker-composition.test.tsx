@@ -137,7 +137,9 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
       key: "Enter",
       ...composition,
     });
-    act(() => search.dispatchEvent(composing));
+    await act(async () => {
+      search.dispatchEvent(composing);
+    });
     expect(composing.defaultPrevented).toBe(false);
     expect(picks).toHaveLength(0);
     expect(host.querySelector(".acpmux-mp")).not.toBeNull();
@@ -155,7 +157,9 @@ test("numeric model search input is not treated as a row shortcut", async () => 
     cancelable: true,
     key: "1",
   });
-  act(() => search.dispatchEvent(digit));
+  await act(async () => {
+    search.dispatchEvent(digit);
+  });
   expect(digit.defaultPrevented).toBe(false);
   expect(picks).toHaveLength(0);
   expect(host.querySelector(".acpmux-mp")).not.toBeNull();
