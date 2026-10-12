@@ -205,7 +205,7 @@ final class PaletteTableView: NSTableView {
     override var acceptsFirstResponder: Bool { false }
 
     /// The palette's selected row (`PaletteTableRowView.isPaletteSelected`), for VoiceOver.
-    override func accessibilitySelectedRows() -> [Any]? {
+    override func accessibilitySelectedRows() -> [any NSAccessibilityRow]? {
         (0..<numberOfRows).compactMap { rowView(atRow: $0, makeIfNecessary: false) as? PaletteTableRowView }
             .filter(\.isPaletteSelected)
     }
