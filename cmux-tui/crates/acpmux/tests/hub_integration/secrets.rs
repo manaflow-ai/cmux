@@ -103,7 +103,8 @@ async fn secrets_the_agent_gets_a_one_use_project_ref_never_the_value() {
     }
 
     // A session in another project cannot spend the ref.
-    let elsewhere = std::env::temp_dir().join(format!("acpmux-secret-other-{}", std::process::id()));
+    let elsewhere =
+        std::env::temp_dir().join(format!("acpmux-secret-other-{}", std::process::id()));
     std::fs::create_dir_all(&elsewhere).unwrap();
     let other = session_in(&mut person, &elsewhere.to_string_lossy()).await;
     let run = |session: &str| {
