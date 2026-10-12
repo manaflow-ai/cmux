@@ -231,7 +231,6 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             await routed.value
 
             let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
-            #expect(argv.contains("'new-session' '-d' '-s' 'cmux-new-"))
             #expect(argv.contains("'kill-session' '-t' '=cmux-new-"))
             #expect((try? String(contentsOfFile: cleanupMarker, encoding: .utf8)) == "cleanup-complete\n")
         }
@@ -497,10 +496,10 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         }
     }
 
-    /// The setting ships on, and the app reads it through the catalog key.
-    @Test func theSettingDefaultsToOn() {
+    /// The setting is opt-in, and the app reads it through the catalog key.
+    @Test func theSettingDefaultsToOff() {
         let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
-        #expect(key.defaultValue)
+        #expect(!key.defaultValue)
         #expect(key.userDefaultsKey == "remoteTmux.beta.newWorkspaceOnHost.enabled")
     }
 

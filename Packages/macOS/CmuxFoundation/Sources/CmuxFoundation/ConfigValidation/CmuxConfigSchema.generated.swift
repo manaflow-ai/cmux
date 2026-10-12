@@ -243,7 +243,7 @@ enum CmuxEmbeddedConfigSchema {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": { "type": "boolean", "default": true, "descriptionKey": "schemaDescriptions.remoteTmux.beta.newWorkspaceOnHost.enabled", "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
+                "enabled": { "type": "boolean", "default": false, "descriptionKey": "schemaDescriptions.remoteTmux.beta.newWorkspaceOnHost.enabled", "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
               }
             },
             "originColors": {

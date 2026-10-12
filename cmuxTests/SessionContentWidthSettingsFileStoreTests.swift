@@ -428,7 +428,7 @@ struct SessionContentWidthSettingsFileStoreTests {
     func settingsFileStoreAppliesRemoteTmuxNewWorkspaceOnHost() throws {
         let defaults = UserDefaults.standard
         let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
-        #expect(key.defaultValue == true)
+        #expect(key.defaultValue == false)
         try preservingDefaults(keys: [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
             let directoryURL = try makeTemporaryDirectory()
             defer { try? FileManager.default.removeItem(at: directoryURL) }
