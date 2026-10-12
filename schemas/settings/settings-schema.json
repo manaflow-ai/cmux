@@ -7390,6 +7390,13 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.shuffleDaily",
+            "text" : "Shuffle Daily"
+          },
+          "value" : "daily"
+        },
+        {
+          "title" : {
             "key" : null,
             "text" : "The Death of Marat — Jacques-Louis David"
           },
@@ -22397,7 +22404,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6a576e8fa5763b0dd8f311a8da77238ecd28ca243a01e467414bdf29ffddc56c",
+  "schema_hash" : "28770087c7b17e563d46a22070ee16515e4dda32773be4b7350e9473d3381554",
   "sections" : [
     {
       "id" : "general",
