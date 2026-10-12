@@ -43,12 +43,13 @@ final class AgentSessionTurnNotifier {
         surfaceID: UUID,
         workspaceID: @escaping () -> UUID,
         workingDirectory: @escaping () -> String?,
-        deliver: @escaping Deliver = AgentSessionTurnNotifier.deliverThroughAgentGate
+        deliver: Deliver? = nil
     ) {
         self.surfaceID = surfaceID
         self.workspaceID = workspaceID
         self.workingDirectory = workingDirectory
-        self.deliver = deliver
+        // Resolved here, on the main actor: a default argument is not.
+        self.deliver = deliver ?? Self.deliverThroughAgentGate
     }
 
     func observe(_ event: [String: Any]) {
