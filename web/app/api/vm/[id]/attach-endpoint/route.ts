@@ -82,7 +82,7 @@ export async function POST(
           // An opted-in machine's agent-update exec runs after the response.
           deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
           modelPlane: vmModelPlaneRevoker(),
-        }), { request, deadline: { operation: "attach" } });
+        }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
       }
@@ -104,7 +104,7 @@ export async function POST(
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
         modelPlane: vmModelPlaneRevoker(),
-      }), { request, deadline: { operation: "attach" } });
+      }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
       if (!run.ok) return run.response;
       const endpoint = run.value;
       setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });

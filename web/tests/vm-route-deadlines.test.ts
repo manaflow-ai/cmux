@@ -9,7 +9,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_ROUTE_DEADLINES, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
+import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_MAX_BACKGROUND_CONTINUATIONS, VM_ROUTE_DEADLINES, backgroundContinuations, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
 // on a Freestyle background request that then failed 502, long after the
@@ -262,3 +262,54 @@ describe("Freestyle raw pause state", () => {
     await expect(failing.getPauseState("vm-1")).rejects.toThrow("getPauseState(vm-1)");
   });
 });
+
+// Review of #19982: a request past the continuation cap must not answer "in
+// progress" for work it would then stop, and a retry of a re-entrant
+// operation must not add a second continuation for the same machine.
+describe("continuation limits", () => {
+  const onTestClock = <A>(program: Effect.Effect<A, string>) => Effect.runPromise(Effect.gen(function* () {
+    const fiber = yield* Effect.fork(program.pipe(Effect.either));
+    for (let step = 0; step < 40 && Option.isNone(yield* Fiber.poll(fiber)); step += 1) {
+      yield* TestClock.adjust(500);
+      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+    }
+    return yield* Fiber.join(fiber);
+  }).pipe(Effect.provide(TestContext.TestContext)));
+
+  test("past the cap the request waits for its work inline instead of answering in progress", async () => {
+    for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.tryAcquire();
+    try {
+      const background: Promise<unknown>[] = [];
+      const answer = await onTestClock(withVmAnswerDeadline(
+        Effect.sleep("3 seconds").pipe(Effect.as("paused")),
+        { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "pause",
+          continueInBackground: (work) => { background.push(work); } },
+      ));
+      expect(answer).toEqual({ _tag: "Right", right: "paused" } as never);
+      expect(background).toHaveLength(0);
+    } finally {
+      for (let index = 0; index < VM_MAX_BACKGROUND_CONTINUATIONS; index += 1) backgroundContinuations.release();
+    }
+  });
+
+  test("a retry for a machine whose attach already continues adds no second continuation", async () => {
+    expect(backgroundContinuations.tryAcquire("attach:vm-1")).toBe(true);
+    try {
+      let interrupted = false;
+      const background: Promise<unknown>[] = [];
+      const answer = await onTestClock(withVmAnswerDeadline(
+        (Effect.never as Effect.Effect<string, string>).pipe(Effect.onInterrupt(() => Effect.sync(() => { interrupted = true; }))),
+        { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 60_000, label: "attach",
+          continuationKey: "attach:vm-1", continueInBackground: (work) => { background.push(work); } },
+      ));
+      expect(answer._tag).toBe("Left");
+      expect(background).toHaveLength(0);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(interrupted).toBe(true);
+      expect(backgroundContinuations.running).toBe(1);
+    } finally {
+      backgroundContinuations.release("attach:vm-1");
+    }
+  });
+});
+

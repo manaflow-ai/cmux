@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FiberRef from "effect/FiberRef";
@@ -196,23 +197,44 @@ export function continueAfterResponse(work: Promise<unknown>, label: string): vo
 /** Most continuations one function instance runs at once (see withVmAnswerDeadline). */
 export const VM_MAX_BACKGROUND_CONTINUATIONS = 64;
 
-/** The count of continuations running in this process; a counter, never a gate requests wait on. */
+/** The continuations running in this process; a counter, never a gate requests wait on. */
 export const backgroundContinuations = (() => {
   let running = 0;
+  const keys = new Set<string>();
   return {
-    tryAcquire(): boolean {
+    tryAcquire(key?: string): boolean {
       if (running >= VM_MAX_BACKGROUND_CONTINUATIONS) return false;
       running += 1;
+      if (key !== undefined) keys.add(key);
       return true;
     },
-    release(): void {
+    release(key?: string): void {
       running = Math.max(0, running - 1);
+      if (key !== undefined) keys.delete(key);
+    },
+    hasKey(key: string): boolean {
+      return keys.has(key);
     },
     get running(): number {
       return running;
     },
   };
 })();
+
+/** One structured line per continuation outcome: route, outcome, and its cause or limit. */
+export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): void {
+  const line = JSON.stringify({ route: label, outcome, ...detail });
+  if (outcome === "completed" || outcome === "superseded") console.info("[vm-route-deadline] continuation", line);
+  else console.error("[vm-route-deadline] continuation", line);
+}
+
+function summarizeCause(cause: unknown): string {
+  try {
+    return String(Cause.pretty(cause as Cause.Cause<unknown>)).slice(0, 500);
+  } catch {
+    return "unknown";
+  }
+}
 
 export type VmAnswerDeadlineOptions<A, E, R> = {
   /** Milliseconds from now within which the caller must have an answer. */
@@ -227,6 +249,12 @@ export type VmAnswerDeadlineOptions<A, E, R> = {
   readonly continueForMs: number;
   /** Route name for logs. */
   readonly label: string;
+  /**
+   * One continuation per key at a time. A retry of a re-entrant operation
+   * (attach, session open) on the same machine answers in progress at its
+   * deadline and leaves the work to the continuation already running.
+   */
+  readonly continuationKey?: string;
   /** Where unfinished work goes after the deadline; defaults to {@link continueAfterResponse}. */
   readonly continueInBackground?: (work: Promise<unknown>, label: string) => void;
 };
@@ -255,22 +283,39 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     if (Option.isSome(exit)) return yield* exit.value;
     if (options.continueForMs <= 0) {
       yield* Fiber.interruptFork(fiber);
-    } else if (!backgroundContinuations.tryAcquire()) {
-      // A runaway number of continuations would compete with live requests;
-      // past the cap the work stops at its answer instead of running on.
-      console.error(`[vm-route-deadline] ${options.label}: ${VM_MAX_BACKGROUND_CONTINUATIONS} continuations already running; stopping this one at its answer`);
-      yield* Fiber.interruptFork(fiber);
-    } else {
-      // Each continuation owns only its own fiber: it holds no lock, permit or
-      // pooled client a foreground request waits on, it is never on a
-      // request's read deadline, and it ends by the route's maxDuration.
-      const bounded = Fiber.await(fiber).pipe(
-        Effect.timeout(options.continueForMs),
-        Effect.catchAll(() => Fiber.interrupt(fiber)),
-        Effect.ensuring(Effect.sync(() => backgroundContinuations.release())),
-      );
-      (options.continueInBackground ?? continueAfterResponse)(Effect.runPromise(bounded), options.label);
+      return yield* options.onDeadline();
     }
+    if (options.continuationKey !== undefined && backgroundContinuations.hasKey(options.continuationKey)) {
+      // The same re-entrant operation on the same machine is already running
+      // in the background: this retry adds no second continuation.
+      logContinuationResult(options.label, "superseded", { key: options.continuationKey });
+      yield* Fiber.interruptFork(fiber);
+      return yield* options.onDeadline();
+    }
+    if (!backgroundContinuations.tryAcquire(options.continuationKey)) {
+      // Past the cap the request does not answer "in progress" for work it
+      // would then have to stop: it waits for the work inline instead, up to
+      // the route's maxDuration, as before this deadline existed.
+      logContinuationResult(options.label, "answered_inline_at_cap", { cap: VM_MAX_BACKGROUND_CONTINUATIONS });
+      return yield* Fiber.join(fiber);
+    }
+    // Each continuation owns only its own fiber: it holds no lock or permit a
+    // foreground request waits on, it is never on a request's read deadline,
+    // and it ends by the route's maxDuration. Its result is always logged.
+    const key = options.continuationKey;
+    const bounded = Fiber.await(fiber).pipe(
+      Effect.timeout(options.continueForMs),
+      Effect.matchCauseEffect({
+        onSuccess: (finished) => Effect.sync(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
+          ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
+        })),
+        onFailure: () => Fiber.interrupt(fiber).pipe(
+          Effect.andThen(Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { continueForMs: options.continueForMs }))),
+        ),
+      }),
+      Effect.ensuring(Effect.sync(() => backgroundContinuations.release(key))),
+    );
+    (options.continueInBackground ?? continueAfterResponse)(Effect.runPromise(bounded), options.label);
     return yield* options.onDeadline();
   });
 }
@@ -301,6 +346,8 @@ export type VmRouteDeadline = {
   readonly ignoreClientBudget?: boolean;
   /** Overrides the request-context elapsed time (tests, non-route callers). */
   readonly elapsedMs?: number;
+  /** See {@link VmAnswerDeadlineOptions.continuationKey}. */
+  readonly continuationKey?: string;
   readonly continueInBackground?: (work: Promise<unknown>, label: string) => void;
 };
 
@@ -335,6 +382,7 @@ export function withVmRouteDeadline<A, R>(
     onDeadline: () => Effect.fail(deadlineError()),
     continueForMs,
     label: context?.route ?? deadline.operation,
+    ...(deadline.continuationKey ? { continuationKey: deadline.continuationKey } : {}),
     ...(deadline.continueInBackground ? { continueInBackground: deadline.continueInBackground } : {}),
   });
 }

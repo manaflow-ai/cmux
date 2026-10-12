@@ -412,9 +412,10 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
-        // Without an Idempotency-Key a retry cannot reach this create, so a
-        // short client budget must not turn it into an early in-progress answer.
-        deadline: { operation: "create", ignoreClientBudget: !idempotencyKey },
+        // Without an Idempotency-Key a retry cannot reach this create, so it
+        // never answers "in progress" without a machine id: it has no answer
+        // deadline and waits for the create inline, as before.
+        ...(idempotencyKey ? { deadline: { operation: "create" as const } } : {}),
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;

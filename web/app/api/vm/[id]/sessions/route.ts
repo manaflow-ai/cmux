@@ -84,7 +84,7 @@ export async function POST(
         attachmentId,
         title,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request, deadline: { operation: "sessionOpen" } });
+      }), { request, deadline: { operation: "sessionOpen", continuationKey: `sessionOpen:${id}` } });
       if (!run.ok) return run.response;
       const result = run.value;
       return jsonResponse({
