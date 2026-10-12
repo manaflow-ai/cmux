@@ -98,11 +98,14 @@ public struct BrowserCommandArgumentParser: Sendable {
 
             // A bare `-` (stdin, the minus key) and negative numbers are positionals.
             if value.hasPrefix("-"), value != "-", Double(value) == nil {
+                // A `--name` is an option name; a single-dash token may be a value (a base64url
+                // cookie can start with `-`), so it is never echoed.
+                guard value.hasPrefix("--") else { throw ParseError.unknownOption(name: "-…") }
                 let redactedName = value.split(
                     separator: "=",
                     maxSplits: 1,
                     omittingEmptySubsequences: false
-                ).first.map(String.init) ?? "-"
+                ).first.map(String.init) ?? "--"
                 throw ParseError.unknownOption(name: redactedName)
             }
 
