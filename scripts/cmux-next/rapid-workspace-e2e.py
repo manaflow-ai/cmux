@@ -10,8 +10,8 @@ tagged build) through its debug socket. It presses 30 Cmd-N at key-repeat speed 
 `debug.key`, with a Cmd-Shift-W after every third, some of them in the same instant as the
 Cmd-N before them, so a close lands on a workspace still being created. Once the app settles
 it checks that:
-  - the window's sidebar rows and the daemon's `list-workspaces` hold the same workspaces,
-    in the same order;
+  - the window's sidebar rows and the daemon's `list-workspaces` hold the same workspaces
+    (less the ones the sidebar never shows, such as Home), the new ones in press order;
   - the new workspaces that remain are numbered without a gap;
   - a New Tab page would suggest only tabs and workspaces that exist, none titled about:blank;
   - no refusal HUD or toast appeared during the burst (`debug.toast` `refusals`).
@@ -70,10 +70,10 @@ def daemon_socket():
 HIDDEN = set()  # ids of daemon workspaces no sidebar row shows at the start (Home)
 
 
-def daemon_workspaces():
-    """The daemon's workspaces, less the ones the sidebar never shows."""
+def daemon_workspaces(hidden=False):
+    """The daemon's workspaces, less the ones the sidebar never shows unless `hidden`."""
     snapshot = line_json(daemon_socket(), {"id": 1, "cmd": "list-workspaces"}, 30)
-    return [w for w in (snapshot.get("data") or {}).get("workspaces") or [] if not ids(w) & HIDDEN]
+    return [w for w in (snapshot.get("data") or {}).get("workspaces") or [] if hidden or not ids(w) & HIDDEN]
 
 
 def ids(entry):
@@ -183,12 +183,18 @@ def main():
     rows = sidebar_rows()
     row("daemon count", len(before) + expected_new, len(daemon), state is not None and len(daemon) == len(before) + expected_new)
 
-    # The sidebar lists the daemon's workspaces, in the same order.
+    # The sidebar lists the daemon's workspaces, and the new ones in the order they were
+    # pressed (newest first with the default `top` placement, oldest first with `bottom`).
     sidebar_ids = [row_id(r) for r in rows]
     daemon_order = [next((i for i in ids(w) if i in sidebar_ids), None) for w in daemon]
-    row("sidebar matches daemon", "same workspaces, same order", f"sidebar={len(rows)} daemon={len(daemon)} "
+    row("sidebar matches daemon", "same workspaces", f"sidebar={len(rows)} daemon={len(daemon)} "
         f"missing={[w.get('name') for w, i in zip(daemon, daemon_order) if i is None]}",
-        None not in daemon_order and sorted(daemon_order, key=sidebar_ids.index) == daemon_order and len(rows) == len(daemon))
+        None not in daemon_order and len(rows) == len(daemon))
+    by_id = {i: number(w.get("name")) for w in daemon for i in ids(w)}
+    shown_new = [by_id.get(i) for i in sidebar_ids if i in by_id and not {i} & before_ids]
+    shown_new = [n for n in shown_new if n is not None]
+    in_order = shown_new in (sorted(shown_new), sorted(shown_new, reverse=True))
+    row("new rows in press order", "monotonic workspace numbers", shown_new, bool(shown_new) and in_order)
 
     # The new workspaces that remain are numbered without a gap.
     new = [w for w in daemon if not ids(w) & before_ids]
@@ -198,7 +204,7 @@ def main():
 
     # A New Tab page suggests only what exists.
     page = rpc("debug.new_tab", {"action": "state"}) or {}
-    names = {w.get("name") for w in daemon}
+    names = {w.get("name") for w in daemon_workspaces(hidden=True)}
     stale_tabs = [t for t in page.get("omnibar_tabs") or [] if t.get("title") == "about:blank" or t.get("workspace") not in names]
     stale_workspaces = [w for w in page.get("omnibar_workspaces") or [] if w.get("name") not in names]
     row("New Tab suggestions", "only live tabs and workspaces, no about:blank",
