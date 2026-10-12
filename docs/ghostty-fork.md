@@ -12,27 +12,6 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-### Minimum contrast uses the host-painted background
-
-- Branch: `cmux-min-contrast-layer-bg`
-  ([manaflow-ai/ghostty#268](https://github.com/manaflow-ai/ghostty/pull/268)),
-  based on fork `main` at `81e955074`.
-- Commit: `102effed7` (fix).
-- Summary: `macos-background-from-layer` and the macOS glass styles zero the
-  background uniform's alpha, and the Metal `cell_text` vertex shader
-  premultiplied it to black before running `minimum-contrast`. On a light
-  theme, dark text failed the check against black and was drawn white on the
-  light background cmux's host layer paints (#4156, #3967). A zero-alpha global
-  background now counts as opaque for the text's contrast and linear-correction
-  background. The fill is still skipped. The GLSL shader is unchanged.
-- Coverage: `cmuxTests/GhosttyMinimumContrastLayerBackgroundTests` reads the
-  presented IOSurface for Flexoki Light colors with `minimum-contrast = 2`.
-- GhosttyKit: built by
-  [run 38266643043](https://github.com/manaflow-ai/cmux/actions/runs/38266643043),
-  archive SHA-256 `64b7197f9d5f3b7dadc9617324a6016d6c6aad21ed3095d7bd04d40acc84ea21`.
-- Conflict notes: keep the opaque fallback next to the `global_bg` load in
-  `cell_text_vertex` if upstream reworks that blend.
-
 ### Link filter: the embedder vetoes hover regex links
 
 - Branch: `link-filter`
