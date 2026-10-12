@@ -8,7 +8,8 @@ import Testing
 /// one solid popup surface (the theme's opaque overlay fill), whatever this Mac's transparency
 /// setting, and pages get the same color (`--cmux-popup-surface`) for their menus and tooltips.
 @MainActor @Suite(.serialized) struct PopupSurfaceTests {
-    /// A see-through theme: its elevated background is translucent, the popup surface must not be.
+    /// A see-through theme (60% background opacity): the window under a popup is translucent, the
+    /// popup surface must not be.
     private let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF),
                                    backgroundOpacity: 0.6)
 
@@ -43,6 +44,39 @@ import Testing
         #expect(fill.alpha == 1)
         let popup = try #require(WebTheme(tokens, surface: .internalPage, backgrounds: .none).variables["--cmux-popup-surface"])
         #expect(popup == WebTheme.css(fill))
+    }
+
+    /// Leo, 2026-10-12: on a light theme a popup 14% toward the text read as a dark gray box next to
+    /// native near-white menus. Light themes lift toward white (a white page gets a white popup,
+    /// set apart by its hairline and shadow), dark themes toward the text, and either way secondary
+    /// text keeps 4.5:1 on a hovered row.
+    @Test func popupsAreLighterThanThePageAndKeepSecondaryTextReadable() {
+        let themes = [
+            ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x000000)),
+            ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x24292F)),
+            ThemeInput(background: ThemeRGB(hex: 0xFDF6E3), foreground: ThemeRGB(hex: 0x657B83)),
+            ThemeInput(background: ThemeRGB(hex: 0xEEEEEE), foreground: ThemeRGB(hex: 0x333333)),
+            ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4)),
+            ThemeInput(background: ThemeRGB(hex: 0x282A36), foreground: ThemeRGB(hex: 0xF8F8F2)),
+            ThemeInput(background: ThemeRGB(hex: 0x002B36), foreground: ThemeRGB(hex: 0x839496)),
+            ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF)),
+        ]
+        for input in themes {
+            let tokens = ThemeTokens.derive(from: input)
+            let fill = tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
+            let page = tokens.windowBackground.withAlpha(1)
+            #expect(fill.alpha == 1, "\(input.background)")
+            if tokens.isDark {
+                #expect(fill.relativeLuminance > page.relativeLuminance, "\(input.background): a lighter card")
+            } else {
+                #expect(fill.relativeLuminance >= page.relativeLuminance, "\(input.background): never a gray box")
+            }
+            let hovered = tokens.hoverFill.composited(over: fill)
+            let contrast = tokens.textSecondary.withAlpha(1).contrast(with: hovered)
+            #expect(contrast >= ThemeTokens.minimumTextContrast, "\(input.background): \(contrast)")
+        }
+        let white = ThemeTokens.derive(from: themes[0])
+        #expect(white.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value) == ThemeRGB(hex: 0xFFFFFF))
     }
 
     static func same(_ lhs: NSColor, _ rhs: NSColor) -> Bool {

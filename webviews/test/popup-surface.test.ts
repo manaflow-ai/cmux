@@ -61,11 +61,37 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
 
   // First-party pages: desktop.css, then ui.css and its popup surface.
   const pages = {
-    css: read("pages/shared/desktop.css", "ui/popupSurface.css", "ui/ui.css", "icon-picker/styles.css"),
+    css: read(
+      "pages/shared/desktop.css",
+      "pages/shared/pageBase.css",
+      "ui/popupSurface.css",
+      "ui/ui.css",
+      "icon-picker/styles.css",
+      "pages/markdown/styles.css",
+      "pages/home-channels/styles.css",
+      "pages/editor/styles.css",
+    ),
     body: `<div class="ui-positioner"><div class="ui-popup" id="menu">Menu</div></div>
 ${tooltips}
-<div class="icon-bar-pill" id="icon-bar-pill">Icons</div>`,
-    surfaces: ["menu", "ui-tooltip", "title-tooltip", "icon-bar-pill"],
+<div class="page-menu" id="page-menu">Sort</div>
+<div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
+<div class="md-link-card" id="md-link-card">https://example.com</div>
+<div class="md-link-popover" id="md-link-popover">Edit link</div>
+<div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
+<div class="hc-switcher" id="hc-switcher">Switch channel</div>
+<div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
+    surfaces: [
+      "menu",
+      "ui-tooltip",
+      "title-tooltip",
+      "page-menu",
+      "icon-bar-pill",
+      "md-link-card",
+      "md-link-popover",
+      "hc-msg-toolbar",
+      "hc-switcher",
+      "editor-widget",
+    ],
   };
   // The agent pane: desktop.css, the popup surface, then the pane's sheets (build-agent-pane-web.sh).
   const pane = {

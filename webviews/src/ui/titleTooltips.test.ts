@@ -56,6 +56,39 @@ test("hovering a truncated row shows its full text as wide as the row", async ()
   expect(tip.style.maxWidth).toBe("600px");
 });
 
+test("a short title's tooltip for truncated text is only as wide as its text", () => {
+  // The line is 600 px but the full text measures 250 px: no wide empty box.
+  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 250 })).toEqual({ min: 250, max: 600 });
+  // Text longer than the line: at least the line, as before.
+  expect(tooltipWidth({ width: 600, truncated: true, view: 1000, text: 2000 })).toEqual({ min: 600, max: 600 });
+});
+
+test("a row whose child clips its text gets the truncated tooltip, sized to the text", async () => {
+  // BranchBasePicker: the title sits on the row, the primary label inside it clips.
+  const doc = page(
+    `<div id="row" title="feature/a-branch-name-the-picker-row-cuts-off"><span id="primary">feature/a-bra…</span><span>2d</span></div>`,
+  );
+  const row = doc.getElementById("row")!;
+  Object.defineProperty(row, "scrollWidth", { value: 600 });
+  Object.defineProperty(row, "clientWidth", { value: 600 });
+  const primary = doc.getElementById("primary")!;
+  Object.defineProperty(primary, "scrollWidth", { value: 900 });
+  Object.defineProperty(primary, "clientWidth", { value: 400 });
+  row.getBoundingClientRect = () => ({ left: 10, top: 10, width: 600, height: 28 }) as DOMRect;
+  // The tooltip's own text, laid out on one line, measures 330 px.
+  const proto = dom!.window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    if (this.classList.contains("ui-title-tooltip")) return { left: 0, top: 0, width: 330, height: 16 } as DOMRect;
+    return original.call(this);
+  };
+  await hover(row);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+  expect(tip.style.minWidth).toBe("330px");
+  expect(tip.style.maxWidth).toBe("600px");
+});
+
 test("an untruncated control's tooltip keeps the standard width and shows its shortcut hint", async () => {
   const doc = page(`<button id="new" title="New Tab" data-tooltip-shortcut="⌘T"></button>`);
   const button = doc.getElementById("new")!;
