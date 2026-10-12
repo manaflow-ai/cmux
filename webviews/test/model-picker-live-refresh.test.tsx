@@ -93,8 +93,7 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const { useState } = await import("react");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
-  const { usePickerCatalog, resetModelCatalogForTests } =
-    await import("../src/agent-session/acpmux/modelCatalogHost");
+  const { usePickerCatalog, resetModelCatalogForTests } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   resetModelCatalogForTests();
@@ -136,9 +135,7 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
       "models.refresh": async (params) => {
         probes.push(params);
         setCatalog((current) =>
-          current.map((entry) =>
-            entry.id === harness ? { ...entry, models: [...entry.models, probedModel] } : entry,
-          ),
+          current.map((entry) => (entry.id === harness ? { ...entry, models: [...entry.models, probedModel] } : entry)),
         );
       },
     };
@@ -182,9 +179,7 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
 
   const byLabel = (label: string) =>
     dom.window.document.querySelector<HTMLElement>(`button[aria-label="${label}"]`) ??
-    [...dom.window.document.querySelectorAll<HTMLElement>("button")].find(
-      (item) => item.textContent === label,
-    );
+    [...dom.window.document.querySelectorAll<HTMLElement>("button")].find((item) => item.textContent === label);
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
