@@ -75,9 +75,13 @@ export function HarnessesScreen({
   const inFolder = cwd ? { cwd } : {};
   const act = (row: HarnessRow) => {
     if (row.status === "signIn" && row.login) {
-      void callNative("tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true }).catch(() => undefined);
+      // `keep`: the page stays beside the new tab and checks again on return (a page with no chat
+      // yet would otherwise be replaced by it).
+      void callNative("tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true, keep: true }).catch(
+        () => undefined,
+      );
     } else if (row.status === "notInstalled" && row.docsUrl) {
-      void callNative("tab.open", { kind: "browser", text: row.docsUrl }).catch(() => undefined);
+      void callNative("tab.open", { kind: "browser", text: row.docsUrl, keep: true }).catch(() => undefined);
     } else if (row.status === "ready") {
       void callNative("chat.new", { harness: row.harness, ...inFolder }).catch(() => undefined);
       onStart();

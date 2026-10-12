@@ -87,9 +87,10 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
                 let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
-                                search: kind == .browser && params?["search"] as? Bool == true,
-                                run: kind != .terminal || params?["run"] as? Bool != false)
+                self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
+                                                 search: kind == .browser && params?["search"] as? Bool == true,
+                                                 run: kind != .terminal || params?["run"] as? Bool != false,
+                                                 keep: params?["keep"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }

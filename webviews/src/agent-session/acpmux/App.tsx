@@ -40,7 +40,7 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { openHarnessesPage, registerHarnessesPage } from "./harnesses/harnessesPage";
+import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { useEarlyNewTabContext, useNewTabAdoption } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -1686,6 +1686,7 @@ function DefaultComposerChips({
   startsChat?: boolean;
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
+  const addAgent = useHarnessesPage();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -1728,7 +1729,7 @@ function DefaultComposerChips({
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
-      onAddAgent={openHarnessesPage}
+      {...(addAgent ? { onAddAgent: addAgent } : {})}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
@@ -2285,7 +2286,6 @@ function AcpmuxPane() {
   const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
-  useEffect(() => registerHarnessesPage(() => setHarnessesOpen(true)), []);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
@@ -2528,6 +2528,8 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
+  useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
   const asksAside = !quick && experimentArm(sideQuestion) === "on";
   // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
