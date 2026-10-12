@@ -32,11 +32,15 @@ public nonisolated struct BackdropUserImages: Sendable {
         let files = (try? fileManager.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]
         )) ?? []
-        return files
-            .filter { Self.isImage($0) && !isDownloadedArt($0) }
-            .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.lastPathComponent < $1.0.lastPathComponent }
-            .map { BackdropSelection.file(path: $0.0.path) }
+        let images: [(url: URL, modified: Date)] = files.filter { Self.isImage($0) && !isDownloadedArt($0) }.map { url in
+            let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            return (url, modified ?? .distantPast)
+        }
+        let newestFirst = images.sorted { lhs, rhs in
+            if lhs.modified != rhs.modified { return lhs.modified > rhs.modified }
+            return lhs.url.lastPathComponent < rhs.url.lastPathComponent
+        }
+        return newestFirst.map { BackdropSelection.file(path: $0.url.path) }
     }
 
     /// Whether `selection` is one of this folder's own images.
