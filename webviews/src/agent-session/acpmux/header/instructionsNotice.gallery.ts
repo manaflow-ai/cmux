@@ -21,7 +21,7 @@ export default agentPaneEntry({
   title: "Project instructions: open failed",
   area: "Agent pane",
   height: 560,
-  covers: ["agent-session/acpmux/header/instructionsRow.ts#instructionsRow"],
+  covers: ["agent-session/acpmux/header/InstructionsNotice.tsx#InstructionsNotice"],
   variants: {
     "outside-folder": {
       note: "Play: Edit CLAUDE.md when CLAUDE.md links out of the chat folder: a notice says so, Retry asks again, Dismiss clears it.",
