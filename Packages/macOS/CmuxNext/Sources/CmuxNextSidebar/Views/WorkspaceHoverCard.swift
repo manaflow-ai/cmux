@@ -108,6 +108,8 @@ final class WorkspaceHoverCardView: NSView {
 
     private let titleLabel = NSTextField(labelWithString: "")
     private let kindIcon = NSImageView()
+    /// The workspace's status in the shared indicator, after its name.
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     private let ageLabel = NSTextField(labelWithString: "")
     private let factsStack = NSStackView()
     private let resourceLabel = NSTextField(labelWithString: "")
@@ -130,7 +132,7 @@ final class WorkspaceHoverCardView: NSView {
         resourceLabel.font = Typography.caption
         resourceLabel.lineBreakMode = .byTruncatingTail
 
-        let titleRow = NSStackView(views: [titleLabel, kindIcon, ageLabel])
+        let titleRow = NSStackView(views: [titleLabel, activity, kindIcon, ageLabel])
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
         titleRow.spacing = Metrics.space2
@@ -156,6 +158,8 @@ final class WorkspaceHoverCardView: NSView {
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            activity.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            activity.heightAnchor.constraint(equalToConstant: Self.iconSize),
         ])
     }
 
@@ -176,10 +180,12 @@ final class WorkspaceHoverCardView: NSView {
         kindIcon.image = NSImage.icon(content.icon, size: Self.iconSize)
         ageLabel.stringValue = content.age ?? ""
         ageLabel.isHidden = content.age == nil
+        activity.configure(content.activity, style: content.activityStyle)
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
         let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
+        let indicator = activity.isHidden ? 0 : Self.iconSize + Metrics.space2
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age - indicator
         while factViews.count < content.facts.count { addFactRow() }
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
