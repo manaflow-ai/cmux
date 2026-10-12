@@ -8,9 +8,11 @@ struct SettingsScreen: View {
     @AppStorage("haptics") private var haptics = true
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
     @AppStorage("composer.dismissAfterSend") private var dismissAfterSend = false
+    @AppStorage("composer.visible") private var showComposer = true
     @AppStorage("appearance") private var appearance = "system"
     @State private var showPairing = false
     @State private var confirmSignOut = false
+    @State private var pendingUnpair: APIClient.Host?
 
     var body: some View {
         NavigationStack {
@@ -46,7 +48,7 @@ struct SettingsScreen: View {
                         .contentShape(.rect)
                         .onTapGesture { app.connect(host) }
                         .swipeActions {
-                            Button(role: .destructive) { Task { await app.unpair(host) } } label: {
+                            Button(role: .destructive) { pendingUnpair = host } label: {
                                 Label(String(localized: "Unpair"), systemImage: "minus.circle")
                             }
                         }
@@ -68,7 +70,9 @@ struct SettingsScreen: View {
                     Stepper(value: $fontSize, in: 9...18, step: 1) {
                         LabeledContent(String(localized: "Font size"), value: "\(Int(fontSize)) pt")
                     }
+                    Toggle(String(localized: "Composer bar"), isOn: $showComposer)
                     Toggle(String(localized: "Dismiss keyboard after sending"), isOn: $dismissAfterSend)
+                        .disabled(!showComposer)
                 }
 
                 Section(String(localized: "App")) {
@@ -93,6 +97,16 @@ struct SettingsScreen: View {
             }
             .confirmationDialog(String(localized: "Sign out of cmux?"), isPresented: $confirmSignOut, titleVisibility: .visible) {
                 Button(String(localized: "Sign Out"), role: .destructive) { app.signOut(); dismiss() }
+            }
+            .confirmationDialog(
+                String(localized: "Unpair \(pendingUnpair?.name ?? "")?"),
+                isPresented: Binding(get: { pendingUnpair != nil }, set: { if !$0 { pendingUnpair = nil } }),
+                titleVisibility: .visible,
+                presenting: pendingUnpair
+            ) { host in
+                Button(String(localized: "Unpair"), role: .destructive) { Task { await app.unpair(host) } }
+            } message: { _ in
+                Text(String(localized: "This iPhone stops reaching the Mac until you pair it again."))
             }
             .sheet(isPresented: $showPairing) { PairingFlow(app: app) }
         }

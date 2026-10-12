@@ -4,39 +4,57 @@ import SwiftUI
 /// each terminal is a row with its agent's state, title, folder and branch.
 struct SessionsScreen: View {
     let app: AppModel
+    let navigator: AppNavigator
     @State private var search = ""
-    @State private var showPairing = false
+    @State private var searchPresented = false
     @State private var showNewWorkspace = false
-    @State private var showSettings = false
-    @State private var path: [DaemonTab] = []
+    @State private var pendingClose: DaemonTab?
 
     var body: some View {
-        NavigationStack(path: $path) {
-            content
-                .navigationTitle(app.connection?.host.name ?? String(localized: "Sessions"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { toolbar }
-                .navigationDestination(for: DaemonTab.self) { tab in
-                    if let connection = app.connection { TerminalScreen(connection: connection, tab: tab) }
-                }
-                .searchable(text: $search, placement: .toolbar, prompt: String(localized: "Search terminals"))
-                .sheet(isPresented: $showPairing) { PairingFlow(app: app) }
-                .sheet(isPresented: $showSettings) { SettingsScreen(app: app) }
-                .sheet(isPresented: $showNewWorkspace) {
-                    if let connection = app.connection {
-                        NewWorkspaceSheet(connection: connection) { surface in
-                            if let surface, let tab = connection.tab(surface: surface) { path.append(tab) }
-                        }
-                        .presentationDetents([.medium])
+        content
+            .navigationTitle(app.connection?.host.name ?? String(localized: "Home"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleMenu { hostMenuItems }
+            .toolbar { toolbar }
+            .searchable(text: $search, isPresented: $searchPresented, placement: .toolbar, prompt: String(localized: "Search terminals"))
+            .onAppear(perform: consumeSearchRequest)
+            .onChange(of: navigator.searchRequested) { consumeSearchRequest() }
+            .sheet(isPresented: $showNewWorkspace) {
+                if let connection = app.connection {
+                    NewWorkspaceSheet(connection: connection) { surface in
+                        if let surface { open(surface: surface) }
                     }
+                    .presentationDetents([.medium])
                 }
-        }
+            }
+            .confirmationDialog(
+                String(localized: "Close \(pendingClose?.displayTitle ?? "")?"),
+                isPresented: Binding(get: { pendingClose != nil }, set: { if !$0 { pendingClose = nil } }),
+                titleVisibility: .visible,
+                presenting: pendingClose
+            ) { tab in
+                Button(String(localized: "Close Terminal"), role: .destructive) {
+                    Task { await app.connection?.close(surface: tab.surface) }
+                }
+            } message: { _ in
+                Text(String(localized: "The terminal and anything running in it end on your Mac."))
+            }
+    }
+
+    private func consumeSearchRequest() {
+        guard navigator.searchRequested else { return }
+        navigator.searchRequested = false
+        searchPresented = true
+    }
+
+    private func open(surface: Int) {
+        navigator.select(.terminal(surface: surface), hostID: app.connection?.host.id)
     }
 
     @ViewBuilder
     private var content: some View {
         if app.hostsLoaded && app.hosts.isEmpty {
-            ConnectMacEmptyState { showPairing = true }
+            ConnectMacEmptyState { navigator.showPairing = true }
         } else if let connection = app.connection {
             switch connection.phase {
             case .connected, .reconnecting:
@@ -64,17 +82,18 @@ struct SessionsScreen: View {
             ForEach(filtered(connection.workspaces)) { workspace in
                 Section {
                     ForEach(workspace.tabs.filter(\.isTerminal)) { tab in
-                        NavigationLink(value: tab) {
+                        Button { open(surface: tab.surface) } label: {
                             TerminalRow(tab: tab, agent: connection.agents[tab.surface])
                         }
+                        .foregroundStyle(.primary)
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                Task { await connection.close(surface: tab.surface) }
-                            } label: { Label(String(localized: "Close"), systemImage: "xmark") }
+                            Button(role: .destructive) { pendingClose = tab } label: {
+                                Label(String(localized: "Close"), systemImage: "xmark")
+                            }
                         }
                         .contextMenu {
                             Button { UIPasteboard.general.string = tab.cwd } label: { Label(String(localized: "Copy Path"), systemImage: "doc.on.doc") }
-                            Button(role: .destructive) { Task { await connection.close(surface: tab.surface) } } label: {
+                            Button(role: .destructive) { pendingClose = tab } label: {
                                 Label(String(localized: "Close Terminal"), systemImage: "xmark")
                             }
                         }
@@ -82,9 +101,7 @@ struct SessionsScreen: View {
                 } header: {
                     WorkspaceHeader(workspace: workspace) {
                         Task {
-                            if let surface = try? await connection.newTerminal(in: workspace), let tab = connection.tab(surface: surface) {
-                                path.append(tab)
-                            }
+                            if let surface = try? await connection.newTerminal(in: workspace) { open(surface: surface) }
                         }
                     }
                 }
@@ -92,6 +109,13 @@ struct SessionsScreen: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await connection.refresh() }
+        .task(id: connection.workspaces.count) {
+            // Diagnostics: CMUX_NATIVE_AUTO_OPEN=1 opens the first terminal
+            // (device debugging without UI automation).
+            guard ProcessInfo.processInfo.environment["CMUX_NATIVE_AUTO_OPEN"] == "1",
+                  let tab = connection.workspaces.first?.tabs.first(where: \.isTerminal) else { return }
+            open(surface: tab.surface)
+        }
         .overlay {
             if connection.workspaces.isEmpty {
                 ContentUnavailableView(String(localized: "No terminals"), systemImage: "terminal", description: Text(String(localized: "Start one on your Mac or tap + to open a new workspace.")))
@@ -117,13 +141,6 @@ struct SessionsScreen: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { hostMenu }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showSettings = true } label: { Image(systemName: "gearshape") }
-                .accessibilityLabel(String(localized: "Settings"))
-                .accessibilityIdentifier("sessions.settings")
-        }
-        ToolbarSpacer(.fixed, placement: .topBarTrailing)
         ToolbarItem(placement: .topBarTrailing) {
             Button { showNewWorkspace = true } label: { Image(systemName: "square.and.pencil") }
                 .accessibilityLabel(String(localized: "New workspace"))
@@ -133,31 +150,30 @@ struct SessionsScreen: View {
     }
 
     /// Codex-style title menu: switch Mac, pair another, connection info.
-    private var hostMenu: some View {
-        Menu {
-            Section(String(localized: "Macs")) {
-                ForEach(app.hosts) { host in
-                    Button {
+    @ViewBuilder
+    private var hostMenuItems: some View {
+        Section(String(localized: "Macs")) {
+            ForEach(app.hosts) { host in
+                Button {
+                    if host.id != app.connection?.host.id {
                         app.connect(host)
-                    } label: {
-                        if host.id == app.connection?.host.id {
-                            Label(host.name, systemImage: "checkmark")
-                        } else {
-                            Text(host.name)
-                        }
+                        navigator.hostChanged()
+                    }
+                } label: {
+                    if host.id == app.connection?.host.id {
+                        Label(host.name, systemImage: "checkmark")
+                    } else {
+                        Text(host.name)
                     }
                 }
             }
-            Button { showPairing = true } label: { Label(String(localized: "Connect a Mac"), systemImage: "plus") }
-            if let connection = app.connection, !connection.path.isEmpty {
-                Section(String(localized: "Connection")) {
-                    Text(connection.path)
-                }
-            }
-        } label: {
-            Image(systemName: "desktopcomputer")
         }
-        .accessibilityIdentifier("sessions.hostMenu")
+        Button { navigator.showPairing = true } label: { Label(String(localized: "Connect a Mac"), systemImage: "plus") }
+        if let connection = app.connection, !connection.path.isEmpty {
+            Section(String(localized: "Connection")) {
+                Text(connection.path)
+            }
+        }
     }
 }
 
