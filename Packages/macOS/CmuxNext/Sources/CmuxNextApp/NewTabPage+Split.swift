@@ -52,8 +52,10 @@ extension NewTabPage {
             let agent = services.agentTabs.isAgentTab(tab.id)
             if agent, services.agentTabs.isNewTabPage(tab.id) { return nil }
             let kind: AgentPaneTabKind = agent ? .agent : tab.kind == .browser ? .browser : .terminal
+            // An untitled shell is named by its folder, a page by its address, as the bar names them.
+            let title = Self.place(tab, home: NSHomeDirectory())?.title ?? tab.displayTitle
             return AgentPaneOmnibar.Tab(
-                id: tab.id, kind: kind, title: tab.displayTitle,
+                id: tab.id, kind: kind, title: title,
                 detail: kind == .browser ? tab.url.map(Self.displayURL) : tab.cwd.map { Self.abbreviated($0) },
                 icon: kind == .browser ? AppServices.dataURL(services.tabFavicon(tab)) : nil
             )

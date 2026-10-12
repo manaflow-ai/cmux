@@ -113,14 +113,15 @@ enum NewTabPage {
         var tabs: [TabModel]
     }
 
-    /// ``places(_:current:excluding:home:icon:)`` over every machine's workspaces, the active
-    /// window's one current.
-    static func places(_ services: AppServices, excluding selectedID: String?)
+    /// ``places(_:current:excluding:home:icon:)`` over every machine's workspaces; `current` is
+    /// the workspace the page's window shows (the active window's when nil).
+    static func places(_ services: AppServices, excluding selectedID: String?, current: String? = nil)
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
         let sources = services.machines.allWorkspaces.map { workspace, _ in
             PlaceSource(id: workspace.id, name: workspace.displayName, tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs))
         }
-        return places(sources, current: services.windows.active?.state.workspaceID, excluding: selectedID, home: NSHomeDirectory()) {
+        let current = current ?? services.windows.active?.state.workspaceID
+        return places(sources, current: current, excluding: selectedID, home: NSHomeDirectory()) {
             AppServices.dataURL(services.tabFavicon($0))
         }
     }
