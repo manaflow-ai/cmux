@@ -62,12 +62,7 @@ enum DebugTimings {
 
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
-        AgentPaneLaunchTimings.shared.install { name in
-            let parts = name.split(separator: "@")
-            if parts.count == 2, let epoch = Double(parts[1]) {
-                markLaunch(String(parts[0]), at: Date(timeIntervalSince1970: epoch / 1000))
-            } else { markLaunch(name) }
-        }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
