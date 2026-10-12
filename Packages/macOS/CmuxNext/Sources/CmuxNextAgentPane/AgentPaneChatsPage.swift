@@ -93,6 +93,9 @@ extension AcpmuxEnvironment {
 
 extension AgentPaneModel {
     func respondToChatsPage(_ query: AgentPaneChatsQuery) async -> [String: Any] {
+        // A page of another machine lists that machine's chats, or none: never this Mac's (cx-k21v).
+        // That machine's chat list is not read from here yet, so it lists none.
+        if remoteChat { return AgentPaneReply.success(AgentPaneChatsPage(chats: [], nextCursor: nil, ready: true, enabled: true).reply) }
         guard let onChatsPage else { return Self.unsupported("chats.page") }
         guard let page = await onChatsPage(query) else { return AgentPaneReply.failure(code: "chats.unavailable", message: "chats.unavailable") }
         return AgentPaneReply.success(page.reply)
