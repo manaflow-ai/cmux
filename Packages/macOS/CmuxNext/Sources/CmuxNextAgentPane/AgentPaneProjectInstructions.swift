@@ -38,8 +38,13 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
         let created = (try? Data().write(to: file, options: .withoutOverwriting)) != nil
         // The file, made canonical, must still be a regular file under a root (a link out is refused)
         // named CLAUDE.md or AGENTS.md: a committed CLAUDE.md that links to a page (x.html) never opens it.
-        // A refusal or a tab that can't open takes back the empty file it made.
-        let undo = { if created { try? FileManager.default.removeItem(at: file) } }
+        // A refusal or a tab that can't open takes back the empty file it made, only while it is
+        // still that: an empty regular file (`attributesOfItem` reads a link, not its target).
+        let undo = {
+            guard created, let item = try? FileManager.default.attributesOfItem(atPath: file.path),
+                  item[.type] as? FileAttributeType == .typeRegular, (item[.size] as? NSNumber)?.intValue == 0 else { return }
+            try? FileManager.default.removeItem(at: file)
+        }
         let url: URL
         switch AgentPaneFileOpen.resolve(file.path, roots: roots) {
         case .success(let resolved): url = resolved

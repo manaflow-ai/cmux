@@ -70,7 +70,6 @@ struct AgentPaneProjectInstructionsTests {
         #expect(rig.openedPaths == [rig.canonical("AGENTS.md")])
     }
 
-    /// Each refusal opens and writes nothing.
     /// A CLAUDE.md that links to the folder's AGENTS.md (one file for every harness) opens that
     /// file, the one both names read.
     @Test func opensAClaudeMdThatLinksToAgentsMd() async throws {
@@ -90,6 +89,7 @@ struct AgentPaneProjectInstructionsTests {
         #expect(!FileManager.default.fileExists(atPath: rig.folder + "/CLAUDE.md"))
     }
 
+    /// Each refusal opens and writes nothing.
     @Test func refusesWithoutAGestureOutsideTheFoldersOnAnotherMachineOrAnotherName() async throws {
         let rig = try Rig()
         #expect(Self.errorCode(await rig.ask(gesture: false)) == AgentPaneTransportError.gestureRequired.rawValue)
