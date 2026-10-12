@@ -10,8 +10,7 @@ import {
   filterBrowseItems,
   nextBrowseVariant,
   resolveBrowseVariant,
-  type BrowseMode,
-  type BrowseKind,
+  type BrowseState,
 } from "./browseModel";
 import { Stage } from "./Stage";
 
@@ -19,22 +18,28 @@ export function BrowseView({
   entries,
   env,
   tune,
+  browse,
+  onBrowseChange,
   onOpen,
   hrefFor,
 }: {
   entries: readonly GalleryEntry[];
   env: GalleryEnv;
   tune: string;
+  browse: BrowseState;
+  onBrowseChange: (browse: BrowseState, replace?: boolean) => void;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
 }) {
-  const [filter, setFilter] = useState("");
-  const [kind, setKind] = useState<BrowseKind>("all");
-  const [mode, setMode] = useState<BrowseMode>("entries");
-  const [cycle, setCycle] = useState(false);
-  const items = useMemo(() => filterBrowseItems(entries, filter, kind, mode), [entries, filter, kind, mode]);
-  const allCount = useMemo(() => filterBrowseItems(entries, "", kind, mode).length, [entries, kind, mode]);
-  const allVariants = mode === "variants";
+  const items = useMemo(
+    () => filterBrowseItems(entries, browse.filter, browse.kind, browse.mode, browse.picks),
+    [entries, browse.filter, browse.kind, browse.mode, browse.picks],
+  );
+  const allCount = useMemo(
+    () => filterBrowseItems(entries, "", browse.kind, browse.mode, browse.picks).length,
+    [entries, browse.kind, browse.mode, browse.picks],
+  );
+  const allVariants = browse.mode === "variants";
   return (
     <section className="gallery-browse" aria-labelledby="gallery-browse-title">
       <header className="gallery-browse-header">
@@ -50,10 +55,10 @@ export function BrowseView({
             Filter previews
             <input
               type="search"
-              value={filter}
+              value={browse.filter}
               placeholder={`Filter ${allCount} previews`}
               aria-label="Filter gallery previews"
-              onChange={(event) => setFilter(event.target.value)}
+              onChange={(event) => onBrowseChange({ ...browse, filter: event.target.value }, true)}
             />
           </label>
           <fieldset className="gallery-browse-kind-filter">
@@ -69,8 +74,8 @@ export function BrowseView({
                 key={value}
                 type="button"
                 aria-label={`Show ${label.toLowerCase()} previews`}
-                aria-pressed={kind === value}
-                onClick={() => setKind(value)}
+                aria-pressed={browse.kind === value}
+                onClick={() => onBrowseChange({ ...browse, kind: value }, true)}
               >
                 {label}
               </button>
@@ -88,10 +93,9 @@ export function BrowseView({
                 key={value}
                 type="button"
                 aria-label={`Show ${label.toLowerCase()}`}
-                aria-pressed={mode === value}
+                aria-pressed={browse.mode === value}
                 onClick={() => {
-                  setMode(value);
-                  if (value === "variants") setCycle(false);
+                  onBrowseChange({ ...browse, mode: value, cycle: value === "variants" ? false : browse.cycle }, true);
                 }}
               >
                 {label}
@@ -102,9 +106,9 @@ export function BrowseView({
             <input
               type="checkbox"
               aria-label="Cycle previews"
-              checked={cycle}
+              checked={browse.cycle}
               disabled={allVariants}
-              onChange={(event) => setCycle(event.target.checked)}
+              onChange={(event) => onBrowseChange({ ...browse, cycle: event.target.checked }, true)}
             />
             Cycle previews
           </label>
@@ -117,21 +121,27 @@ export function BrowseView({
               key={`${entry.id}:${variant}`}
               entry={entry}
               initialVariant={variant}
-              filter={filter}
+              filter={browse.filter}
+              kind={browse.kind}
               env={env}
               tune={tune}
               onOpen={onOpen}
               hrefFor={hrefFor}
-              cycle={allVariants ? false : cycle}
+              onPick={(entryId, variant) =>
+                onBrowseChange({ ...browse, picks: { ...browse.picks, [entryId]: variant } }, true)
+              }
+              cycle={allVariants ? false : browse.cycle}
               variantOnly={allVariants}
             />
           ))}
         </div>
       ) : (
         <div className="gallery-empty">
-          <p>{filter.trim() ? `No previews match “${filter.trim()}”.` : "No ready entries to preview yet."}</p>
-          {filter.trim() && (
-            <button type="button" onClick={() => setFilter("")}>
+          <p>
+            {browse.filter.trim() ? `No previews match “${browse.filter.trim()}”.` : "No ready entries to preview yet."}
+          </p>
+          {browse.filter.trim() && (
+            <button type="button" onClick={() => onBrowseChange({ ...browse, filter: "" }, true)}>
               Clear filter
             </button>
           )}
@@ -145,20 +155,24 @@ function BrowseCard({
   entry,
   initialVariant,
   filter,
+  kind,
   env,
   tune,
   onOpen,
   hrefFor,
+  onPick,
   cycle,
   variantOnly,
 }: {
   entry: GalleryEntry;
   initialVariant: string;
   filter: string;
+  kind: BrowseState["kind"];
   env: GalleryEnv;
   tune: string;
   onOpen: (entry: GalleryEntry, variant: string) => void;
   hrefFor: (entry: GalleryEntry, variant: string) => string;
+  onPick: (entryId: string, variant: string) => void;
   cycle: boolean;
   variantOnly: boolean;
 }) {
@@ -174,7 +188,13 @@ function BrowseCard({
     observer.observe(previewNode);
     return () => observer.disconnect();
   }, [previewNode]);
-  const variants = useMemo(() => Object.keys(entry.variants), [entry]);
+  const variants = useMemo(
+    () =>
+      Object.keys(entry.variants).filter(
+        (name) => kind === "all" || Boolean(entry.variants[name]?.play) === (kind === "motion"),
+      ),
+    [entry, kind],
+  );
   const selectedVariant = resolveBrowseVariant(variant, initialVariant, variants);
   const fixture = selectedVariant ? entry.variants[selectedVariant] : undefined;
   // A query can choose a different variant on the same card; registry refreshes keep the current state.
@@ -190,11 +210,13 @@ function BrowseCard({
     if (!cycle || variants.length < 2 || env.reducedMotion) return;
     const timer = window.setInterval(() => {
       setVariant((current) => {
-        return nextBrowseVariant(current, variants) ?? current;
+        const next = nextBrowseVariant(current, variants) ?? current;
+        if (next !== current) onPick(entry.id, next);
+        return next;
       });
     }, 2600);
     return () => window.clearInterval(timer);
-  }, [cycle, env.reducedMotion, variants]);
+  }, [cycle, env.reducedMotion, entry.id, onPick, variants]);
   return (
     <article className="gallery-browse-card" data-gallery-browse-entry={entry.id}>
       <header className="gallery-browse-card-header">
@@ -215,7 +237,10 @@ function BrowseCard({
               type="button"
               aria-pressed={name === selectedVariant}
               className={name === selectedVariant ? "active" : undefined}
-              onClick={() => setVariant(name)}
+              onClick={() => {
+                setVariant(name);
+                onPick(entry.id, name);
+              }}
             >
               {name}
             </button>

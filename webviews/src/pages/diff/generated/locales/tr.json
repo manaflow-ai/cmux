@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "Hazırlanmış",
   "diffViewer.sourceUncommitted": "Commit edilmemiş",
   "diffViewer.sourceUnstaged": "Hazırlanmamış",
+  "diffViewer.splitDiffNeedsWiderPane": "Bölünmüş diff daha geniş bir bölme gerektirir",
   "diffViewer.switchToSplitDiff": "Bölünmüş diff’e geç",
   "diffViewer.switchToUnifiedDiff": "Birleşik diff’e geç",
   "diffViewer.untitled": "Adsız",

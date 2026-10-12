@@ -37,12 +37,15 @@ export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits
   return { rows, at, edits: same ? previous.edits : edits };
 }
 
-/// A row the transcript draws as an edited-files card (App.tsx `rowKind`).
+/// A row the transcript draws as an edited-files card (App.tsx `rowKind`). An edit still waiting
+/// for its permission has not run, so it reads as its tool call until then.
 export function isEditRow(row: AcpmuxRow): boolean {
   return (
     row.kind === "activity" &&
     !isFoldedCopy(row) &&
-    (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
+    (row.items ?? []).some(
+      (item) => (item.tool?.kind === "edit" || item.tool?.kind === "fileChange") && item.tool.status !== "pending",
+    )
   );
 }
 

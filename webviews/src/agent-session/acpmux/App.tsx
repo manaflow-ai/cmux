@@ -97,8 +97,14 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { PlanList } from "./conversation/PlanList";
-import { SessionCwdContext, SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
-import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import {
+  SessionCwdContext,
+  SessionEditsContext,
+  isEditRow,
+  sessionEdits,
+  type SessionEdits,
+} from "./turnChanges/sessionRows";
+import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
@@ -111,17 +117,7 @@ import {
   type ChatFind,
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
-import {
-  DATE,
-  PREVIEW,
-  RENDER,
-  THINKING,
-  WORKED,
-  WORKING,
-  isFoldedCopy,
-  type TurnView,
-  turnViewFrom,
-} from "./conversation/turns";
+import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -787,12 +783,7 @@ function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-const rowKind = (row: AcpmuxRow) =>
-  row.kind === "activity" &&
-  !isFoldedCopy(row) &&
-  row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
-    ? "editedFiles"
-    : row.kind;
+const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1914,7 +1905,6 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
-  const loginCommand = catalog.find((entry) => entry.id === (snapshot.summary?.harness ?? ""))?.auth?.login;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
   // another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -1956,6 +1946,7 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck]);
+  const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -4429,6 +4420,17 @@ function AcpmuxPane() {
                         snapshot.sessionId && localCwd
                           ? (key: string) =>
                               callNative("git.worktree.apply", { session_id: snapshot.sessionId, idempotency_key: key })
+                          : undefined
+                      }
+                      // Remove cleans the worktree up (cx-lyqio.5); discard only on "Remove anyway".
+                      onRemoveWorktree={
+                        snapshot.sessionId && localCwd
+                          ? (key: string, discard: boolean) =>
+                              callNative("git.worktree.remove", {
+                                session_id: snapshot.sessionId,
+                                idempotency_key: key,
+                                ...(discard ? { discard: true } : {}),
+                              })
                           : undefined
                       }
                       // A merge asks the header again, so the chip shows the pull request merged.

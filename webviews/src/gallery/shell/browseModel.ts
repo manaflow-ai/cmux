@@ -9,6 +9,67 @@ export type BrowseItem = {
 export type BrowseKind = "all" | "static" | "motion";
 export type BrowseMode = "entries" | "variants";
 
+export type BrowseState = {
+  filter: string;
+  kind: BrowseKind;
+  mode: BrowseMode;
+  cycle: boolean;
+  picks: Record<string, string>;
+};
+
+export const DEFAULT_BROWSE: BrowseState = {
+  filter: "",
+  kind: "all",
+  mode: "entries",
+  cycle: false,
+  picks: {},
+};
+
+const BROWSE_QUERY_KEYS = ["browse-filter", "browse-kind", "browse-mode", "browse-cycle", "browse-pick"] as const;
+
+function readPick(value: string): [string, string] | undefined {
+  const separator = value.indexOf("=");
+  if (separator <= 0) return undefined;
+  try {
+    const entry = decodeURIComponent(value.slice(0, separator));
+    const variant = decodeURIComponent(value.slice(separator + 1));
+    return entry && variant ? [entry, variant] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Read the contact-sheet controls that make a Browse URL reproducible. */
+export function readBrowse(params: URLSearchParams): BrowseState {
+  const kind = params.get("browse-kind");
+  const mode = params.get("browse-mode");
+  const picks: Record<string, string> = {};
+  for (const value of params.getAll("browse-pick")) {
+    const pick = readPick(value);
+    if (pick) picks[pick[0]] = pick[1];
+  }
+  return {
+    filter: (params.get("browse-filter") ?? "").trim(),
+    kind: kind === "static" || kind === "motion" ? kind : DEFAULT_BROWSE.kind,
+    mode: mode === "variants" ? mode : DEFAULT_BROWSE.mode,
+    cycle: params.get("browse-cycle") === "1" || params.get("browse-cycle") === "true",
+    picks,
+  };
+}
+
+/** Write only non-default contact-sheet controls, preserving unrelated query keys. */
+export function writeBrowse(state: BrowseState, params = new URLSearchParams()): URLSearchParams {
+  for (const key of BROWSE_QUERY_KEYS) params.delete(key);
+  const filter = state.filter.trim();
+  if (filter) params.set("browse-filter", filter);
+  if (state.kind !== DEFAULT_BROWSE.kind) params.set("browse-kind", state.kind);
+  if (state.mode !== DEFAULT_BROWSE.mode) params.set("browse-mode", state.mode);
+  if (state.cycle) params.set("browse-cycle", "1");
+  for (const [entry, variant] of Object.entries(state.picks).sort(([a], [b]) => a.localeCompare(b)))
+    if (entry && variant) params.append("browse-pick", `${encodeURIComponent(entry)}=${encodeURIComponent(variant)}`);
+  return params;
+}
+
 /** Whether an entry has a recorded play sequence in any of its variants. */
 export function browseHasMotion(entry: GalleryEntry): boolean {
   return Object.values(entry.variants).some((variant) => Boolean(variant.play));
@@ -67,19 +128,24 @@ export function browseMatches(item: BrowseItem, query: string): boolean {
 }
 
 /** Prefer the first variant named by a query so a filtered card shows the state being searched for. */
-function browseMatchedVariant(item: BrowseItem, query: string): string | undefined {
+function browseMatchedVariant(variants: readonly string[], query: string): string | undefined {
   const needle = query.trim().toLowerCase();
   if (!needle) return undefined;
-  return Object.keys(item.entry.variants).find((variant) => variant.toLowerCase().includes(needle));
+  return variants.find((variant) => variant.toLowerCase().includes(needle));
+}
+
+function browseKindMatches(item: BrowseItem, kind: BrowseKind): boolean {
+  return kind === "all" || browseItemHasMotion(item) === (kind === "motion");
 }
 
 /** Filter contact-sheet cards by text and available motion, without changing the stable
- * recommended variant for each entry unless the query names one of its variants. */
+ * recommended variant unless the query or kind selects another matching variant. */
 export function filterBrowseItems(
   entries: readonly GalleryEntry[],
   query: string,
   kind: BrowseKind = "all",
   mode: BrowseMode = "entries",
+  picks: Readonly<Record<string, string>> = {},
 ): BrowseItem[] {
   const needle = query.trim().toLowerCase();
   const variantQuery =
@@ -93,20 +159,19 @@ export function filterBrowseItems(
   return browseItems(entries, mode)
     .filter(
       (item) =>
-        browseMatches(item, query) &&
-        (!variantQuery || variantQuery.size === 0 || variantQuery.has(item.variant)) &&
-        (kind === "all" ||
-          (kind === "motion"
-            ? mode === "variants"
-              ? browseItemHasMotion(item)
-              : browseHasMotion(item.entry)
-            : mode === "variants"
-              ? !browseItemHasMotion(item)
-              : !browseHasMotion(item.entry))),
+        browseMatches(item, query) && (!variantQuery || variantQuery.size === 0 || variantQuery.has(item.variant)),
     )
-    .map((item) =>
-      mode === "entries" ? { ...item, variant: browseMatchedVariant(item, query) ?? item.variant } : item,
-    );
+    .flatMap((item) => {
+      if (mode === "variants") return browseKindMatches(item, kind) ? [item] : [];
+      const variants = Object.keys(item.entry.variants).filter((variant) =>
+        browseKindMatches({ entry: item.entry, variant }, kind),
+      );
+      const variant =
+        browseMatchedVariant(variants, query) ??
+        (picks[item.entry.id] && variants.includes(picks[item.entry.id]!) ? picks[item.entry.id] : undefined) ??
+        (variants.includes(item.variant) ? item.variant : variants[0]);
+      return variant ? [{ ...item, variant }] : [];
+    });
 }
 
 /** A card's external frame link keeps the same env and tunables as its embedded stage. */

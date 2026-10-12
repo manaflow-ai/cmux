@@ -104,6 +104,7 @@
   "diffViewer.sourceStaged": "In stage",
   "diffViewer.sourceUncommitted": "Non committate",
   "diffViewer.sourceUnstaged": "Non in stage",
+  "diffViewer.splitDiffNeedsWiderPane": "Il diff diviso richiede un riquadro più ampio",
   "diffViewer.switchToSplitDiff": "Passa al diff diviso",
   "diffViewer.switchToUnifiedDiff": "Passa al diff unificato",
   "diffViewer.untitled": "Senza titolo",

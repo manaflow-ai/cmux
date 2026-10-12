@@ -1358,8 +1358,10 @@ export class AcpmuxDirectClient {
       }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") {
+    else if (event.kind === "permission_request") {
+      this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
+      this.applyPermission({ ...msg, sessionId: event.sessionId });
+    } else if (event.kind === "permission_decision") {
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
@@ -1582,6 +1584,20 @@ export class AcpmuxDirectClient {
         ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
     }
+  }
+
+  /// A call that asks before it runs waits on its permission ("pending") until an update moves it
+  /// on: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
+  private markAwaitingPermission(callId: unknown): void {
+    const id = callId == null ? undefined : this.toolRows.get(String(callId));
+    const row = id ? this.rows.get(id) : undefined;
+    if (!row) return;
+    const items = (row.items ?? []).map((item) =>
+      item.tool?.id === String(callId) && item.tool.status === "in_progress"
+        ? { ...item, tool: { ...item.tool, status: "pending" } }
+        : item,
+    );
+    this.rows.set(row.id, { ...row, version: row.version + 1, items });
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
