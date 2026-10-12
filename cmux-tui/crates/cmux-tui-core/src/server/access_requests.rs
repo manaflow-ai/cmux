@@ -1,4 +1,4 @@
-//! Requests a Cloud machine's agents make for files of the person's Mac
+//! Requests a Cloud machine's agents make for files and secrets of the person's Mac
 //! (`access-request-v1`, Move to Cloud, cmuxterm-hq#1874 slice 6). An agent
 //! on this machine asks (`cmux link access request`); the app on the
 //! person's Mac lists the requests through its machine link, decides on the
@@ -6,17 +6,26 @@
 //! shares itself (`fs-v1`) and answers here. This daemon only keeps the
 //! requests: it never reaches the Mac and nothing here grants anything.
 //!
-//! - `access-request {kind:"file", path, session?, reason?}`: answers
-//!   `{request_id}`. `path` is the absolute path on the Mac the agent asks
-//!   for, `session` the asking chat's agent session (`CMUX_AGENT_SESSION`),
-//!   `reason` a line for the person.
-//! - `access-request-status {request_id}`: `{state, path?, reason?}`, where
-//!   `state` is `pending`, `delivered` (with the `path` on this machine the
-//!   Mac put the file at) or `denied` (with the Mac's `reason`, if any).
+//! - `access-request {kind:"file", path, session?, reason?}` or
+//!   `{kind:"secret", name, session?, reason?}`: answers `{request_id}`.
+//!   `path` is the absolute path on the Mac the agent asks for, `name` the
+//!   secret's name (plain, at most 128 bytes), `session` the asking chat's
+//!   agent session (`CMUX_AGENT_SESSION`), `reason` a line for the person.
+//! - `access-request-status {request_id}`: `{state, path?, value?, reason?}`,
+//!   where `state` is `pending`, `delivered` (with the `path` on this machine
+//!   the Mac put the file at, or a secret's `value`) or `denied` (with the
+//!   Mac's `reason`, if any). A secret's value is answered to the first
+//!   status read only, then wiped here (`{state:"delivered", taken:true}`).
 //! - `access-request-list {}`: the pending requests, oldest first, as
-//!   `{requests:[{request_id, kind, path, session, reason, age_ms}]}`.
-//! - `access-request-answer {request_id, outcome:"delivered", path}` or
-//!   `{request_id, outcome:"denied", reason?}`: a pending request only.
+//!   `{requests:[{request_id, kind, path, name, session, reason, age_ms}]}`.
+//! - `access-request-answer {request_id, outcome:"delivered", path}` (a
+//!   file), `{request_id, outcome:"delivered", value}` (a secret, at most 64
+//!   KiB) or `{request_id, outcome:"denied", reason?}`: a pending request
+//!   only.
+//!
+//! A secret value is held in memory only, never written or logged, and
+//! wiped when taken or forgotten; only the first status read of its request
+//! answers it.
 //!
 //! Who: trusted local (Unix) connections that are not remote clients, on a
 //! Cloud host only (`agent-transfer-v1`'s host, read at start). The agents
@@ -27,13 +36,15 @@
 //!
 //! Bounds: 64 requests kept, pending or answered; a request is forgotten 15
 //! minutes after it was made or answered. Paths up to 4096 bytes, reasons
-//! up to 1000, sessions up to 200 plain characters.
+//! up to 1000, sessions up to 200 plain characters, secret names up to 128,
+//! secret values up to 64 KiB.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+use zeroize::Zeroizing;
 
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
@@ -47,6 +58,9 @@ const KEPT: Duration = Duration::from_secs(15 * 60);
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_REASON_BYTES: usize = 1000;
 const MAX_SESSION_BYTES: usize = 200;
+const MAX_NAME_BYTES: usize = 128;
+/// The largest secret value a person can share.
+const MAX_SECRET_BYTES: usize = 64 * 1024;
 
 /// The requests this daemon keeps.
 #[derive(Default)]
@@ -56,7 +70,10 @@ pub(crate) struct AccessRequests {
 
 struct Request {
     kind: &'static str,
-    path: String,
+    /// A file request's path on the Mac.
+    path: Option<String>,
+    /// A secret request's name.
+    name: Option<String>,
     session: Option<String>,
     reason: Option<String>,
     made: Instant,
@@ -66,6 +83,9 @@ struct Request {
 
 enum Answer {
     Delivered(String),
+    /// A secret the person shared, until its first status read takes it
+    /// (then None). Wiped from memory when taken or forgotten.
+    Secret(Option<Zeroizing<String>>),
     Denied(Option<String>),
 }
 
@@ -156,16 +176,31 @@ fn handle(
     });
     match cmd {
         "access-request" => {
-            let params = Params::take(params, &["kind", "path", "session", "reason"])?;
-            let kind = match params.text("kind")? {
-                Some("file") => "file",
+            let params = Params::take(params, &["kind", "path", "name", "session", "reason"])?;
+            let (kind, path, name) = match params.text("kind")? {
+                Some("file") => {
+                    let path = params
+                        .text("path")?
+                        .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
+                        .filter(|path| !path.chars().any(char::is_control))
+                        .ok_or(Refusal::BadRequest)?;
+                    if params.text("name")?.is_some() {
+                        return Err(Refusal::BadRequest);
+                    }
+                    ("file", Some(path.to_string()), None)
+                }
+                Some("secret") => {
+                    let name = params
+                        .text("name")?
+                        .filter(|name| plain_name(name))
+                        .ok_or(Refusal::BadRequest)?;
+                    if params.text("path")?.is_some() {
+                        return Err(Refusal::BadRequest);
+                    }
+                    ("secret", None, Some(name.to_string()))
+                }
                 _ => return Err(Refusal::BadRequest),
             };
-            let path = params
-                .text("path")?
-                .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
-                .filter(|path| !path.chars().any(char::is_control))
-                .ok_or(Refusal::BadRequest)?;
             let session = params.text("session")?;
             if session.is_some_and(|session| !plain_session(session)) {
                 return Err(Refusal::BadRequest);
@@ -182,7 +217,8 @@ fn handle(
                 request_id.clone(),
                 Request {
                     kind,
-                    path: path.to_string(),
+                    path,
+                    name,
                     session: session.map(str::to_string),
                     reason: reason.map(str::to_string),
                     made: now,
@@ -194,10 +230,15 @@ fn handle(
         "access-request-status" => {
             let params = Params::take(params, &["request_id"])?;
             let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
-            let request = kept.get(request_id).ok_or(Refusal::UnknownRequest)?;
-            Ok(match &request.answer {
+            let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
+            Ok(match &mut request.answer {
                 None => json!({"state": "pending"}),
                 Some((_, Answer::Delivered(path))) => json!({"state": "delivered", "path": path}),
+                // Only the first read gets the value; it is gone from here after.
+                Some((_, Answer::Secret(value))) => match value.take() {
+                    Some(value) => json!({"state": "delivered", "value": value.as_str()}),
+                    None => json!({"state": "delivered", "taken": true}),
+                },
                 Some((_, Answer::Denied(reason))) => json!({"state": "denied", "reason": reason}),
             })
         }
@@ -213,6 +254,7 @@ fn handle(
                         "request_id": request_id,
                         "kind": request.kind,
                         "path": request.path,
+                        "name": request.name,
                         "session": request.session,
                         "reason": request.reason,
                         "age_ms": now.duration_since(request.made).as_millis() as u64,
@@ -222,17 +264,28 @@ fn handle(
             Ok(json!({ "requests": requests }))
         }
         "access-request-answer" => {
-            let params = Params::take(params, &["request_id", "outcome", "path", "reason"])?;
+            let params =
+                Params::take(params, &["request_id", "outcome", "path", "value", "reason"])?;
             let request_id = params.text("request_id")?.ok_or(Refusal::BadRequest)?;
-            let answer = match params.text("outcome")? {
-                Some("delivered") => Answer::Delivered(
-                    params
-                        .text("path")?
-                        .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
-                        .ok_or(Refusal::BadRequest)?
-                        .to_string(),
-                ),
-                Some("denied") => {
+            let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
+            let answer = match (params.text("outcome")?, request.kind) {
+                (Some("delivered"), "file") if params.text("value")?.is_none() => {
+                    Answer::Delivered(
+                        params
+                            .text("path")?
+                            .filter(|path| path.starts_with('/') && path.len() <= MAX_PATH_BYTES)
+                            .ok_or(Refusal::BadRequest)?
+                            .to_string(),
+                    )
+                }
+                (Some("delivered"), "secret") if params.text("path")?.is_none() => {
+                    let value = params
+                        .text("value")?
+                        .filter(|value| value.len() <= MAX_SECRET_BYTES)
+                        .ok_or(Refusal::BadRequest)?;
+                    Answer::Secret(Some(Zeroizing::new(value.to_string())))
+                }
+                (Some("denied"), _) => {
                     let reason = params.text("reason")?;
                     if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                         return Err(Refusal::BadRequest);
@@ -241,7 +294,6 @@ fn handle(
                 }
                 _ => return Err(Refusal::BadRequest),
             };
-            let request = kept.get_mut(request_id).ok_or(Refusal::UnknownRequest)?;
             if request.answer.is_some() {
                 return Err(Refusal::Answered);
             }
@@ -271,6 +323,13 @@ impl Params {
             Some(_) => Err(Refusal::BadRequest),
         }
     }
+}
+
+/// A secret's name: what the agent asks for (`GITHUB_TOKEN`, `npm.token`).
+fn plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_NAME_BYTES
+        && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
 fn plain_session(session: &str) -> bool {
