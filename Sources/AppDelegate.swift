@@ -10758,11 +10758,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
             }
         }
-        // cmux owns pane focus/selection. Each Bonsplit pane nests another
-        // hosting view, and AppKit's automatic key-view walk asks every nested
-        // host for first-responder candidates, so a deep split chain pinned the
-        // main thread on mount and on workspace switches (#10311, #16393).
-        window.autorecalculatesKeyViewLoop = false
+        // cmux owns pane focus/selection; AppKit's automatic key-view walk is
+        // recursively traversed while a restored Bonsplit topology is mounted.
+        // Suppress that walk only for the restore transaction; ordinary windows
+        // retain AppKit's default key-view behavior.
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = false
+        }
         window.contentView = MainWindowHostingView(rootView: root)
 
         // Apply shared window styling.
@@ -10845,6 +10847,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
             deferBrowserPanels: isRestoringSessionWindowSnapshot
         )
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = true
+            window.recalculateKeyViewLoop()
+        }
         // The initial workspace predates its NSWindow attachment. Set the
         // native title before discovery so window-manager rules see its name.
         tabManager.refreshWindowTitle()
