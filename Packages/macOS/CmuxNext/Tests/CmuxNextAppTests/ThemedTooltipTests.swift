@@ -47,7 +47,8 @@ import Testing
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
         #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
         let fill = try #require(panel.contentView?.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        #expect(Self.same(fill, scope.perform { Palette.elevatedBackground }))
+        // The solid popup surface (`Palette.popupSurface`), like every overlay that carries text.
+        #expect(Self.same(fill, scope.tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor))
         #expect(panel.contentView?.layer?.cornerRadius == TooltipPanel.radius)
 
         // Below the button, centered on it.
