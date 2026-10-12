@@ -48,6 +48,13 @@ final class WorkspaceColorSwatchView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(title)
+        // VoiceOver offers each color as an action of the row.
+        setAccessibilityCustomActions(choices.indices.map { index in
+            NSAccessibilityCustomAction(name: choices[index].title) { [weak self] in
+                self?.run(index)
+                return self != nil
+            }
+        })
     }
 
     @available(*, unavailable)
@@ -99,38 +106,9 @@ final class WorkspaceColorSwatchView: NSView {
         run(index)
     }
 
-    fileprivate func run(_ index: Int) {
+    private func run(_ index: Int) {
         let choice = choices[index]
         enclosingMenuItem?.menu?.cancelTracking()
         if let action = choice.action { NSApp.sendAction(action, to: choice.target, from: choice) }
-    }
-
-    /// VoiceOver reaches each swatch as a button named by its color.
-    override func accessibilityChildren() -> [Any]? {
-        choices.indices.map { index in
-            let element = SwatchElement(row: self, index: index)
-            element.setAccessibilityRole(.button)
-            element.setAccessibilityLabel(choices[index].title)
-            element.setAccessibilityParent(self)
-            element.setAccessibilityFrameInParentSpace(index < swatches.count ? swatches[index] : .zero)
-            return element
-        }
-    }
-}
-
-private final class SwatchElement: NSAccessibilityElement {
-    private weak var row: WorkspaceColorSwatchView?
-    private let index: Int
-
-    init(row: WorkspaceColorSwatchView, index: Int) {
-        self.row = row
-        self.index = index
-        super.init()
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        guard let row else { return false }
-        row.run(index)
-        return true
     }
 }
