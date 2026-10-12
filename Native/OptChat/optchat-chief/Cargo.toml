@@ -57,3 +57,9 @@ test-in-process-peer = []
 [dev-dependencies]
 optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"
+
+# The Chief ships in the app bundle (Resources/bin): fat LTO with one codegen
+# unit, like the cmux-tui client, keeps it small.
+[profile.release]
+lto = "fat"
+codegen-units = 1
