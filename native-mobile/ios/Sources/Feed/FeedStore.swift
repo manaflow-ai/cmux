@@ -57,6 +57,9 @@ final class FeedStore {
     private(set) var items: [FeedItem] = []
     var filter: Filter = .all
     @ObservationIgnored private weak var connection: HostConnection?
+    /// Posts already filled from their terminal. Each enrich reads the whole
+    /// scrollback over the link; a reconnect's backfill must not redo them.
+    @ObservationIgnored private var enriched: Set<String> = []
 
     var visible: [FeedItem] {
         switch filter {
@@ -71,6 +74,7 @@ final class FeedStore {
     func attach(_ connection: HostConnection) {
         self.connection = connection
         items = []
+        enriched = []
     }
 
     /// Loads existing notifications (HostConnection calls it on connect).
@@ -150,9 +154,14 @@ final class FeedStore {
 
     /// Reads the terminal once to fill the quote, the body and the choices.
     func enrich(_ id: String) async {
-        guard let connection, let index = items.firstIndex(where: { $0.id == id }), let surface = items[index].surface else { return }
+        guard !enriched.contains(id), let connection, let index = items.firstIndex(where: { $0.id == id }),
+              let surface = items[index].surface else { return }
+        enriched.insert(id)
         let text = await connection.scrollback(surface: surface)
-        guard !text.isEmpty, let current = items.firstIndex(where: { $0.id == id }) else { return }
+        guard !text.isEmpty, let current = items.firstIndex(where: { $0.id == id }) else {
+            enriched.remove(id)
+            return
+        }
         let parsed = FeedTextParser.parse(text, columns: connection.tab(surface: surface)?.size?.cols)
         if items[current].quote == nil { items[current].quote = parsed.lastPrompt }
         if items[current].body.count < 40, let reply = parsed.lastReply { items[current].body = reply }
