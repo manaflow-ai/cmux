@@ -24,6 +24,10 @@ final class CloudMoveRetries {
         var name: String?
         /// The move's id: makes the tab's creation idempotent.
         var key: String
+        /// For a chat Bring Back Local moved here: its ledger entry's machine tab host and session,
+        /// forgotten once the tab opened (``CloudMovedChats``).
+        var host: String?
+        var movedSession: String?
     }
 
     private var pending: [String: Retry] = [:]
