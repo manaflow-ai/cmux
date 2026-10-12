@@ -443,10 +443,14 @@ fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Valu
         if request.envelope.operation != ResourceOperation::BrowserClose
             && surface.browser_source().is_none()
         {
-            return Err(browser_not_ready_error(
-                &surface,
-                super::operation_name(request.envelope.operation),
-            ));
+            let operation = super::operation_name(request.envelope.operation);
+            if surface.browser_status().is_none_or(|status| status == BrowserStatus::Starting)
+                && !mux.is_frontend_browser_surface(&surface)
+                && let Some(error) = mux.browser_engine_unavailable(&operation)
+            {
+                return Err(error);
+            }
+            return Err(browser_not_ready_error(&surface, operation));
         }
         Ok(json!({"browser_id":browser_id,"fields":fields}))
     })?;
