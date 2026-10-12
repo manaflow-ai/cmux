@@ -75,8 +75,12 @@ final class DividerHandleView: NSView {
         needsLayout = true
     }
 
+    /// Layout calls since the handle was made (tests: a focus move lays out no handle, cx-3j8y.2).
+    private(set) var layoutCount = 0
+
     override func layout() {
         super.layout()
+        layoutCount += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         line.frame = lineFrame
