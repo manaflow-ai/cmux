@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -59,6 +59,19 @@ struct BrowserCloseHistoryTests {
         let shown = try #require(saved.entries.indices.contains(saved.index) ? saved.entries[saved.index] : nil)
         #expect(shown.url == Self.b.absoluteString, "the navigation in the debounce was lost")
         #expect(shown.scrollY == 640, "the scroll position was not measured at the close")
+    }
+
+    /// The close command's own step (`DaemonService.closeCommand`, shared by
+    /// the strip, the palette, the menu and the CLI) reaches the page by its
+    /// surface on its machine.
+    @Test func theCloseCommandSavesThePageOfItsSurface() async throws {
+        let daemon = Daemon()
+        let (_, page, tab) = try await Self.tracked(daemon)
+        page.load(Self.b)
+        await DaemonService.prepareClose("other-machine", [tab.surface])
+        #expect(daemon.stored.isEmpty, "a close on another machine saved this page")
+        await DaemonService.prepareClose("local", [tab.surface])
+        #expect(daemon.stored.last.map { $0.entries[$0.index].url } == Self.b.absoluteString)
     }
 
     @Test func aDaemonThatDoesNotAnswerHoldsTheCloseOnlyBriefly() async throws {
