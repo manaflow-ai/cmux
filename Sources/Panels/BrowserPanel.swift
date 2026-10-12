@@ -4488,8 +4488,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint?,
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
-        // A late exchange must not replace the reattached context; the page
-        // is requested again below under the new workspace's rules.
+        // A late exchange must not replace the reattached context. A store
+        // swap restores the page itself; otherwise it is requested again below.
         let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
         cancelAppSessionBootstrap()
         workspaceId = newWorkspaceId
@@ -4513,7 +4513,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
-        if let appSessionDestinationURL {
+        if let appSessionDestinationURL, !needsStoreSwap {
             navigate(to: appSessionDestinationURL)
         }
     }
@@ -4530,9 +4530,8 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfileStore.shared.noteUsed(resolvedProfileID)
             return false
         }
-        // A pending app page has no live URL to restore, so request it again
-        // in the new profile once the switch completes.
-        let appSessionDestinationURL = appSessionBootstrapTask != nil ? currentURL : nil
+        // The restore below requests a pending app page again from
+        // `currentURL`, which runs a fresh exchange in the new profile.
         cancelAppSessionBootstrap()
 
         let previousWebView = webView
@@ -4613,9 +4612,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
         if restoreDeveloperTools {
             requestDeveloperToolsRefreshAfterNextAttach(reason: "profile_switch")
-        }
-        if let appSessionDestinationURL {
-            navigate(to: appSessionDestinationURL)
         }
 
         return true

@@ -447,7 +447,7 @@ struct BrowserWebContentProcessTests {
             remoteStatus: nil
         )
         let secondExchange = panel.appSessionBootstrapTask
-        guard await eventually({ pendingExchanges.count == 2 }) else {
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
             pendingExchanges.forEach { $0.resume() }
             Issue.record("Reattach did not restart the app-session exchange")
             return
@@ -455,6 +455,8 @@ struct BrowserWebContentProcessTests {
         pendingExchanges.forEach { $0.resume() }
         await firstExchange?.value
         await secondExchange?.value
+
+        #expect(pendingExchanges.count == 2)
 
         #expect(firstExchange?.isCancelled == true)
         #expect(secondExchange != nil)
@@ -495,7 +497,7 @@ struct BrowserWebContentProcessTests {
 
         #expect(panel.switchToProfile(profile.id))
         let secondExchange = panel.appSessionBootstrapTask
-        guard await eventually({ pendingExchanges.count == 2 }) else {
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
             pendingExchanges.forEach { $0.resume() }
             Issue.record("The profile switch dropped the pending app page")
             return
@@ -504,6 +506,8 @@ struct BrowserWebContentProcessTests {
         await firstExchange?.value
         await secondExchange?.value
 
+        // The switch requests the page once, not once per restore path.
+        #expect(pendingExchanges.count == 2)
         #expect(firstExchange?.isCancelled == true)
         #expect(secondExchange?.isCancelled == false)
         #expect(panel.currentURL == pricingURL)
