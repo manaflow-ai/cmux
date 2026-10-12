@@ -92,9 +92,7 @@ async function renderNewTab(persisted: { showDictation: boolean }) {
         lastAgent="claude"
         cwd="/Users/you/src/app"
         dictationField={field}
-        accessory={
-          <DictationMic dictation={dictation} onShowDictation={(show) => void call("pane.showDictation", { show })} />
-        }
+        accessory={<DictationMic dictation={dictation} />}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}

@@ -6,6 +6,8 @@ import { cx } from "./cx";
 export interface ContextMenuItem {
   id: string;
   label: ReactNode;
+  /** An icon before the label, as macOS shows on items such as Hide (HideableChrome.tsx). */
+  icon?: ReactNode;
   ariaLabel?: string;
   disabled?: boolean;
   destructive?: boolean;
@@ -27,6 +29,16 @@ export interface ContextMenuProps {
   /** Targets (a CSS selector) that keep the host's own menu, such as a text field's Cut, Copy and Paste. */
   ignore?: string;
 }
+
+/** Inline, as the placement is: the agent pane does not load ui.css. */
+const MENU_ICON = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 16,
+  height: 16,
+  flex: "none",
+} as const;
 
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
@@ -103,6 +115,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
     <div
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
+        // A menu inside this host already took the right-click (its own item's Hide, inside a
+        // row's Show); a host with no items keeps the default.
+        if (event.defaultPrevented || items.length === 0) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
@@ -167,6 +182,11 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                          {item.icon}
+                        </span>
+                      ) : null}
                       {typeof item.label === "string" ? (
                         <span className="ui-menu-label" title={item.label}>
                           {item.label}

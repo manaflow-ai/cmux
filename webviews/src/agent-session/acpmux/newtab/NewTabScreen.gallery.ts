@@ -112,6 +112,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
+    "ui/HideableChrome.tsx#HideableChrome",
+    "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -384,7 +386,7 @@ export default agentPaneEntry({
       },
     },
     "dictation-menu": {
-      note: "Right-click on the mic offers Hide dictation button, which hides it in every composer until Settings shows it (cx-32bdm).",
+      note: "Right-click on the mic offers Hide Dictation Button, which hides it in every composer until a right-click on the button row offers Show Dictation Button (cx-32bdm, cx-wab7m).",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       checks: {
@@ -398,8 +400,33 @@ export default agentPaneEntry({
           new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
         );
         await ctx.waitFor(
-          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide dictation button",
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide Dictation Button",
         );
+      },
+    },
+    "dictation-show": {
+      note: "Hidden from its own right-click, the mic comes back from the same row: a right-click there offers Show Dictation Button (cx-wab7m).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The row's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0.1, reason: "Hiding the mic only closes its 24px gap beside Send." },
+      },
+      play: async (ctx) => {
+        const rightClick = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          element.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+          );
+        };
+        const item = (label: string) =>
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) => row.textContent === label);
+        rightClick(ctx.find({ selector: ".nt-pickers .acpmux-mic" }));
+        await ctx.waitFor(() => item("Hide Dictation Button"));
+        item("Hide Dictation Button")!.click();
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
+        rightClick(ctx.find({ selector: ".nt-pickers .nt-enter" }));
+        await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
     "template-composer": {
