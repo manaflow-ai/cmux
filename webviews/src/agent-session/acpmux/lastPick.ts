@@ -1,8 +1,12 @@
 // The harness and model picked last (Leo 2026-10-11): a New Tab, a new chat and a relaunch start on
 // it instead of a harness's first model. Kept for every folder and for the folder it was picked in;
-// in that folder its own pick wins. Per viewer, in this page's storage; a missing or blocked store
-// only means the harness's own default.
+// in that folder its own pick wins. The app keeps it (`newTab.remember`): this page's storage ends
+// with the launch (its web view's store is not persistent), so the New Tab context brings the app's
+// copy back (`lastPicks`, seedLastPicks). A missing or blocked store only means the harness's own
+// default.
+import { useMemo, useSyncExternalStore } from "react";
 import { isDefaultChoice } from "./defaultChoice";
+import { postNative } from "./native";
 
 export type LastPick = { harness: string; model: string };
 type Stored = { global?: LastPick; folders?: Record<string, LastPick> };
@@ -16,6 +20,51 @@ function isPick(value: unknown): value is LastPick {
   return (
     typeof pick?.harness === "string" && typeof pick.model === "string" && pick.harness !== "" && pick.model !== ""
   );
+}
+
+type FolderPick = LastPick & { folder: string };
+
+function isFolderPick(value: unknown): value is FolderPick {
+  return (
+    isPick(value) && typeof (value as Partial<FolderPick>).folder === "string" && (value as FolderPick).folder !== ""
+  );
+}
+
+const listeners = new Set<() => void>();
+function changed(): void {
+  for (const listener of listeners) listener();
+}
+
+function write(stored: Stored): void {
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Storage unavailable: the next new chat starts on the harness's own default.
+  }
+}
+
+/// The app's copy (the New Tab context's `lastPicks`: `{global, folders: [{folder, harness, model}]}`,
+/// oldest folder first) replaces this page's: the app has every pick this page sent it.
+export function seedLastPicks(value: unknown): void {
+  if (!value || typeof value !== "object") return;
+  const { global, folders } = value as { global?: unknown; folders?: unknown };
+  const kept = (Array.isArray(folders) ? folders.filter(isFolderPick) : []).slice(-MAX_FOLDERS);
+  write({
+    ...(isPick(global) ? { global: { harness: global.harness, model: global.model } } : {}),
+    folders: Object.fromEntries(kept.map((pick) => [pick.folder, { harness: pick.harness, model: pick.model }])),
+  });
+  changed();
+}
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+/// `lastPick(folder)`, drawn again when a pick is remembered or the app's copy arrives.
+export function useLastPick(folder?: string): LastPick | undefined {
+  const key = useSyncExternalStore(subscribe, () => JSON.stringify(lastPick(folder) ?? null));
+  return useMemo(() => (JSON.parse(key) as LastPick | null) ?? undefined, [key]);
 }
 
 function read(): Stored {
@@ -35,21 +84,17 @@ function read(): Stored {
 /// Remembers `pick` for every folder and for `folder`. The agent's own "default" is not a pick.
 export function rememberPick(pick: LastPick, folder?: string): void {
   if (!isPick(pick) || isDefaultChoice({ id: pick.model })) return;
-  try {
-    const stored = read();
-    const folders = { ...stored.folders };
-    if (folder) {
-      delete folders[folder];
-      folders[folder] = pick;
-    }
-    const kept = Object.entries(folders).slice(-MAX_FOLDERS);
-    globalThis.localStorage?.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ global: pick, folders: Object.fromEntries(kept) } satisfies Stored),
-    );
-  } catch {
-    // Storage unavailable: the next new chat starts on the harness's own default.
+  const stored = read();
+  const folders = { ...stored.folders };
+  if (folder) {
+    delete folders[folder];
+    folders[folder] = pick;
   }
+  write({ global: pick, folders: Object.fromEntries(Object.entries(folders).slice(-MAX_FOLDERS)) });
+  changed();
+  const params = { agent: pick.harness, model: pick.model, ...(folder ? { folder } : {}) };
+  const direct = window.cmuxAcpmuxActions?.["newTab.remember"];
+  void (direct ? direct(params) : postNative("newTab.remember", params)).catch(() => undefined);
 }
 
 /// The last pick in `folder`, else the last pick anywhere.

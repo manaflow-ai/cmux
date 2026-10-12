@@ -54,6 +54,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var templateSwitcher: Bool?
     /// The agent last picked.
     public var lastAgent: String?
+    /// The harness and model picked last, anywhere and per folder; nil when none was.
+    public var lastPicks: AgentPaneLastPicks?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
     /// Actions available from the New Tab page's Tools section.
@@ -73,8 +75,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
-                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil,
-                templateSwitcher: Bool? = nil) {
+                lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil, tools: [Tool] = [],
+                template: String? = nil, templateSwitcher: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -88,6 +90,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.template = template
         self.templateSwitcher = templateSwitcher
         self.lastAgent = lastAgent
+        self.lastPicks = lastPicks
         self.home = home
         self.tools = tools
         self.inputToken = nil

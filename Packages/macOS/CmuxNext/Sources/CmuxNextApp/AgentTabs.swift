@@ -363,17 +363,13 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
-        model.onTypeAhead = { [weak self] text in
-            guard let self else { return }
-            let key = resolve(provisional)
-            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
-        }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in
             guard let self else { return }
             let key = resolve(provisional)
             newTabPages[key]?.handler.inputReady(key, token)
         }
-        model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
+        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
@@ -437,6 +433,8 @@ final class AgentTabStore {
     func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
 
     func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
+    /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
+    func pageHandler(_ key: String) -> NewTabPageHandler? { newTabPages[resolve(key)]?.handler ?? blankChatHandler?(resolve(key)) }
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }

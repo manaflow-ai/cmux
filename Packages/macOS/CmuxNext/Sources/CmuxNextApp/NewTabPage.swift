@@ -22,8 +22,8 @@ struct NewTabPageHandler {
     var inputReady: (String, String) -> Void = { _, _ in }
     /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
     var typeAhead: (String, String) -> Void = { _, _ in }
-    /// The agent the screen picked, remembered on this Mac.
-    var remember: (String) -> Void = { _ in }
+    /// The agent the screen picked, and the model picked on it, remembered on this Mac.
+    var remember: (AgentPaneRememberedPick) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -225,7 +225,7 @@ enum NewTabPage {
             projects: machine.remoteFolders ?? projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
-            lastAgent: services.newTabChoices.agent,
+            lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home, tools: tools(services, targetID: selected?.id),
             template: (services.newTabChoices.template(in: (window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active)?.window)
                 ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
@@ -238,7 +238,8 @@ enum NewTabPage {
     static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
-            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
+            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
+            lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
@@ -256,7 +257,7 @@ enum NewTabPage {
         NewTabPageHandler(
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
-            remember: { [weak services] agent in services?.newTabChoices.remember(agent: agent) },
+            remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
