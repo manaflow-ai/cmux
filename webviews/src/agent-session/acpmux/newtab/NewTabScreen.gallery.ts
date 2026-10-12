@@ -106,6 +106,11 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        // Quiet rows, one line each (the fleet capture drew them 86px tall).
+        const tall = [...ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card")].filter(
+          (row) => row.getBoundingClientRect().height > 32,
+        );
+        if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
       },
     },
     "many-chats": {

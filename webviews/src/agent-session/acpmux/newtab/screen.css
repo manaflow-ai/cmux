@@ -109,6 +109,8 @@
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  /* One line: the card's own 84px floor drew each row three lines tall. */
+  min-height: 0;
   height: 30px;
   padding: 0 10px;
   border-radius: 8px;
