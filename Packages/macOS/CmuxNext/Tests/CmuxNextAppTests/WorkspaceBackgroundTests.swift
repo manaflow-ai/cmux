@@ -51,6 +51,34 @@ import Testing
         #expect(room.backdropSelection == .art(.goyaSaturn))
     }
 
+    /// A workspace's own Opacity over art: its window draws that tint, a top page the work's own,
+    /// and the legibility floor still keeps text readable however low it goes.
+    @Test func aWorkspacesOpacityTintsItsArtAndKeepsTextLegible() {
+        let room = ThemeScope(level: .room)
+        let workspace = ThemeScope(level: .workspace, parent: room)
+        workspace.pinBackdropTint(0.8)
+        room.show(workspace)
+        #expect(room.backdropTintOpacity == 0.8)
+        room.show(nil)
+        #expect(room.backdropTintOpacity == nil)
+        workspace.pinBackdropTint(1)
+        #expect(workspace.backdropTintOpacity == WindowBackdrop.maximumWorkspaceTint)
+        // A hand-edited "nan" follows the work's tint rather than turning the window opaque.
+        workspace.pinBackdropTint(.nan)
+        #expect(workspace.backdropTintOpacity == nil)
+
+        let tokens = ThemeTokens.unresolved
+        let own = WindowBackdrop(tokens, selection: Self.work)
+        let dense = WindowBackdrop(tokens, selection: Self.work, tintOpacity: 0.9)
+        let clear = WindowBackdrop(tokens, selection: Self.work, tintOpacity: 0)
+        #expect(dense.tintOpacity == max(0.9, dense.legibleTintOpacity))
+        #expect(dense.tintOpacity >= own.tintOpacity)
+        #expect(clear.tintOpacity == clear.legibleTintOpacity)
+        #expect(!WindowBackdrop(tokens, selection: Self.work, tintOpacity: 1).isOpaque)
+        // Without art the window's own opacity stands.
+        #expect(WindowBackdrop(tokens, tintOpacity: 0.3) == WindowBackdrop(tokens))
+    }
+
     @Test func aWorkspaceBackgroundSurvivesARelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-workspace-backgrounds-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -126,6 +154,26 @@ import Testing
         #expect(store.background(for: "ws") == "none")
         _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "value": .null])
         #expect(store.background(for: "ws") == nil)
+
+        // This Workspace's Opacity: previewed while the slider moves, saved, cleared, 0...1 only.
+        var tint: Double?
+        var tintPreview: Double?? = nil
+        page.workspaceBackgrounds?.opacity = SettingsWorkspaceOpacity(
+            value: { _ in tintPreview ?? tint }, set: { value, _ in tintPreview = nil; tint = value },
+            preview: { value, _ in tintPreview = value })
+        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "opacity": 0.7], gesture: false)
+        #expect(try await call("cmux.settings.backdrop.workspace", ["workspace": "ws"])["opacity"] == 0.7)
+        #expect(tint == nil)
+        _ = try await call("cmux.settings.backdrop.workspace.preview", ["workspace": "ws", "end": true], gesture: false)
+        #expect(tintPreview == nil)
+        _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "opacity": 0.4])
+        #expect(tint == 0.4)
+        #expect(store.background(for: "ws") == nil)
+        _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "opacity": .null])
+        #expect(tint == nil)
+        await #expect(throws: PageError.self) {
+            _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "opacity": 2])
+        }
 
         await #expect(throws: PageError.self) {
             _ = try await call("cmux.settings.backdrop.workspace.set", ["workspace": "ws", "value": "none"], gesture: false)
