@@ -41,6 +41,22 @@ struct CloudBringBackTests {
         }
     }
 
+    /// A revoke that fails after a bring back (the machine didn't answer) never fails the bring back
+    /// and is tried again, until it answers ok.
+    @Test func aRevokeThatFailsIsTriedAgainUntilItIsDone() async throws {
+        try await Self.withRoundTrip("revokeOnce") { trip in
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
+            @MainActor func revokes() -> Int { trip.accessCalls().filter { $0 == revoke }.count }
+            try await trip.waitUntil { revokes() >= 2 }
+            #expect(revokes() == 2, "the failed revoke was not tried again once, or not stopped after it was done: \(trip.accessCalls())")
+            // Done: no more tries.
+            try? await Task.sleep(for: .seconds(8))
+            #expect(revokes() == 2, "\(trip.accessCalls())")
+        }
+    }
+
     /// A moved chat's agent asks for a file of this Mac (cmuxterm-hq#1874 slice 6): the app's triage
     /// lists it, and the chat's tab on the machine shows a card with Allow once, Always and Deny.
     /// A click without a real gesture in the pane answers nothing; the person's Always answers with
@@ -252,7 +268,7 @@ struct CloudBringBackTests {
 
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
-    /// has the chat ask for a file).
+    /// has the chat ask for a file; `revokeOnce` fails the first `link access revoke`).
     private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
@@ -338,6 +354,7 @@ struct CloudBringBackTests {
         let url = root.appendingPathComponent("cmux")
         let pulled = root.appendingPathComponent("pulled").path
         let answered = root.appendingPathComponent("answered").path
+        let revokedOnce = root.appendingPathComponent("revoked-once").path
         let project = root.appendingPathComponent("proj").path, plan = project + "/plan.md"
         let script = """
             #!/bin/sh
@@ -375,7 +392,11 @@ struct CloudBringBackTests {
                 fi ;;
             "link access answer") touch '\(answered)'; echo '{"ok":true}' ;;
             "link access sync") echo '{"ok":true,"synced":[]}' ;;
-            "link access revoke") echo '{"ok":true}' ;;
+            "link access revoke")
+                if [ '\(mode)' = revokeOnce ] && [ ! -f '\(revokedOnce)' ]; then
+                    touch '\(revokedOnce)'; echo '{"ok":false,"error":"the machine did not answer","error_code":"link_error"}'; exit 1
+                fi
+                echo '{"ok":true}' ;;
             *) exit 64 ;;
             esac
 
