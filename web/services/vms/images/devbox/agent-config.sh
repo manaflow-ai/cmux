@@ -97,9 +97,70 @@ cmux_write_agent_configs() {
   # Parse logical TOML keys, including quoted and dotted forms. Invalid user
   # configuration is preserved so a shell startup cannot damage it further.
   if [ -n "${OPENAI_BASE_URL-}" ] && python3 - "$HOME/.codex/config.toml" 2>/dev/null <<'CMUX_TOML_CHECK'
-import pathlib, sys, tomllib
+import pathlib, re, sys
+
 config = pathlib.Path(sys.argv[1])
-data = tomllib.loads(config.read_text()) if config.exists() else {}
+if not config.exists():
+    sys.exit(0)
+
+text = config.read_text()
+try:
+    import tomllib
+except ImportError:
+    # Ubuntu 24.04 has tomllib in its system Python, but the macOS developer
+    # image used by the template tests still ships Python 3.9. The fallback
+    # only answers the narrow question this guard needs: whether an existing
+    # config already owns the model provider/history tables. It is conservative
+    # around malformed quoted lines so a shell startup never replaces a file
+    # that the full parser would reject.
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        quote_count = 0
+        escaped = False
+        for char in stripped:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char in ("'", '"'):
+                quote_count += 1
+        if quote_count % 2:
+            sys.exit(1)
+
+    current_table = ""
+    key_pattern = re.compile(r"^\s*(?P<key>(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+)(?:\s*\.\s*(?:\"(?:[^\"\\]|\\.)*\"|'[^']*'|[A-Za-z0-9_-]+))*)\s*=")
+    table_pattern = re.compile(r"^\s*\[\s*(?P<table>.*?)\s*\]\s*$")
+
+    def unquote(part):
+        part = part.strip()
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ("'", '"'):
+            value = part[1:-1]
+            if part[0] == '"':
+                value = re.sub(r"\\u([0-9a-fA-F]{4})", lambda match: chr(int(match.group(1), 16)), value)
+            return value
+        return part
+
+    def parts(value):
+        return [unquote(part) for part in re.split(r"\s*\.\s*", value)]
+
+    for line in text.splitlines():
+        table = table_pattern.match(line)
+        if table:
+            current_table = ".".join(parts(table.group("table")))
+            if current_table in ("history", "model_providers.cmux"):
+                sys.exit(1)
+            continue
+        key = key_pattern.match(line)
+        if not key:
+            continue
+        path = parts(key.group("key"))
+        if (not current_table and path[:1] in (["model_provider"], ["history"])) or path[:2] == ["model_providers", "cmux"]:
+            sys.exit(1)
+    sys.exit(0)
+
+data = tomllib.loads(text)
 providers = data.get("model_providers", {})
 managed = "model_provider" in data or "history" in data or not isinstance(providers, dict) or "cmux" in providers
 sys.exit(1 if managed else 0)
@@ -203,8 +264,17 @@ CMUX_TOML_CHECK
 # config: the opencode launcher layers it on (OPENCODE_CONFIG) only in team
 # mode, so an own-login launch sees none of them (agent-auth.sh).
 cmux_ensure_opencode_config() {
-  [ -e "$HOME/.config/cmux/opencode-team.json" ] && return 0
-  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
+  local cmux_opencode_return cmux_opencode_status cmux_opencode_team_config
+  cmux_opencode_team_config="$HOME/.config/cmux/opencode-team.json"
+  if [ -e "$cmux_opencode_team_config" ]; then
+    # The team provider file is the selected OpenCode config in team mode.
+    # Register CUA here as well as in the launcher so direct shell helpers
+    # and concurrent config discovery receive the same local MCP server.
+    OPENCODE_CONFIG="$cmux_opencode_team_config" cmux_write_cua_mcp_config allow-missing
+    unset cmux_opencode_team_config
+    return 0
+  fi
+  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || { unset cmux_opencode_team_config; return 0; }
   python3 - <<'CMUX_OPENCODE_CONFIG'
 import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
@@ -289,6 +359,203 @@ with (state / "opencode-config.lock").open("a") as lock:
         failure.write_text(str(time.time()))
         unavailable()
 CMUX_OPENCODE_CONFIG
+  cmux_opencode_status=$?
+  if [ "$cmux_opencode_status" -ne 0 ]; then
+    cmux_opencode_return=$cmux_opencode_status
+    unset cmux_opencode_team_config cmux_opencode_status
+    return "$cmux_opencode_return"
+  fi
+  # The config was written atomically above; add the local driver without
+  # changing the provider catalog or any user-owned keys.
+  OPENCODE_CONFIG="$cmux_opencode_team_config" cmux_write_cua_mcp_config allow-missing
+  unset cmux_opencode_team_config cmux_opencode_status
+}
+
+# Computer use is an MCP server local to the VM, not part of the model-plane
+# provider config. Register it in each bundled agent's native config while
+# preserving any user-owned entries. A fresh Cloud VM otherwise has the
+# driver and desktop but no MCP entry, so agents silently launch without
+# computer-use tools. The operation is idempotent and leaves malformed files
+# and symlinks untouched rather than replacing user configuration.
+cmux_write_cua_mcp_config() {
+  local mode="${1-}" driver
+  driver=$(command -v cua-driver 2>/dev/null || true)
+  [ -x "$driver" ] || return 0
+  CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" \
+    CMUX_CUA_OPENCODE_CONFIG="${OPENCODE_CONFIG-}" python3 - <<'CMUX_CUA_CONFIG'
+import json
+import os
+import pathlib
+import stat
+import sys
+import tempfile
+
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+home = pathlib.Path(os.environ["CMUX_CUA_CONFIG_HOME"])
+driver = os.environ["CMUX_CUA_DRIVER_BIN"]
+allow_missing = os.environ.get("CMUX_CUA_ALLOW_MISSING") == "allow-missing"
+opencode_config = os.environ.get("CMUX_CUA_OPENCODE_CONFIG")
+
+
+def report_os_error(label):
+    print(f"cmux: unable to update {label} computer-use configuration; keeping existing settings.", file=sys.stderr)
+
+
+def load_json(path, label):
+    # Do not follow a user-owned link, including a dangling one.
+    try:
+        if path.is_symlink():
+            return None
+        if not path.exists():
+            return {}
+        value = json.loads(path.read_text())
+    except OSError:
+        report_os_error(label)
+        return None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def atomic_write(path, contents, label):
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
+        with os.fdopen(fd, "w") as stream:
+            stream.write(contents)
+            os.fchmod(stream.fileno(), mode)
+        os.replace(temporary, path)
+        temporary = None
+        return True
+    except OSError:
+        report_os_error(label)
+        return False
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                report_os_error(label)
+
+
+def atomic_json(path, document, label):
+    return atomic_write(path, json.dumps(document, indent=2) + "\n", label)
+
+
+def add_json_server(path, key, name, server, label, create_if_missing=True):
+    document = load_json(path, label)
+    if document is None or (not path.exists() and not create_if_missing):
+        return
+    servers = document.get(key)
+    if servers is None:
+        document[key] = {name: server}
+        atomic_json(path, document, label)
+    elif isinstance(servers, dict) and name not in servers:
+        servers[name] = server
+        atomic_json(path, document, label)
+
+
+# Claude Code stores user-scoped MCP servers alongside its onboarding state.
+add_json_server(
+    home / ".claude.json",
+    "mcpServers",
+    "cua-computer-use",
+    {"command": driver, "args": ["mcp", "--claude-code-computer-use-compat"]},
+    "Claude Code",
+)
+
+
+def toml_document(raw):
+    if tomllib is None:
+        # The image ships Python 3.12, but development hosts may expose the
+        # system Python 3.9. Accept the small, line-oriented TOML subset used
+        # by Codex MCP configuration there. Refuse anything that is not
+        # obviously a section or assignment so malformed user files remain
+        # untouched; the image path still gets full tomllib validation below.
+        if not raw.strip():
+            return {}
+        sections = {}
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            quote_count = 0
+            escaped = False
+            for char in stripped:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char in ("'", '"'):
+                    quote_count += 1
+            if quote_count % 2:
+                return None
+            if stripped.startswith("["):
+                if not stripped.endswith("]"):
+                    return None
+                section = stripped[1:-1].strip()
+                if not section:
+                    return None
+                sections[section] = {}
+            elif "=" not in stripped:
+                return None
+        servers = {}
+        for section in sections:
+            prefix = "mcp_servers."
+            if section.startswith(prefix) and section[len(prefix):]:
+                servers[section[len(prefix):]] = {}
+        return {"mcp_servers": servers} if servers else {}
+    try:
+        return tomllib.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def add_codex_server(path):
+    try:
+        if path.is_symlink():
+            return
+        raw = path.read_text() if path.exists() else ""
+    except OSError:
+        report_os_error("Codex")
+        return
+    parsed = toml_document(raw)
+    if parsed is None:
+        return
+    servers = parsed.get("mcp_servers", {}) if isinstance(parsed, dict) else {}
+    if not isinstance(servers, dict) or "cua-driver" in servers:
+        return
+    addition = '\n[mcp_servers.cua-driver]\ncommand = ' + json.dumps(driver) + '\nargs = ["mcp"]\n'
+    candidate = raw.rstrip() + addition
+    if tomllib is not None:
+        try:
+            tomllib.loads(candidate)
+        except (ValueError, TypeError):
+            return
+    atomic_write(path, candidate, "Codex")
+
+
+add_codex_server(home / ".codex" / "config.toml")
+
+# OpenCode's provider discovery is intentionally lazy. Its wrapper calls this
+# function with allow-missing after discovery, so first launch gets the MCP
+# entry without creating a competing provider config during shell startup.
+add_json_server(
+    pathlib.Path(opencode_config) if opencode_config else home / ".config" / "opencode" / "opencode.json",
+    "mcp",
+    "cua-driver",
+    {"type": "local", "command": [driver, "mcp"], "enabled": True},
+    "OpenCode",
+    create_if_missing=allow_missing,
+)
+CMUX_CUA_CONFIG
+  return 0
 }
 
 # Agent sign-in modes: every claude, codex, and opencode launch from a shell
@@ -429,6 +696,7 @@ cmux_claude_set_team_env_aside() {
 }
 
 cmux_write_agent_configs
+cmux_write_cua_mcp_config
 cmux_claude_set_team_env_aside
 unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
 unset cmux_claude_plane_base cmux_claude_plane_key

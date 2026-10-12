@@ -324,6 +324,25 @@ describe("devbox desktop layer", () => {
     expect(driver).toContain("devboxDesktopOpenUrl(address)");
   });
 
+  test("the desktop supervisor starts the installed driver with its Linux-supported daemon flags", () => {
+    expect(startVnc).toContain("cua-driver status >/dev/null 2>&1");
+    expect(startVnc).toContain("flock -x 9");
+    expect(startVnc).toContain("pgrep -u \"$(id -u)\" -f '[c]ua-driver serve'");
+    expect(startVnc).toContain("kill -KILL $stale_cua_pids");
+    expect(startVnc).toContain("if ! cua-driver status >/dev/null 2>&1; then");
+    expect(startVnc).toContain("cua-driver serve --no-permissions-gate");
+    expect(startVnc).toContain("cua_wait_ready()");
+    expect(startVnc).toContain("if ! cua_wait_ready; then");
+    expect(startVnc).toContain("within 15 s");
+    expect(startVnc).toContain('[ -r "$RUNTIME_DIR/env" ] && . "$RUNTIME_DIR/env"');
+    expect(startVnc.indexOf('[ -r "$RUNTIME_DIR/env" ] && . "$RUNTIME_DIR/env"')).toBeLessThan(
+      startVnc.indexOf("cua-driver serve --no-permissions-gate"),
+    );
+    expect(startVnc).not.toContain("config set capture_scope");
+    expect(startVnc).not.toContain("--permission-mode");
+    expect(startVnc).not.toContain("--dangerously-bypass-approvals");
+  });
+
   test("desktop polish: pre-accepted Chrome, CC0 wallpaper, clipboard helper, no clock, dock order", () => {
     expect(read("google-chrome-cmux.desktop")).toContain("--no-first-run");
     for (const app of ["google-chrome-cmux.desktop", "thunar-cmux.desktop", "ghostty-cmux.desktop"]) {

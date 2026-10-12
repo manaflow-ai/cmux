@@ -65,7 +65,14 @@ struct CloudTreeMachineRowContent: View {
     /// The status glyph drawn after the name. A locked machine keeps its lock
     /// there, so the name stays on the column every other machine row uses.
     var statusSymbol: String? {
-        machine.freeAccess == .expired ? "lock.fill" : nil
+        if machine.freeAccess == .expired { return "lock.fill" }
+        switch machine.computerUse?.status {
+        case .some(.ready): return "checkmark.circle.fill"
+        case .some(.starting): return "clock"
+        case .some(.unsupported): return "nosign"
+        case .some(.failed): return "exclamationmark.triangle.fill"
+        case nil: return nil
+        }
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
@@ -93,6 +100,9 @@ struct CloudTreeMachineRowContent: View {
             ))
         }
         lines.append(subtitle)
+        if let computerUse = computerUseLabel {
+            lines.append(computerUse)
+        }
         lines.append(machine.image)
         lines.append(usageSummary)
         // A machine the catalog found before the fleet list named it is built
@@ -156,6 +166,9 @@ struct CloudTreeMachineRowContent: View {
             parts.append(machine.id)
         }
         parts.append(machine.kindLabel)
+        if let computerUse = computerUseLabel {
+            parts.append(computerUse)
+        }
         // Before the age, so "by Ada Lovelace · 3 hours ago" reads as one
         // thought: who made it and when.
         if let author = CloudMachineCreatorLabel.text(creator: machine.createdBy) {
@@ -172,6 +185,24 @@ struct CloudTreeMachineRowContent: View {
             parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// The backend sends this only when it knows the computer-use contract;
+    /// keeping the value optional leaves older Cloud rows unchanged.
+    private var computerUseLabel: String? {
+        guard let readiness = machine.computerUse else { return nil }
+        switch readiness.status {
+        case .ready:
+            return String(localized: "machines.computerUse.ready", defaultValue: "Computer use ready")
+        case .starting:
+            return String(localized: "machines.computerUse.starting", defaultValue: "Computer use starting")
+        case .unsupported:
+            return readiness.errorMessage
+                ?? String(localized: "machines.computerUse.unsupported", defaultValue: "Computer use unavailable")
+        case .failed:
+            return readiness.errorMessage
+                ?? String(localized: "machines.computerUse.failed", defaultValue: "Computer use failed")
+        }
     }
 
     /// Legacy summary retained for callers that use the machine row model;

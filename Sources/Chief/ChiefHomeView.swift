@@ -5,23 +5,19 @@ import MessagesLabHome
 import MessagesLabSidebar
 import Observation
 
-/// Chief Home for one main window. While Home is selected the window's left
-/// sidebar becomes the conversation list (``list``, hosted under the pinned
-/// Chief row, as cmux-next's rail item swaps its one navigation column and as
-/// Messages has one list beside one transcript), and this view, the content
-/// area, shows the selected conversation's ``ChiefTranscriptView``. There is no
-/// third column.
+/// Chief Home for the canonical Chief pane. It keeps the iMessage-style
+/// conversation list beside the selected transcript inside that pane.
 ///
-/// The window keeps one instance for its lifetime (`ContentView`): the list
-/// and the transcript are two views of the same selection, and leaving Home
-/// keeps the draft and scroll position.
+/// The Home pane keeps one instance while its workspace is mounted: the list
+/// and transcript are two views of the same selection, and leaving Home keeps
+/// the draft and scroll position for that mounted pane.
 @MainActor
 final class ChiefHomeView: NSView {
     private static let selectionKey = "chief.home.selectedConversation"
     private static let unreadMarksKey = "chief.home.unreadMarks"
     private static let hiddenConversationsKey = "chief.home.hiddenConversations"
 
-    /// The conversation list the sidebar hosts while Home is selected.
+    /// The conversation list shown beside the transcript in the Home pane.
     let list = ChiefConversationListView()
     private(set) var transcript: ChiefTranscriptView?
     private(set) var selected: ConversationID
@@ -41,6 +37,8 @@ final class ChiefHomeView: NSView {
     /// Home was activated before this view joined its window (first entry):
     /// the composer takes focus once it does.
     private var focusOnWindow = false
+    /// Width reserved for the iMessage-style conversation list in the pane.
+    private static let listWidth: CGFloat = 320
 
     /// Called when a conversation is chosen while Home is collapsed in the
     /// sidebar. The host uses this to reveal Home before showing the thread.
@@ -66,9 +64,11 @@ final class ChiefHomeView: NSView {
         unreadMarks = Set(defaults.stringArray(forKey: Self.unreadMarksKey) ?? [])
         hiddenConversations = Set(defaults.stringArray(forKey: Self.hiddenConversationsKey) ?? [])
         super.init(frame: .zero)
+        addSubview(list)
         connectList()
         observeNotifications()
         listAvatar = ChiefAvatarArtwork.listAvatar(ChiefAvatarArtwork.current())
+        applyCurrentAppearance()
         show(selected)
         reload()
     }
@@ -135,7 +135,7 @@ final class ChiefHomeView: NSView {
         transcript?.removeFromSuperview()
         let view = ChiefTranscriptView(conversation: conversation)
         view.isActive = isActive
-        // Home hides the sidebar's workspace rows while it shows.
+        // Home hides the workspace rows while it shows.
         view.hidesWorkspaces = true
         view.onOpenConversation = { [weak self] id in self?.select(id) }
         view.frame = bounds
@@ -147,6 +147,30 @@ final class ChiefHomeView: NSView {
         // conversation the user just chose (and avoids a capture-time race).
         markSelectedReadIfShown()
         if hadFocus { view.focusComposer() }
+    }
+
+    /// Applies the current window appearance to the embedded Messages list.
+    func applyCurrentAppearance() {
+        let appearance = effectiveAppearance
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        list.apply(
+            isDark: isDark,
+            accent: (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: appearance)
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        let width = min(Self.listWidth, max(0, bounds.width - 420))
+        let listFrame = CGRect(x: 0, y: 0, width: max(0, width), height: bounds.height)
+        if list.frame != listFrame { list.frame = listFrame }
+        let transcriptFrame = CGRect(
+            x: listFrame.maxX,
+            y: 0,
+            width: max(0, bounds.width - listFrame.maxX),
+            height: bounds.height
+        )
+        if transcript?.frame != transcriptFrame { transcript?.frame = transcriptFrame }
     }
 
     // MARK: List

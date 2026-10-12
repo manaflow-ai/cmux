@@ -2730,31 +2730,6 @@ class TabManager: ObservableObject {
         publishCmuxWorkspaceClosed(workspace)
     }
 
-    /// Removes the temporary native Chief Home workspaces created by the
-    /// pre-list Home implementation. Chief conversations now live in Home's
-    /// own conversation list, so keeping those rows would surface duplicate
-    /// workspaces in the user's normal sidebar.
-    func removeChiefHomeArtifactsForMigration() {
-        let homeGroupIds = Set(workspaceGroups.compactMap { group in
-            group.externalID == ChiefHomeNavigation.homeGroupExternalID ? group.id : nil
-        })
-        let artifacts = tabs.filter { workspace in
-            workspace.isChiefHome || workspace.groupId.map(homeGroupIds.contains) == true
-        }
-        guard !artifacts.isEmpty || !homeGroupIds.isEmpty else { return }
-        let selectedWasRemoved = artifacts.contains { $0.id == selectedTabId }
-        for workspace in artifacts {
-            guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { continue }
-            finalizeWorkspaceForRemoval(workspace)
-            workspace.groupId = nil
-            tabs.remove(at: index)
-        }
-        workspaceGroups.removeAll { homeGroupIds.contains($0.id) }
-        if selectedWasRemoved {
-            selectedTabId = tabs.first?.id
-        }
-    }
-
     /// Finalizes every workspace owned by a closing window without creating a
     /// replacement workspace or recording per-workspace closed-item history.
     func finalizeAllWorkspacesForWindowClose() {

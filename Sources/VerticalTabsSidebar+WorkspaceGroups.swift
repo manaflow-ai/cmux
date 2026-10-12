@@ -468,10 +468,14 @@ extension VerticalTabsSidebar {
             },
             onTapPlus: { [weak tabManager] in
                 guard let tabManager else { return }
-                _ = tabManager.createWorkspaceInGroup(
-                    groupId: groupId,
-                    placement: resolvePlacement()
-                )
+                if tabManager.isChiefHomeGroup(groupId) {
+                    ChiefHomeNavigation.newConversation(in: tabManager)
+                } else {
+                    _ = tabManager.createWorkspaceInGroup(
+                        groupId: groupId,
+                        placement: resolvePlacement()
+                    )
+                }
             },
             onRunResolvedItem: { [weak tabManager] item in
                 guard let tabManager else { return }

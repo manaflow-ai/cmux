@@ -8,6 +8,7 @@
 // tools speak the cmux-tui resource CLI to the session the Mac app attaches to.
 
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand, shellQuote } from "../vms/drivers/cmuxTuiDaemon";
+import type { GuestCuaTool } from "../vms/guestCua";
 
 export const CLOUD_MCP_SERVER_NAME = "cmux-cloud";
 export const CLOUD_MCP_SERVER_VERSION = "0.1.0";
@@ -24,6 +25,12 @@ const CMUX_TUI_TIMEOUT_MS = 30_000;
 // so the check is on the full command: cmuxTuiRunCommand repeats the arguments
 // once per layout branch, and quoting can triple a prompt.
 const MAX_GUEST_COMMAND_BYTES = 64 * 1024;
+// A resumed desktop can take up to 30s to republish its X/accessibility
+// session, followed by the driver's bounded 15s startup probe. Leave margin
+// for the exec transport and config reconciliation before the route deadline.
+const CUA_TIMEOUT_MS = 60_000;
+const MAX_COORDINATE = 100_000;
+const MAX_CUA_IMAGE_BASE64_BYTES = 12 * 1024 * 1024;
 // A batch runs its requests one after another inside one function invocation.
 const MAX_BATCH_LENGTH = 8;
 const MACHINE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -42,6 +49,8 @@ export type CloudMcpExecResult = {
   readonly stderr: string;
 };
 
+export type CloudMcpCuaResult = CloudMcpExecResult;
+
 /** A failure the caller should see as a tool error, e.g. an unknown or unowned machine. */
 export class CloudMcpToolError extends Error {
   constructor(readonly code: string, message: string) {
@@ -58,6 +67,8 @@ export type CloudMcpGateway = {
   readonly listMachines: () => Promise<readonly CloudMcpMachine[]>;
   /** Runs `cmux-tui <args>` on the machine as its session user; `args` is already shell-quoted. */
   readonly runCmuxTui: (machineId: string, args: string, timeoutMs: number) => Promise<CloudMcpExecResult>;
+  /** Runs one allow-listed cua-driver tool in the machine's desktop session. */
+  readonly runCua?: (machineId: string, tool: GuestCuaTool, args: JsonObject, timeoutMs: number) => Promise<CloudMcpCuaResult>;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -85,6 +96,77 @@ const terminalIdSchema = {
   type: "string",
   description: "Terminal id (term_…) from list_terminals or run_agent.",
 };
+const coordinateSchema = { type: "number", minimum: 0, maximum: MAX_COORDINATE };
+const desktopScopeSchema = { type: "string", enum: ["desktop"], description: "The VM's primary desktop." };
+
+const computerUseTools: readonly ToolDefinition[] = [
+  {
+    name: "computer_screenshot",
+    description: "Capture the primary desktop of one of the caller's Cloud machines. Coordinates in the returned image are screen pixels.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema },
+      required: ["machine_id"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer screenshot", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "computer_click",
+    description: "Click coordinates in the primary desktop screenshot of one of the caller's Cloud machines.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema, x: coordinateSchema, y: coordinateSchema, button: { type: "string", enum: ["left", "right", "middle"] }, count: { type: "integer", minimum: 1, maximum: 3 }, scope: desktopScopeSchema },
+      required: ["machine_id", "x", "y"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer click", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "computer_type_text",
+    description: "Type text into the focused control or coordinates in the primary desktop of one of the caller's Cloud machines.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema, text: { type: "string", maxLength: MAX_TEXT_BYTES }, x: coordinateSchema, y: coordinateSchema, delivery_mode: { type: "string", enum: ["background", "foreground"] }, scope: desktopScopeSchema },
+      required: ["machine_id", "text"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer type text", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "computer_press_key",
+    description: "Press a key in the primary desktop of one of the caller's Cloud machines.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema, key: { type: "string", minLength: 1, maxLength: 32 }, modifiers: { type: "array", items: { type: "string", enum: ["cmd", "shift", "option", "alt", "ctrl", "fn"] }, maxItems: 6 }, x: coordinateSchema, y: coordinateSchema, delivery_mode: { type: "string", enum: ["background", "foreground"] }, scope: desktopScopeSchema },
+      required: ["machine_id", "key"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer press key", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "computer_scroll",
+    description: "Scroll at a screenshot coordinate in the primary desktop of one of the caller's Cloud machines.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 50 }, by: { type: "string", enum: ["line", "page"] }, x: coordinateSchema, y: coordinateSchema, delivery_mode: { type: "string", enum: ["background", "foreground"] }, scope: desktopScopeSchema },
+      required: ["machine_id", "direction", "x", "y"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer scroll", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "computer_drag",
+    description: "Drag from one screenshot coordinate to another in the primary desktop of one of the caller's Cloud machines.",
+    inputSchema: {
+      type: "object",
+      properties: { machine_id: machineIdSchema, from_x: coordinateSchema, from_y: coordinateSchema, to_x: coordinateSchema, to_y: coordinateSchema, duration_ms: { type: "integer", minimum: 0, maximum: 10000 }, steps: { type: "integer", minimum: 1, maximum: 200 }, button: { type: "string", enum: ["left", "right", "middle"] }, modifier: { type: "array", items: { type: "string", enum: ["cmd", "shift", "option", "alt", "ctrl"] }, maxItems: 5 }, scope: desktopScopeSchema },
+      required: ["machine_id", "from_x", "from_y", "to_x", "to_y"],
+      additionalProperties: false,
+    },
+    annotations: { title: "Computer drag", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+];
 
 export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
   {
@@ -156,13 +238,21 @@ export const CLOUD_MCP_TOOLS: readonly ToolDefinition[] = [
     },
     annotations: { title: "Send input", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   },
+  ...computerUseTools,
 ];
 
 type ToolResult = {
-  readonly content: ReadonlyArray<{ readonly type: "text"; readonly text: string }>;
+  readonly content: ReadonlyArray<ToolContent>;
   readonly structuredContent?: JsonObject;
   readonly isError?: boolean;
 };
+
+// Keep `text` present (as an optional `never`) on image blocks so callers that
+// only inspect the first, text block retain the narrow API the original MCP
+// result exposed while still allowing the protocol's image content type.
+type ToolContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string; readonly text?: never };
 
 function toolSuccess(structured: JsonObject, text?: string): ToolResult {
   return {
@@ -193,6 +283,60 @@ function requireBoundedText(args: JsonObject, key: string): string {
     throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be ${MAX_TEXT_BYTES} bytes or smaller.`);
   }
   return value;
+}
+
+function requireFiniteNumber(args: JsonObject, key: string, options: { integer?: boolean; minimum?: number; maximum?: number } = {}): number {
+  const value = args[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be a finite number.`);
+  }
+  if (options.integer && !Number.isInteger(value)) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be an integer.`);
+  }
+  if (options.minimum !== undefined && value < options.minimum) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be at least ${options.minimum}.`);
+  }
+  if (options.maximum !== undefined && value > options.maximum) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be at most ${options.maximum}.`);
+  }
+  return value;
+}
+
+function optionalFiniteNumber(args: JsonObject, key: string, options: { minimum?: number; maximum?: number } = {}): number | undefined {
+  if (args[key] === undefined) return undefined;
+  return requireFiniteNumber(args, key, options);
+}
+
+function optionalInteger(args: JsonObject, key: string, options: { minimum?: number; maximum?: number } = {}): number | undefined {
+  if (args[key] === undefined) return undefined;
+  return requireFiniteNumber(args, key, { ...options, integer: true });
+}
+
+function optionalEnum(args: JsonObject, key: string, allowed: readonly string[]): string | undefined {
+  if (args[key] === undefined) return undefined;
+  const value = args[key];
+  if (typeof value !== "string" || !allowed.includes(value)) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be one of ${allowed.join(", ")}.`);
+  }
+  return value;
+}
+
+function requireDesktopScope(args: JsonObject): void {
+  if (args.scope !== undefined && args.scope !== "desktop") {
+    throw new CloudMcpToolError("invalid_arguments", "`scope` must be `desktop`.");
+  }
+}
+
+function optionalModifiers(args: JsonObject, key: "modifiers" | "modifier", allowed: readonly string[]): string[] | undefined {
+  if (args[key] === undefined) return undefined;
+  if (!Array.isArray(args[key]) || args[key].length > allowed.length) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` must be an array of at most ${allowed.length} modifier names.`);
+  }
+  const values = args[key];
+  if (values.some((value) => typeof value !== "string" || !allowed.includes(value))) {
+    throw new CloudMcpToolError("invalid_arguments", `\`${key}\` contains an unsupported modifier.`);
+  }
+  return values as string[];
 }
 
 function requireMachineId(args: JsonObject): string {
@@ -366,6 +510,273 @@ async function sendInput(gateway: CloudMcpGateway, args: JsonObject): Promise<To
   return toolSuccess({ machine_id: machineId, terminal_id: terminalId, sent_bytes: Buffer.byteLength(text, "utf8"), submitted: submit });
 }
 
+const CUA_MODIFIERS = ["cmd", "shift", "option", "alt", "ctrl", "fn"] as const;
+const CUA_DRAG_MODIFIERS = ["cmd", "shift", "option", "alt", "ctrl"] as const;
+const CUA_BUTTONS = ["left", "right", "middle"] as const;
+const CUA_DELIVERY_MODES = ["background", "foreground"] as const;
+const CUA_DIRECTIONS = ["up", "down", "left", "right"] as const;
+
+function parseCuaJson(stdout: string): JsonObject {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new CloudMcpToolError("computer_use_failed", "The computer-use driver returned output that is not JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new CloudMcpToolError("computer_use_failed", "The computer-use driver returned an invalid result.");
+  }
+  return parsed as JsonObject;
+}
+
+function structuredCuaContent(envelope: JsonObject): JsonObject {
+  const value = envelope.structuredContent;
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...(value as JsonObject) } : { ...envelope };
+}
+
+function screenshotBase64(structured: JsonObject): string | undefined {
+  const value = structured.screenshot_png_b64 ?? structured.screenshot_png_base64;
+  delete structured.screenshot_png_b64;
+  delete structured.screenshot_png_base64;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new CloudMcpToolError("computer_use_failed", "The computer-use driver returned an invalid screenshot.");
+  }
+  if (Buffer.byteLength(value, "utf8") > MAX_CUA_IMAGE_BASE64_BYTES) {
+    throw new CloudMcpToolError("computer_use_response_too_large", "The desktop screenshot exceeded the Cloud image limit.");
+  }
+  return value;
+}
+
+function screenshotMimeType(structured: JsonObject): string {
+  const value = structured.screenshot_mime_type;
+  return typeof value === "string" && /^image\/(png|jpeg|webp)$/.test(value) ? value : "image/png";
+}
+
+function imageContent(envelope: JsonObject, structured: JsonObject): { readonly data: string; readonly mimeType: string } | undefined {
+  const structuredData = screenshotBase64(structured);
+  if (structuredData !== undefined) return { data: structuredData, mimeType: screenshotMimeType(structured) };
+  const content = envelope.content;
+  const imagePart = Array.isArray(content)
+    ? content.find((part) => part && typeof part === "object" && (part as JsonObject).type === "image") as JsonObject | undefined
+    : undefined;
+  if (!imagePart || typeof imagePart.data !== "string") return undefined;
+  if (Buffer.byteLength(imagePart.data, "utf8") > MAX_CUA_IMAGE_BASE64_BYTES) {
+    throw new CloudMcpToolError("computer_use_response_too_large", "The desktop screenshot exceeded the Cloud image limit.");
+  }
+  const mimeType = imagePart.mimeType;
+  return {
+    data: imagePart.data,
+    mimeType: typeof mimeType === "string" && /^image\/(png|jpeg|webp)$/.test(mimeType) ? mimeType : "image/png",
+  };
+}
+
+function cuaTextContent(envelope: JsonObject, structured: JsonObject): string {
+  const content = envelope.content;
+  const textPart = Array.isArray(content)
+    ? content.find((part) => part && typeof part === "object" && (part as JsonObject).type === "text") as JsonObject | undefined
+    : undefined;
+  return typeof textPart?.text === "string" ? textPart.text : JSON.stringify(structured);
+}
+
+function jsonObjectField(value: JsonObject, key: string): JsonObject | undefined {
+  const field = value[key];
+  return field && typeof field === "object" && !Array.isArray(field) ? field as JsonObject : undefined;
+}
+
+function firstDefinedValue(...values: readonly unknown[]): unknown {
+  return values.find((value) => value !== undefined);
+}
+
+function isCuaError(envelope: JsonObject, structured: JsonObject, refusal: JsonObject | undefined, rawCode: unknown): boolean {
+  return envelope.isError === true || structured.isError === true || structured.status === "refused" ||
+    structured.effect === "refused" || refusal !== undefined || rawCode !== undefined;
+}
+
+function safeCuaErrorCode(rawCode: unknown): string {
+  return typeof rawCode === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(rawCode) ? rawCode : "computer_use_failed";
+}
+
+function safeCuaErrorMessage(rawMessage: unknown, code: string): string {
+  return typeof rawMessage === "string" && rawMessage.length > 0
+    ? rawMessage.slice(0, 2000)
+    : `The computer-use driver refused the request (${code}).`;
+}
+
+function cuaErrorDetails(envelope: JsonObject, structured: JsonObject): { readonly code: string; readonly message: string } | undefined {
+  const refusal = jsonObjectField(structured, "refusal");
+  const nestedError = jsonObjectField(structured, "error");
+  const rawCode = firstDefinedValue(structured.code, refusal?.code, nestedError?.code);
+  if (!isCuaError(envelope, structured, refusal, rawCode)) return undefined;
+  const code = safeCuaErrorCode(rawCode);
+  const rawMessage = firstDefinedValue(structured.message, refusal?.message, nestedError?.message);
+  return { code, message: safeCuaErrorMessage(rawMessage, code) };
+}
+
+function parseCuaOutput(result: CloudMcpCuaResult, machineId: string, driverTool: GuestCuaTool): ToolResult {
+  if (result.exitCode !== 0) {
+    const detail = (result.stderr || result.stdout).trim().slice(0, 2000);
+    throw new CloudMcpToolError(
+      "computer_use_failed",
+      `The computer-use driver exited ${result.exitCode}${detail ? `: ${detail}` : "."}`,
+    );
+  }
+  if (Buffer.byteLength(result.stdout, "utf8") > MAX_CUA_IMAGE_BASE64_BYTES * 2) {
+    throw new CloudMcpToolError("computer_use_response_too_large", "The computer-use response exceeded the Cloud response limit.");
+  }
+  const envelope = parseCuaJson(result.stdout);
+  const structured = structuredCuaContent(envelope);
+  const error = cuaErrorDetails(envelope, structured);
+  if (error !== undefined) throw new CloudMcpToolError(error.code, error.message);
+  const image = imageContent(envelope, structured);
+  structured.machine_id = machineId;
+  structured.driver_tool = driverTool;
+  const content: ToolContent[] = [{ type: "text", text: cuaTextContent(envelope, structured) }];
+  if (image !== undefined) content.push({ type: "image", data: image.data, mimeType: image.mimeType });
+  return { content, structuredContent: structured };
+}
+
+type CuaRequest = { readonly tool: GuestCuaTool; readonly args: JsonObject };
+
+function buildScreenshotRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id"]);
+  return {
+    tool: "get_desktop_state",
+    args: {},
+  };
+}
+
+function coordinatePair(args: JsonObject): { readonly x?: number; readonly y?: number } {
+  const x = optionalFiniteNumber(args, "x", { minimum: 0, maximum: MAX_COORDINATE });
+  const y = optionalFiniteNumber(args, "y", { minimum: 0, maximum: MAX_COORDINATE });
+  if ((x === undefined) !== (y === undefined)) throw new CloudMcpToolError("invalid_arguments", "`x` and `y` must be provided together.");
+  return x === undefined ? {} : { x, y };
+}
+
+function buildClickRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id", "x", "y", "button", "count", "scope"]);
+  requireDesktopScope(args);
+  const button = optionalEnum(args, "button", CUA_BUTTONS);
+  const count = optionalInteger(args, "count", { minimum: 1, maximum: 3 });
+  return {
+    tool: "click",
+    args: {
+      // `cua-driver` treats x/y without a pid or window id as window-local
+      // unless this per-action desktop scope is explicit. The screenshot and
+      // the click therefore share the same true screen-pixel coordinate space.
+      scope: "desktop",
+      x: requireFiniteNumber(args, "x", { minimum: 0, maximum: MAX_COORDINATE }),
+      y: requireFiniteNumber(args, "y", { minimum: 0, maximum: MAX_COORDINATE }),
+      ...(button ? { button } : {}),
+      ...(count === undefined ? {} : { count }),
+    },
+  };
+}
+
+function buildTypeTextRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id", "text", "x", "y", "delivery_mode", "scope"]);
+  requireDesktopScope(args);
+  const text = requireBoundedText(args, "text");
+  const deliveryMode = optionalEnum(args, "delivery_mode", CUA_DELIVERY_MODES);
+  const point = coordinatePair(args);
+  return {
+    tool: "type_text",
+    args: {
+      text,
+      ...point,
+      ...(point.x === undefined ? { scope: "desktop" } : {}),
+      ...(deliveryMode ? { delivery_mode: deliveryMode } : {}),
+    },
+  };
+}
+
+function buildPressKeyRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id", "key", "modifiers", "x", "y", "delivery_mode", "scope"]);
+  requireDesktopScope(args);
+  const key = requireString(args, "key");
+  if (key.length > 32) throw new CloudMcpToolError("invalid_arguments", "`key` must be 32 characters or shorter.");
+  const modifiers = optionalModifiers(args, "modifiers", CUA_MODIFIERS);
+  const deliveryMode = optionalEnum(args, "delivery_mode", CUA_DELIVERY_MODES);
+  const point = coordinatePair(args);
+  return {
+    tool: "press_key",
+    args: {
+      key,
+      ...(modifiers ? { modifiers } : {}),
+      ...point,
+      ...(point.x === undefined ? { scope: "desktop" } : {}),
+      ...(deliveryMode ? { delivery_mode: deliveryMode } : {}),
+    },
+  };
+}
+
+function buildScrollRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id", "direction", "amount", "by", "x", "y", "delivery_mode", "scope"]);
+  requireDesktopScope(args);
+  const direction = optionalEnum(args, "direction", CUA_DIRECTIONS);
+  if (!direction) throw new CloudMcpToolError("invalid_arguments", "`direction` is required.");
+  const point = coordinatePair(args);
+  if (point.x === undefined) throw new CloudMcpToolError("invalid_arguments", "`x` and `y` are required for scrolling.");
+  const amount = optionalInteger(args, "amount", { minimum: 1, maximum: 50 });
+  const by = optionalEnum(args, "by", ["line", "page"] as const);
+  const deliveryMode = optionalEnum(args, "delivery_mode", CUA_DELIVERY_MODES);
+  return {
+    tool: "scroll",
+    args: {
+      direction,
+      ...(amount === undefined ? {} : { amount }),
+      ...(by ? { by } : {}),
+      scope: "desktop",
+      ...point,
+      ...(deliveryMode ? { delivery_mode: deliveryMode } : {}),
+    },
+  };
+}
+
+function buildDragRequest(args: JsonObject): CuaRequest {
+  rejectUnknownArguments(args, ["machine_id", "from_x", "from_y", "to_x", "to_y", "duration_ms", "steps", "button", "modifier", "scope"]);
+  requireDesktopScope(args);
+  const button = optionalEnum(args, "button", CUA_BUTTONS);
+  const durationMs = optionalInteger(args, "duration_ms", { minimum: 0, maximum: 10_000 });
+  const steps = optionalInteger(args, "steps", { minimum: 1, maximum: 200 });
+  const modifier = optionalModifiers(args, "modifier", CUA_DRAG_MODIFIERS);
+  return {
+    tool: "drag",
+    args: {
+      scope: "desktop",
+      from_x: requireFiniteNumber(args, "from_x", { minimum: 0, maximum: MAX_COORDINATE }),
+      from_y: requireFiniteNumber(args, "from_y", { minimum: 0, maximum: MAX_COORDINATE }),
+      to_x: requireFiniteNumber(args, "to_x", { minimum: 0, maximum: MAX_COORDINATE }),
+      to_y: requireFiniteNumber(args, "to_y", { minimum: 0, maximum: MAX_COORDINATE }),
+      ...(durationMs === undefined ? {} : { duration_ms: durationMs }),
+      ...(steps === undefined ? {} : { steps }),
+      ...(button ? { button } : {}),
+      ...(modifier ? { modifier } : {}),
+    },
+  };
+}
+
+function buildComputerUseRequest(name: string, args: JsonObject): CuaRequest {
+  switch (name) {
+    case "computer_screenshot": return buildScreenshotRequest(args);
+    case "computer_click": return buildClickRequest(args);
+    case "computer_type_text": return buildTypeTextRequest(args);
+    case "computer_press_key": return buildPressKeyRequest(args);
+    case "computer_scroll": return buildScrollRequest(args);
+    case "computer_drag": return buildDragRequest(args);
+    default: throw new CloudMcpToolError("unknown_tool", `Unknown computer-use tool: ${name}`);
+  }
+}
+
+async function runComputerUse(gateway: CloudMcpGateway, name: string, args: JsonObject): Promise<ToolResult> {
+  const machineId = requireMachineId(args);
+  const runCua = gateway.runCua;
+  if (!runCua) throw new CloudMcpToolError("computer_use_unavailable", "Computer use is not available for this Cloud connection.");
+  const request = buildComputerUseRequest(name, args);
+  const result = await runCua(machineId, request.tool, request.args, CUA_TIMEOUT_MS);
+  return parseCuaOutput(result, machineId, request.tool);
+}
+
 export async function callCloudMcpTool(gateway: CloudMcpGateway, name: string, rawArgs: unknown): Promise<ToolResult> {
   const args: JsonObject = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs) ? rawArgs as JsonObject : {};
   try {
@@ -379,6 +790,13 @@ export async function callCloudMcpTool(gateway: CloudMcpGateway, name: string, r
       case "run_agent": return await runAgent(gateway, args);
       case "read_terminal": return await readTerminal(gateway, args);
       case "send_input": return await sendInput(gateway, args);
+      case "computer_screenshot":
+      case "computer_click":
+      case "computer_type_text":
+      case "computer_press_key":
+      case "computer_scroll":
+      case "computer_drag":
+        return await runComputerUse(gateway, name, args);
       default: return toolFailure("unknown_tool", `Unknown tool: ${name}`);
     }
   } catch (error) {

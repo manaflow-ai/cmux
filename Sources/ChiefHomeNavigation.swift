@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 
 extension Notification.Name {
     /// Shows Chief Home in a main window.
@@ -18,38 +19,147 @@ extension Notification.Name {
     static let cmuxChiefHomeDidActivate = Notification.Name("cmux.chief.homeDidActivate")
 }
 
-/// Switches a main window between its workspaces and Chief Home.
-///
-/// One mutation path for every entrypoint: the sidebar Home row, the
-/// notifications above, and workspace selection (which always leaves Home).
+/// Selects Chief's persistent workspace through the native workspace navigation path.
+/// Shortcut, command palette, menu and CLI actions all resolve the same Home anchor.
 @MainActor
 struct ChiefHomeNavigation {
-    // Stable keys retained for cleanup of workspaces created by the previous
-    // native Home implementation.
     static let homeGroupExternalID = "cmux.chief.home"
     static let hiddenConversationsKey = "chief.home.hiddenConversations"
 
     let sidebarSelectionState: SidebarSelectionState
+    let tabManager: TabManager
 
-    /// Shows Home. Nothing when `chief.enabled` is off.
+    /// Selects the ordinary Home workspace through the same path as every workspace row.
     func open() {
-        guard ChiefSettings.isEnabled, sidebarSelectionState.selection != .home else { return }
-        sidebarSelectionState.selection = .home
+        guard let home = Self.ensureHome(in: tabManager) else { return }
+        sidebarSelectionState.selection = .tabs
+        tabManager.selectWorkspace(home)
+        if let chief = home.panels.values.compactMap({ $0 as? ChiefPanel }).first(where: \.isHome) {
+            home.focusPanel(chief.id)
+        }
     }
 
-    /// Shows Home, or returns to the workspace when Home is already showing.
     func toggle() {
-        if sidebarSelectionState.selection == .home {
-            leave()
+        if tabManager.selectedWorkspace?.isChiefHome == true,
+           let other = tabManager.tabs.first(where: { !$0.isChiefHome }) {
+            sidebarSelectionState.selection = .tabs
+            tabManager.selectWorkspace(other)
         } else {
             open()
         }
     }
 
-    /// Returns to the workspace when Home is showing.
+    /// Clears the legacy page selection without changing the workspace's editable layout.
     func leave() {
-        guard sidebarSelectionState.selection == .home else { return }
-        sidebarSelectionState.selection = .tabs
+        if sidebarSelectionState.selection == .home { sidebarSelectionState.selection = .tabs }
+    }
+
+    /// Home is a persistent native workspace and group anchor, never a covering page.
+    @discardableResult
+    static func ensureHome(in manager: TabManager) -> Workspace? {
+        guard ChiefSettings.isEnabled, !manager.isFinalizedForWindowClose else { return nil }
+        let home: Workspace
+        if let existing = manager.tabs.first(where: \.isChiefHome) {
+            home = existing
+        } else {
+            guard let created = makeWorkspace(in: manager, title: ChiefStrings.home, isHome: true) else { return nil }
+            home = created
+        }
+        if home.customTitle != ChiefStrings.home {
+            manager.setCustomTitle(tabId: home.id, title: ChiefStrings.home, source: .user)
+        }
+        let groupID: UUID
+        if let group = manager.workspaceGroups.first(where: { $0.externalID == homeGroupExternalID }) {
+            groupID = group.id
+            if group.anchorWorkspaceId != home.id {
+                manager.addWorkspaceToGroup(workspaceId: home.id, groupId: groupID)
+                manager.setWorkspaceGroupAnchor(groupId: groupID, workspaceId: home.id)
+            }
+        } else {
+            guard let created = manager.createWorkspaceGroup(
+                name: ChiefStrings.home,
+                childWorkspaceIds: [home.id],
+                selectAnchor: false,
+                collapseSidebarSelection: false,
+                externalID: homeGroupExternalID
+            ) else { return home }
+            groupID = created
+        }
+        if let group = manager.workspaceGroups.first(where: { $0.id == groupID }) {
+            if group.name != ChiefStrings.home {
+                manager.renameWorkspaceGroup(groupId: groupID, name: ChiefStrings.home)
+            }
+            if !group.isPinned { manager.setWorkspaceGroupPinned(groupId: groupID, isPinned: true) }
+            if group.iconSymbol != "house" { _ = manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "house") }
+        }
+        if manager.tabs.first?.id != home.id {
+            manager.moveWorkspaceGroup(groupId: groupID, toIndex: 0)
+        }
+        return home
+    }
+
+    /// Selects a conversation in the canonical Home pane.
+    @discardableResult
+    static func openConversation(_ id: ConversationID, in manager: TabManager, select: Bool = true) -> Workspace? {
+        guard let home = ensureHome(in: manager) else { return nil }
+        if let chief = home.panels.values.compactMap({ $0 as? ChiefPanel }).first(where: \.isHome) {
+            chief.conversationID = id
+        }
+        if select {
+            manager.selectWorkspace(home)
+            if let chief = home.panels.values.compactMap({ $0 as? ChiefPanel }).first(where: \.isHome) {
+                home.focusPanel(chief.id)
+            }
+        }
+        return home
+    }
+
+    /// Plus in Home and New Conversation in Chief Settings share this action.
+    static func newConversation(in manager: TabManager) {
+        // task-owner: one create operation, ending with its reply; no process starts here.
+        Task { @MainActor [weak manager] in
+            do {
+                let id = try await ChiefService.shared.createConversation()
+                guard let manager, !manager.isFinalizedForWindowClose else { return }
+                _ = openConversation(id, in: manager)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    /// Ensures the canonical Home workspace exists. Conversations are loaded by
+    /// the list inside that pane rather than materialized as sidebar workspaces.
+    static func restoreConversations(in manager: TabManager) {
+        _ = ensureHome(in: manager)
+    }
+
+    private static func makeWorkspace(
+        in manager: TabManager,
+        title: String,
+        conversationID: ConversationID? = nil,
+        isHome: Bool = false
+    ) -> Workspace? {
+        guard let workspace = manager.addWorkspaceIfActive(
+            title: title,
+            titleSource: isHome ? .user : .auto,
+            inheritWorkingDirectory: false,
+            select: false,
+            initialTerminalStartsOnFirstVisit: true,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        ), let pane = workspace.bonsplitController.focusedPaneId else { return nil }
+        let scaffold = Array(workspace.panels.keys)
+        guard workspace.newChiefSurface(
+            inPane: pane, conversationID: conversationID, isHome: isHome, focus: false
+        ) != nil else {
+            manager.closeWorkspace(workspace, recordHistory: false)
+            return nil
+        }
+        workspace.withClosedPanelHistorySuppressed {
+            for panelID in scaffold { _ = workspace.closePanel(panelID, force: true) }
+        }
+        return workspace
     }
 
     /// Whether a Home notification addresses the window that owns `sidebarSelectionState`.

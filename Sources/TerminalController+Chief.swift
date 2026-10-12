@@ -172,9 +172,12 @@ extension TerminalController {
             guard let tabManager, let windowID = app.windowId(for: tabManager),
                   app.mainWindow(for: windowID) != nil,
                   let context = app.mainWindowContext(for: tabManager) else { return .some(nil) }
-            // Complete the selection before replying. A launch-time notification
-            // can arrive before SwiftUI installs its subscriber.
-            ChiefHomeNavigation(sidebarSelectionState: context.sidebarSelectionState).open()
+            // Complete the native selection before replying. A launch-time
+            // notification can arrive before SwiftUI installs its subscriber.
+            ChiefHomeNavigation(
+                sidebarSelectionState: context.sidebarSelectionState,
+                tabManager: tabManager
+            ).open()
             if Self.socketCommandAllowsInAppFocusMutations() {
                 _ = app.focusMainWindow(windowId: windowID)
             }
