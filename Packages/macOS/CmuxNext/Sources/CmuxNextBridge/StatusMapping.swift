@@ -95,6 +95,15 @@ public struct StatusMapping {
         }
     }
 
+    /// The shown OSC 7501 record's title and message for a hover detail (cx-6so.36.9): program
+    /// text, untrusted, folded to one plain line; nil when it has neither or nothing shows.
+    public func detail(_ tab: TabModel) -> String? {
+        guard let record = ProgramStatusRecord.strongest(seen.visible(tab)) else { return nil }
+        let parts = [record.title, record.msg].compactMap { $0?.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// One tab's merged status.
     public func summary(_ tab: TabModel) -> StatusSummary {
         StatusStack.resolve(reports(tab), honoring: honored)

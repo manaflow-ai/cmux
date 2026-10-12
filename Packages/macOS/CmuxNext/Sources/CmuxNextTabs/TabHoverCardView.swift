@@ -89,7 +89,10 @@ final class TabHoverCardView: NSView {
             let profile = item.profileBadge.map { Strings.browserProfile($0.name) }
             let subtitle = [profile, item.machineBadgeHelp, item.themeBadge.map { Strings.axTheme($0.name) }, item.subtitle]
                 .compactMap(\.self).joined(separator: " · ")
-            configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: subtitle.isEmpty ? nil : subtitle, lines: 1)
+            // The program's status words go on their own line (OSC 7501, cx-6so.36.9).
+            let lines = [subtitle, item.statusDetail ?? ""].filter { !$0.isEmpty }
+            configure(title: item.title.isEmpty ? Strings.untitled : item.title, subtitle: lines.isEmpty ? nil : lines.joined(separator: "\n"),
+                      lines: max(lines.count, 1))
             // The thumbnail frame is the controller's: it shows or hides once the tab's own is known.
             setResourcesVisible(true)
         case .group(let group, let titles):
