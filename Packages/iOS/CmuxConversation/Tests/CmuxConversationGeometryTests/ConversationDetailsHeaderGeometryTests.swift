@@ -55,6 +55,23 @@ struct ConversationDetailsHeaderGeometryTests {
         #expect(abs(l.height - (317 + 2.0 / 3)) < 0.01)
     }
 
+    /// Messages' Info / Backgrounds labels follow the subheadline style
+    /// (15 pt at Large, 49 at AX5; MobileSMS iOS 26.5): the capsule is the
+    /// label's line plus 8 pt above and below (33.9 at Large, 74.47 at AX5)
+    /// and the bar its height on the pixel grid (34, 74.67).
+    @Test func tabsGrowWithTheirLabels() {
+        let large = ConversationDetailsTabGeometry.capsuleHeight(lineHeight: 17.9004)
+        #expect(abs(large - 33.9) < 0.01)
+        #expect(abs(ConversationDetailsTabGeometry.barHeight(capsuleHeight: large, scale: 3) - 34) < 0.01)
+        let ax5 = ConversationDetailsTabGeometry.capsuleHeight(lineHeight: 58.4746)
+        #expect(abs(ax5 - 74.47) < 0.01)
+        let bar = ConversationDetailsTabGeometry.barHeight(capsuleHeight: ax5, scale: 3)
+        #expect(abs(bar - 224.0 / 3) < 0.01)
+        let l = ConversationDetailsHeaderGeometry.layout(width: 402, safeTop: 62, offset: 0, showsTabs: true, isGroup: false, tabBarHeight: bar)
+        #expect(abs(l.tabBar.height - 224.0 / 3) < 0.01)
+        #expect(abs(l.height - (l.tabBar.maxY + ConversationDetailsHeaderGeometry.sectionGap)) < 0.01)
+    }
+
     @Test func collapsesLinearlyOverNinetySevenPoints() {
         // offset 10: avatar 77.94, container 143.63, actions 188.30
         let ten = layout(10)
