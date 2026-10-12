@@ -84,7 +84,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
     /// style): the kind's icon when the user set none, a dim second line
-    /// (the agent chat's last message, else the agent's status line, else
+    /// (an unread notification's text, else the agent chat's last message, else the agent's status line, else
     /// the folder and branch), the time
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
@@ -94,7 +94,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
         self.init(
             icon: ws.icon ?? .symbol(ws.kind.symbol),
-            detail: Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+            detail: Self.nonEmpty(ws.notificationText) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: ws.progress,
@@ -145,6 +145,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
         case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
+        case .notification: nonEmpty(ws.notificationText)
         case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }
     }

@@ -32,9 +32,12 @@ public nonisolated enum WorkspaceRowElement: String, CaseIterable, Hashable, Sen
     case working
     /// The newest log line (`cmux workspace log append`), under the status entries.
     case log
+    /// The newest unread notification's text (classic's
+    /// `sidebar.showNotificationMessage`); nothing once it is read.
+    case notification
 
     /// The elements that make up the second line, in their default order.
-    public static let secondLine: [Self] = [.directory, .branch, .process, .agentStatus, .ports, .lastActivity]
+    public static let secondLine: [Self] = [.notification, .directory, .branch, .process, .agentStatus, .ports, .lastActivity]
 
     public var isSecondLine: Bool { Self.secondLine.contains(self) }
 }
