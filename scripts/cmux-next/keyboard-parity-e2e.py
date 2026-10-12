@@ -80,10 +80,11 @@ def wait(check, seconds, step=0.25):
     return None
 
 
-# The web page: a local server this script starts (and stops). /a goes on to /b, so the page has
-# a history entry to go back to. Both are no-store, so Back, Forward and Reload each fetch again,
-# and the server's request log shows which page loaded.
-PAGES = {"/a": b"<!doctype html><title>a</title><p>page a</p><script>setTimeout(()=>{location.href='/b'},300)</script>",
+# The web page: a local server this script starts (and stops). Setup opens /a, then types /b in the
+# address bar, so /a is a history entry to go back to (Chromium skips entries a script left without
+# a user gesture). Both are no-store, so Back, Forward and Reload each fetch again, and the
+# server's request log shows which page loaded.
+PAGES = {"/a": b"<!doctype html><title>a</title><p>page a</p>",
          "/b": b"<!doctype html><title>b</title><p>page b</p><input id=q>"}
 REQUESTS = []
 
@@ -153,6 +154,12 @@ def press(key, modifiers):
     if opts.debug_key:
         reply = rpc("debug.key", {"key": key, "modifiers": modifiers}) or {}
         return f"{reply.get('handled_by')}:{reply.get('action')}"
+    keys = [CUA_KEYS.get(m, m) for m in modifiers] + [key]
+    return cua("hotkey", {"keys": keys})
+
+
+def cua(tool, args):
+    """A cua-driver call with real input to the app's largest on-screen window."""
     pid = int(os.environ["APP_PID"])
     listed = json.loads(subprocess.run(["cua-driver", "call", "list_windows", json.dumps({"pid": pid})],
                                        capture_output=True, text=True, timeout=20).stdout or "{}")
@@ -161,9 +168,8 @@ def press(key, modifiers):
     windows.sort(key=lambda w: -((w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)))
     if not windows:
         return "no window"
-    keys = [CUA_KEYS.get(m, m) for m in modifiers] + [key]
-    payload = {"pid": pid, "window_id": windows[0]["window_id"], "keys": keys, "delivery_mode": "foreground"}
-    done = subprocess.run(["cua-driver", "call", "hotkey", json.dumps(payload)], capture_output=True, text=True, timeout=20)
+    payload = {"pid": pid, "window_id": windows[0]["window_id"], "delivery_mode": "foreground", **args}
+    done = subprocess.run(["cua-driver", "call", tool, json.dumps(payload)], capture_output=True, text=True, timeout=20)
     return "cua:" + (done.stdout.strip().replace("\n", " ")[:60] or done.stderr.strip()[:60])
 
 
@@ -206,7 +212,13 @@ def setup(focus):
     elif focus == "page":
         since = len(REQUESTS)
         run("openBrowser", {"url": PAGE_URL})
-        ok = wait(lambda: fetched("/b", since) or None, 15)
+        ok = wait(lambda: fetched("/a", since) or None, 15)
+        run("focusLocation")
+        ok = ok and wait(lambda: "addressBar" in str(state().get("target")) or None, 5)
+        if ok:
+            cua("type_text", {"text": PAGE_URL[:-1] + "b"})
+            cua("hotkey", {"keys": ["return"]})
+        ok = ok and wait(lambda: fetched("/b", since) or None, 10)
         ok = ok and wait(lambda: state().get("resolved") == "browserPage" or None, 8)
     elif focus == "settings":
         before = state()["tab_ids"]
