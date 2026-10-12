@@ -36,9 +36,9 @@ struct TabStepShortcutsStayInPaneTests {
     func oneTabMainPaneKeepsWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
-                let other = Self.addBackgroundWorkspaces(to: harness)
+                let other = try Self.addBackgroundWorkspaces(to: harness)
                 let panel = try #require(harness.mainWorkspace.focusedPanelId)
-                Self.focusMain(panel, in: harness)
+                try Self.focusMain(panel, in: harness)
 
                 for stroke in Self.forwardStrokes + Self.backwardStrokes {
                     #expect(DockShortcutRoutingTests.dispatch(stroke, in: harness))
@@ -54,7 +54,7 @@ struct TabStepShortcutsStayInPaneTests {
     func twoTabMainPaneStepsTabs() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
-                _ = Self.addBackgroundWorkspaces(to: harness)
+                _ = try Self.addBackgroundWorkspaces(to: harness)
                 let workspace = harness.mainWorkspace
                 let pane = try #require(workspace.bonsplitController.allPaneIds.first)
                 _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false))
@@ -64,8 +64,9 @@ struct TabStepShortcutsStayInPaneTests {
                 #expect(order.count == 2)
 
                 for (forward, backward) in zip(Self.forwardStrokes, Self.backwardStrokes) {
+                    try Self.focusMain(order[0], in: harness)
                     workspace.focusPanel(order[0])
-                    Self.focusMain(order[0], in: harness)
+                    try #require(workspace.focusedPanelId == order[0])
                     #expect(DockShortcutRoutingTests.dispatch(forward, in: harness))
                     #expect(workspace.focusedPanelId == order[1], "\(forward) did not step the pane")
                     #expect(DockShortcutRoutingTests.dispatch(forward, in: harness))
@@ -82,9 +83,9 @@ struct TabStepShortcutsStayInPaneTests {
     func clearedOrReboundSurfaceShortcutsKeepWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
-                _ = Self.addBackgroundWorkspaces(to: harness)
+                _ = try Self.addBackgroundWorkspaces(to: harness)
                 let panel = try #require(harness.mainWorkspace.focusedPanelId)
-                Self.focusMain(panel, in: harness)
+                try Self.focusMain(panel, in: harness)
 
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .nextSurface)
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .prevSurface)
@@ -107,7 +108,7 @@ struct TabStepShortcutsStayInPaneTests {
     func oneTabDockPaneKeepsWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
-                _ = Self.addBackgroundWorkspaces(to: harness)
+                _ = try Self.addBackgroundWorkspaces(to: harness)
                 let panel = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
@@ -127,7 +128,7 @@ struct TabStepShortcutsStayInPaneTests {
     func twoTabDockPaneStepsDockTabs() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await DockShortcutRoutingTests.withHarness { harness in
-                _ = Self.addBackgroundWorkspaces(to: harness)
+                _ = try Self.addBackgroundWorkspaces(to: harness)
                 let first = try #require(
                     harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
                 )
@@ -147,36 +148,90 @@ struct TabStepShortcutsStayInPaneTests {
         }
     }
 
-    /// The View menu items and the "Next/Previous Tab in Pane" palette commands call
-    /// `TabManager.selectNextSurface()` / `selectPreviousSurface()` directly.
-    @Test("The View menu and palette surface steps keep the workspace from a one-tab pane")
-    func menuSurfaceStepsKeepWorkspace() throws {
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        _ = manager.addWorkspace(title: "Build", select: false)
-        _ = manager.addWorkspace(title: "Logs", select: false)
-        let panel = try #require(workspace.focusedPanelId)
+    /// The View menu's Next/Previous Surface items call `AppDelegate.stepFocusedSurface`, which
+    /// #18939 had replaced with the workspace fallthrough.
+    @Test("The View menu items step pane tabs and keep the workspace, main tree and Dock")
+    func viewMenuSurfaceStepsKeepWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await DockShortcutRoutingTests.withHarness { harness in
+                _ = try Self.addBackgroundWorkspaces(to: harness)
+                let workspace = harness.mainWorkspace
+                let app = harness.appDelegate
+                func menu(_ forward: Bool) {
+                    app.stepFocusedSurface(
+                        forward: forward, tabManager: harness.tabManager, preferredWindow: harness.window
+                    )
+                }
 
-        manager.selectNextSurface()
-        #expect(manager.selectedTabId == workspace.id)
-        manager.selectPreviousSurface()
-        #expect(manager.selectedTabId == workspace.id)
-        #expect(workspace.focusedPanelId == panel)
+                // One-tab main pane.
+                let first = try #require(workspace.focusedPanelId)
+                try Self.focusMain(first, in: harness)
+                for forward in [true, false] {
+                    menu(forward)
+                    #expect(harness.tabManager.selectedTabId == workspace.id, "one-tab main, forward=\(forward)")
+                    #expect(workspace.focusedPanelId == first)
+                }
+
+                // Two-tab main pane.
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false))
+                let order = workspace.bonsplitController.tabs(inPane: pane).compactMap {
+                    workspace.panelIdFromSurfaceId($0.id)
+                }
+                try #require(order.count == 2)
+                workspace.focusPanel(order[0])
+                try Self.focusMain(order[0], in: harness)
+                menu(true)
+                #expect(workspace.focusedPanelId == order[1])
+                menu(false)
+                #expect(workspace.focusedPanelId == order[0])
+                #expect(harness.tabManager.selectedTabId == workspace.id)
+
+                // One-tab, then two-tab, Dock pane.
+                harness.fileExplorerState.setVisible(true)
+                harness.fileExplorerState.mode = .dock
+                app.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: harness.window)
+                let dockFirst = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                try #require(app.focusedDockStoreForShortcut(preferredWindow: harness.window) === harness.dock)
+                for forward in [true, false] {
+                    menu(forward)
+                    #expect(harness.tabManager.selectedTabId == workspace.id, "one-tab Dock, forward=\(forward)")
+                    #expect(harness.dock.focusedPanelId == dockFirst)
+                }
+                let dockSecond = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(dockFirst)
+                menu(true)
+                #expect(harness.dock.focusedPanelId == dockSecond)
+                menu(false)
+                #expect(harness.dock.focusedPanelId == dockFirst)
+                #expect(harness.tabManager.selectedTabId == workspace.id)
+                #expect(workspace.focusedPanelId == order[0])
+            }
+        }
     }
 
-    private static func addBackgroundWorkspaces(to harness: Harness) -> Set<UUID> {
-        let ids = (0..<2).compactMap { _ in
-            harness.tabManager.addWorkspaceIfActive(
+    /// Two more sidebar workspaces, so a stray workspace step would change the selection.
+    private static func addBackgroundWorkspaces(to harness: Harness) throws -> Set<UUID> {
+        var ids: Set<UUID> = []
+        for _ in 0..<2 {
+            let workspace = try #require(harness.tabManager.addWorkspaceIfActive(
                 select: false, placementOverride: .end,
                 autoWelcomeIfNeeded: false, autoRefreshMetadata: false
-            )?.id
+            ))
+            ids.insert(workspace.id)
         }
         harness.tabManager.selectWorkspace(harness.mainWorkspace)
-        return Set(ids)
+        try #require(harness.tabManager.tabs.count == 3)
+        try #require(harness.tabManager.selectedTabId == harness.mainWorkspace.id)
+        return ids
     }
 
     /// Hands keyboard ownership from the harness's Dock to a main-tree panel.
-    private static func focusMain(_ panelId: UUID, in harness: Harness) {
+    private static func focusMain(_ panelId: UUID, in harness: Harness) throws {
         harness.fileExplorerState.setVisible(false)
         harness.fileExplorerState.mode = .files
         harness.appDelegate.noteMainPanelKeyboardFocusIntent(
@@ -184,5 +239,6 @@ struct TabStepShortcutsStayInPaneTests {
             panelId: panelId,
             in: harness.window
         )
+        try #require(harness.appDelegate.focusedDockStoreForShortcut(preferredWindow: harness.window) == nil)
     }
 }
