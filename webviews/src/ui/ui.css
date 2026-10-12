@@ -40,6 +40,11 @@
   outline: none;
 }
 
+/* The anchor scrolled out of its scroller: the pop-up waits, hidden, until it is back. */
+.ui-positioner[data-anchor-hidden] {
+  visibility: hidden;
+}
+
 .ui-popup {
   min-width: 160px;
   max-height: min(420px, calc(100vh - 24px));
@@ -64,6 +69,12 @@
 .ui-menu {
   max-height: none;
   overflow: visible;
+}
+
+/* A select's options never run past the room on its side: a long list scrolls inside. */
+.ui-menu.ui-select-popup {
+  max-height: min(420px, var(--available-height, 420px));
+  overflow-y: auto;
 }
 
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
