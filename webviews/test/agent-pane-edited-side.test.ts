@@ -161,8 +161,8 @@ await requireBrowserLane("agent-pane-edited-side.test.ts", async () => {
     await page.getByText("Retry added to the uploader.").waitFor();
     const card = page.locator(".acpmux-edited");
     expect(await card.locator(".acpmux-edited-head").getByRole("button", { name: "View changes" }).count()).toBe(1);
-    expect(await card.locator(".acpmux-edited-sub").textContent()).toContain("+2");
-    expect(await card.locator(".acpmux-edited-sub").textContent()).toContain("1");
+    expect(await card.locator(".acpmux-edited-sub .acpmux-diff-add").textContent()).toBe("+2");
+    expect(await card.locator(".acpmux-edited-sub .acpmux-diff-del").textContent()).toBe("-1");
     await page.close();
   });
 
