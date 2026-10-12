@@ -11,6 +11,8 @@ import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
+import { addressPrompt, threadId, type AddressState, type ReviewThread } from "./changes/reviewThreads";
+import { ReviewThread as ReviewThreadView } from "./changes/ReviewThread";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
@@ -85,6 +87,7 @@ export function DiffPanel({
   gitIntent,
   onGitIntentHandled,
   writeKeys,
+  onAddressThread,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -106,11 +109,14 @@ export function DiffPanel({
   onGitIntentHandled?: () => void;
   /// The session's idempotency keys, kept by the page across a close and reopen of the view.
   writeKeys?: WriteKeys;
+  /// Address on a review thread (cx-ncc.77.3): sends the agent a prompt to address it; resolves
+  /// once the chat took the prompt (not when the turn ends), rejects when it refused it.
+  onAddressThread?: (prompt: string) => Promise<unknown>;
 }) {
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry, branch } = useScopeChanges(source, scope);
+  const { load, retry, branch, threads } = useScopeChanges(source, scope);
   const [commitOpen, setCommitOpen] = useState(false);
   // A commit closes the form and reloads the scope; a push changes only the branch state.
   const git = useGitWrite(
@@ -136,6 +142,38 @@ export function DiffPanel({
   }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  const threadsByPath = useMemo(() => {
+    const byPath = new Map<string, ReviewThread[]>();
+    for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
+    return byPath;
+  }, [threads]);
+  // Address's state per thread lives here, above the scope's reloads and Pierre's annotation
+  // slots, so a thread sent once stays sent and never offers a second send.
+  const [addressStates, setAddressStates] = useState<ReadonlyMap<string, AddressState>>(() => new Map());
+  const addressing = useRef(new Set<string>());
+  const runAddress = useStableCallback((thread: ReviewThread) => {
+    const id = threadId(thread);
+    if (!onAddressThread || addressing.current.has(id)) return;
+    addressing.current.add(id);
+    const mark = (state: AddressState) => setAddressStates((current) => new Map(current).set(id, state));
+    mark({ state: "sending" });
+    onAddressThread(addressPrompt(thread)).then(
+      () => mark({ state: "sent" }),
+      (error: unknown) => {
+        addressing.current.delete(id);
+        mark({
+          state: "failed",
+          message: error instanceof Error && error.message ? error.message : t("review.sendFailed"),
+        });
+      },
+    );
+  });
+  const address = onAddressThread ? { states: addressStates, run: runAddress } : undefined;
+  /// Threads on files the scope does not list (reverted here, or outside its diff), shown first.
+  const elsewhere = useMemo(() => {
+    const listed = new Set(files.map((file) => file.displayPath));
+    return (threads ?? []).filter((thread) => !listed.has(thread.path));
+  }, [threads, files]);
   /// A git scope's body before its files: loading, failed or empty.
   const scopeState =
     scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
@@ -429,23 +467,44 @@ export function DiffPanel({
           ) : files.length === 0 ? (
             <div className="acpmux-muted">{t("changes.noTurnChanges")}</div>
           ) : (
-            files.flatMap((file) =>
-              file.edits.map((edit, index) => (
-                <EditBlock
-                  key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
-                  file={file}
-                  edit={edit}
-                  index={index}
-                  layout={layout}
-                  wrap={wrap}
-                  view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
-                  on={on}
-                  onPainted={onPainted}
-                  review={file.outside ? undefined : hunkReview}
-                  focusAfter={focusAfter}
-                />
-              )),
-            )
+            [
+              elsewhere.length > 0 && (
+                <section key="\u0000review" className="acpmux-review-unplaced" aria-label={t("review.otherFiles")}>
+                  <h3 className="acpmux-review-heading">{t("review.otherFiles")}</h3>
+                  {elsewhere.map((thread) => (
+                    <ReviewThreadView
+                      key={threadId(thread)}
+                      thread={thread}
+                      address={
+                        address && {
+                          state: address.states.get(threadId(thread)) ?? { state: "idle" },
+                          run: () => address.run(thread),
+                        }
+                      }
+                    />
+                  ))}
+                </section>
+              ),
+              ...files.flatMap((file) =>
+                file.edits.map((edit, index) => (
+                  <EditBlock
+                    key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
+                    file={file}
+                    edit={edit}
+                    index={index}
+                    layout={layout}
+                    wrap={wrap}
+                    view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
+                    on={on}
+                    onPainted={onPainted}
+                    review={file.outside ? undefined : hunkReview}
+                    focusAfter={focusAfter}
+                    threads={threadsByPath.get(file.displayPath)}
+                    address={address}
+                  />
+                )),
+              ),
+            ]
           )}
         </div>
         {showTree && (
