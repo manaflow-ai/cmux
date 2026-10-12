@@ -393,7 +393,10 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        json!({"terminal":terminal_id,"value":terminal_snapshot(&topology.tabs)?}),
+                        |after| {
+                            let value = terminal_snapshot(&after.tabs)?;
+                            Ok(json!({"terminal":terminal_id,"value":value}))
+                        },
                     );
                 }
                 let mut source_pane = topology
@@ -533,20 +536,16 @@ impl Mux {
                     .collect::<Vec<_>>();
                 let terminal_value = terminal_snapshot(&moved_tabs)?;
                 after.tabs = moved_tabs;
-                // The source and destination screens list the moved tab in
-                // their layouts, and a focus change unfocuses the screen that
-                // was focused: the delta restates them first, as a tab
-                // create's projection does (cx-gzh.25).
-                let mut restated = vec![source_pane.screen_id.clone(), target_screen_public];
-                if let Some(workspace) = &topology.active_workspace
-                    && let Some((_, Some(screen))) =
-                        topology.active_screens.iter().find(|(candidate, _)| candidate == workspace)
-                {
-                    restated.push(screen.clone());
-                }
-                let mut seen = HashSet::new();
-                restated.retain(|screen| seen.insert(screen.clone()));
-                let mut deltas = screen_upserts(&after, &restated)?;
+                // The focus change and the source and destination screens,
+                // whose layouts list the moved tab, come first (cx-gzh.25,
+                // cx-gzh.26).
+                let mut deltas = move_focus_deltas(
+                    state,
+                    &topology,
+                    &after,
+                    &[source_pane.screen_id.clone(), target_screen_public],
+                    &[&source_pane.public_id, &target_pane.public_id],
+                )?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
@@ -921,6 +920,40 @@ fn screen_upserts(
             }))
         })
         .collect()
+}
+
+/// The deltas a focus change from `before` to `after` sends (workspaces,
+/// the focused screens and their active panes, from the one focus path),
+/// then upserts of `screens` it did not restate. Panes in `skip` are left
+/// to the caller's own deltas.
+fn move_focus_deltas(
+    state: &State,
+    before: &ResourceTopologySnapshot,
+    after: &ResourceTopologySnapshot,
+    screens: &[crate::resource::ScreenPublicId],
+    skip: &[&PanePublicId],
+) -> anyhow::Result<Vec<Value>> {
+    let focus = super::resource_topology::focus_deltas(
+        state,
+        before,
+        after,
+        before.active_workspace.clone(),
+        after.active_workspace.clone(),
+    )?;
+    let focus = focus.as_array().cloned().unwrap_or_default();
+    let of =
+        |resource: &'static str| focus.iter().filter(move |delta| delta["resource"] == resource);
+    let restated = screens
+        .iter()
+        .filter(|id| !of("screen").any(|delta| delta["id"] == id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut deltas = of("workspace").chain(of("screen")).cloned().collect::<Vec<_>>();
+    deltas.extend(screen_upserts(after, &restated)?);
+    deltas.extend(
+        of("pane").filter(|delta| !skip.iter().any(|pane| delta["id"] == pane.as_str())).cloned(),
+    );
+    Ok(deltas)
 }
 
 /// `terminal`'s tab ids in canonical order among `tabs`.

@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(super) fn focus_deltas(
+pub(in crate::mux) fn focus_deltas(
     state: &State,
     before: &ResourceTopologySnapshot,
     after: &ResourceTopologySnapshot,

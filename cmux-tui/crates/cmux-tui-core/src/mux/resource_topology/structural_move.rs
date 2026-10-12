@@ -14,7 +14,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
     source_pane: PaneId,
     target_pane: PaneId,
     index: usize,
-    result: Value,
+    result: impl FnOnce(&ResourceTopologySnapshot) -> anyhow::Result<Value>,
 ) -> anyhow::Result<ResourceMutationPlan> {
     let previous_active = state.active_pane();
     let source_location = state.screen_of(source_pane).context("source pane has no screen")?;
@@ -230,6 +230,8 @@ pub(in crate::mux) fn structural_tab_move_plan(
         deltas.push(delete_delta(deltas.len(), "screen", source_screen_id.as_str()));
     }
 
+    // The result describes the state after the move.
+    let result = result(&after)?;
     let source_screen_public = source_screen_id.clone();
     let target_screen_public = target_screen_id;
     let mux = Arc::clone(mux);

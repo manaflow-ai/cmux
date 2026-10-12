@@ -70,7 +70,7 @@ use topology_lookup::upserts;
 use topology_lookup::workspace_value;
 mod focus_plan;
 use focus_plan::apply_focus_path;
-use focus_plan::focus_deltas;
+pub(super) use focus_plan::focus_deltas;
 use focus_plan::focus_pane_plan;
 use focus_plan::reindex_target_tab_positions;
 mod registry_layout;
