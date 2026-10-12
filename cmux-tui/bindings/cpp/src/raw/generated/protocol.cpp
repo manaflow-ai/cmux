@@ -31750,6 +31750,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.reply) {
+        auto encoded = encode_value(*value.reply);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reply", std::move(encoded).value());
+    }
     if (value.source) {
         auto encoded = encode_value(*value.source);
         if (!encoded) return std::move(encoded).error();
@@ -31804,6 +31809,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_notification);
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
+    }
+    const Json* field_reply = value.find("reply");
+    if (field_reply) {
+        auto decoded = decode_value<bool>(*field_reply);
+        if (!decoded) return std::move(decoded).error();
+        result.reply = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (field_source) {

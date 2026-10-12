@@ -61,6 +61,10 @@ enum DebugMouse {
             }
             if params["release"]?.boolValue != false { events.append(mouse(up, at: target, in: window, flags: flags, clicks: 1)) }
         case "move":
+            // A posted move reaches no tracking area (the window server
+            // drives those), so their owners get it too: the tab strip and
+            // sidebar open hover cards on a capture slot.
+            _ = DebugHover.move(to: baseLocation(point, in: window), in: window)
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
             guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,

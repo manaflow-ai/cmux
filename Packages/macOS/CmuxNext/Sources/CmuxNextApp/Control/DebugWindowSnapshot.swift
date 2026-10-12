@@ -60,10 +60,11 @@ enum DebugWindowSnapshot {
 
     /// Captures the window and paints each visible page over the window
     /// image, in screen order: the window (with its page child windows), the
-    /// WebKit pages, the Chromium pages, then the overlay panels above
-    /// content. The base is the window server's image whenever it gives one:
-    /// it is the window as on screen, WebKit pages included (they are layers
-    /// of this window), so no WebKit image is painted over it. AppKit drawing
+    /// WebKit pages, the Chromium pages, the overlay panels above content,
+    /// then the app's menus open over it. The base is the window server's
+    /// image whenever it gives one: it is the window as on screen, WebKit
+    /// pages included (they are layers of this window), so no WebKit image
+    /// is painted over it. AppKit drawing
     /// is only the fallback (no window server image, a host without a lit
     /// display): it leaves out WebKit's remote content, so each page's own
     /// image is painted there, and it drops Liquid Glass with the views
@@ -131,6 +132,9 @@ enum DebugWindowSnapshot {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
             }
+            // Menus are not child windows: an open one goes on top.
+            let floating = window.floatingWindowsSnapshot()
+            if let floating { layers.append(.window(floating.image)) }
             let output = composite(base: base.image, window: window, layers: layers) ?? base.image
             let rep = NSBitmapImageRep(cgImage: output)
             guard let data = rep.representation(using: .png, properties: [:]) else {
@@ -143,6 +147,7 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
+                "floating_windows": JSONValue(floating?.count ?? 0),
                 "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),

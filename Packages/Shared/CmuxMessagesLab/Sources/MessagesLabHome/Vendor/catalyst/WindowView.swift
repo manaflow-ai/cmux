@@ -610,10 +610,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         // A send's animations run at Messages' phase (Springs.sendPhase): the field shrinks when the
         // draft had more than one line (or attachments).
+        let fieldShrinks = compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5
         let sendPhase: Double = {
             guard case .send = action else { return 0 }
-            return Springs.sendPhase(fieldShrinks: compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
+            return Springs.sendPhase(fieldShrinks: fieldShrinks)
         }()
+        // The transcript starts later than the flying bubble in a send (Springs.sendRowsDelay).
+        let rowsDelay: Double = { if case .send = action { return Springs.sendRowsDelay(fieldShrinks: fieldShrinks) }; return 0 }()
         var begin = beginTime(t) + sendPhase
         // My new tapback pops in its row's badge (RowCell.configureBadge); chosen in the menu, it and
         // the rows are timed from the choosing input (tapbackInput).
@@ -741,7 +744,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // the field's frame (Messages: one frame, no in-between frame); a send's collapse animates.
         let fieldSteps: Bool = { switch action { case .setDraft, .attach, .removeDraftAttachment: return true; default: return false } }()
         if animate && rowsChange || compose.fieldRect != oldField && !fieldSteps {
-            animateRows(action, el, begin: begin, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
+            animateRows(action, el, begin: begin, rowsDelay: rowsDelay, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
                         newOffset: newOffset, state: state, old: old)
         }
         phase("animateRows")
@@ -956,9 +959,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Window-space delta of every row near the viewport, as additive springs
     /// (one ledger entry per moved row), plus the fades of rows that appear,
     /// disappear or change.
-    private func animateRows(_ action: Action, _ el: SpringElement, begin: CFTimeInterval, t: Double,
+    /// `rowsDelay` (a send: Springs.sendRowsDelay): every motion and fade here starts that much after
+    /// `begin` (each element delayed: a hold at the start value until then, no frame at the final place),
+    /// an older flying bubble's shift too, so it stays in its row.
+    private func animateRows(_ action: Action, _ el: SpringElement, begin: CFTimeInterval, rowsDelay: Double, t: Double,
                              oldSnap: TranscriptModel.TailSnapshot, oldRowsTop: CGFloat, oldOffset: CGFloat, newOffset: CGFloat,
                              state: AppState, old: AppState) {
+        func later(_ e: SpringElement) -> SpringElement { e.delayed(by: rowsDelay) }
+        let el = later(el)
         let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
         var deltas: [String: CGFloat] = [:]
         var lastDelta: CGFloat?
@@ -1044,7 +1052,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if key != "typing" { out = Springs.ghostOut }
                 else if case .receive = action { out = Springs.typingOutOnReceive }
                 else { out = Springs.typingOut }
-                ledger.add(key, .content, "opacity", from: 1, to: 0, out, begin: begin)
+                ledger.add(key, .content, "opacity", from: 1, to: 0, later(out), begin: begin)
                 continue
             }
             guard r.insertedAt == t, oldSnap.index(key) == nil, newKeys.contains(key) else {
@@ -1052,15 +1060,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if case let .receipt(nb, _) = r.spec.kind, let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, // checked
                    case let .receipt(ob, orest) = oldSpec.kind, ob != nb {
                     receiptChanges.updateValue((ob, orest, oldSpec), forKey: key) // dictionary write
-                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptChangeOut, begin: begin)
-                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptChangeIn, begin: begin)
+                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, later(Springs.receiptChangeOut), begin: begin)
+                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, later(Springs.receiptChangeIn), begin: begin)
                 }
                 // A link card replacing its loading square fades in while the rows
                 // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
                 if case let .part(np) = r.spec.kind, case let .link(_, nt, ns, ni, _) = np.part, !Sizing.linkPending(title: nt, site: ns, image: ni),
                    let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, case let .part(op) = oldSpec.kind, // checked
                    case let .link(_, ot, os, oimg, _) = op.part, Sizing.linkPending(title: ot, site: os, image: oimg) {
-                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, Springs.ghostOut, begin: begin)
+                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, later(Springs.ghostOut), begin: begin)
                 }
                 continue
             }
@@ -1090,14 +1098,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 // Springs.receiptAppearScale about its own centre (the row's content scales about the row's
                 // centre; the opposite offsets keep the label's centre in place: all follow one curve).
                 // The label's centre: drawReceipt's text (baseline 14 pt under the row's top) at half its cap height.
-                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptAppearOpacity, begin: begin)
+                ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.receiptAppearOpacity), begin: begin)
                 let s0 = Double(Springs.receiptAppearScale)
                 let dx = Double(r.spec.metrics.receiptRight - RowDraw.receiptWidth(bold, rest) / 2 - r.spec.width / 2)
                 let capHeight = HomeFonts.system(ofSize: Fixture.captionSize).capHeight
                 let dy = Double(14 - capHeight / 2 - r.spec.height / 2)
-                ledger.add(key, .content, "transform.scale", from: s0, to: 1, Springs.receiptAppearGrow, begin: begin)
-                ledger.add(key, .content, "position.x", from: (1 - s0) * dx, to: 0, Springs.receiptAppearGrow, begin: begin)
-                ledger.add(key, .content, "position.y", from: (1 - s0) * dy, to: 0, Springs.receiptAppearGrow, begin: begin)
+                let grow = later(Springs.receiptAppearGrow)
+                ledger.add(key, .content, "transform.scale", from: s0, to: 1, grow, begin: begin)
+                ledger.add(key, .content, "position.x", from: (1 - s0) * dx, to: 0, grow, begin: begin)
+                ledger.add(key, .content, "position.y", from: (1 - s0) * dy, to: 0, grow, begin: begin)
             case let .part(p):
                 if case .receive = action {
                     // An outgoing insert's opacity follows the scroll's
@@ -1122,10 +1131,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 } else if case .send = action {
                     // Hidden while the morph flies (text rows); see startMorph.
                 } else {
-                    ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.ghostOut, begin: begin)
+                    ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.ghostOut), begin: begin)
                 }
             default:
-                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptIn, begin: begin)
+                ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.receiptIn), begin: begin)
             }
         }
     }

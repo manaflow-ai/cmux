@@ -30,6 +30,7 @@ import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "./styles.css";
 import "../../viewer-empty/styles.css";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 const LABELS: Record<EditorLabel, string> = {
   frontmatter: L.frontmatter,
@@ -190,7 +191,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
     : undefined;
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <MarkdownPage
         store={store}
         strings={strings}

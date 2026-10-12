@@ -18,7 +18,7 @@ import CmuxNextTerminal
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
 /// agent pane records the user's gesture. Never touches another app.
 /// With `sequence`, raw key transitions through the app's event queue
-/// instead (`DebugKey+Sequence`).
+/// instead (`DebugKey+Sequence`); with `last`, the router's last interception.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -48,6 +48,14 @@ enum DebugKey {
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if let steps = params["sequence"]?.arrayValue { return sendSequence(steps) }
+        // `last`: the action the router last took a key for (a real key's too), whether it ran,
+        // and a count that changes with every interception.
+        if params["last"]?.boolValue == true {
+            let router = services.keyRouter
+            return .object(["count": JSONValue(router.interceptions),
+                            "action": router.lastInterception.map { .string($0.action.rawValue) } ?? .null,
+                            "ran": router.lastInterception.map { .bool($0.ran) } ?? .null])
+        }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
         // The palette opens with no main window (after Close All Windows), so its keys need none:

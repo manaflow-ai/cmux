@@ -2,9 +2,10 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { usePortalContainer } from "./UiProvider";
+import { usePopupHost, usePortalContainer } from "./UiProvider";
+import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
@@ -71,6 +72,28 @@ export function Combobox({
   onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
+  // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
+  // The field keeps the focus; the list's highlight is Base UI's data-highlighted.
+  const host = usePopupHost();
+  const [field, setField] = useState<HTMLInputElement | null>(null);
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const attachField = useCallback(
+    (node: HTMLInputElement | null) => {
+      if (typeof inputRef === "function") inputRef(node);
+      else if (inputRef) inputRef.current = node;
+      if (host) setField(node);
+    },
+    [host, inputRef],
+  );
+  useEscapingPopup(inline ? null : host, popup, () => field, {
+    side: "bottom",
+    align: "start",
+    gap: 2,
+    kind: "list",
+    active: "[data-highlighted]",
+    pick: "click",
+    shell: "parent",
+  });
   const [value, setValue] = useState(defaultValue);
   const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
@@ -170,7 +193,7 @@ export function Combobox({
       }}
     >
       <Autocomplete.Input
-        ref={inputRef}
+        ref={attachField}
         className={cx("ui-field", inputClassName)}
         aria-label={label}
         placeholder={placeholder}
@@ -186,7 +209,9 @@ export function Combobox({
       ) : (
         <Autocomplete.Portal container={container}>
           <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup className="ui-popup ui-combobox-popup">{list}</Autocomplete.Popup>
+            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-combobox-popup">
+              {list}
+            </Autocomplete.Popup>
           </Autocomplete.Positioner>
         </Autocomplete.Portal>
       )}

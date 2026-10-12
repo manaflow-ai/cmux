@@ -11,7 +11,7 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { ArrowUpIcon } from "../ComposerPickers";
-import { newTabStart } from "./chipDefaults";
+import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
@@ -35,7 +35,8 @@ import { useComposerChrome } from "../composerChrome";
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
-  onAsk(harness: string, text: string, cwd?: string): void;
+  /// `model`: the one the chip names, so the chat starts on what the page showed.
+  onAsk(harness: string, text: string, cwd?: string, model?: string): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -140,6 +141,7 @@ export function NewTabScreen(props: Props) {
     () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered),
     [snapshot, agents, lastAgent, chatFolder, remembered],
   );
+  const chipModel = useNewTabChipModel(chipSnapshot);
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
@@ -222,7 +224,7 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        return props.onAsk(row.harness, row.text, project);
+        return props.onAsk(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
     }
   };
   const edit = (next: string) => {
@@ -245,7 +247,7 @@ export function NewTabScreen(props: Props) {
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
     if (!harness) return setNoAgent(true);
-    props.onAsk(harness, prompt, project);
+    props.onAsk(harness, prompt, project, chipModel);
   };
   const send = () => {
     touch();
@@ -527,10 +529,12 @@ export function NewTabScreen(props: Props) {
 }
 
 /// Down or Ctrl-N is 1, Up or Ctrl-P is -1 (R85: the native list.next keys, here for a field
-/// that is not a list until rows show); anything else undefined.
+/// that is not a list until rows show); anything else undefined. A modified arrow (Shift, Cmd,
+/// Option) moves or extends the caret, as in a browser's address bar (cx-ag5.8).
 function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
-  if (event.key === "ArrowDown") return 1;
-  if (event.key === "ArrowUp") return -1;
+  const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (event.key === "ArrowDown") return plain ? 1 : undefined;
+  if (event.key === "ArrowUp") return plain ? -1 : undefined;
   if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return undefined;
   if (event.key === "n") return 1;
   if (event.key === "p") return -1;

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7eacbbb0253cd1ef1500bd88d2f65792463e9af4abac74fef0e4ce17aab02f66. */
+/* cmux-tui mux protocol 12, IR 761a7d05f476d3612f4a0b64b043b5b3ddce8a39c4ce19c02d869525fc4cf1c0. */
 
 
 import type * as T from "./types.js";
@@ -261,6 +261,7 @@ export type NotificationEvent = { event: "notification" } & {
   "desktop"?: boolean;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "reply"?: boolean;
   "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;

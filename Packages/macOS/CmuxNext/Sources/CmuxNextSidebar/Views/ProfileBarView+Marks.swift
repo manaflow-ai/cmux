@@ -101,6 +101,7 @@ extension ProfileBarView {
                     from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
     }
 
+    // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {
         let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
         image.accessibilityDescription = Strings.newProfile

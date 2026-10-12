@@ -41,9 +41,12 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     /// false: the poster asked for no desktop banner (`notify --desktop false`,
     /// `notification-desktop-v1`); true from older daemons.
     public var desktop: Bool
+    /// true: the banner takes a typed reply for the notifying terminal
+    /// (`notify --reply`, `notification-reply-v1`); false from older daemons.
+    public var reply: Bool
 
     enum CodingKeys: String, CodingKey {
-        case notification, title, body, level, surface, source, desktop
+        case notification, title, body, level, surface, source, desktop, reply
         case createdAtMs = "created_at_ms"
     }
 
@@ -57,6 +60,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         desktop = (try? c.decodeIfPresent(Bool.self, forKey: .desktop)) ?? true
+        reply = (try? c.decodeIfPresent(Bool.self, forKey: .reply)) ?? false
     }
 }
 

@@ -403,7 +403,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => item("Hide Dictation Button"));
         item("Hide Dictation Button")!.click();
         await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
-        rightClick(ctx.find({ selector: ".nt-pickers .nt-enter" }));
+        rightClick(ctx.find({ selector: ".nt-pickers .nt-send" }));
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
@@ -428,8 +428,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     projects: {
-      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
-      ready: newTab(),
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats. The calm default lists recent chats only, so this is the Threads template, which lists them all.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Projects" });

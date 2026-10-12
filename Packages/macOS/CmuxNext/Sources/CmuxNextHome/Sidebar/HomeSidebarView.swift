@@ -46,6 +46,7 @@ public final class HomeSidebarView: NSView {
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
+        SystemScrollers.follow(list.scrollView)
         addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
