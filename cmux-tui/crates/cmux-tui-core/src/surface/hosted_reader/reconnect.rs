@@ -240,13 +240,18 @@ impl HostedReader {
                 {
                     host.disconnect();
                 }
-                pty.host_connection_state
-                    .store(TerminalHostConnectionState::Reconnecting as u8, Ordering::Release);
+                let was = pty
+                    .host_connection_state
+                    .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel);
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
                     pty.stream_progress.notify();
                     return None;
+                }
+                // A resync's reconnect that failed is a loss clients have not heard of.
+                if was != TerminalHostConnectionState::Reconnecting as u8 {
+                    publish_host_link_state(pty);
                 }
                 if !retry.wait_or_fail(pty) {
                     return None;

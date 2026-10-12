@@ -66,7 +66,8 @@ final class TerminalStatusBanner: NSView {
     /// The banner text, or nil while connected. An exited terminal whose
     /// host was lost (`hostLoss`) says so, followed by the owner's recorded
     /// `cause` when there is one. A shell the daemon cannot reach (`stall`)
-    /// is named whatever the view's own link says, unless it exited.
+    /// is named whatever the view's own link says, unless it exited or an
+    /// administrator turned the link off.
     /// `strings` defaults to this module's table and falls back to English
     /// if the bundle is gone.
     static func text(
@@ -76,7 +77,9 @@ final class TerminalStatusBanner: NSView {
         stall: TerminalShellStall? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
-        if status != .exited, let stall { return stallText(stall, strings: strings) }
+        if let stall, status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) {
+            return stallText(stall, strings: strings)
+        }
         if case .exited = status, hostLoss != nil, let cause,
            let detail = causeText(cause, strings: strings),
            let lost = text(for: status, hostLoss: hostLoss, strings: strings) {
