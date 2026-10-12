@@ -61,7 +61,21 @@ pub(crate) fn encode_snapshot_for_version(
         if !include_terminal_metadata {
             anyhow::bail!("program status requires the terminal metadata tail");
         }
-        super::program_status_codec::put_program_status(&mut output, program_status)?;
+        let mut tail = Vec::new();
+        super::program_status_codec::put_program_status(&mut tail, program_status)?;
+        // Records a program can fill must never cost the attach: past the
+        // frame budget the daemon gets none.
+        if output.len() + tail.len() > MAX_FRAME_PAYLOAD {
+            tail.clear();
+            super::program_status_codec::put_program_status(
+                &mut tail,
+                &crate::program_status::ProgramStatusSnapshot {
+                    records: Vec::new(),
+                    next_seq: program_status.next_seq,
+                },
+            )?;
+        }
+        output.extend_from_slice(&tail);
     }
     if output.len() > MAX_FRAME_PAYLOAD {
         anyhow::bail!("terminal-host snapshot payload is too large");

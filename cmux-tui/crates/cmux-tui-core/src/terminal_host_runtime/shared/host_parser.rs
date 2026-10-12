@@ -124,7 +124,7 @@ pub(crate) fn run_host_parser(
     initial_colors: TerminalColorOverrides,
     signals: ParserSignals,
 ) {
-    let ParserSignals { pending_responses, title_changed, bell } = signals;
+    let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();

@@ -77,6 +77,9 @@ pub fn validate_terminal_host_record(
         {
             anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
         }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_program_status {
+            anyhow::bail!("pre-v4 terminal-host record advertises program status");
+        }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
             "process-start nonce",

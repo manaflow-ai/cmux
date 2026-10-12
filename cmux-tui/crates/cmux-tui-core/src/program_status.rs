@@ -272,20 +272,25 @@ impl ProgramStatusRecords {
         }
     }
 
-    /// Replaces the records with the host's (an adopting daemon or a
-    /// reconnect). It raises no alert: they were raised when the program
-    /// reported. The text is untrusted again, so it is bounded again.
+    /// Replaces the records with the host's when a daemon adopts it. It
+    /// raises no alert: a program that started waiting while no daemon was
+    /// attached shows it on its tab, but posts no notification. The host's
+    /// bytes are untrusted, so `apply_report`'s rules and bounds apply again,
+    /// and `next_seq` never goes back.
     pub(crate) fn restore(&mut self, snapshot: ProgramStatusSnapshot) {
         let mut records = BTreeMap::new();
         for (id, record) in snapshot.records {
-            if record.state == ProgramStatusState::Clear || records.len() == MAX_RECORDS {
+            if record.state == ProgramStatusState::Clear {
                 continue;
             }
+            let blocked = record.state == ProgramStatusState::Blocked;
+            let shows_progress = blocked || record.state == ProgramStatusState::Working;
             let bounded = |text: Option<String>, limit| {
                 text.and_then(|text| non_empty(shown_text(&text, limit)))
             };
             let record = ProgramStatusRecord {
-                progress: record.progress.filter(|value| *value <= 100),
+                kind: record.kind.filter(|_| blocked),
+                progress: record.progress.filter(|value| shows_progress && *value <= 100),
                 app: bounded(record.app, MAX_TITLE_CHARS),
                 title: bounded(record.title, MAX_TITLE_CHARS),
                 message: bounded(record.message, MAX_MESSAGE_CHARS),
@@ -294,10 +299,12 @@ impl ProgramStatusRecords {
             records.insert(id, record);
         }
         let newest = records.values().map(|record| record.updated_seq).max().unwrap_or(0);
-        self.next_seq = snapshot.next_seq.max(newest);
-        self.records = records;
+        self.next_seq = self.next_seq.max(snapshot.next_seq).max(newest);
         self.alerts.clear();
-        self.revision += 1;
+        if records != self.records {
+            self.records = records;
+            self.revision += 1;
+        }
     }
 }
 

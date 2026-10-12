@@ -135,6 +135,7 @@ impl Harness {
             pending_responses: pending,
             title_changed: Arc::new(AtomicBool::new(false)),
             bell: Arc::new(AtomicBool::new(false)),
+            program_status: Default::default(),
         };
         thread::spawn(move || run_host_parser(parser_host, receiver, initial_colors, signals));
         Self { host, clock, pty, cursor: 0 }
