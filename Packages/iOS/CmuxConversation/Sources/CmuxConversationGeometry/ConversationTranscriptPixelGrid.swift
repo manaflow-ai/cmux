@@ -19,6 +19,9 @@ public enum ConversationTranscriptPixelGrid {
     /// the row's new raw top, `previousTop` its previous top before snapping
     /// (raw plus the previous phase). The result is within half a pixel.
     public static func phase(placing rawTop: CGFloat, likePreviousTop previousTop: CGFloat, scale: CGFloat) -> CGFloat {
-        0
+        let pixel = 1 / max(1, scale)
+        let shift = previousTop - rawTop
+        // Any whole number of pixels can go; keep the remainder.
+        return shift - (shift / pixel).rounded() * pixel
     }
 }

@@ -1240,6 +1240,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     func transcriptItemCount() -> Int { rows.count }
+    func transcriptItemIDs() -> [String] { rowIDs }
+    func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
 
     func transcriptWillPrepare(width: CGFloat) {
         let margin = layoutMargin
