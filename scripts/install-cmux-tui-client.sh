@@ -41,6 +41,9 @@
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
 # (default 60, below 1 KiB/s) bound each download attempt.
+# CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES (default 9) retries rate-limited `gh attestation verify`
+# before failing with a rate-limit error; CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS (default 60)
+# is the first wait, doubling to a 600 s cap: 65 minutes in total, past GitHub's hourly reset.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -113,21 +116,28 @@ verify_manifest_attestation() {
   [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
-  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
-  # failure is a verdict and stays final.
+  # that answer, with backoff (1, 2, 4, 8, then 10 minutes five times by
+  # default: 65 minutes, past GitHub's hourly quota reset); any other failure
+  # is a verdict and stays final.
   local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
-  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local max_delay=600
+  local retries="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-9}"
+  local retries_left="$retries"
   local output status
   while :; do
     status=0
     output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
     [[ -n "$output" ]] && printf '%s\n' "$output" >&2
     [[ $status -eq 0 ]] && return 0
-    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
+    if [[ "$output" == *"rate limit"* ]]; then
+      if (( retries_left == 0 )); then
+        echo "error: the GitHub API rate limit did not reset after $retries retries, so the cmux-tui manifest attestation at $MANIFEST_URL could not be checked; retry the install later" >&2
+        exit 1
+      fi
       echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
       sleep "$delay"
       retries_left=$((retries_left - 1))
-      delay=$((delay * 2))
+      delay=$((delay * 2 > max_delay ? max_delay : delay * 2))
       continue
     fi
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
