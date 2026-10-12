@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '761a7d05f476d3612f4a0b64b043b5b3ddce8a39c4ce19c02d869525fc4cf1c0'
+IR_SHA256 = '67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629'
 
 
 @dataclass(frozen=True)
@@ -3457,6 +3457,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
