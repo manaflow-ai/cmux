@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 
 // Main-actor mirror records. Each record is a small @Observable final class
