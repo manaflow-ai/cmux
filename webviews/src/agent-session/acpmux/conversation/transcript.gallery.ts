@@ -308,8 +308,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
+    "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
+    "agent-session/acpmux/conversation/toolOutput.tsx#OutputMore",
     "agent-session/acpmux/conversation/EditDiff.tsx",
-    "agent-session/acpmux/conversation/LazyEditDiff.tsx",
+    "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/PreviewCard.tsx",
     "agent-session/acpmux/conversation/Thinking.tsx",
@@ -1023,6 +1025,23 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openSingleShell(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__output")?.textContent === "3 pass\n0 fail");
+      },
+    },
+    "shell-long-colored-output": {
+      note: "A long, coloured test run: no colour codes, its last 400 lines under a cut mark, Show all output, and Copy in the label.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
+          output: Array.from(
+            { length: 1200 },
+            (_, index) => `\x1b[32m(pass)\x1b[0m retry backoff case ${index + 1} \x1b[2m[0.${index % 10}ms]\x1b[0m`,
+          ).join("\n"),
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
       },
     },
     "shell-failed-exit": {

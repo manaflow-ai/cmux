@@ -695,8 +695,9 @@ mark {
   }
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet) {
     transition: none !important;
   }
 }

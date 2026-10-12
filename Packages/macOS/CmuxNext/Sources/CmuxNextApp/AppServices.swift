@@ -95,6 +95,8 @@ final class AppServices {
     private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
+    /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
+    private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).

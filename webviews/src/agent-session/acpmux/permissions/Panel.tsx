@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
+import { EditDiff } from "../conversation/EditDiff";
+import { toolFiles } from "../diff";
+import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
@@ -36,30 +39,39 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
           rawTool && typeof rawTool === "object" && !Array.isArray(rawTool)
             ? (rawTool as Record<string, unknown>)
             : undefined;
+        // An edit's proposed change shows on the card, as the transcript draws an edit: what
+        // Allow lets it write should not sit behind Expand details as JSON (cx-d73v2).
+        const diffs = toolDiffs(tool?.content, tool?.locations);
+        const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
         return (
-          <details key={item.permissionId}>
-            <summary>
-              <span>{typeof tool?.title === "string" ? tool.title : t("permission.toolRequest")}</span>
-              <span className="acpmux-permission-item-kind">{typeof tool?.kind === "string" ? tool.kind : ""}</span>
-              {item.state !== "pending" && (
-                <span>{t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}</span>
+          <React.Fragment key={item.permissionId}>
+            <details>
+              <summary>
+                <span>{typeof tool?.title === "string" ? tool.title : t("permission.toolRequest")}</span>
+                <span className="acpmux-permission-item-kind">{typeof tool?.kind === "string" ? tool.kind : ""}</span>
+                {item.state !== "pending" && (
+                  <span>{t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}</span>
+                )}
+              </summary>
+              {Array.isArray(tool?.locations) && (
+                <ul>
+                  {tool.locations.map((location, index) => {
+                    const path =
+                      location && typeof location === "object" ? (location as Record<string, unknown>).path : undefined;
+                    return typeof path === "string" ? <li key={index}>{path}</li> : null;
+                  })}
+                </ul>
               )}
-            </summary>
-            {Array.isArray(tool?.locations) && (
-              <ul>
-                {tool.locations.map((location, index) => {
-                  const path =
-                    location && typeof location === "object" ? (location as Record<string, unknown>).path : undefined;
-                  return typeof path === "string" ? <li key={index}>{path}</li> : null;
-                })}
-              </ul>
-            )}
-            {tool?.rawInput !== undefined && (
-              <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>
-            )}
-            {tool?.content !== undefined && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
-            {tool?.rawInput === undefined && tool?.content === undefined && <p>{t("permission.noInput")}</p>}
-          </details>
+              {tool?.rawInput !== undefined && (
+                <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>
+              )}
+              {tool?.content !== undefined && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
+              {tool?.rawInput === undefined && tool?.content === undefined && <p>{t("permission.noInput")}</p>}
+            </details>
+            {files.map((file) => (
+              <EditDiff key={file.path} file={file} />
+            ))}
+          </React.Fragment>
         );
       })}
     </div>

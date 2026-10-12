@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd. */
+/* cmux-tui mux protocol 12, IR 67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629. */
 
 
 import type * as T from "./types.js";
@@ -344,6 +344,8 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  /** With end_terminals: the close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;

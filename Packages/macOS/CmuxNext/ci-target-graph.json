@@ -227,6 +227,7 @@
       ],
       "reads": [
         "plans/cmux-next/",
+        "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "tests/fixtures/classic-to-next/"
       ]

@@ -1567,6 +1567,12 @@
       "title" : "Pulse Duration",
       "type" : "number"
     },
+    "notifications.attention.moveToTop" : {
+      "default" : true,
+      "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -1723,6 +1729,28 @@
       "minimum" : 1,
       "title" : "Timeout",
       "type" : "number"
+    },
+    "palette.aliases" : {
+      "default" : {
+
+      },
+      "description" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first.",
+      "properties" : {
+
+      },
+      "title" : "Command Aliases",
+      "type" : "object"
+    },
+    "palette.pins" : {
+      "default" : [
+
+      ],
+      "description" : "Commands shown first when the command palette opens, in this order, by action id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Commands",
+      "type" : "array"
     },
     "palette.scopes.commands.prefix" : {
       "default" : ">",
@@ -2105,6 +2133,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.agent.notification" : {
+      "description" : "sidebar.workspaceRow.agent.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.agent.ports" : {
       "description" : "sidebar.workspaceRow.agent.ports",
       "title" : "Ports",
@@ -2129,6 +2162,7 @@
       "description" : "sidebar.workspaceRow.agent.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2193,6 +2227,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.browser.notification" : {
+      "description" : "sidebar.workspaceRow.browser.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.browser.ports" : {
       "description" : "sidebar.workspaceRow.browser.ports",
       "title" : "Ports",
@@ -2217,6 +2256,7 @@
       "description" : "sidebar.workspaceRow.browser.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2293,6 +2333,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.mixed.notification" : {
+      "description" : "sidebar.workspaceRow.mixed.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.mixed.ports" : {
       "description" : "sidebar.workspaceRow.mixed.ports",
       "title" : "Ports",
@@ -2317,6 +2362,7 @@
       "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2337,6 +2383,12 @@
     "sidebar.workspaceRow.mixed.working" : {
       "description" : "sidebar.workspaceRow.mixed.working",
       "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.notification" : {
+      "default" : true,
+      "description" : "The text of the workspace's newest unread notification.",
+      "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.ports" : {
@@ -2365,6 +2417,7 @@
     },
     "sidebar.workspaceRow.secondLineOrder" : {
       "default" : [
+        "notification",
         "directory",
         "branch",
         "process",
@@ -2375,6 +2428,7 @@
       "description" : "The order of the shown items under the workspace name.",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2423,6 +2477,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.terminal.notification" : {
+      "description" : "sidebar.workspaceRow.terminal.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.terminal.ports" : {
       "description" : "sidebar.workspaceRow.terminal.ports",
       "title" : "Ports",
@@ -2447,6 +2506,7 @@
       "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",

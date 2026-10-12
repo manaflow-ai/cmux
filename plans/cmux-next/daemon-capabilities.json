@@ -32,6 +32,7 @@
     "frontend-browser-insert-after-v1",
     "frontend-browser-tabs-v1",
     "history-v1",
+    "keybindings-v1",
     "launch-snapshot-v1",
     "local-attachments-v1",
     "local-conversations-v1",

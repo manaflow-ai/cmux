@@ -5,9 +5,9 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
-import { copyText } from "./clipboard";
+import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
-import { CodeBrackets, Copy, WrapLines } from "./icons";
+import { CodeBrackets, WrapLines } from "./icons";
 import { useT } from "../i18n";
 import { MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
@@ -44,7 +44,6 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const [wrap, setWrap] = useState(false);
-  const [copied, setCopied] = useState(false);
   // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
   const name = `snippet-${useId()}`;
   const [tooSlow, setTooSlow] = useState(false);
@@ -106,15 +105,7 @@ export function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) 
           >
             <WrapLines />
           </button>
-          <button
-            type="button"
-            className="cv-codeblock__action"
-            aria-label={copied ? t("code.copied") : t("code.copy")}
-            title={copied ? t("code.copied") : t("code.copy")}
-            onClick={() => void copyText(code).then(() => setCopied(true))}
-          >
-            <Copy />
-          </button>
+          <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>
       <DiffsHost ref={host} className="cv-codeblock__body selectable" />

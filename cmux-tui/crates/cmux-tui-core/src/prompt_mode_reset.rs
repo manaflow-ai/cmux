@@ -7,9 +7,14 @@
 //! screen. A program that prints a prompt mark itself runs after the shell's
 //! 133;C, so its modes stay.
 //!
-//! Bracketed paste (2004), focus reports (1004) and application cursor keys
-//! (1) are the line editor's own prompt modes (zsh, bash and fish turn them
-//! on to read a line), so they stay.
+//! The keyboard modes are the line editor's own at the prompt: zsh, bash and
+//! fish turn on bracketed paste (2004), focus reports (1004), application
+//! cursor keys (1) or the kitty keyboard protocol to read a line, and bash's
+//! readline does it before printing the prompt that holds 133;A. So they are
+//! reset at the shell's command end (133;D) instead, which Ghostty's bash,
+//! zsh and fish integrations print from their post-command hook, before the
+//! line editor starts: a killed Codex or Claude Code would otherwise leave
+//! keys typing kitty sequences (`[97;5u`) and pastes losing their brackets.
 
 use std::borrow::Cow;
 
@@ -29,13 +34,31 @@ const ALT_SCREEN_RESET: &[u8] = b"\x1b[?47l\x1b[?1047l\x1b[?1049l";
 /// Show the cursor (DECTCEM).
 const CURSOR_SHOW: &[u8] = b"\x1b[?25h";
 
+/// The keyboard modes a finished command leaves: pasted-text brackets, focus
+/// reports, application cursor and keypad keys, the whole kitty keyboard
+/// flag stack (a pop past its bottom resets the flags) and xterm's
+/// modifyOtherKeys.
+const KEYBOARD_RESET: &[u8] = b"\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m";
+
 /// The cursor-visible mode, a DEC private mode.
 const CURSOR_VISIBLE: u16 = 25;
 
 /// What a pane's terminal drops when its child exits: nothing runs there
-/// any more to want mouse reports, pasted-text brackets, focus reports,
-/// application cursor keys, a hidden cursor or an alternate screen.
-pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l";
+/// any more to want mouse reports, keyboard modes or a hidden cursor.
+const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m\x1b[?25h";
+
+/// The reset for a pane whose child exited: [`EXIT_RESET`], and the way off
+/// an alternate screen only when the child left one up. `?1049l` restores
+/// the saved cursor even on the main screen, so sent there it moved the
+/// cursor back over the dead child's last lines, and the restore banner and
+/// the respawned shell's prompt overwrote them.
+pub(crate) fn exit_reset(term: &Terminal) -> Vec<u8> {
+    let mut reset = EXIT_RESET.to_vec();
+    if matches!(term.active_screen(), Screen::Alternate) {
+        reset.extend_from_slice(ALT_SCREEN_RESET);
+    }
+    reset
+}
 
 /// Where the shell is between its marks, carried across output chunks.
 #[derive(Debug, Default)]
@@ -69,7 +92,14 @@ pub(crate) fn write_output<'a>(
         from = at + MARK.len();
         match data.get(from) {
             Some(b'C') => marks.running = true,
-            Some(b'D') => marks.running = false,
+            Some(b'D') if marks.running => {
+                marks.running = false;
+                let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));
+                parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
+                written = at;
+                parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
+            }
+            Some(b'D') => {}
             Some(b'A') if !marks.running => {
                 // The modes as of the mark: what this chunk set before it counts.
                 let parsed = parsed.get_or_insert_with(|| Vec::with_capacity(data.len()));

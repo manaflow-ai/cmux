@@ -856,13 +856,17 @@ export class AcpmuxDirectClient {
       // The failure's code (`validation.invalid`, ...) and details ride along for callers that
       // tell failures apart.
       if (message.error) {
-        const data = message.error.data as { code?: unknown; details?: unknown; reason?: unknown } | undefined;
+        const data = message.error.data as
+          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
             code: data?.code ?? message.error.code,
             ...(data?.details === undefined ? {} : { details: data.details }),
             // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
+            ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
@@ -1427,7 +1431,10 @@ export class AcpmuxDirectClient {
           this.promptAccepts.get(fallbackPromptId)?.();
         }
         this.subagents.closeBatch();
-        this.endAssistantSegment();
+        // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
+        // reply still streams after the steer's row and stays in its row above it, and the next
+        // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
+        if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -2282,10 +2289,17 @@ export class AcpmuxDirectClient {
       ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
     ];
   }
+  /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
+  /// the lists it has and asks each harness before it answers (the picker's Refresh models).
+  refreshModels(): Promise<unknown> {
+    return this.request("_acpmux/models", { refresh: true });
+  }
   /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
   /// click or key handler, with no await before it: the host takes the gesture, shows its own
   /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
-  /// rejects with code `transport.harness_not_confirmed`.
+  /// rejects with code `transport.harness_not_confirmed`; when acpmux refused to give the prompt
+  /// (no Trust answer, an invalid file), that rejection carries its reason as `detail`; when
+  /// acpmux gave no prompt (down, too slow), `reason` is `harness.prompt_unavailable`.
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }

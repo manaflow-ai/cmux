@@ -70,6 +70,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
+    /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
+    public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
@@ -181,9 +184,12 @@ public final class HomeNativeTranscriptView: NSView {
         super.layout()
         // Showing the tab again re-attaches the same views: the transcript is
         // laid out only when the size changed (no bitmap or backdrop rebuild).
-        if transcript.frame != bounds {
-            transcript.frame = bounds
-            transcript.layoutSubtreeIfNeeded()
+        // A size change lays the transcript out; a move only (debugTranscriptOffset) keeps its size.
+        let place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
+        if transcript.frame != place {
+            let resized = transcript.frame.size != place.size
+            transcript.frame = place
+            if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
         // change, and the first-run panel fits its agent rows above it.

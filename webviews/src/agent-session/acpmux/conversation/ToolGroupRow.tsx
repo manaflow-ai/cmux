@@ -6,7 +6,7 @@ import { useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
-import { EditDiff } from "./LazyEditDiff";
+import { EditDiff } from "./EditDiff";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";

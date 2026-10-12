@@ -35,10 +35,12 @@ import Testing
         let saved = WindowPlacement.noActivate
         WindowPlacement.noActivate = noActivate
         defer { WindowPlacement.noActivate = saved }
-        let frame = CGRect(x: 200, y: 200, width: 300, height: 100)
-        let main = window(frame)
-        let cover = coveredByOwnWindow ? window(frame.insetBy(dx: -20, dy: -20)) : nil
-        defer { main.close(); cover?.close() }
+        let main = window(CGRect(x: 200, y: 200, width: 300, height: 100))
+        defer { main.close() }
+        let frame = main.frame
+        // Our window on top, as data: a second real window's visibility and frame
+        // come from the window server, and once read as not covering (fleet run).
+        let cover = coveredByOwnWindow ? (number: main.windowNumber + 1_000, frame: frame.insetBy(dx: -20, dy: -20)) : nil
         let source = Source(window: main)
         let coordinator = HoverCardCoordinator()
         coordinator.register(source)
@@ -46,7 +48,7 @@ import Testing
         coordinator.pointerLocation = { CGPoint(x: frame.midX, y: frame.midY) }
         coordinator.appIsActive = { true }
         coordinator.windowNumberAt = { _ in 999_999 }
-        coordinator.ownWindows = { [cover, main].compactMap(\.self) }
+        coordinator.ownWindows = { [cover, (number: main.windowNumber, frame: frame)].compactMap(\.self) }
         coordinator.pointerMoved()
         return coordinator.machine.lastHit?.id
     }

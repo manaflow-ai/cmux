@@ -127,6 +127,7 @@ final class MachineBrowserStateView: NSView {
         for label in [message, queued] {
             label.alignment = .center
             label.isSelectable = true
+            label.focusRingType = .none
         }
         message.font = .systemFont(ofSize: NSFont.systemFontSize + 1, weight: .medium)
         queued.font = .systemFont(ofSize: NSFont.smallSystemFontSize)

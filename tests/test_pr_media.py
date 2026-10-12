@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -44,7 +45,7 @@ class FakeGh:
     """
 
     def __init__(self, existing=(), fail=(), missing_branch=False, missing_pr=False,
-                 read_error=None, conflict_once=(), comment_fails=False):
+                 read_error=None, conflict_once=(), comment_fails=False, put_errors=None):
         self.existing = {path: "abc123" for path in existing}
         self.fail = set(fail)
         self.missing_branch = missing_branch
@@ -52,6 +53,8 @@ class FakeGh:
         self.read_error = read_error
         self.conflict_once = set(conflict_once)
         self.comment_fails = comment_fails
+        # target -> replies the next PUTs get before one succeeds (a busy media branch)
+        self.put_errors = {target: list(errors) for target, errors in (put_errors or {}).items()}
         self.calls = []
         self.puts = {}
         self.comments = []
@@ -85,6 +88,8 @@ class FakeGh:
         body = json.loads(kwargs["input"])
         if target in self.fail:
             return self.reply(1, "", "422 could not write")
+        if self.put_errors.get(target):
+            return self.reply(1, "", self.put_errors[target].pop(0))
         if target in self.conflict_once:
             self.conflict_once.discard(target)
             return self.reply(1, "", "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123")
@@ -430,6 +435,29 @@ class UploadTests(unittest.TestCase):
             MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
             self.assertEqual(len([argv for argv in gh.calls if "PUT" in argv]), 2)
             self.assertEqual(base64.b64decode(gh.puts["1/shot.png"]["content"]), PNG)
+
+    def test_a_busy_branch_and_a_github_5xx_are_retried_until_the_write_lands(self):
+        # The gallery publish job uploads many thumbnails while other PRs do the
+        # same: two lost races in a row, or a 502, failed the whole job.
+        conflict = "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123"
+        for errors in ([conflict, conflict], ["gh: Server Error (HTTP 502)"],
+                       ["gh: Something went wrong on our side (HTTP 500)", conflict]):
+            with self.subTest(errors=errors), tempfile.TemporaryDirectory() as scratch, \
+                 mock.patch("time.sleep"):
+                shot = written(scratch, "shot.png", PNG)
+                gh = FakeGh(put_errors={"1/shot.png": errors})
+                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
+                self.assertEqual(len([argv for argv in gh.calls if "PUT" in argv]), len(errors) + 1)
+                self.assertEqual(base64.b64decode(gh.puts["1/shot.png"]["content"]), PNG)
+
+    def test_a_branch_that_stays_busy_still_fails_after_a_bounded_number_of_writes(self):
+        conflict = "gh: Conflict (HTTP 409) is at 9f9f9f but expected abc123"
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            gh = FakeGh(put_errors={"1/shot.png": [conflict] * 50})
+            with self.assertRaises(MODULE.MediaError), mock.patch("time.sleep"):
+                MODULE.put_file("o/r", "pr-media", "1/shot.png", shot, "msg", runner=gh)
+            self.assertLessEqual(len([argv for argv in gh.calls if "PUT" in argv]), 6)
 
     def test_a_conflict_that_keeps_happening_still_fails_rather_than_looping(self):
         with tempfile.TemporaryDirectory() as scratch:

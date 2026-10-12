@@ -16,9 +16,7 @@ extension AgentPaneModel {
               let onRunAction else {
             return Self.unsupported("action.run")
         }
-        if Self.connectActions.contains(id), !transport.gestures.consume() {
-            return Self.transportFailure(.gestureRequired)
-        }
+        if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         if !onRunAction(id), let fallback = Self.connectFallbacks[id] { _ = onRunAction(fallback) }
         return AgentPaneReply.success()
     }

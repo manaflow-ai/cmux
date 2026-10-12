@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd'
+IR_SHA256 = '67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629'
 
 
 @dataclass(frozen=True)
@@ -476,6 +476,7 @@ COMMANDS = {
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
+            'reason': CommandFieldMetadata(None, 'close-reason-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -3456,6 +3457,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),

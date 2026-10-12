@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd";
+inline constexpr std::string_view kProtocolIrSha256 = "67d7ecb759ef04d91548819e9fc645194fd9a678113174603e80467e08021629";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -529,6 +529,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -602,6 +603,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
@@ -1423,6 +1425,7 @@ struct CloseWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<CloseReason> reason{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
@@ -2724,6 +2727,22 @@ struct JournalFrontendEventRequest {
 
 struct JournalFrontendEventResult {
     friend bool operator==(const JournalFrontendEventResult&, const JournalFrontendEventResult&) = default;
+};
+
+enum class KeybindingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct KeybindingsChangedEvent {
+    KeybindingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const KeybindingsChangedEvent&, const KeybindingsChangedEvent&) = default;
 };
 
 struct KittyGraphicsState {
@@ -8329,6 +8348,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<KeybindingsChangedEvent> {
+    static Result<Json> encode(const KeybindingsChangedEvent& value);
+    static Result<KeybindingsChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
@@ -8764,6 +8789,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<KeybindingsChangedEventOrigin> {
+    static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
+    static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

@@ -347,19 +347,17 @@
   .ui-popup {
     animation: ui-popup-open var(--ui-popup-open) ease-out;
   }
+}
 
-  .ui-tooltip,
-  .ui-sheet {
-    transition: opacity 90ms ease-out;
-  }
+/* Tooltips and sheets only fade, so they fade under Reduce Motion too. */
+.ui-tooltip,
+.ui-sheet {
+  transition: opacity 90ms ease-out;
+}
 
-  .ui-tooltip[data-starting-style],
-  .ui-tooltip[data-ending-style],
-  .ui-sheet[data-starting-style] {
-    opacity: 0;
-  }
-
-  .ui-sheet[data-ending-style] {
-    opacity: 0;
-  }
+.ui-tooltip[data-starting-style],
+.ui-tooltip[data-ending-style],
+.ui-sheet[data-starting-style],
+.ui-sheet[data-ending-style] {
+  opacity: 0;
 }

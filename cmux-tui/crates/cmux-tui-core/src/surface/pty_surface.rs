@@ -325,7 +325,8 @@ impl PtySurface {
     /// output: byte taps get the same reset and the returned generation
     /// renders it.
     fn drop_exited_modes(&self, term: &mut Terminal) -> u64 {
-        let reset = term.vt_write_with_normalized(crate::prompt_mode_reset::EXIT_RESET);
+        let exit_reset = crate::prompt_mode_reset::exit_reset(term);
+        let reset = term.vt_write_with_normalized(&exit_reset);
         self.broadcast_attach_output(&reset);
         self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
