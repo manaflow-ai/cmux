@@ -68,12 +68,24 @@ extension AppControl {
             // Starts this Mac's cmux link the way a connect does and reports
             // the ensure and the apps-link-changed answer (cx-rtipa S3).
             .async("debug.cloud.link_ensure") { [weak services] _ in
-                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
+                let found = await MainActor.run { () -> (CloudService?, ControlError?) in
+                    guard let services else { return (nil, nil) }
+                    return (services.cloud, Self.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
+                }
+                if let refusal = found.1 { throw refusal }
+                guard let cloud = found.0 else { return .null }
                 // The daemon wire value, as this socket's JSON value.
                 let report = await cloud.ensureLinkReport()
                 guard let data = try? JSONEncoder().encode(report),
                       let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return .null }
                 return CmuxNextSettings.JSONValue(foundation: object) ?? .null
+            },
+            // Ends the Cloud session here without the app's sign-out (as an
+            // expired or remote sign-out does), for the link's GUI proof.
+            .async("debug.cloud.end_session") { [weak services] _ in
+                guard let cloud = await MainActor.run(body: { services?.cloud }) else { return .null }
+                await cloud.auth.signOut()
+                return .object(["ended": .bool(true)])
             },
         ])
         #endif

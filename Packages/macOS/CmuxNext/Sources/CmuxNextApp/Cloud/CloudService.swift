@@ -24,8 +24,14 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` for the app server path (cx-rtipa S3); nil on
-    /// the legacy path.
+    /// the legacy path and in an untagged DEBUG build.
     @ObservationIgnored private let linkLauncher: CloudLinkLauncher?
+    /// The running ensure (one at a time; ``ensureLinkReport()``).
+    @ObservationIgnored private var linkTask: Task<JSONValue, Never>?
+    /// Bumped when a session ends: an ensure of an older one does nothing.
+    @ObservationIgnored private var linkGeneration: UInt64 = 0
+    /// The Stack user the link was last started for.
+    @ObservationIgnored private var linkUser: String?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -171,6 +177,10 @@ final class CloudService {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
+                    // Another person's link never keeps running for this one.
+                    let user = self.auth.user?.id
+                    if let previous = self.linkUser, previous != user { await self.stopLink() }
+                    self.linkUser = user
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
@@ -178,6 +188,9 @@ final class CloudService {
                     await self.refresh()
                 } else {
                     self.dropAllMachines()
+                    // The session ended (signed out here or elsewhere, or
+                    // expired): no link keeps running for it.
+                    await self.endLink()
                     await self.installIdentity.unbind()
                 }
             }
@@ -375,13 +388,15 @@ final class CloudService {
 
     func signOut() async {
         dropAllMachines()
-        await stopLink()
+        await endLink()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
         }
+        // An ensure that slipped in during the revoke: stop that link too.
+        await stopLink()
         await auth.signOut()
     }
 
@@ -396,9 +411,30 @@ final class CloudService {
     /// how many app servers `apps-link-changed` told (or its refusal).
     func ensureLinkReport() async -> JSONValue {
         guard let linkLauncher else { return .object(["error": .string("not the app server link path")]) }
+        guard mayCallCloud, !policyDisabled, auth.isSignedIn else { return .object(["error": .string("Cloud is not available")]) }
+        // One link task: an ensure waits for the one before it.
+        let previous = linkTask
+        let generation = linkGeneration
+        let task = Task { [weak self] () -> JSONValue in
+            _ = await previous?.value
+            guard let self else { return .null }
+            return await self.runEnsure(linkLauncher, generation: generation)
+        }
+        linkTask = task
+        return await task.value
+    }
+
+    /// One ensure. Nothing once a sign-out or a session end started
+    /// (`linkGeneration` moved); a link that started meanwhile is stopped.
+    private func runEnsure(_ linkLauncher: CloudLinkLauncher, generation: UInt64) async -> JSONValue {
+        guard generation == linkGeneration, auth.isSignedIn else { return .object(["error": .string("signed out")]) }
         guard let install = await installIdentity.installID() else { return .object(["error": .string("no install")]) }
         do {
             let ensured = try await linkLauncher.ensure(install: install)
+            if generation != linkGeneration {
+                await linkLauncher.stop()
+                return .object(["error": .string("signed out during the ensure")])
+            }
             var report: [String: JSONValue] = ["status": .string(ensured.status), "pid": ensured.pid.map { .number(Double($0)) } ?? .null]
             if ensured.status != "running" { report["link_changed"] = await notifyLinkChanged() }
             return .object(report)
@@ -408,7 +444,20 @@ final class CloudService {
         }
     }
 
-    /// Stops this Mac's `cmux link` (sign-out) and tells the daemon.
+    /// The session ends (sign-out, or the session ended elsewhere): no new
+    /// ensure starts, the running one is waited for, the link stops, and the
+    /// install's key and peers go into the archive.
+    private func endLink() async {
+        linkGeneration &+= 1
+        let running = linkTask
+        linkTask = nil
+        _ = await running?.value
+        await stopLink()
+        await linkLauncher?.archive()
+        linkUser = nil
+    }
+
+    /// Stops this Mac's `cmux link` and tells the daemon.
     private func stopLink() async {
         guard let linkLauncher else { return }
         await linkLauncher.stop()

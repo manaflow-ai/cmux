@@ -51,20 +51,39 @@ nonisolated struct CloudLinkLauncher: Sendable {
         self.clock = clock
     }
 
-    /// This app's launcher: the bundled `cmux-tui` and the launch tag's state.
-    static func forApp(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) -> CloudLinkLauncher? {
-        guard let binary = try? DaemonLauncher.resolveBinary(bundle: bundle, environment: environment) else { return nil }
+    /// This app's launcher: only the app bundle's own `bin/cmux-tui` (never
+    /// a `CMUX_NEXT_TUI_BIN` override) and the launch tag's state. A DEBUG
+    /// build without a tag gets no link: it would share the release app's
+    /// state directory.
+    static func forApp(bundle: Bundle = .main) -> CloudLinkLauncher? {
+        guard let resources = bundle.resourceURL else { return nil }
+        let binary = resources.appendingPathComponent("bin/cmux-tui")
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else { return nil }
         let tag = LaunchIdentity.current().tag
-        return CloudLinkLauncher(binary: binary, stateRoot: tag.map { DaemonLauncher.tagStateDirectory(tag: $0) }, tagged: tag != nil)
+        #if DEBUG
+        guard tag != nil else { return nil }
+        #endif
+        let stateRoot = tag.map { DaemonLauncher.tagStateDirectory(tag: $0) } ?? defaultStateRoot()
+        guard let stateRoot else { return nil }
+        return CloudLinkLauncher(binary: binary, stateRoot: stateRoot, tagged: tag != nil)
+    }
+
+    /// cmux-tui's default daemon state root on macOS
+    /// (`~/Library/Application Support/cmux-tui/sessions`), named explicitly
+    /// so `--state-dir` is always given.
+    static func defaultStateRoot() -> URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux-tui/sessions", isDirectory: true)
     }
 
     /// The link's state directory.
     var stateDirectory: URL? { stateRoot?.appendingPathComponent("link", isDirectory: true) }
 
-    /// The `link ensure` command line for `install` (pure).
+    /// The `link ensure` command line for `install` (pure). `--handoff`
+    /// goes only with an explicit `--state-dir`.
     func ensureArguments(install: String) -> [String] {
-        var arguments = ["link", "ensure", "--install", install, "--handoff"]
-        if let stateDirectory { arguments += ["--state-dir", stateDirectory.path] }
+        guard let stateDirectory else { return ["link", "ensure", "--install", install] }
+        var arguments = ["link", "ensure", "--install", install, "--handoff", "--state-dir", stateDirectory.path]
         if tagged, let stateRoot {
             arguments += ["--port", "0", "--server-config", stateRoot.appendingPathComponent("server.json").path]
         }
@@ -75,12 +94,22 @@ nonisolated struct CloudLinkLauncher: Sendable {
         ["link", "stop"] + (stateDirectory.map { ["--state-dir", $0.path] } ?? [])
     }
 
-    /// The link's environment: the app's own, with the state root and the
-    /// fixed runtime base.
+    /// `link archive`: after a sign-out, the signed-out install's key and
+    /// peers go into its archive and the config goes, so no later ensure
+    /// without `--install` starts the link as that account.
+    func archiveArguments() -> [String] {
+        ["link", "archive"] + (stateDirectory.map { ["--state-dir", $0.path] } ?? [])
+    }
+
+    /// The variables the link may get from the app's environment; nothing
+    /// else (no `CMUX_NEXT_*`, no `DYLD_*`, no credentials) reaches it.
+    static let inheritedKeys = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+
+    /// The link's environment: the allow-listed variables of `base`, the
+    /// state root and the fixed runtime base.
     func environment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = base
+        var environment = base.filter { Self.inheritedKeys.contains($0.key) }
         if let stateRoot { environment["CMUX_TUI_STATE_DIR"] = stateRoot.path }
-        environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = runtimeBase.path
         return environment
     }
@@ -97,12 +126,22 @@ nonisolated struct CloudLinkLauncher: Sendable {
         return ensured
     }
 
-    /// Stops the link (sign-out). A failure is logged only.
+    /// Stops the link (sign-out, session end). A failure is logged only.
     @concurrent func stop() async {
         do {
             _ = try await run(stopArguments())
         } catch {
             Self.logger.error("cloud link stop failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Archives the signed-out install's key and peers (`link archive`). A
+    /// failure is logged only.
+    @concurrent func archive() async {
+        do {
+            _ = try await run(archiveArguments())
+        } catch {
+            Self.logger.error("cloud link archive failed: \(String(describing: error), privacy: .public)")
         }
     }
 
