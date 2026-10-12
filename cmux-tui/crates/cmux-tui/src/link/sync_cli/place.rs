@@ -196,6 +196,26 @@ struct Aside {
     name: String,
 }
 
+/// What a file here must still be for the pull to replace or delete it:
+/// its SHA-256 and synced permissions, as the plan saw them.
+pub(super) struct Expected {
+    pub sha256: String,
+    pub permissions: u32,
+}
+
+/// A file here changed after the plan saw it: nothing of it was replaced
+/// or deleted.
+#[derive(Debug)]
+pub(super) struct Changed(pub String);
+
+impl std::fmt::Display for Changed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} changed here during the pull", self.0)
+    }
+}
+
+impl std::error::Error for Changed {}
+
 /// The changes of one pull to the folder under `root`.
 pub(super) struct Transaction {
     root: Rc<Dir>,
@@ -219,7 +239,13 @@ impl Transaction {
     /// Moves the staged file `staged` (a name in the staging folder, its
     /// permissions already set) to `relative`, making missing folders. A
     /// file there is moved aside; anything else there stops the pull.
-    pub(super) fn write(&mut self, relative: &str, staged: &str) -> anyhow::Result<()> {
+    pub(super) fn write(
+        &mut self,
+        relative: &str,
+        staged: &str,
+        expected: Option<&Expected>,
+    ) -> anyhow::Result<()> {
+        let _ = expected;
         let (dir, name) = self.folder_for(relative)?;
         let aside = match dir.entry(&name)? {
             Entry::Missing => None,
@@ -246,7 +272,8 @@ impl Transaction {
 
     /// Deletes the file at `relative` (moved aside until the pull ends);
     /// nothing when it is already gone.
-    pub(super) fn delete(&mut self, relative: &str) -> anyhow::Result<()> {
+    pub(super) fn delete(&mut self, relative: &str, expected: &Expected) -> anyhow::Result<()> {
+        let _ = expected;
         let Some((dir, name)) = parent_of(&self.root, relative)? else { return Ok(()) };
         if !matches!(dir.entry(&name)?, Entry::File { .. }) {
             return Ok(());
@@ -363,5 +390,45 @@ impl Transaction {
             let _ = dir.unlink(&part, false);
         }
         copied
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest as _, Sha256};
+
+    use super::*;
+
+    fn sha256(bytes: &[u8]) -> String {
+        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    /// A file edited here after the plan read it (between the last check
+    /// and its move) is never replaced or deleted: the edit stays.
+    #[test]
+    fn a_file_edited_after_the_plan_is_never_replaced_or_deleted() {
+        let top = tempfile::tempdir().unwrap();
+        let (root, staging) = (top.path().join("root"), top.path().join("staging"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(root.join("a.txt"), "edited\n").unwrap();
+        std::fs::write(root.join("b.txt"), "edited\n").unwrap();
+        std::fs::write(staging.join("file-1"), "machine\n").unwrap();
+        let planned = Expected { sha256: sha256(b"planned\n"), permissions: 0o644 };
+
+        let mut transaction = Transaction::new(&root, &staging).unwrap();
+        let error = transaction.write("a.txt", "file-1", Some(&planned)).unwrap_err();
+        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
+        let error = transaction.delete("b.txt", &planned).unwrap_err();
+        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
+        // A file made after the plan saw none is not replaced either.
+        std::fs::write(root.join("c.txt"), "made here\n").unwrap();
+        let error = transaction.write("c.txt", "file-1", None).unwrap_err();
+        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
+        let _ = transaction.roll_back();
+
+        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
+        assert_eq!(std::fs::read_to_string(root.join("b.txt")).unwrap(), "edited\n");
+        assert_eq!(std::fs::read_to_string(root.join("c.txt")).unwrap(), "made here\n");
     }
 }

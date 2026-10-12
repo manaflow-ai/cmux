@@ -49,7 +49,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitPlan};
 use super::local::{self, GitDirs};
-use super::place::{self, Dir, Entry, Transaction};
+use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
 use super::{Manifest, Pushed, base, names};
 
@@ -257,12 +257,15 @@ fn apply(
         match step.step {
             Step::Write { staged, permissions, revision, sha256 } => {
                 bytes += std::fs::metadata(staging.0.join(&staged))?.len();
-                transaction.write(&step.relative, &staged)?;
+                transaction.write(&step.relative, &staged, expected(&step.local).as_ref())?;
                 written += 1;
                 next.files.insert(step.relative, Pushed { sha256, permissions, revision });
             }
             Step::Delete => {
-                transaction.delete(&step.relative)?;
+                let Some(expected) = expected(&step.local) else {
+                    bail!("{} here is not a file", step.relative);
+                };
+                transaction.delete(&step.relative, &expected)?;
                 deleted += 1;
                 next.files.remove(&step.relative);
             }
@@ -275,6 +278,16 @@ fn apply(
         }
     }
     Ok((written, deleted, bytes))
+}
+
+/// What this Mac's file must still be when it is replaced or deleted.
+fn expected(side: &Side) -> Option<Expected> {
+    match side {
+        Side::File { sha256, permissions } => {
+            Some(Expected { sha256: sha256.clone(), permissions: *permissions })
+        }
+        Side::Missing | Side::Other => None,
+    }
 }
 
 /// A working-tree path of the record: no repository folder under any

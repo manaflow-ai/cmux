@@ -305,3 +305,81 @@ pub(super) fn split(path: &str) -> anyhow::Result<(&str, &str)> {
         trimmed.rsplit_once('/').ok_or_else(|| anyhow!("not an absolute path: {path}"))?;
     Ok((if parent.is_empty() { "/" } else { parent }, name))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    use serde_json::{Value, json};
+
+    use super::Remote;
+
+    /// A [`Remote`] whose machine is `serve`: it gets each request and the
+    /// connection to answer on, then the connection stays open (a machine
+    /// that hangs) until the test ends.
+    fn hostile(serve: impl FnOnce(&mut dyn Iterator<Item = Value>, &mut UnixStream) + Send + 'static) -> Remote {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(server.try_clone().unwrap());
+            let mut requests =
+                reader.lines().map_while(Result::ok).map(|line| serde_json::from_str(&line).unwrap());
+            serve(&mut requests, &mut server);
+            std::thread::sleep(Duration::from_secs(30));
+        });
+        Remote { reader: BufReader::new(client), next_id: 1 }
+    }
+
+    /// An answer line that never ends is refused, not held in memory.
+    #[test]
+    fn an_answer_line_over_the_limit_is_refused() {
+        let mut remote = hostile(|requests, server| {
+            requests.next();
+            let chunk = vec![b'x'; 1 << 20];
+            for _ in 0..20 {
+                if server.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
+        assert!(format!("{error:#}").contains("too long"), "{error:#}");
+    }
+
+    /// Answers that never carry the request's id are refused.
+    #[test]
+    fn answers_for_other_requests_are_refused() {
+        let mut remote = hostile(|requests, server| {
+            requests.next();
+            for _ in 0..2000 {
+                let line = format!("{}\n", json!({"id": 999, "ok": true, "data": {}}));
+                if server.write_all(line.as_bytes()).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.call("fs.stat", json!({"path": "/x"})).unwrap_err();
+        assert!(format!("{error:#}").contains("other requests"), "{error:#}");
+    }
+
+    /// A listing whose pages never end is refused.
+    #[test]
+    fn a_listing_that_never_ends_is_refused() {
+        let mut remote = hostile(|requests, server| {
+            for (page, request) in requests.enumerate().take(5000) {
+                let answer = json!({"id": request["id"], "ok": true, "data": {
+                    "entries": [{"name": format!("n{page}"), "kind": "file", "size": 1, "mtime": 1}],
+                    "cursor": format!("c{page}"),
+                    "listing": "l",
+                }});
+                if server.write_all(format!("{answer}\n").as_bytes()).is_err() {
+                    return;
+                }
+            }
+        });
+        let error = remote.list("/x").unwrap_err();
+        assert!(format!("{error:#}").contains("never ends"), "{error:#}");
+    }
+}

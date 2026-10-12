@@ -637,3 +637,113 @@ fn a_pull_trusts_only_the_base_this_mac_kept() {
     assert_eq!(std::fs::read_to_string(repo.join(".env")).unwrap(), "SECRET=mac\n", "{answer}");
     assert_eq!(std::fs::read_to_string(repo.join("build/keep.o")).unwrap(), "mine\n", "{answer}");
 }
+
+/// Plants the files of a bare repository's shape in `folder` on the
+/// machine: git run anywhere below it would read its `config` (and run
+/// `core.fsmonitor`), so none of it may come back.
+fn plant_repository_shape(folder: &Path) {
+    std::fs::create_dir_all(folder.join("objects/info")).unwrap();
+    std::fs::create_dir_all(folder.join("refs/heads")).unwrap();
+    std::fs::write(folder.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(folder.join("objects/info/packs"), "\n").unwrap();
+    std::fs::write(folder.join("refs/heads/main"), format!("{}\n", "1".repeat(40))).unwrap();
+    std::fs::write(folder.join("config"), "[core]\n\tfsmonitor = touch /tmp/cmux-pwned\n")
+        .unwrap();
+}
+
+/// A malicious machine plants a repository's shape (HEAD, objects, refs
+/// and a config) instead of a `.git` folder: a new folder, a folder the
+/// push sent, a `commondir` variant and, outside git, the top itself.
+/// None of it comes back, and the folder the push sent keeps its files.
+#[test]
+fn a_pull_never_brings_back_a_planted_repository_shape() {
+    let (root, _sockets, repo, remote, socket) = pushed_repo();
+    plant_repository_shape(&remote.join("sub"));
+    plant_repository_shape(&remote.join("src"));
+    std::fs::create_dir_all(remote.join("wt")).unwrap();
+    std::fs::write(remote.join("wt/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(remote.join("wt/commondir"), "../sub\n").unwrap();
+    std::fs::write(remote.join("wt/config"), "[core]\n\tfsmonitor = evil\n").unwrap();
+    std::fs::write(remote.join("fine.txt"), "fine\n").unwrap();
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    for planted in ["sub/HEAD", "sub/config", "sub/refs", "src/HEAD", "src/config", "wt/commondir"]
+    {
+        assert!(!repo.join(planted).exists(), "{planted} came back: {answer}");
+    }
+    assert_eq!(std::fs::read_to_string(repo.join("src/a.txt")).unwrap(), "one\n", "{answer}");
+    assert_eq!(std::fs::read_to_string(repo.join("fine.txt")).unwrap(), "fine\n", "{answer}");
+
+    // Outside git: the top itself is planted. Only its repository names
+    // stay out; another new file still comes back.
+    let plain = std::fs::canonicalize(root.path()).unwrap().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("a.txt"), "a\n").unwrap();
+    let plain_remote = remote.parent().unwrap().join("plain");
+    push(&socket, &plain, &plain_remote);
+    plant_repository_shape(&plain_remote);
+    std::fs::write(plain_remote.join("readme.txt"), "made there\n").unwrap();
+    let (ok, answer) = pull(&socket, &plain, &plain_remote);
+    assert!(ok, "{answer}");
+    for planted in ["HEAD", "config", "refs", "objects"] {
+        assert!(!plain.join(planted).exists(), "{planted} came back: {answer}");
+    }
+    assert_eq!(std::fs::read_to_string(plain.join("readme.txt")).unwrap(), "made there\n");
+}
+
+/// The folder this working copy's `core.hooksPath` names runs on its next
+/// commit: nothing the machine put there comes back, husky's layout
+/// (`.husky/_` calling `.husky/<hook>`) included.
+#[test]
+fn a_pull_never_brings_back_the_hooks_this_working_copy_runs() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    git(&repo, &["config", "core.hooksPath", ".githooks"]);
+    std::fs::create_dir_all(remote.join(".githooks")).unwrap();
+    std::fs::write(remote.join(".githooks/pre-commit"), "#!/bin/sh\necho planted\n").unwrap();
+    std::fs::set_permissions(
+        remote.join(".githooks/pre-commit"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    assert!(!repo.join(".githooks/pre-commit").exists(), "a hook came back: {answer}");
+
+    git(&repo, &["config", "core.hooksPath", ".husky/_"]);
+    std::fs::create_dir_all(remote.join(".husky/_")).unwrap();
+    std::fs::write(remote.join(".husky/_/pre-push"), "#!/bin/sh\n. .husky/pre-push\n").unwrap();
+    std::fs::write(remote.join(".husky/pre-push"), "#!/bin/sh\necho planted\n").unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    assert!(!repo.join(".husky").exists(), "a hook came back: {answer}");
+}
+
+/// Hundreds of new files in as many folders come back under a Mac's
+/// default limit of open files (256): a pull holds no handle per file.
+#[test]
+fn a_pull_of_many_files_finishes_under_a_low_open_file_limit() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    for index in 0..300 {
+        let folder = remote.join(format!("many/d{index}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("f.txt"), format!("{index}\n")).unwrap();
+    }
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg("ulimit -n 128 && exec \"$0\" \"$@\"")
+        .arg(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["link", "sync", "pull", "--socket"])
+        .arg(&socket)
+        .arg(&repo)
+        .arg(&remote)
+        .env("CMUX_TUI_STATE_DIR", state_of(&socket))
+        .output()
+        .unwrap();
+    let answer = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{answer}{}", String::from_utf8_lossy(&output.stderr));
+    for index in [0, 150, 299] {
+        let path = repo.join(format!("many/d{index}/f.txt"));
+        assert_eq!(std::fs::read_to_string(path).unwrap(), format!("{index}\n"), "{answer}");
+    }
+}
