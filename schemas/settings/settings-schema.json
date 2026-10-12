@@ -687,6 +687,16 @@
               "key" : "settings.group.remote",
               "text" : "Remote Machines"
             }
+          },
+          {
+            "key" : "settings.group.iPhone",
+            "rows" : [
+              "browser.allowIPhoneAccess"
+            ],
+            "title" : {
+              "key" : "settings.group.iPhone",
+              "text" : "iPhone"
+            }
           }
         ],
         "id" : "browser",
@@ -18443,6 +18453,53 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.iPhone",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.browser.allowIPhoneAccess.help",
+        "text" : "Lets cmux's iPhone app view and control Chromium tabs on this Mac. Takes effect after restarting cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.allowIPhoneAccess",
+      "keywords" : [
+        "phone",
+        "mobile",
+        "devtools",
+        "remote debugging"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "allowIPhoneAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.allowIPhoneAccess",
+        "text" : "Allow cmux on iPhone to View Browser Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "google",
         "duckduckgo",
         "bing",
@@ -22396,7 +22453,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5269e4eb3bc1af7a643a7960017016c5439d1d26a97533402874b1860cce41ea",
+  "schema_hash" : "768af45c1b765753a5398c404a374ddd48d522c04547ea093b2abcc95b1a48ef",
   "sections" : [
     {
       "id" : "general",
