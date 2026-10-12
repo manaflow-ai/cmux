@@ -37,6 +37,10 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
     updatedAt: Date.now(),
   };
   const sent: { method: string; params: Record<string, unknown> }[] = [];
+  /// The first pane's `initialize` is answered this late: on a busy runner (dev server files run
+  /// side by side, #19831) the first page's cold modules load slowly and its attach came after 10 s.
+  const COLD_START_MS = 11_000;
+  let coldStart = true;
   /// While set, the stand-in holds the attach's reply until `releaseAttach` runs.
   let holdAttach = false;
   let releaseAttach: (() => void) | undefined;
@@ -73,6 +77,11 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           const result = answer(message.method);
           const reply = () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.id === undefined) return;
+          if (coldStart && message.method === "initialize") {
+            coldStart = false;
+            setTimeout(reply, COLD_START_MS);
+            return;
+          }
           if (holdAttach && message.method === "_acpmux/attach") releaseAttach = reply;
           else reply();
         },
