@@ -305,7 +305,11 @@ Object.assign(variants, {
   "theme-file-save": variant("theme", {
     allThemes: true,
     options: { values: { "appearance.theme": "Dracula" } },
-    steps: [click('[data-theme-files-action="save"]'), wait('[data-theme-files-prompt="name"]')],
+    steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
+      click('[data-theme-files-action="save"]'),
+      wait('[data-theme-files-prompt="name"]'),
+    ],
     note: "Save as Ghostty Theme asks for a name inline, starting from the previewed theme's.",
   }),
   "theme-file-replace": variant("theme", {
@@ -315,6 +319,7 @@ Object.assign(variants, {
       importable: { ...mockThemeColors[0]!, name: "Dracula Night" },
     },
     steps: [
+      wait('[data-theme-files-action="import"]:not([disabled])'),
       click('[data-theme-files-action="import"]'),
       wait('[data-theme-files-action="import"]:not([disabled])'),
       click('[data-theme-files-action="import"]'),
@@ -326,6 +331,7 @@ Object.assign(variants, {
     allThemes: true,
     options: { values: { "appearance.theme": "Dracula" } },
     steps: [
+      wait('[data-theme-files-action="save"]:not([disabled])'),
       click('[data-theme-files-action="save"]'),
       input('[data-theme-files-prompt="name"] input', "Dracula"),
       click('[data-theme-files-prompt="name"] button[type="submit"]'),
