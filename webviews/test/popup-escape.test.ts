@@ -232,11 +232,25 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       [list, before] as const,
     );
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+    // The host's labels are the rows' words, spaced, without the Return hint the selected row shows.
+    const labels = ((show?.params.items ?? []) as { label: string }[]).map((item) => item.label);
+    for (const label of labels) expect(label).not.toContain("↵");
+    // A dismiss from the host (another app, a resize) hides the rows and keeps the typed text.
+    const typed = await page.inputValue(field);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "dismiss" } })));
+    await page.waitForSelector(`${list} [role=option]`, { state: "detached" });
+    expect(await page.inputValue(field)).toBe(typed);
+    expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);
+    // Typing again brings them back.
+    await page.keyboard.type("e");
+    await page.waitForSelector(`${list} [role=option]`, { state: "attached" });
+    return labels;
   };
 
   test("a short window sends the New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
-    await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    expect(labels).toContain("Release notes cmux.dev");
     await page.close();
   });
 
