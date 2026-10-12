@@ -292,7 +292,8 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     pub(super) fn publish_final_frame(&self) {
-        let term = self.term.lock().unwrap();
+        let mut term = self.term.lock().unwrap();
+        self.drop_exited_modes(&mut term);
         let generation = self.render_generation.load(Ordering::Acquire);
         let _ = self.build_producer_frame(term, generation);
     }
@@ -307,6 +308,7 @@ impl PtySurface {
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.drop_exited_modes(&mut term);
         let generation = self.render_generation.load(Ordering::Acquire);
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
@@ -318,6 +320,13 @@ impl PtySurface {
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
         drop(term);
         self.mark_output_dirty();
+    }
+
+    /// The exited child's modes off, so its retained tab selects and
+    /// pastes like plain text instead of capturing the mouse.
+    fn drop_exited_modes(&self, term: &mut Terminal) {
+        term.vt_write(crate::prompt_mode_reset::EXIT_RESET);
+        self.mouse_encoders.lock().unwrap().sync_from_terminal(term);
     }
 
     pub(super) fn mark_output_dirty(&self) {
