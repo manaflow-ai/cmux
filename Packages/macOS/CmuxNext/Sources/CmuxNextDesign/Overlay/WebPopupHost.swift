@@ -191,8 +191,7 @@ public final class WebPopupPanel: ContentChildPanel {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
+        SystemScrollers.follow(scroll)
         scroll.documentView = rows
         let surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = true

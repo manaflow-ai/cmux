@@ -23,4 +23,19 @@ struct ThinScrollersTests {
         #expect(scrollView.scrollerStyle == .overlay)
         #expect(SystemScrollers.pageValue == "legacy")
     }
+
+    /// A page's `<select>` popup scrolls when its rows don't fit the screen, and its scroller is
+    /// thin too, also after the setting changes (AppKit resets a scroll view's style then).
+    @Test func aPagePopupScrollerStaysOverlayAfterTheSettingChanges() throws {
+        let panel = WebPopupPanel(onPick: { _ in }, onHover: { _ in })
+        let scrollView = try #require(Self.scrollViews(in: panel.contentView).first)
+        scrollView.scrollerStyle = .legacy // what AppKit does when the setting changes
+        SystemScrollers.systemStyleDidChange()
+        #expect(scrollView.scrollerStyle == .overlay)
+    }
+
+    static func scrollViews(in view: NSView?) -> [NSScrollView] {
+        guard let view else { return [] }
+        return ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap { scrollViews(in: $0) }
+    }
 }
