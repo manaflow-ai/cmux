@@ -240,9 +240,21 @@
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-no-agent{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 4px 0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
-   state; every chat on this computer follows, virtualized, newest first. The page scrolls only when
-   the window is too short. Marks are muted at rest: color is for state, not for every row. */
-.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:240px}
+   state; every chat on this computer follows, virtualized, newest first. Marks are muted at rest:
+   color is for state, not for every row. */
+/* One scroller (Leo 2026-10-12: two scrollbars, the page's at the window edge and the list's inside
+   it): the list takes the room left under the field and gives up rows in a short window instead of
+   pushing the page past it. Only below two rows of list does the page scroll, so nothing is ever
+   out of reach. */
+.nt-all{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:0}
+.nt-all .nt-all-host{min-height:60px}
+/* The list fades out under its top and bottom edges instead of slicing a row (as Settings,
+   cx-jh7kq); its end padding holds the fades, so the first and last rows sit in full ink. */
+.nt-all-list{
+  box-sizing:border-box;
+  padding-block:6px 18px;
+  mask-image:linear-gradient(to bottom,transparent,#000 6px,#000 calc(100% - 18px),transparent);
+}
 .nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500}
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
