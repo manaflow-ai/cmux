@@ -146,8 +146,9 @@ Object.assign(variants, {
     note: "Harnesses while the first look has found nothing yet: it says it is checking.",
     harnesses: { loading: true, problem: null, harnesses: [] },
   }),
-  backdrops: variant("experimental", {
-    options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
+  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
+  backdrops: variant("appearance", {
+    options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -163,13 +164,13 @@ Object.assign(variants, {
       wait('[data-card="backdrop"]'),
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
-    note: "The real wallpaper picker with a public-safe sample thumbnail.",
+    note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
     options: {
-      values: { "appearance.experimentalControls": true, "appearance.background": "van-gogh-starry-night" },
+      values: { "appearance.background": "van-gogh-starry-night" },
     },
     host: {
       ...host,
@@ -287,9 +288,9 @@ Object.assign(variants, {
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
   }),
   // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
-  "art-browser": variant("experimental", {
+  "art-browser": variant("appearance", {
     options: {
-      values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" },
+      values: { "appearance.background": "starryNight" },
       museumArt: [
         {
           key: "aic:1",

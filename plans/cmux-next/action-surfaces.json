@@ -22149,7 +22149,8 @@
       "cli_name" : "settings change-background",
       "context_menu" : "offered",
       "context_menus" : [
-        "agentChat"
+        "agentChat",
+        "windowBackground"
       ],
       "default_aliases" : [
 
@@ -33466,6 +33467,26 @@
       ],
       "implied" : [
         "terminalFocused"
+      ]
+    },
+    "windowBackground" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "appearance.changeBackground",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
       ]
     },
     "workspaceGroup" : {
