@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// A new workspace that opens on the New Tab page (Cmd-N) joins its window
