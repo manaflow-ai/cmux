@@ -121,6 +121,23 @@ impl Daemon {
                         "harness": harness, "cwd": work.to_str().unwrap()}))
     }
 
+    /// One call on this machine's acpmux unix socket (the local owner).
+    fn acpmux_call(&self, method: &str, params: Value) -> Value {
+        let stream = UnixStream::connect(self.dir.join("acpmux/acpmux.sock")).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        let mut reader = BufReader::new(stream);
+        let request = json!({"jsonrpc": "2.0", "id": 7, "method": method, "params": params});
+        writeln!(reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "acpmux closed the connection");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == 7 {
+                return message;
+            }
+        }
+    }
+
     /// How many sessions this machine's acpmux holds, asked on its own
     /// socket.
     fn acpmux_sessions(&self) -> usize {
@@ -237,4 +254,30 @@ fn a_machine_tab_binds_no_session_from_another_machine() {
                                      "surface": mac_surface, "session": "mac-session-1",
                                      "expected_session": null}));
     assert_eq!(mac_bind["ok"], true, "{mac_bind}");
+}
+
+/// The sample harness (`cmux harness add sample`, cx-00p) starts remotely
+/// with policy ask (cx-k21v slice C): acpmux knows it from its profile, its
+/// one mode "ask" is an asking mode by the machine's `webAskingModes`, and
+/// once the person trusted the folder the start answers a session.
+#[test]
+fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("sample", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    // The folder's trust is the person's: the first start brings acpmux up and is refused.
+    let untrusted = daemon.start_chat_with(surface, "sample");
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    let work = daemon.dir.join("work");
+    let trust = daemon.acpmux_call("acp.trust.set", json!({"cwd": work, "level": "trusted"}));
+    assert!(trust.get("error").is_none(), "{trust}");
+    let started = daemon.start_chat_with(surface, "sample");
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
+    assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
 }
