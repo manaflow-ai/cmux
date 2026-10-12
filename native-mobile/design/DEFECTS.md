@@ -30,6 +30,7 @@ owner-handoff (written up for the owning agent).
 | 21 | Feed / bandwidth | Every reconnect's backfill re-enriched the 12 newest posts, and each enrich pulls the terminal's whole scrollback over the link (megabytes on a long agent session, 12 times per reconnect). | S2 | fixed: enrich each post once per connection |
 | 22 | New terminal | "New terminal" in a workspace with a split screen opened the tab in the first pane, not the focused one (the phone ignored `active_pane`). | S3 | fixed: `DaemonScreen.activePane` / `focusedPane` |
 | 23 | Files / Referenced | The Referenced tab sends the whole scrollback to `session.refs`, which the host refuses above 2 MiB: on a long agent session the tab showed "Couldn't load references: text exceeds 2 MiB". | S2 | fixed: send the most recent 1 MiB from a line start (`ServiceClient.recentText`); tests |
+| 24 | Attachments | A chunked upload (> 384 KiB) that failed or was cancelled stayed open on the host; after 8 of them every later upload failed with "too many open uploads" until the svc channel closed. | S2 | fixed: the phone sends `upload.end {abort: true}` when a chunked upload fails or is cancelled |
 
 ## Open (owner handoff or needs a device run)
 

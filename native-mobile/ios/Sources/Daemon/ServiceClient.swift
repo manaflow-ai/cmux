@@ -150,12 +150,19 @@ extension ServiceClient {
         let begin = try await call("upload.begin", ["name": .string(name), "size": .number(Double(data.count))])
         let uploadID = begin["upload_id"]?.string ?? begin["id"]?.string ?? ""
         var offset = 0
-        while offset < data.count {
-            try Task.checkCancellation()
-            let end = min(offset + chunk, data.count)
-            _ = try await call("upload.chunk", ["upload_id": .string(uploadID), "offset": .number(Double(offset)), "data_b64": .string(data[offset..<end].base64EncodedString())])
-            offset = end
-            progress?(offset)
+        do {
+            while offset < data.count {
+                try Task.checkCancellation()
+                let end = min(offset + chunk, data.count)
+                _ = try await call("upload.chunk", ["upload_id": .string(uploadID), "offset": .number(Double(offset)), "data_b64": .string(data[offset..<end].base64EncodedString())])
+                offset = end
+                progress?(offset)
+            }
+        } catch {
+            // The host holds at most 8 open uploads per channel: a cancelled or
+            // failed one must be released, or later uploads fail as "busy".
+            _ = try? await call("upload.end", ["upload_id": .string(uploadID), "abort": true])
+            throw error
         }
         return try Self.uploadedPath(try await call("upload.end", ["upload_id": .string(uploadID)]))
     }
