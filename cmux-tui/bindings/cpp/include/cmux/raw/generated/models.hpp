@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f";
+inline constexpr std::string_view kProtocolIrSha256 = "a300256e1e0fd9c2432f9aa6ffd961902417a086784524dbd574888a0e0c88cd";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3445,6 +3445,7 @@ struct NotificationEvent {
     std::optional<bool> desktop{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<bool> reply{};
     std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
