@@ -33,6 +33,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false
+    /// The tab shows the New Tab page (or a blank browser page): its title
+    /// says all there is, so it takes no hover card.
+    public var isNewTabPage = false
     /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?
