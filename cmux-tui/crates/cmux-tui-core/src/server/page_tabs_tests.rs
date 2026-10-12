@@ -160,7 +160,12 @@ fn closed_list_marks_tabs_that_reopen_empty() {
         ("terminal", json!({"cmd":"new-tab","pane":pane})),
     ];
     let ids = |closed: &Value| -> Vec<String> {
-        closed.as_array().unwrap().iter().map(|item| item["id"].as_str().unwrap().to_string()).collect()
+        closed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
     };
     let mut marks = Vec::new();
     for (name, request) in tabs {
@@ -168,10 +173,15 @@ fn closed_list_marks_tabs_that_reopen_empty() {
         let created = run(&mux, request).unwrap();
         run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
         let closed = resource(&mux, "closed.list", json!({}), None);
-        let item = closed.as_array().unwrap().iter().find(|item| !before.contains(&item["id"].as_str().unwrap().to_string()));
+        let item = closed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| !before.contains(&item["id"].as_str().unwrap().to_string()));
         let item = item.unwrap_or_else(|| panic!("{name}: no closed item in {closed}"));
         let top = item["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
-        let member = item["members"][0]["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
+        let member =
+            item["members"][0]["screens"][0]["tabs"][0]["empty"].as_bool().unwrap_or(false);
         marks.push(format!("{name}: {top} {member}"));
     }
     assert_eq!(
@@ -185,6 +195,47 @@ fn closed_list_marks_tabs_that_reopen_empty() {
             "terminal: false false",
         ]
     );
+    mux.shutdown();
+}
+
+/// History's Recently Closed (`history.entries.list`, closed rows) leaves out
+/// a tab that reopens as nothing and never names a row "about:blank" (Leo
+/// 2026-10-11: it was full of "about:blank about:blank" rows). A closed chat
+/// is kept as a browser tab on `about:blank`, unmarked: it stays.
+#[test]
+fn history_closed_rows_leave_out_tabs_that_reopen_empty() {
+    let mux = test_mux("history-closed-empty");
+    let (_, pane) = terminal_pane(&mux);
+    let agent = |session: Value| {
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":"install:a","session":session,"harness":"claude"}})
+    };
+    let browser = |url: &str| json!({"cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit"});
+    for request in [
+        agent(Value::Null),
+        agent(json!("ses-1")),
+        browser("about:blank"),
+        browser("https://example.com/"),
+    ] {
+        let created = run(&mux, request).unwrap();
+        run(&mux, json!({"cmd":"close-surface","surface":surface_of(&created)})).unwrap();
+    }
+    let listed = resource(&mux, "history.entries.list", json!({"kinds":["closed"]}), None);
+    let rows: Vec<String> = listed["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} · {}",
+                entry["title"].as_str().unwrap_or(""),
+                entry["detail"].as_str().unwrap_or("-")
+            )
+        })
+        .collect();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(rows.iter().all(|row| !row.contains("about:blank")), "{rows:?}");
+    assert!(rows[0].contains("example.com"), "{rows:?}");
     mux.shutdown();
 }
 
