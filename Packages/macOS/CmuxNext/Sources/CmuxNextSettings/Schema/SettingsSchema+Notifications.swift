@@ -25,7 +25,6 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "timeoutSeconds"], section: .notifications, group: dismissal,
                 title: SettingsText.keyed("settings.notifications.timeoutSeconds", "Timeout"),
                 help: SettingsText.keyed("settings.notifications.timeoutSeconds.help", "Used when a source clears after a timeout."),
-                summary: SettingsText.keyed("settings.notifications.timeoutSeconds.summary", "For sources that clear after a timeout"),
                 kind: .number(SettingNumber(NotificationPreferences.timeoutRange, step: 5, unit: .seconds)),
                 default: .number(defaults.timeoutSeconds)
             ),
@@ -63,7 +62,7 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "suppressWhileTypingSeconds"], section: .notifications, group: banners,
                 title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
                 help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
-                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "Marks alerts read in panes you just typed in"),
+                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "No alerts from a pane you just typed in"),
                 kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
                 default: .number(defaults.suppressWhileTypingSeconds)
             ),
@@ -72,7 +71,7 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
                 help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help",
                                         "cmux status run notifies when the command took at least this long."),
-                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "For commands run with cmux status run"),
+                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "Long runs notify when they finish"),
                 kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
                 default: .number(StatusBehaviorSettings().runNotifyMinimumSeconds)
             ),

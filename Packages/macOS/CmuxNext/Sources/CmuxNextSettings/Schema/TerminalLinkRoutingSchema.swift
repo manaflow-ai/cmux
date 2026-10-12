@@ -19,7 +19,6 @@ nonisolated enum TerminalLinkRoutingSchema {
                 title: SettingsText.keyed("settings.browser.hostWhitelist", "Hosts to Open in Embedded Browser"),
                 help: SettingsText.keyed("settings.browser.hostWhitelist.help",
                                          "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."),
-                summary: SettingsText.keyed("settings.browser.hostWhitelist.summary", "Empty opens every host in cmux"),
                 kind: .hostList, default: .array([]), keywords: ["allowlist", "whitelist", "domain", "link"]
             ),
             SettingDescriptor(

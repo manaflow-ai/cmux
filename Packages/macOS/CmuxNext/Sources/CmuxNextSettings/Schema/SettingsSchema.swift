@@ -147,7 +147,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.globalHotKey", "Global Hot Key"),
                 help: SettingsText.keyed("settings.app.globalHotKey.help",
                                         "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front."),
-                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows with ⌃⌥⌘."),
+                summary: SettingsText.keyed("settings.app.globalHotKey.summary", "Show or hide all windows from any app"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.globalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "show", "hide", "windows", "system-wide"]
@@ -157,7 +157,6 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.app.startAgentGlobalHotKey", "Start Agent from Any App"),
                 help: SettingsText.keyed("settings.app.startAgentGlobalHotKey.help",
                                         "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."),
-                summary: SettingsText.keyed("settings.app.startAgentGlobalHotKey.summary", "Start an agent with ⌃⌥⌘Space"),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]

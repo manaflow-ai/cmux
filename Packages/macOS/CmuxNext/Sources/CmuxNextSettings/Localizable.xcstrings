@@ -77902,259 +77902,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show or hide all windows with ⌃⌥⌘."
+            "value": "Show or hide all windows from any app"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار كل النوافذ أو إخفاؤها بـ ⌃⌥⌘."
+            "value": "إظهار كل النوافذ أو إخفاؤها من أي تطبيق"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži ili sakrij sve prozore s ⌃⌥⌘."
+            "value": "Prikaži ili sakrij sve prozore iz bilo koje aplikacije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis eller skjul alle vinduer med ⌃⌥⌘."
+            "value": "Vis eller skjul alle vinduer fra enhver app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Fenster mit ⌃⌥⌘. ein- oder ausblenden"
+            "value": "Alle Fenster aus jeder App ein- oder ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra u oculta todas las ventanas con ⌃⌥⌘."
+            "value": "Muestra u oculta todas las ventanas desde cualquier app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher ou masquer toutes les fenêtres avec ⌃⌥⌘."
+            "value": "Afficher ou masquer les fenêtres depuis toute app"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra o nascondi tutte le finestre con ⌃⌥⌘."
+            "value": "Mostra o nascondi le finestre da qualsiasi app"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "⌃⌥⌘. ですべてのウインドウを表示／非表示"
+            "value": "どのアプリからでもすべてのウインドウを表示／非表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញ ឬលាក់បង្អួចទាំងអស់ដោយ ⌃⌥⌘."
+            "value": "បង្ហាញ ឬលាក់បង្អួចទាំងអស់ពីកម្មវិធីណាមួយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "⌃⌥⌘.로 모든 윈도우 보기/가리기"
+            "value": "어느 앱에서든 모든 윈도우 보기/가리기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis eller skjul alle vinduer med ⌃⌥⌘."
+            "value": "Vis eller skjul alle vinduer fra hvilken som helst app"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż lub ukryj wszystkie okna skrótem ⌃⌥⌘."
+            "value": "Pokaż lub ukryj wszystkie okna z dowolnej aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra ou oculta todas as janelas com ⌃⌥⌘."
+            "value": "Mostra ou oculta todas as janelas de qualquer app"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показать или скрыть все окна: ⌃⌥⌘."
+            "value": "Показать или скрыть все окна из любого приложения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงหรือซ่อนหน้าต่างทั้งหมดด้วย ⌃⌥⌘."
+            "value": "แสดงหรือซ่อนหน้าต่างทั้งหมดจากแอปใดก็ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tüm pencereleri ⌃⌥⌘. ile göster veya gizle"
+            "value": "Tüm pencereleri herhangi bir uygulamadan göster veya gizle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показати або сховати всі вікна: ⌃⌥⌘."
+            "value": "Показати або сховати всі вікна з будь-якої програми"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiện hoặc ẩn mọi cửa sổ bằng ⌃⌥⌘."
+            "value": "Hiện hoặc ẩn mọi cửa sổ từ bất kỳ ứng dụng nào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用 ⌃⌥⌘. 显示或隐藏所有窗口"
+            "value": "在任何 App 中显示或隐藏所有窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用 ⌃⌥⌘. 顯示或隱藏所有視窗"
-          }
-        }
-      }
-    },
-    "settings.app.startAgentGlobalHotKey.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start an agent with ⌃⌥⌘Space"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ابدأ وكيلًا باختصار ⌃⌥⌘Space"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokrenite agenta s ⌃⌥⌘Space"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start en agent med ⌃⌥⌘Space"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent mit ⌃⌥⌘Space starten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inicia un agente con ⌃⌥⌘Space"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lancer un agent avec ⌃⌥⌘Space"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avvia un agente con ⌃⌥⌘Space"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⌃⌥⌘Space でエージェントを開始"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ចាប់ផ្តើមភ្នាក់ងារដោយ ⌃⌥⌘Space"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⌃⌥⌘Space로 에이전트 시작"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start en agent med ⌃⌥⌘Space"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uruchom agenta skrótem ⌃⌥⌘Space"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inicia um agente com ⌃⌥⌘Space"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запуск агента: ⌃⌥⌘Space"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เริ่มเอเจนต์ด้วย ⌃⌥⌘Space"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "⌃⌥⌘Space ile ajan başlatın"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запуск агента: ⌃⌥⌘Space"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bắt đầu tác tử bằng ⌃⌥⌘Space"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 ⌃⌥⌘Space 启动智能体"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 ⌃⌥⌘Space 啟動代理"
+            "value": "在任何 App 中顯示或隱藏所有視窗"
           }
         }
       }
@@ -79437,7 +79305,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Картина за окном"
+            "value": "Картина позади окна"
           }
         },
         "th": {
@@ -79785,7 +79653,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taille du texte des onglets, de la barre latérale et des commandes"
+            "value": "Taille du texte des onglets, barre latérale et commandes"
           }
         },
         "it": {
@@ -80577,7 +80445,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lignes n’affichent que l’icône, le nom et la marque non lu"
+            "value": "Les lignes n’affichent que l’icône, le nom et le non-lu"
           }
         },
         "it": {
@@ -80697,7 +80565,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein täglicher Tipp zu einer Funktion, die du noch nicht genutzt hast"
+            "value": "Täglich ein Tipp zu einer ungenutzten Funktion"
           }
         },
         "es": {
@@ -81326,138 +81194,6 @@
         }
       }
     },
-    "settings.browser.customSearch.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Used when Search Engine is Custom"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُستخدم عندما يكون محرك البحث مخصصًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koristi se kada je pretraživač Prilagođeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bruges, når Søgemaskine er Tilpasset"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gilt, wenn als Suchmaschine „Eigene“ gewählt ist"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se usa cuando el motor de búsqueda es Personalizado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisé quand le moteur de recherche est Personnalisé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usato quando il motore di ricerca è Personalizzato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索エンジンが「カスタム」のときに使用"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្រើពេលម៉ាស៊ីនស្វែងរកជាផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "검색 엔진이 사용자 지정일 때 사용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brukes når Søkemotor er Egendefinert"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Używane, gdy wyszukiwarka to Własna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usado quando o mecanismo de busca é Personalizado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Используется, когда выбран свой поиск"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ใช้เมื่อเครื่องมือค้นหาเป็นแบบกำหนดเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arama Motoru Özel olduğunda kullanılır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використовується, коли вибрано власний пошук"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dùng khi Công cụ tìm kiếm là Tùy chỉnh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "搜索引擎为“自定义”时使用"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "搜尋引擎為「自訂」時使用"
-          }
-        }
-      }
-    },
     "settings.browser.omnibar.remoteSuggestions.summary": {
       "comment": "Settings row summary: one short line under the setting's title.",
       "extractionState": "manual",
@@ -81590,138 +81326,6 @@
         }
       }
     },
-    "settings.browser.hostWhitelist.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Empty opens every host in cmux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إن تُركت فارغة تُفتح كل المضيفات في cmux"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prazno otvara sve hostove u cmuxu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tom åbner alle værter i cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leer öffnet jeden Host in cmux"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vacío abre todos los hosts en cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vide : tous les hôtes s’ouvrent dans cmux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vuoto apre ogni host in cmux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空欄ならすべてのホストを cmux で開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទុកទទេ នឹងបើកម៉ាស៊ីនទាំងអស់ក្នុង cmux"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비워 두면 모든 호스트를 cmux에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tom åpner alle verter i cmux"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Puste: każdy host otwiera się w cmux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vazio abre todos os hosts no cmux"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пусто — все хосты открываются в cmux"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เว้นว่างไว้จะเปิดทุกโฮสต์ใน cmux"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boşsa her ana bilgisayar cmux'ta açılır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Порожньо — усі хости відкриваються в cmux"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Để trống sẽ mở mọi máy chủ trong cmux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空则所有主机都在 cmux 中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空則所有主機都在 cmux 中開啟"
-          }
-        }
-      }
-    },
     "settings.browser.externalPatterns.summary": {
       "comment": "Settings row summary: one short line under the setting's title.",
       "extractionState": "manual",
@@ -81759,7 +81363,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enlaces del terminal que se abren en tu navegador predeterminado"
+            "value": "Enlaces del terminal que se abren en tu navegador"
           }
         },
         "fr": {
@@ -81854,138 +81458,6 @@
         }
       }
     },
-    "settings.notifications.timeoutSeconds.summary": {
-      "comment": "Settings row summary: one short line under the setting's title.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For sources that clear after a timeout"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "للمصادر التي تُمسح بعد مهلة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Za izvore koji se brišu nakon isteka vremena"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Til kilder, der ryddes efter en timeout"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Für Quellen, die nach einer Zeitspanne verschwinden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Para orígenes que se borran tras un tiempo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pour les sources effacées après un délai"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Per le fonti che si cancellano dopo un timeout"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムアウト後に消えるソース用"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សម្រាប់ប្រភពដែលសម្អាតបន្ទាប់ពីអស់ពេល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시간이 지나면 지워지는 소스에 적용"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For kilder som fjernes etter et tidsavbrudd"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dla źródeł czyszczonych po upływie czasu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Para fontes que somem após um tempo limite"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Для источников, которые очищаются по тайм-ауту"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สำหรับแหล่งที่ล้างเมื่อหมดเวลา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zaman aşımından sonra temizlenen kaynaklar için"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Для джерел, що очищаються після тайм-ауту"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cho các nguồn tự xóa sau thời gian chờ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用于超时后清除的来源"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用於逾時後清除的來源"
-          }
-        }
-      }
-    },
     "settings.notifications.suppressWhileTyping.summary": {
       "comment": "Settings row summary: one short line under the setting's title.",
       "extractionState": "manual",
@@ -81993,127 +81465,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marks alerts read in panes you just typed in"
+            "value": "No alerts from a pane you just typed in"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجعل تنبيهات اللوحات التي كتبت فيها للتو مقروءة"
+            "value": "لا تنبيهات من لوحة كتبت فيها للتو"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Označava obavijesti pročitanim u panelima gdje ste upravo kucali"
+            "value": "Bez obavijesti iz panela u kojem ste kucali"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markerer beskeder som læst i ruder, du lige har skrevet i"
+            "value": "Ingen beskeder fra en rude, du lige skrev i"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markiert Hinweise in gerade benutzten Bereichen als gelesen"
+            "value": "Keine Hinweise aus einem Bereich, in dem du tippst"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marca como leídos los avisos de paneles donde acabas de escribir"
+            "value": "Sin avisos del panel donde acabas de escribir"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marque comme lues les alertes des volets où vous venez d’écrire"
+            "value": "Pas d’alerte du volet où vous venez d’écrire"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Segna come letti gli avvisi dei riquadri in cui hai appena scritto"
+            "value": "Nessun avviso dal riquadro in cui hai scritto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力した直後のペインの通知を既読にする"
+            "value": "入力した直後のペインからは通知しない"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សម្គាល់ការជូនដំណឹងថាបានអាន ក្នុងផ្ទាំងដែលអ្នកទើបវាយ"
+            "value": "គ្មានការជូនដំណឹងពីផ្ទាំងដែលអ្នកទើបវាយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "방금 입력한 패널의 알림을 읽음으로 표시"
+            "value": "방금 입력한 패널의 알림은 표시 안 함"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Merker varsler som lest i ruter du nettopp skrev i"
+            "value": "Ingen varsler fra en rute du nettopp skrev i"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oznacza alerty jako przeczytane w panelach, gdzie coś wpisano"
+            "value": "Bez alertów z panelu, w którym coś wpisano"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marca como lidos os alertas de painéis em que você acabou de digitar"
+            "value": "Sem alertas do painel em que você digitou"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отмечает прочитанными оповещения панелей, где вы только что печатали"
+            "value": "Без оповещений от панели, где вы печатали"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทำเครื่องหมายว่าอ่านแล้วสำหรับการแจ้งเตือนในบานหน้าต่างที่เพิ่งพิมพ์"
+            "value": "ไม่แจ้งเตือนจากบานหน้าต่างที่เพิ่งพิมพ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Az önce yazdığınız bölmelerdeki uyarıları okundu yapar"
+            "value": "Az önce yazdığınız bölmeden uyarı gelmez"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Позначає прочитаними сповіщення панелей, де ви щойно друкували"
+            "value": "Без сповіщень від панелі, де ви друкували"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đánh dấu đã đọc cảnh báo ở ô bạn vừa gõ"
+            "value": "Không báo từ ô bạn vừa gõ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将刚输入过的窗格中的提醒标为已读"
+            "value": "刚输入过的窗格不发提醒"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將剛輸入過的窗格中的提醒標為已讀"
+            "value": "剛輸入過的窗格不發提醒"
           }
         }
       }
@@ -82125,127 +81597,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For commands run with cmux status run"
+            "value": "Long runs notify when they finish"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "للأوامر التي تُشغَّل بـ cmux status run"
+            "value": "تُرسل التشغيلات الطويلة إشعارًا عند انتهائها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Za komande pokrenute s cmux status run"
+            "value": "Duga izvršavanja javljaju kad završe"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Til kommandoer kørt med cmux status run"
+            "value": "Lange kørsler giver besked, når de er færdige"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für Befehle, die mit cmux status run laufen"
+            "value": "Lange Läufe melden sich, wenn sie fertig sind"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para comandos ejecutados con cmux status run"
+            "value": "Las ejecuciones largas avisan al terminar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour les commandes lancées avec cmux status run"
+            "value": "Les exécutions longues préviennent à la fin"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per i comandi avviati con cmux status run"
+            "value": "Le esecuzioni lunghe avvisano quando finiscono"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux status run で実行したコマンド用"
+            "value": "時間のかかる実行は終了時に通知"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សម្រាប់ពាក្យបញ្ជាដែលដំណើរការដោយ cmux status run"
+            "value": "ការដំណើរការយូរជូនដំណឹងពេលបញ្ចប់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux status run으로 실행한 명령에 적용"
+            "value": "오래 걸린 실행은 끝나면 알림"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "For kommandoer kjørt med cmux status run"
+            "value": "Lange kjøringer varsler når de er ferdige"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dla poleceń uruchomionych przez cmux status run"
+            "value": "Długie uruchomienia powiadamiają po zakończeniu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para comandos executados com cmux status run"
+            "value": "Execuções longas avisam quando terminam"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для команд, запущенных через cmux status run"
+            "value": "Долгие запуски уведомляют по завершении"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สำหรับคำสั่งที่รันด้วย cmux status run"
+            "value": "งานที่รันนานจะแจ้งเตือนเมื่อเสร็จ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux status run ile çalıştırılan komutlar için"
+            "value": "Uzun çalıştırmalar bitince bildirir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для команд, запущених через cmux status run"
+            "value": "Довгі запуски сповіщають після завершення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho lệnh chạy bằng cmux status run"
+            "value": "Lần chạy lâu sẽ báo khi xong"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用于通过 cmux status run 运行的命令"
+            "value": "耗时较长的运行结束时通知"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用於透過 cmux status run 執行的指令"
+            "value": "耗時較長的執行結束時通知"
           }
         }
       }
@@ -82389,127 +81861,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses your gh login on this Mac"
+            "value": "Inbox shows your GitHub notifications"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم تسجيل دخولك إلى gh على هذا الـ Mac"
+            "value": "يعرض صندوق الوارد إشعارات GitHub الخاصة بك"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koristi vašu gh prijavu na ovom Macu"
+            "value": "Inbox prikazuje vaše GitHub obavijesti"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruger dit gh-login på denne Mac"
+            "value": "Indbakken viser dine GitHub-notifikationer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nutzt deine gh-Anmeldung auf diesem Mac"
+            "value": "Der Posteingang zeigt deine GitHub-Mitteilungen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa tu sesión de gh en este Mac"
+            "value": "La bandeja muestra tus notificaciones de GitHub"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise votre connexion gh sur ce Mac"
+            "value": "La boîte de réception affiche vos notifications GitHub"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa il tuo accesso gh su questo Mac"
+            "value": "La posta in arrivo mostra le notifiche GitHub"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac の gh ログインを使用"
+            "value": "受信箱に GitHub の通知を表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រើការចូល gh របស់អ្នកនៅលើ Mac នេះ"
+            "value": "ប្រអប់សំបុត្របង្ហាញការជូនដំណឹង GitHub របស់អ្នក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 gh 로그인을 사용"
+            "value": "받은편지함에 GitHub 알림 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruker gh-innloggingen din på denne Macen"
+            "value": "Innboksen viser GitHub-varslene dine"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Używa Twojego logowania gh na tym Macu"
+            "value": "Skrzynka pokazuje Twoje powiadomienia z GitHuba"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa seu login do gh neste Mac"
+            "value": "A caixa de entrada mostra suas notificações do GitHub"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использует ваш вход в gh на этом Mac"
+            "value": "Входящие показывают ваши уведомления GitHub"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้การเข้าสู่ระบบ gh ของคุณบน Mac เครื่องนี้"
+            "value": "กล่องขาเข้าแสดงการแจ้งเตือน GitHub ของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac'teki gh oturumunuzu kullanır"
+            "value": "Gelen kutusu GitHub bildirimlerinizi gösterir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використовує ваш вхід у gh на цьому Mac"
+            "value": "Вхідні показують ваші сповіщення GitHub"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dùng phiên đăng nhập gh trên máy Mac này"
+            "value": "Hộp thư hiện thông báo GitHub của bạn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用这台 Mac 上的 gh 登录"
+            "value": "收件箱显示你的 GitHub 通知"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用這台 Mac 上的 gh 登入"
+            "value": "收件匣顯示你的 GitHub 通知"
           }
         }
       }

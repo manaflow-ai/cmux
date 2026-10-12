@@ -271,7 +271,6 @@ export function ThemeStudio() {
                       <div className="row-title" id={ids.theme}>
                         {text(row.title)}
                       </div>
-                      <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
                     </ContextMenu>
                     <div className="row-control">
                       {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
@@ -303,7 +302,11 @@ export function ThemeStudio() {
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
-                  {appRow.summary && <div className="row-help">{text(appRow.summary)}</div>}
+                  {appRow.summary && (
+                    <div className="row-help" title={text(appRow.summary)}>
+                      {text(appRow.summary)}
+                    </div>
+                  )}
                   {appManaged && (
                     <div className="row-managed" data-managed-reason="">
                       <Icon name="lock" />

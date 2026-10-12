@@ -24,7 +24,6 @@ nonisolated enum OmnibarSettingsSchema {
                 title: SettingsText.keyed("settings.browser.customSearch", "Custom Search Address"),
                 help: SettingsText.keyed("settings.browser.customSearch.help",
                                          "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."),
-                summary: SettingsText.keyed("settings.browser.customSearch.summary", "Used when Search Engine is Custom"),
                 kind: .url, default: .string(fallback.customSearch), keywords: ["search", "engine", "custom", "template"]
             ),
             SettingDescriptor(

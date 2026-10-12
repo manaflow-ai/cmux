@@ -78,7 +78,8 @@ export function SettingRow({
             <Highlight text={text(row.title)} query={query} />
           </div>
           {row.summary && (
-            <div className="row-help">
+            // The title is a fallback for a translation that still runs long.
+            <div className="row-help" title={text(row.summary)}>
               <Highlight text={text(row.summary)} query={query} />
             </div>
           )}
