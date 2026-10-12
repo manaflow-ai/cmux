@@ -49,14 +49,6 @@ struct MacBrowserAccessCopy: Equatable {
         }
     }
 
-    /// The pane card's compact pill (nil when browser access is not the reason).
-    static func pill(_ status: BrowserMacStatus?) -> String? {
-        switch status?.state {
-        case .off?, .unsupported?: "Browser access off"
-        case .unavailable?: "Browser unavailable"
-        default: nil
-        }
-    }
 }
 
 /// The large glass card shown when a Mac browser tab is opened but cannot be
@@ -192,44 +184,6 @@ struct MacOnlyPage: View {
     }
 }
 
-/// A Mac-only tab as a small card: letter tile, title, address, and the
-/// compact "Browser access off" pill when that is why it can't be shown.
-struct MacOnlyCard: View {
-    var tab: LayoutTab
-    var status: BrowserMacStatus?
-
-    private let style = BrowserStyle.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TabLetterTile(title: tab.title, url: tab.url, size: 34)
-            Text(tab.title.isEmpty ? "Untitled" : tab.title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(style.colors.label)
-                .lineLimit(3)
-            if let url = tab.url, !url.isEmpty {
-                Text(URL(string: url)?.host() ?? url)
-                    .font(.system(size: 12))
-                    .foregroundStyle(style.colors.secondaryLabel)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            if tab.kind == .browser, let pill = MacBrowserAccessCopy.pill(status) {
-                Label(pill, systemImage: "lock.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(style.colors.label)
-                    .lineLimit(1)
-                    .padding(.horizontal, 9)
-                    .frame(height: 24)
-                    .glassEffect(.regular, in: .capsule)
-            }
-        }
-        .padding(12)
-        .padding(.bottom, 28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(style.colors.startBackground)
-    }
-}
 /// A Mac browser tab the Mac is not showing renders nothing: the opened
 /// tab dims its last frame under this card, whose button switches the
 /// Mac's pane to the tab. The page goes live as soon as frames arrive.
@@ -284,24 +238,4 @@ struct HiddenOnMacOverlay: View {
     }
 }
 
-/// The card's version: a compact glass "Show on Mac" button.
-struct ShowOnMacPill: View {
-    var onShow: () -> Void
-    private let style = BrowserStyle.shared
-
-    var body: some View {
-        Button(action: onShow) {
-            Label("Show on Mac", systemImage: "macbook")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(style.colors.label)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .accessibilityHint("Switches the Mac's pane to this tab so it renders")
-    }
-}
 #endif

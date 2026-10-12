@@ -257,8 +257,8 @@ struct TabOverview: View {
                     if let onNewTerminal {
                         // Browser tabs and terminals: (+) asks which.
                         Menu {
-                            Button("New Browser Tab", systemImage: "safari", action: onNewTab)
-                            Button("New Terminal", systemImage: "apple.terminal", action: onNewTerminal)
+                            Button("New Tab", action: onNewTab)
+                            Button("New Terminal", action: onNewTerminal)
                         } label: {
                             Image(systemName: "plus").font(.system(size: 22, weight: .regular))
                                 .foregroundStyle(style.colors.label)

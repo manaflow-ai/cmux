@@ -126,16 +126,8 @@ final class TabsModel {
 
     // MARK: Items
 
-    /// The cards in order. With the Mac's layout: each pane's focused tab,
-    /// panes in layout order (what the toolbar swipe walks through);
-    /// otherwise the grid's items.
-    var items: [TabItem] {
-        if includesTerminals, let layout {
-            var seen = Set<String>()
-            return layout.workspaces.flatMap(\.panes).compactMap { $0.focusedTab.map(item(for:)) }.filter { seen.insert($0.id).inserted }
-        }
-        return allItems
-    }
+    /// The grid's cards: browser tabs and terminals in creation order.
+    var items: [TabItem] { allItems }
 
     /// Browser tabs and terminals in grid order.
     var allItems: [TabItem] {
@@ -182,12 +174,6 @@ final class TabsModel {
     }
 
     func itemKey(_ tab: LayoutTab) -> String { item(for: tab).id }
-
-    /// The pane that shows `key`, preferring a pane where it is focused.
-    func pane(showing key: String) -> LayoutPane? {
-        let panes = layout?.workspaces.flatMap(\.panes) ?? []
-        return panes.first { p in p.focusedTab.map(itemKey) == key } ?? panes.first { p in p.tabs.contains { itemKey($0) == key } }
-    }
 
     /// A new layout snapshot. An open Mac-only tab that became live (browser
     /// access turned on) switches to its live page.

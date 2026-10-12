@@ -6,12 +6,9 @@ import CNTerminalUI
 public import SwiftUI
 import UIKit
 
-/// The Mac's panes on a canvas that scrolls both ways (its workspaces and
-/// splits, `layout.v1`), each pane showing its focused tab: browser tabs,
-/// terminals and agents open from their panes with the same zoom, pinch,
-/// swipe and toolbar as `BrowserRoot`. Press and hold a pane to pick one of
-/// its tabs. Without the Mac's layout it is a tab grid of browser tabs and
-/// terminals.
+/// The Mac's browser tabs and terminals in one Safari tab grid: the same
+/// grid, zoom, pinch, swipe and toolbar as `BrowserRoot`, with each terminal
+/// a card (live thumbnail) that zooms into the live terminal.
 public struct TabsRoot: View {
     let connection: HostConnection
     @State private var tabs: TabsModel
@@ -37,7 +34,8 @@ public struct TabsRoot: View {
                 guard let id = tabs.activeTerminal?.id else { return }
                 terminals.handle(id).stepFontSize(by: Double(step))
             },
-            agentContent: { id in AnyView(AgentChatView(connection: connection, sessionId: id)) })
+            agentContent: { id in AnyView(AgentChatView(connection: connection, sessionId: id)) },
+            terminalAccessory: { id in AnyView(TerminalAccessory(handle: terminals.handle(id))) })
             .onChange(of: tabs.terminals.map(\.id)) { _, ids in terminals.retain(ids) }
             .onDisappear { terminals.thumbnails.stopAll() }
     }
@@ -60,7 +58,8 @@ final class TerminalTabs {
 
     func handle(_ id: String) -> TerminalHandle {
         if let h = handles[id] { return h }
-        let h = TerminalHandle(connection: connection, terminalId: id)
+        // The composer and key bar go above the tabs toolbar (TerminalAccessory).
+        let h = TerminalHandle(connection: connection, terminalId: id, accessoryPlacement: .external)
         handles[id] = h
         return h
     }
