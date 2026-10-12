@@ -353,7 +353,7 @@ final class SidebarBridge {
         switch target {
         case .layoutItem(let id): layoutItemMenu(id)
         case .layoutSection(let id): layoutSectionMenu(id)
-        default: SidebarContextMenus.menu(for: target, model: model, services: services)
+        default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }
 

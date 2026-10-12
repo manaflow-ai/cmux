@@ -42,6 +42,7 @@ struct DebugSettingsSidebar: View {
             .padding(.horizontal, Metrics.space4)
             .padding(.top, Metrics.titlebarHeight + Metrics.space2)
             .padding(.bottom, Metrics.space4)
+            .thinScrollers()
         }
         .onChange(of: model.searchFocusRequest) { searchFocused = true }
     }

@@ -137,9 +137,10 @@ input[type="submit"] {
    square inside the composer, the New Tab box and the model picker's search (cx-ncc.57). The
    caret and the owning control's own rounded focus state (`:focus-within` on the box, or the
    field's own border) show focus instead. Rows of menus, lists and palettes, and the containers
-   that hold their active row, show focus as the row tint below instead.
+   that hold their active row, show focus as the row tint below instead. An open menu or
+   popover takes focus so its keys work; it never draws a ring around itself (Leo 2026-10-11).
    `scripts/cmux-next/check-text-focus-rings.py` refuses a new focus outline on a text field. */
-:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]) {
+:focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([data-focus-ring="none"], [data-focus-ring="row"], [data-focus-ring="rows"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="menu"], .ui-popup) {
   outline-width: var(--cmux-focus-ring-width) !important;
   outline-style: solid !important;
   outline-color: var(--cmux-focus-ring-color) !important;
@@ -228,7 +229,7 @@ input[type="submit"] {
 
   /* Text entry stays out here too: the owning box takes this ring under Increase Contrast (the
      composer, New Tab and model picker stylesheets), never a square around the field. */
-  :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])) {
+  :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
     outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color) !important;
     outline-offset: 2px;
   }

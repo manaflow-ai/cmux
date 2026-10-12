@@ -25,7 +25,7 @@ extension SidebarView {
             region.liftHost = self
             region.onActivateWithModifiers = { [weak self, weak region] id, flags in
                 // The profile control opens its menu over itself.
-                if let view = region?.itemView(id), view.showsAvatar, self?.showProfileMenu(from: view) == true { return }
+                if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -165,23 +165,6 @@ extension SidebarView {
         guard let cards = footerCards else { return 0 }
         if cards.superview !== self { addSubview(cards) }
         return cards.isHidden ? 0 : cards.fittingSize.height
-    }
-
-    func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
-        let f = footer.bounds
-        // Account and cloud lead; status fills the remaining space. Help is
-        // in the Help menu and the account menu, not here
-        // (SIDEBAR-FOOTER-MINIMAL).
-        let side = Metrics.sidebarRowHeight
-        var x = Metrics.space4
-        for (slot, view) in slots {
-            let width: CGFloat = switch slot {
-            case .account, .cloud: side
-            case .status: max(0, f.width - x - Metrics.space4)
-            }
-            view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
-            x += width + Metrics.space2
-        }
     }
 
     /// A space switch (R99): after a swipe the real list takes the page's

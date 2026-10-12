@@ -129,20 +129,6 @@ public final class SidebarView: NSView {
         window?.makeFirstResponder(list)
     }
 
-    /// CPU and memory for the workspace hover card. Sampled only while a
-    /// card is pending or shown.
-    public var resourceSource: (any ResourceSampleSource)? {
-        get { list.hoverCard.resources.source }
-        set { list.hoverCard.resources.setSource(newValue) }
-    }
-
-    /// Shows workspace `id`'s hover card (CPU and memory) now, until the
-    /// next key press, click or scroll. False when its row is not shown.
-    @discardableResult
-    public func showHoverCard(for id: WorkspaceID) -> Bool {
-        list.showHoverCard(for: id)
-    }
-
     /// Draws the sections apps contribute (`SectionContent.app`); the App
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
@@ -155,7 +141,6 @@ public final class SidebarView: NSView {
         }
     }
 
-    /// The app's one hover card coordinator (the App injects it).
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
     /// popover does not open and the Updated card does not show.
@@ -169,23 +154,19 @@ public final class SidebarView: NSView {
         }
     }
 
-    public var hoverCards: HoverCardCoordinator {
-        get { list.hoverCards }
-        set { list.hoverCards = newValue }
-    }
-
-    /// True while the workspace hover card samples resources.
-    public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
-
-    /// Right-click menu for a target. The App fills this from the action
-    /// registry (menus are ordered action-ID lists per context); nil means
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
     /// registry actions. Nil opens nothing.
     public var profileMenuProvider: (() -> NSMenu?)?
-    /// Shows a profile menu over its anchor (tests record it instead).
-    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
+    /// The bottom band: footer slots, profile menu, spaces dots.
+    private(set) lazy var footerBand = SidebarFooterBand(host: self)
+    /// Opens the profile menu over the profile control; false when the App
+    /// gave none. Without a visible control the menu opens at the pointer.
+    @discardableResult
+    public func showProfileMenu() -> Bool { footerBand.showProfileMenu(from: footerBand.profileControl?.view) }
 
+    /// Right-click menu for a target. The App fills this from the action
+    /// registry (menus are ordered action-ID lists per context); nil means
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
@@ -211,7 +192,7 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111); the list follows
+        // Thin, shown only while scrolling (SCROLLBARS-THIN); the list follows
         // the clip's width when a legacy scroller narrows it.
         SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
@@ -241,7 +222,7 @@ public final class SidebarView: NSView {
     }
 
     private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.preferredStyle
+        scrollView.scrollerStyle = SystemScrollers.nativeStyle
         syncListSize()
     }
 
@@ -282,7 +263,7 @@ public final class SidebarView: NSView {
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
         updateBands()
-        let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
@@ -292,8 +273,8 @@ public final class SidebarView: NSView {
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
-        layoutFooter(visibleSlots)
-        placeSpaces(top: y, height: spacesHeight)
+        footerBand.layoutFooter(visibleSlots)
+        footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()

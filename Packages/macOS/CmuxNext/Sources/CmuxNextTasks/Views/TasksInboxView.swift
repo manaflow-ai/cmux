@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Variant `inbox`: what needs a person first (agent waiting, ready for
@@ -22,6 +23,7 @@ struct TasksInboxView: View {
                     }
                 }
                 .padding(.horizontal, 8).padding(.vertical, 6)
+                .thinScrollers()
             }
             .frame(minWidth: 320, idealWidth: 460)
             Rectangle().fill(colors.separator).frame(width: 1)

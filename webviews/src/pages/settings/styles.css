@@ -876,6 +876,11 @@ mark {
   margin-top: 8px;
 }
 
+.backdrop-group-title {
+  margin: 12px 0 0;
+  font-weight: 600;
+}
+
 .backdrop-tile {
   display: flex;
   flex-direction: column;
@@ -904,6 +909,16 @@ mark {
 .backdrop-none {
   display: block;
   border-color: var(--border);
+}
+
+/* Choose Image… (cx-t2x.8): an empty tile with a plus. */
+.backdrop-choose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-text);
+  font-size: var(--text-title);
+  border-style: dashed;
 }
 
 .backdrop-title {

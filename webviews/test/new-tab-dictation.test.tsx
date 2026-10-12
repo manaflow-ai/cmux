@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture prompts and dictated words, not shipped UI.
 // The New Tab composer's dictation (Leo ask, 10-12): the agent composer's mic sits beside Send on
 // the New Tab page too, wired to the same dictation, so dictated words land in the New Tab field.
-// Right-click on the mic offers Hide dictation button: the persisted `agentPane.showDictation`
+// Right-click on the mic offers Hide Dictation Button: the persisted `agentPane.showDictation`
 // setting (the host writes it with `pane.showDictation` and pushes it back as the `composer`
-// event), which hides the mic in every composer until Settings shows it again.
+// event), which hides the mic in every composer until the button row's Show, or Settings, shows it.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
@@ -62,10 +62,12 @@ async function renderNewTab(calls: [string, unknown][]) {
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const { DictationMic } = await import("../src/agent-session/acpmux/DictationMic");
+  const { registerComposerHost } = await import("../src/agent-session/acpmux/composerSettings");
   const call = async (method: string, params?: Record<string, unknown>) => {
     calls.push([method, params]);
     return null;
   };
+  registerComposerHost((method, show) => void call(method, { show }));
   function Page() {
     const field = useRef(null);
     const dictation = useDictation(field, call);
@@ -75,9 +77,7 @@ async function renderNewTab(calls: [string, unknown][]) {
         lastAgent="claude"
         cwd="/Users/you/src/app"
         dictationField={field}
-        accessory={
-          <DictationMic dictation={dictation} onShowDictation={(show) => void call("pane.showDictation", { show })} />
-        }
+        accessory={<DictationMic dictation={dictation} />}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -99,7 +99,7 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   const calls: [string, unknown][] = [];
   await renderNewTab(calls);
   expect(mic()).not.toBeNull();
-  expect(mic()!.closest(".acpmux-mic-menu")!.nextElementSibling?.classList.contains("nt-enter")).toBe(true);
+  expect(mic()!.closest(".acpmux-mic-menu")!.nextElementSibling?.classList.contains("nt-send")).toBe(true);
   await act(async () => mic()!.click());
   expect(calls.map(([method]) => method)).toContain("dictation.toggle");
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
@@ -109,14 +109,14 @@ test("the New Tab composer has the mic beside Send, and dictated words land in i
   expect(host.querySelector<HTMLInputElement>(".nt-field")!.value).toBe("fix the upload test");
 });
 
-test("right-click Hide dictation button hides the mic in every composer until Settings shows it", async () => {
+test("right-click Hide Dictation Button hides the mic in every composer until Settings shows it", async () => {
   const calls: [string, unknown][] = [];
   await renderNewTab(calls);
   await act(async () =>
     mic()!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })),
   );
   const hide = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent === "Hide dictation button",
+    (item) => item.textContent === "Hide Dictation Button",
   );
   expect(hide).toBeDefined();
   await act(async () => hide!.click());

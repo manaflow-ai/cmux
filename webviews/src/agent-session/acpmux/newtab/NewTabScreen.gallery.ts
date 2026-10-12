@@ -19,18 +19,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    tools: [
-      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌃⇧⌘G", menu: [] },
-      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight", "splitDown"] },
-      { id: "file.open", title: "Files", symbol: "folder", shortcut: "⇧⌘O", menu: [] },
-      {
-        id: "agentPane.searchChats",
-        title: "Side chat",
-        symbol: "bubble.left.and.text.bubble.right",
-        shortcut: "⌘K",
-        menu: [],
-      },
-    ],
     ...fields,
   },
   newSession: true,
@@ -94,7 +82,7 @@ export default agentPaneEntry({
     layoutShiftMax: {
       value: 0.4,
       reason:
-        "Typing an address or an open tab's name shows the rows between the field and the chat cards, which move down.",
+        "Typing an address or an open tab's name shows the rows between the field and the recent chats, which move down.",
     },
     settleMaxMs: {
       value: 250,
@@ -112,6 +100,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
+    "ui/HideableChrome.tsx#HideableChrome",
+    "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -126,9 +116,22 @@ export default agentPaneEntry({
       snapshot: noChat(),
       native: {},
     },
-    "many-chats": {
-      note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+    "calm-default": {
+      note: "The default page is calm (Leo 2026-10-11): the composer with its arrow-up Send, then the five newest chats as quiet rows and All Chats for the rest. No tools row, no Recently Closed, no All chats table.",
       ready: newTab(),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        // Quiet rows, one line each (the fleet capture drew them 86px tall).
+        const tall = [...ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card")].filter(
+          (row) => row.getBoundingClientRect().height > 32,
+        );
+        if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
+      },
+    },
+    "many-chats": {
+      note: "Threads template: every chat in All chats below the field, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => {
@@ -175,11 +178,6 @@ export default agentPaneEntry({
       ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
       snapshot: noChat(manySessions(4)),
     },
-    "without-tools": {
-      note: "The reserved Tools region is omitted when no host action can run.",
-      ready: newTab({ tools: [] }),
-      snapshot: noChat(manySessions(3)),
-    },
     "split-open-tabs": {
       note: "Opened by Split Right from a browser tab (cx-jfo7): clicking a workspace tab moves it into this pane.",
       ready: newTab({
@@ -212,8 +210,8 @@ export default agentPaneEntry({
       },
     },
     "recently-closed": {
-      note: "Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
-      ready: newTab(),
+      note: "Threads template, Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(2)),
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
@@ -268,49 +266,6 @@ export default agentPaneEntry({
         await waitForTabJump(ctx, "closed", "closed:2");
         const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
         if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
-      },
-    },
-    "with-tools": {
-      note: "Tools use the host action catalog and shortcut labels.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-    },
-    "tool-menu-open": {
-      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
-        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
-      },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".nt-tool-menu-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
-      },
-    },
-    "tool-menu-keyboard": {
-      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
-        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
-      },
-      play: async (ctx) => {
-        const trigger = { selector: ".nt-tool-menu-button" };
-        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
-        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
-        await ctx.focus(trigger);
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(0));
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(1));
-        await ctx.press("Escape");
-        await ctx.waitFor(
-          () =>
-            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
-            ctx.document.activeElement === ctx.find(trigger),
-        );
       },
     },
     "typed-prompt": {
@@ -378,13 +333,11 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-enter"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-send"));
       },
     },
     "dictation-menu": {
-      note: "Right-click on the mic offers Hide dictation button, which hides it in every composer until Settings shows it (cx-32bdm).",
+      note: "Right-click on the mic offers Hide Dictation Button, which hides it in every composer until a right-click on the button row offers Show Dictation Button (cx-32bdm, cx-wab7m).",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       checks: {
@@ -398,12 +351,37 @@ export default agentPaneEntry({
           new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
         );
         await ctx.waitFor(
-          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide dictation button",
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide Dictation Button",
         );
       },
     },
+    "dictation-show": {
+      note: "Hidden from its own right-click, the mic comes back from the same row: a right-click there offers Show Dictation Button (cx-wab7m).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The row's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0.1, reason: "Hiding the mic only closes its 24px gap beside Send." },
+      },
+      play: async (ctx) => {
+        const rightClick = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          element.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+          );
+        };
+        const item = (label: string) =>
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) => row.textContent === label);
+        rightClick(ctx.find({ selector: ".nt-pickers .acpmux-mic" }));
+        await ctx.waitFor(() => item("Hide Dictation Button"));
+        item("Hide Dictation Button")!.click();
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
+        rightClick(ctx.find({ selector: ".nt-pickers .nt-enter" }));
+        await ctx.waitFor(() => item("Show Dictation Button"));
+      },
+    },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
     },

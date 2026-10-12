@@ -49,6 +49,8 @@ enum DebugToast {
             windows.append(.object(["window": .string(controller.state.id), "toasts": .array(toasts.map(report))]))
         }
         result["windows"] = .array(windows)
+        // Every refusal HUD message so far, newest last.
+        result["refusals"] = .array(services.refusalHUD.history.map(JSONValue.string))
         return .object(result)
     }
 

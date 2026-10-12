@@ -59,26 +59,6 @@ enum NewTabPage {
         .terminal: "newSurface", .browser: "openBrowser", .agent: "palette.newAgentChat",
     ]
 
-    /// The New Tab Tools cards are projections of the action catalog. The
-    /// registry supplies both availability and the user-visible shortcut.
-    static func tools(_ services: AppServices, targetID: String? = nil) -> [AgentPaneNewTab.Tool] {
-        let specs: [(ActionID, String, String, [ActionID])] = [
-            ("openDiffViewer", "newTabPage.tool.changes", "plusminus", []),
-            ("newSurface", "newTabPage.tool.terminal", "terminal", ["splitRight", "splitDown"]),
-            ("file.open", "newTabPage.tool.files", "folder", []),
-            ("agentPane.searchChats", "newTabPage.tool.sideChat", "bubble.left.and.text.bubble.right", []),
-        ]
-        return specs.compactMap { id, title, symbol, menu in
-            guard services.registry.canPerform(id) else { return nil }
-            if let targetID {
-                let target = ActionTargetRef(kind: .tab, id: targetID)
-                guard ActionTargetReasons.canPerform(id, invocation: ActionInvocation(target: target), in: services.registry) else { return nil }
-            }
-            return AgentPaneNewTab.Tool(id: id.rawValue, title: title, symbol: symbol,
-                                        shortcut: services.registry.shortcutDisplay(for: id), menu: menu.map(\.rawValue))
-        }
-    }
-
     /// The page's initially selected kind: Agent chat, ready for the first prompt.
     static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind { .agent }
 
@@ -226,7 +206,7 @@ enum NewTabPage {
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
             layout: NewTabTunables.layout.value.pageLayout,
             lastAgent: services.newTabChoices.agent,
-            home: machine.home, tools: tools(services, targetID: selected?.id),
+            home: machine.home,
             template: (services.newTabChoices.template(in: (window.flatMap { services.windows.owner(of: $0) } ?? services.windows.active)?.window)
                 ?? services.settings?.snapshot.newTabTemplate)?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
@@ -239,7 +219,7 @@ enum NewTabPage {
         AgentPaneNewTab(
             kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory(),
-            tools: tools(services), template: services.settings?.snapshot.newTabTemplate?.rawValue,
+            template: services.settings?.snapshot.newTabTemplate?.rawValue,
             templateSwitcher: NewTabTunables.templateSwitcher.value ? true : nil
         )
     }

@@ -87,8 +87,11 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
-  /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
-  backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /**
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
+   */
+  backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
 };
@@ -294,6 +297,8 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */

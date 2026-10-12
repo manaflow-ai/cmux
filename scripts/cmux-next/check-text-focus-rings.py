@@ -13,7 +13,8 @@ the box, or the field's own border) show focus. This check refuses a new ring on
        its name; buttons, checkboxes, radios, ranges, switches excluded) and
        sets a visible `outline` (or outline-width / outline-style / outline-color).
        A universal focus ring (`:focus-visible { outline: ... }`, the shared rule) must name
-       `input`, `textarea` and `contenteditable` in its `:not(...)` list.
+       `input`, `textarea` and `contenteditable` in its `:not(...)` list, and open menus
+       and popovers (`[role="menu"]`, `.ui-popup`), which take focus on open.
   tsx  a Tailwind `focus:` / `focus-visible:` outline or ring utility on an <input> or <textarea>
        (`outline-none` / `ring-0` are fine).
 
@@ -147,6 +148,11 @@ def css_hits(path: str, text: str):
                 if not all(name in compound for name in ("input", "textarea", "contenteditable")):
                     line = text.count("\n", 0, match.start(2)) + 1
                     yield line, part.strip(), ring[0] + " on every element, text fields included"
+                # An open menu or popover takes focus so its keys work; a ring drew a square
+                # around the whole menu (Leo 2026-10-11). A list that takes Tab focus keeps it.
+                elif not all(name in compound for name in ('[role="menu"]', ".ui-popup")):
+                    line = text.count("\n", 0, match.start(2)) + 1
+                    yield line, part.strip(), ring[0] + " on every element, open menus included"
                 continue
             selecting = strip_not(compound)
             if TEXT_COMPOUND.search(" " + selecting) and not NOT_TEXT.search(selecting):
