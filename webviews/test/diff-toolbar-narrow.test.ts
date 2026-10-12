@@ -61,4 +61,22 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
       await page.close();
     });
   }
+
+  // POLISH.md: no capsule pills, small-radius rects; a circle stays a circle.
+  test("the toolbar's controls are small-radius rects, not capsules", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html`);
+    await page.locator("#source-menu").waitFor();
+    const capsules = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("#toolbar *, #diff-pill *")].flatMap((element) => {
+        const { width, height } = element.getBoundingClientRect();
+        const radius = parseFloat(getComputedStyle(element).borderTopLeftRadius);
+        const capsule = height > 0 && Math.abs(width - height) > 1 && radius >= height / 2 - 0.5;
+        return capsule ? [`${element.id ? `#${element.id}` : `.${element.classList[0]}`} ${width}x${height}`] : [];
+      }),
+    );
+    expect(capsules).toEqual([]);
+    await page.close();
+  });
 });
