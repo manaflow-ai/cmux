@@ -535,8 +535,10 @@ async fn run_curl(
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stderr = stderr.trim();
-    if stderr.contains("416") {
-        // The partial file is longer than the build: it cannot be resumed.
+    // 416: the partial file is longer than the build. Exit 33: the server, or
+    // a proxy in the way, does not resume ranges. Either way the partial can
+    // never be resumed, so the next connect starts over.
+    if stderr.contains("416") || output.status.code() == Some(33) {
         let _ = std::fs::remove_file(partial);
     }
     Err(if stderr.is_empty() {
