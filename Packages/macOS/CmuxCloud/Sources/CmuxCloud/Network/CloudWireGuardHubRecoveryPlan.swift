@@ -44,7 +44,7 @@ struct CloudWireGuardHubRecoveryPlan: Sendable {
     mutating func wait(after error: Error, enrolled: Bool) -> Duration? {
         // Another request holds this Mac's access lease: progress elsewhere,
         // not a failure, so it does not spend a restart attempt.
-        if !enrolled, let busy = busyWait(after: error) { return busy }
+        if !enrolled, Self.isBusyLease(error) { return busyWait(after: error) }
         guard restarts < backoff.count else { return nil }
         defer { restarts += 1 }
         return recordFailure(error, enrolled: enrolled, backoff: backoff[restarts])
@@ -52,16 +52,21 @@ struct CloudWireGuardHubRecoveryPlan: Sendable {
 
     /// The wait before asking again when `error` is the lease-busy answer and
     /// the busy budget allows it; nil otherwise.
+    /// A busy lease whose budget is spent gives up rather than turning into
+    /// ordinary restarts that would wait the server's delay again each time.
     mutating func busyWait(after error: Error) -> Duration? {
-        guard let clientError = error as? VMClientError,
-              case .httpStatus(409, _) = clientError,
-              clientError.serverErrorCode == "vm_access_grant_busy" else { return nil }
+        guard Self.isBusyLease(error), let clientError = error as? VMClientError else { return nil }
         let wait = max(clientError.serverRetryAfter ?? .seconds(1), .seconds(1))
         guard busyWaited + wait <= Self.busyBudget else { return nil }
         busyWaited += wait
         // A refused request wrote nothing; keep the replacement decision.
         _ = recordFailure(error, enrolled: false, backoff: .zero)
         return wait
+    }
+
+    static func isBusyLease(_ error: Error) -> Bool {
+        guard let clientError = error as? VMClientError, case .httpStatus(409, _) = clientError else { return false }
+        return clientError.serverErrorCode == "vm_access_grant_busy"
     }
 
     /// Records a failed attempt and returns the wait before the next one.

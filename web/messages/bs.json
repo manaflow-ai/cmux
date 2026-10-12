@@ -105,6 +105,11 @@
       "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
       "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
       "action": "Pauzirajte ili obrišite VM."
+    },
+    "activeLimit": {
+      "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
+      "provisioning": "{name} (priprema se)",
+      "separator": ", "
     }
   },
   "billingRecovery": {

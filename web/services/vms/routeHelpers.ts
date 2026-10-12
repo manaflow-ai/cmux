@@ -30,6 +30,7 @@ import {
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   vmWorkflowErrorCause,
+  type VmActiveLimitMachine,
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
@@ -71,6 +72,7 @@ import {
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmActiveLimitCountedCopy,
   vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
@@ -612,18 +614,24 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
   readonly locale?: Locale;
+  /** The machines the limit counted; named in the message so a person can tell which ones hold the slots. */
+  readonly activeMachines?: readonly VmActiveLimitMachine[];
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
   if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
+  // Machine lists show paused machines beside the counted ones, so the
+  // message names the counted set rather than leaving a person to guess.
+  const counted = await vmActiveLimitCountedCopy(input.locale ?? "en", input.activeMachines ?? []);
+  const countedDetails = input.activeMachines?.length ? { activeMachines: input.activeMachines } : {};
   if (paid) {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
-      details: { limit: input.limit },
+      details: { limit: input.limit, ...countedDetails },
       ...(input.phase ? { phase: input.phase } : {}),
     });
   }
@@ -643,11 +651,11 @@ export async function vmActiveLimitExceededResponse(input: {
   return vmErrorResponse({
     error: "vm_active_limit_exceeded",
     status: 402,
-    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.${counted}`,
     action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more active machines, ` +
       "or free a slot with `cmux vm rm <id>`.",
     extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
-    details: { limit: input.limit, upgradeRequired: true },
+    details: { limit: input.limit, upgradeRequired: true, ...countedDetails },
     ...(input.phase ? { phase: input.phase } : {}),
   });
 }
@@ -812,6 +820,7 @@ export function vmCreateLikeErrorResponders(input: {
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId: input.planId,
         retryAction: input.retryAction,
       }),
