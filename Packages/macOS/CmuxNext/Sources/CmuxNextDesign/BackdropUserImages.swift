@@ -19,7 +19,8 @@ public nonisolated struct BackdropUserImages: Sendable {
     public let folder: URL
 
     public init(folder: URL) {
-        // Resolved, so `/var/…` and `/private/var/…` name the same folder.
+        // Resolved (links followed, `/private` dropped as Foundation does), so every path this
+        // type names is spelled one way.
         self.folder = folder.standardizedFileURL.resolvingSymlinksInPath()
     }
 
@@ -42,7 +43,8 @@ public nonisolated struct BackdropUserImages: Sendable {
             if lhs.modified != rhs.modified { return lhs.modified > rhs.modified }
             return lhs.url.lastPathComponent < rhs.url.lastPathComponent
         }
-        return newestFirst.map { BackdropSelection.file(path: $0.url.path) }
+        // Named from `folder`: a listing says /private/var where the resolved folder says /var.
+        return newestFirst.map { BackdropSelection.file(path: folder.appendingPathComponent($0.url.lastPathComponent).path) }
     }
 
     /// Whether `selection` is one of this folder's own images: a plain file directly in the folder,
