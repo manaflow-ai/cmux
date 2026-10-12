@@ -20,6 +20,10 @@
 //! (or the record it waits on) and the tab's durable content, so one that was
 //! posted before, by this daemon or an earlier one, is not posted again.
 //!
+//! A chat muted from its tab's menu carries the acpmux session tag
+//! `notifications: muted`, so every window and device honors it: it posts
+//! nothing, and muting it reads what it had posted.
+//!
 //! Only this machine's chats notify: a session a peer reports (`peer`) is
 //! not followed, so a peer cannot post on, or read, a local chat's tab.
 
@@ -40,6 +44,9 @@ use crate::{Actor, SurfaceId};
 
 /// Longest acpmux line read; a session summary is far smaller.
 const MAX_LINE_BYTES: u64 = 4 << 20;
+/// The acpmux session tag that mutes a chat, and its value.
+const MUTE_TAG: &str = "notifications";
+const MUTED: &str = "muted";
 /// Longest chat name in a title, in characters.
 const MAX_NAME_CHARS: usize = 80;
 /// Longest notification body, in characters.
@@ -193,11 +200,14 @@ fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<S
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
-    if read || (waited && next.indicator != "input") {
+    let muted = next.muted && !before.is_some_and(|chat| chat.muted);
+    if read || muted || (waited && next.indicator != "input") {
         mux.read_agent_chat_notices(&next.session);
     }
-    for notice in next.notices(before) {
-        mux.post_agent_chat_notice(&next.session, &notice);
+    // A muted chat's turns still count as notified, so unmuting posts none of them.
+    let notices = next.notices(before);
+    for notice in notices.iter().filter(|_| !next.muted) {
+        mux.post_agent_chat_notice(&next.session, notice);
     }
     chats.insert(next.session.clone(), next);
 }
@@ -211,6 +221,8 @@ struct Chat {
     unread: bool,
     /// A pane shows the chat now.
     shown: bool,
+    /// Muted from its tab's menu ([`MUTE_TAG`]).
+    muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
     /// The ended turn already notified (or passed over), so it notifies once.
@@ -250,6 +262,7 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             unread: summary["unread"].as_bool() == Some(true),
             shown: summary["shown"].as_bool() == Some(true),
+            muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
