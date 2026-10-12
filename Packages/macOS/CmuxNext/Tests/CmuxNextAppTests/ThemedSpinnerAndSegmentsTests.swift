@@ -58,7 +58,7 @@ import Testing
     /// Review of #19844: the palette fills its panel before ordering it in, so its spinner moved to a
     /// window that was not yet visible and stayed still once the panel showed. A chrome spinner
     /// follows its own window's occlusion and spins once the window is visible.
-    @Test func aSpinnerInstalledBeforeItsWindowShowsSpinsOnceItShows() throws {
+    @Test func aSpinnerInstalledBeforeItsWindowShowsFollowsItsWindow() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 44), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -106,7 +106,54 @@ import Testing
         }
     }
 
+    /// The selected label is drawn in `selectedLabelInk` (read from the control's own drawing),
+    /// and a disabled control's label dims as AppKit's does instead of keeping the full ink.
+    @Test func theSelectedSegmentsLabelDrawsInItsInkAndDimsWhenDisabled() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let window = CertificateViewerWindow(chain: [], site: PageInfoSite(url: URL(string: "https://example.com"), kind: .internalPage),
+                                             failure: nil)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        scope.adopt(window)
+        let content = try #require(window.contentView)
+        content.layoutSubtreeIfNeeded()
+        let tabs = try #require(Self.all(ThemedSegmentedControl.self, in: content).first)
+        #expect(tabs.bounds.width > 0 && tabs.bounds.height > 0)
+        let ink = try #require(tabs.selectedLabelInk?.usingColorSpace(.sRGB))
+
+        let drawn = try #require(Self.nearest(ink, in: tabs, segment: 0), "the control draws")
+        #expect(drawn < 0.12, "some label pixel is the ink (nearest is \(drawn) off)")
+
+        tabs.isEnabled = false
+        let dimmed = try #require(Self.nearest(ink, in: tabs, segment: 0), "the disabled control draws")
+        #expect(dimmed >= 0.12, "a disabled label dims: no pixel is the full ink (nearest is \(dimmed) off)")
+    }
+
     // MARK: Helpers
+
+    /// How close the closest opaque pixel in `segment`'s share of the control comes to `color`
+    /// (0 for an exact match), read from the control's own drawing; infinity when nothing there is
+    /// opaque (AppKit draws a disabled control translucent); nil when the control can't draw.
+    private static func nearest(_ color: NSColor, in control: NSSegmentedControl, segment: Int) -> Double? {
+        let bounds = control.bounds
+        guard let rep = control.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        control.cacheDisplay(in: bounds, to: rep)
+        let width = CGFloat(rep.pixelsWide) / CGFloat(control.segmentCount)
+        let x0 = Int(width * CGFloat(segment)), x1 = Int(width * CGFloat(segment + 1))
+        var best = Double.infinity
+        for y in 0..<rep.pixelsHigh {
+            for x in x0..<x1 {
+                guard let pixel = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), pixel.alphaComponent > 0.99 else { continue }
+                best = min(best, distance(pixel, color))
+            }
+        }
+        return best
+    }
+
+    private static func distance(_ a: NSColor, _ b: NSColor) -> Double {
+        Double(max(abs(a.redComponent - b.redComponent), abs(a.greenComponent - b.greenComponent),
+                   abs(a.blueComponent - b.blueComponent)))
+    }
 
     /// WCAG contrast of two opaque sRGB colors.
     private static func contrast(_ a: NSColor, _ b: NSColor) -> Double {

@@ -15,7 +15,9 @@ use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
 use crate::store_file;
 
-const CACHE_VERSION: u32 = 1;
+// 2: Codex rollouts count their typed prompts from message items (current Codex writes no
+// user_message events), so tallies saved without them are read again.
+const CACHE_VERSION: u32 = 2;
 
 /// One chat across every root that holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

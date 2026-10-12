@@ -11,6 +11,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { nativePopupHost } from "../../ui/popupHost";
 import { postNative } from "./native";
 import { pageHostClient } from "./pageHost";
+import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
 
 // One transcript snapshot per display frame, however many deltas land in it.
@@ -19,10 +20,10 @@ document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
 const root = document.getElementById("root")!;
-// A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg).
-// The shared page host has no popup ops yet; there menus stay in the page.
+// A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
+// the shared page host's popup ops, else the legacy bridge's.
 const popupHost =
-  !pageHostClient() && window.webkit?.messageHandlers?.agentSession ? nativePopupHost(postNative) : null;
+  appPopupHost(pageHostClient()) ?? (window.webkit?.messageHandlers?.agentSession ? nativePopupHost(postNative) : null);
 createRoot(root).render(
   <UiProvider container={root} popupHost={popupHost}>
     <PaneBoundary>

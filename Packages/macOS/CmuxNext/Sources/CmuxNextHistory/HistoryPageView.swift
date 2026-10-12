@@ -24,7 +24,6 @@ final class HistoryPageAppearance {
 struct HistoryPageView: View {
     @Bindable var model: HistoryPageModel
     let appearance: HistoryPageAppearance
-    @FocusState private var searchFocused: Bool
 
     private var colors: HistoryPageColors { appearance.colors }
 
@@ -41,18 +40,16 @@ struct HistoryPageView: View {
             }
         }
         .background(colors.background)
-        .onAppear { searchFocused = true }
         .sheet(isPresented: $model.showsCookieBackups) { HistoryCookieBackupsView(model: model, colors: colors) }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: Metrics.panelInset * 1.5) {
             titleRow
-            TextField(HistoryStrings.searchPlaceholder, text: $model.text)
-                .textFieldStyle(.roundedBorder).font(Font(Typography.subtitle)).focusEffectDisabled().focused($searchFocused)
-                .onKeyPress(.downArrow) { model.moveSelection(1); return .handled }
-                .onKeyPress(.upArrow) { model.moveSelection(-1); return .handled }
-                .onSubmit { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } }
+            ThemedField(text: $model.text, placeholder: HistoryStrings.searchPlaceholder, font: Typography.subtitle,
+                        focusOnAppear: true,
+                        onSubmit: { if let entry = model.entry(id: model.selection) ?? model.flatEntries.first { model.open(entry) } },
+                        onMove: { model.moveSelection($0) })
             HistoryFilterLayout(horizontalSpacing: Metrics.panelInset * 1.5, verticalSpacing: 4) {
                 ForEach(HistoryPageModel.Filter.allCases, id: \.self) { filter in
                     Button(HistoryStrings.filter(filter)) { model.filter = filter }

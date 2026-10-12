@@ -38,41 +38,37 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
         return Vec::new();
     }
     let mut turns: Vec<PastTurn> = Vec::new();
+    // Codex's message items before its rollout turns current (items annotated with their kinds):
+    // older Codex also wrote each turn as event messages, which are read instead, so no turn
+    // shows twice; a rollout with no event messages at all is read from these.
+    let mut items: Vec<PastTurn> = Vec::new();
+    // Current Codex writes no event messages: from its first annotated item on (a chat begun on
+    // an older Codex and resumed on a current one), items are the turns.
+    let mut current = false;
     for (index, line) in BufReader::new(f).lines().map_while(Result::ok).enumerate() {
         if skip_first && index == 0 {
             continue;
         }
         let Ok(record) = serde_json::from_str::<Value>(&line) else { continue };
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
-        let step = match family {
-            "codex" => codex_step(&record),
-            _ => claude_step(&record),
-        };
-        match step {
-            Some(Step::Prompt(text)) => turns.push(PastTurn {
-                prompt: text,
-                answer: String::new(),
-                prompt_at: at,
-                answer_at: at,
-            }),
-            Some(Step::Answer(text)) => {
-                if let Some(turn) = turns.last_mut() {
-                    turn.answer_at = at.or(turn.answer_at);
-                    if !turn.answer.is_empty() {
-                        turn.answer.push_str("\n\n");
-                    }
-                    turn.answer.push_str(&text);
-                    if turn.answer.len() > MAX_ANSWER {
-                        let mut cut = MAX_ANSWER;
-                        while !turn.answer.is_char_boundary(cut) {
-                            cut -= 1;
-                        }
-                        turn.answer.truncate(cut);
-                    }
+        match family {
+            "codex" => {
+                current = current || has_item_kinds(&record);
+                if let Some(step) = codex_step(&record) {
+                    add(&mut turns, step, at);
+                } else if let Some(step) = codex_item_step(&record) {
+                    add(if current { &mut turns } else { &mut items }, step, at);
                 }
             }
-            None => {}
+            _ => {
+                if let Some(step) = claude_step(&record) {
+                    add(&mut turns, step, at);
+                }
+            }
         }
+    }
+    if turns.is_empty() {
+        turns = items;
     }
     let skip = turns.len().saturating_sub(MAX_TURNS);
     turns.drain(..skip);
@@ -82,6 +78,33 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
 enum Step {
     Prompt(String),
     Answer(String),
+}
+
+/// A prompt starts a turn; an answer adds to the last one, capped at MAX_ANSWER.
+fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
+    match step {
+        Step::Prompt(text) => turns.push(PastTurn {
+            prompt: text,
+            answer: String::new(),
+            prompt_at: at,
+            answer_at: at,
+        }),
+        Step::Answer(text) => {
+            let Some(turn) = turns.last_mut() else { return };
+            turn.answer_at = at.or(turn.answer_at);
+            if !turn.answer.is_empty() {
+                turn.answer.push_str("\n\n");
+            }
+            turn.answer.push_str(&text);
+            if turn.answer.len() > MAX_ANSWER {
+                let mut cut = MAX_ANSWER;
+                while !turn.answer.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                turn.answer.truncate(cut);
+            }
+        }
+    }
 }
 
 /// Claude Code: `{"type":"user","message":{"content":...}}` (a typed prompt: a string or text
@@ -129,6 +152,71 @@ fn codex_step(record: &Value) -> Option<Step> {
         _ => None,
     }
 }
+
+/// Current Codex rollouts carry no event messages, only `response_item` messages: a person's
+/// prompt is a `user` message whose items are all `user.text` (AGENTS.md and environment context
+/// arrive as `user` messages of other kinds), and the answer is the `assistant` message of phase
+/// `final_answer` (`commentary` is progress narration). A rollout without these annotations
+/// keeps every `user` text that is not a context block, and every `assistant` text.
+fn codex_item_step(record: &Value) -> Option<Step> {
+    if record.get("type").and_then(Value::as_str) != Some("response_item") {
+        return None;
+    }
+    let payload = record.get("payload")?;
+    if payload.get("type").and_then(Value::as_str) != Some("message") {
+        return None;
+    }
+    let text: String = payload
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = text.trim().to_owned();
+    if text.is_empty() {
+        return None;
+    }
+    match payload.get("role").and_then(Value::as_str)? {
+        "user" => {
+            let kinds =
+                payload.pointer("/internal_chat_message_metadata_passthrough/content_item_kinds");
+            let typed = match kinds.and_then(Value::as_array) {
+                Some(kinds) => is_typed(kinds),
+                None => !CODEX_CONTEXT.iter().any(|prefix| text.starts_with(prefix)),
+            };
+            typed.then_some(Step::Prompt(text))
+        }
+        "assistant" => match payload.get("phase").and_then(Value::as_str) {
+            None | Some("final_answer") => Some(Step::Answer(text)),
+            Some(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether a Codex `user` message's item kinds are the person's own: text, maybe with images
+/// (`user.text`, `user.image`), never injected context (`agents_md.instructions`, ...).
+fn is_typed(kinds: &[Value]) -> bool {
+    kinds.iter().any(|kind| kind.as_str() == Some("user.text"))
+        && kinds.iter().all(|kind| kind.as_str().is_some_and(|kind| kind.starts_with("user.")))
+}
+
+/// Whether `record` is a Codex message item annotated with its item kinds (current Codex).
+fn has_item_kinds(record: &Value) -> bool {
+    record.get("type").and_then(Value::as_str) == Some("response_item")
+        && record
+            .pointer("/payload/internal_chat_message_metadata_passthrough/content_item_kinds")
+            .is_some()
+}
+
+/// How Codex's injected `user` context begins, for rollouts without item kinds.
+const CODEX_CONTEXT: [&str; 4] = [
+    "<environment_context>",
+    "<user_instructions>",
+    "# AGENTS.md instructions",
+    "<user_shell_command>",
+];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
 fn text_of(content: &Value) -> Option<String> {

@@ -28,22 +28,28 @@ enum WorkspaceColorSwatchRow {
 
 /// One row: the row's title, then a swatch per choice.
 final class WorkspaceColorSwatchView: NSView {
-    private let label = NSTextField(labelWithString: "")
+    private let title: NSAttributedString
     private let choices: [NSMenuItem]
     private var swatches: [NSRect] = []
     private var hovered: Int?
     private static let diameter: CGFloat = 14, gap: CGFloat = 6, height: CGFloat = 28
+    /// Where the menu's own item titles start and its shortcuts end, measured from captures of
+    /// the shipped menu.
+    private static let titleInset: CGFloat = 22, trailingInset: CGFloat = 13
 
     init(title: String, choices: [NSMenuItem]) {
         self.choices = choices
-        label.stringValue = title
-        label.font = .menuFont(ofSize: 0)
-        label.textColor = .labelColor
+        // Drawn here rather than by a label field: a field turns vibrant inside the menu and
+        // inks darker than the items around it.
+        let text = NSAttributedString(string: title, attributes: [
+            .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.labelColor,
+        ])
+        self.title = text
         // The title, a gap, then the swatches; the menu widens the row to its own width.
-        let width = Metrics.space3 * 2 + 8 + label.fittingSize.width + 16 + CGFloat(choices.count) * (Self.diameter + Self.gap)
+        let width = Self.titleInset + text.size().width + 16 + CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + Self.trailingInset
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         autoresizingMask = .width
-        addSubview(label)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -62,9 +68,7 @@ final class WorkspaceColorSwatchView: NSView {
 
     override func layout() {
         super.layout()
-        let size = label.fittingSize
-        label.frame = NSRect(x: Metrics.space3 + 8, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
-        var x = bounds.width - Metrics.space3 - CGFloat(choices.count) * (Self.diameter + Self.gap) + Self.gap
+        var x = bounds.width - Self.trailingInset - CGFloat(choices.count) * (Self.diameter + Self.gap) + Self.gap
         swatches = choices.map { _ in
             defer { x += Self.diameter + Self.gap }
             return NSRect(x: x, y: (bounds.height - Self.diameter) / 2, width: Self.diameter, height: Self.diameter)
@@ -72,6 +76,8 @@ final class WorkspaceColorSwatchView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let size = title.size()
+        title.draw(at: NSPoint(x: Self.titleInset, y: ((bounds.height - size.height) / 2).rounded()))
         for (index, rect) in swatches.enumerated() {
             let color = ActionRegistry.menuRun(of: choices[index])?.arguments["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
             (color?.markColor ?? .systemGray).setFill()
