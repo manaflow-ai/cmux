@@ -173,7 +173,10 @@ struct CloudBringBack {
         } catch {
             throw Failure(message: CloudBringBackStrings.tabFailed(String(describing: error)), retry: .show(shown))
         }
-        if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
+        if let host = shown.host, let moved = shown.movedSession {
+            services.cloud.movedChats.forget(host: host, session: moved)
+            services.cloud.accessAsks.chatBroughtBack(machineID: shown.machineID, session: moved, services: services)
+        }
         // Reopen Closed never offers it.
         do {
             let daemon = services.machines.daemon(forTab: tab)

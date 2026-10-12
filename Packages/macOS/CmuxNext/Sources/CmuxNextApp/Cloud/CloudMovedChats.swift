@@ -47,6 +47,9 @@ final class CloudMovedChats {
         entries()[Self.key(host, session)]
     }
 
+    /// Every moved chat, in no order.
+    func all() -> [Entry] { Array(entries().values) }
+
     func record(_ entry: Entry) {
         var all = entries()
         all[Self.key(entry.host, entry.session)] = entry
