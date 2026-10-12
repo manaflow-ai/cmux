@@ -449,6 +449,7 @@
 		D35A00000000000000000018 /* BrowserDesignModePopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */; };
 		D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */; };
 		D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */; };
+		781A2C7191F7F38C21B394C0 /* BrowserDesignModeSelectionOrientationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1434C89C799DDFD7B6F1633E /* BrowserDesignModeSelectionOrientationTests.swift */; };
 		2BED74405D6940415E66B937 /* BrowserDesignModeSmoothScrollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65D667411DD4754221281982 /* BrowserDesignModeSmoothScrollingTests.swift */; };
 		D35A0000000000000000001B /* BrowserDesignModeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001B /* BrowserDesignModeSupport.swift */; };
 		D35A0000000000000000001D /* BrowserDesignModeTokenCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000001D /* BrowserDesignModeTokenCell.swift */; };
@@ -5129,6 +5130,7 @@
 		D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopoverHost.swift; sourceTree = "<group>"; };
 		D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotEvaluator.swift; sourceTree = "<group>"; };
 		D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeScreenshotEvaluatorTests.swift; sourceTree = "<group>"; };
+		1434C89C799DDFD7B6F1633E /* BrowserDesignModeSelectionOrientationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDesignModeSelectionOrientationTests.swift"; sourceTree = "<group>"; };
 		65D667411DD4754221281982 /* BrowserDesignModeSmoothScrollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDesignModeSmoothScrollingTests.swift"; sourceTree = "<group>"; };
 		D35B0000000000000000001B /* BrowserDesignModeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSupport.swift; sourceTree = "<group>"; };
 		D35B0000000000000000001D /* BrowserDesignModeTokenCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeTokenCell.swift; sourceTree = "<group>"; };
@@ -13782,6 +13784,7 @@
 				9FF26F73EF3C4096BF73A840 /* AgentSessionPanelNotificationTests.swift */,
 				2C7DBD4A0D4E5A763491210A /* ChromeTabKeysTests.swift */,
 				60997B8A3538A87DDD79662F /* BrowserCLIDialogTests.swift */,
+				1434C89C799DDFD7B6F1633E /* BrowserDesignModeSelectionOrientationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17783,6 +17786,7 @@
 				D35C00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift in Sources */,
 				D35C00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift in Sources */,
 				D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */,
+				781A2C7191F7F38C21B394C0 /* BrowserDesignModeSelectionOrientationTests.swift in Sources */,
 				2BED74405D6940415E66B937 /* BrowserDesignModeSmoothScrollingTests.swift in Sources */,
 				B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */,
 				B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */,
