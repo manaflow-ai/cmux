@@ -373,7 +373,8 @@ fn a_closed_incognito_window_is_never_recorded() {
         &harness.socket,
         "incognito-create",
         "workspace.create",
-        serde_json::json!({"machine":"current","session":"current","name":"secret","ephemeral":true}),
+        serde_json::json!({"machine":"current","session":"current","name":"secret",
+                           "initial_content":"empty","ephemeral":true}),
         Some("incognito-create"),
     );
     let key_of = |app: &mut AppConnection, name: &str| -> String {
