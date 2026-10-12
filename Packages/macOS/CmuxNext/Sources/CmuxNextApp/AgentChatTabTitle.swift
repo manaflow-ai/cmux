@@ -7,6 +7,6 @@ import CmuxNextDaemon
 enum AgentChatTabTitle {
     /// The title of the chat `ref` shows, else "Agent".
     @MainActor static func untitled(_ ref: AgentSessionRef?, turns: AgentTurnStateStore = .shared) -> String {
-        AgentPaneModel.tabTitle
+        ref.flatMap(turns.title(for:)) ?? AgentPaneModel.tabTitle
     }
 }
