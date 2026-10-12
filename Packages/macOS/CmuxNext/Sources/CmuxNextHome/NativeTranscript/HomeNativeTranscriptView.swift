@@ -289,9 +289,10 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
-    /// The header band's fade in or out, in seconds.
+    /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
+    /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
     static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
+        Motion.duration(shown ? .fadeIn : .fadeOut)
     }
 
     /// The theme's palettes (key and non-key window) for the MessagesLab

@@ -65,6 +65,10 @@ public final class WebPopupHost {
     private let send: ([String: Any]) -> Void
     private var panel: WebPopupPanel?
     private var model: Model?
+    /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
+    private var generation = 0
+    /// The control the menu opened from (screen), which its close shrinks toward.
+    private var anchor: CGRect = .zero
     private var observers: [NSObjectProtocol] = []
     private var monitor: Any?
 
@@ -75,7 +79,7 @@ public final class WebPopupHost {
     }
 
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
-    public var shownFrame: CGRect? { panel?.isVisible == true ? panel?.frame : nil }
+    public var shownFrame: CGRect? { panel?.isVisible == true && model != nil ? panel?.cardFrame : nil }
 
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
@@ -98,14 +102,19 @@ public final class WebPopupHost {
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: model.side,
                                                  trailing: model.trailing, screen: screen.visibleFrame)
-        panel.setFrame(frame, display: true)
+        generation += 1
+        self.anchor = anchor
+        let opening = !panel.isVisible || panel.alphaValue < 1
+        panel.setFrame(PopupStyle.standard.windowFrame(forCard: frame), display: true)
         if panel.parent !== window {
             panel.parent?.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)
         }
         panel.level = window.level
+        // Opens like every native popup (POLISH: no flash); new rows in an open menu stay put.
+        if opening, !panel.isVisible { panel.alphaValue = 0 }
         panel.orderFront(nil)
-        panel.invalidateShadow()
+        if opening { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) }
         watch(window)
         return ["shown": true, "side": side == .below ? "bottom" : "top",
                 "frame": [frame.minX, frame.minY, frame.width, frame.height]]
@@ -122,9 +131,16 @@ public final class WebPopupHost {
     public func hide() {
         model = nil
         unwatch()
-        guard let panel else { return }
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        guard let panel, panel.isVisible else { return }
+        generation += 1
+        let closing = generation
+        panel.closePopup(pivot: panel.popupPivot(toward: anchor)) { [weak self, weak panel] in
+            // A show during the close keeps the panel.
+            guard let self, let panel, self.generation == closing else { return }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+            panel.resetPopupScale()
+        }
     }
 
     private func picked(_ id: String) {
@@ -185,7 +201,6 @@ public final class WebPopupPanel: ContentChildPanel {
         rows = WebPopupRows(onPick: onPick, onHover: onHover)
         super.init()
         identifier = NSUserInterfaceItemIdentifier("cmux.page-popup")
-        hasShadow = true
         setAccessibilityElement(false)
         // Rows the screen cannot fit scroll, as a Mac menu's do.
         let scroll = NSScrollView()
@@ -194,9 +209,13 @@ public final class WebPopupPanel: ContentChildPanel {
         SystemScrollers.follow(scroll)
         scroll.documentView = rows
         let surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
-        surface.translatesAutoresizingMaskIntoConstraints = true
-        contentView = surface
+        // The one popup shadow (POLISH: subtle shadows, one elevation), like the page's own menus;
+        // the window's shadow was the system's, heavier.
+        adoptPopupStyle(card: surface)
     }
+
+    /// The menu's card (screen), without the shadow band around it.
+    public var cardFrame: CGRect { PopupStyle.standard.cardFrame(inWindow: frame) }
 }
 
 /// The menu's rows: a check column, the title, the shortcut; separators as hairlines.
