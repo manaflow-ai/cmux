@@ -25,7 +25,7 @@ export function databaseStackSessionRevocationStore(db: () => RevocationDb = clo
         .select(columns)
         .from(stackSessionRevocations)
         .where(and(isNull(stackSessionRevocations.revokedAt), lte(stackSessionRevocations.nextAttemptAt, now)))
-        .orderBy(asc(stackSessionRevocations.nextAttemptAt))
+        .orderBy(asc(stackSessionRevocations.nextAttemptAt), asc(stackSessionRevocations.stackSessionId))
         .limit(limit);
     },
     async listOpen(stackSessionIds): Promise<readonly StackSessionRevocationRow[]> {
