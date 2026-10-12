@@ -65,14 +65,7 @@ public final class AgentCursorLayer {
     /// seconds from now and holds the cursor hidden; every agent action arms
     /// it again, which shows the cursor at once. No timer.
     func armIdleHide(after delay: CFTimeInterval) {
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 1
-        fade.toValue = 0
-        fade.duration = 0.3
-        fade.beginTime = root.convertTime(CACurrentMediaTime(), from: nil) + delay
-        fade.fillMode = .forwards
-        fade.isRemovedOnCompletion = false
-        root.add(fade, forKey: Self.idleHideKey)
+        root.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: root), forKey: Self.idleHideKey)
     }
 
     static let idleHideKey = "agentCursor.idleHide"

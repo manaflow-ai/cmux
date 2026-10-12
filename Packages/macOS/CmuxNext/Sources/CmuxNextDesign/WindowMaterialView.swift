@@ -162,7 +162,7 @@ public final class WindowMaterialView: NSView {
                     let image = await images.image(shown, texture: texture)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
-                    if fades { self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn") }
+                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: 1, fade: .fadeIn, from: 0) }
                 }
             }
         }
@@ -194,14 +194,6 @@ public final class WindowMaterialView: NSView {
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
         updateArtCrop()
-    }
-
-    private static func fadeIn() -> CABasicAnimation {
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0
-        fade.toValue = 1
-        fade.duration = 0.2
-        return fade
     }
 
     private func updateArtCrop() {
