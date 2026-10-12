@@ -49,6 +49,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
+        // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
+        (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
+        (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
+        (vec!["pane", PANE, "close", "--all"], "layout.bulk"),
         (
             vec![
                 "session",
@@ -221,6 +225,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "back"),
         ("tab.update", "forward"),
         ("client.metadata.update", "capabilities"),
+        // layout.bulk: the CLI names the anchor by its selector and has no
+        // selection; apps and MCP send anchor and ids.
+        ("layout.bulk", "anchor"),
+        ("layout.bulk", "ids"),
     ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]

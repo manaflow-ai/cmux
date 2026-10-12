@@ -279,6 +279,7 @@ const fn access(operation: Op) -> Access {
         | Op::TabUpdate
         | Op::TabGroupAddTabs
         | Op::TabGroupClose
+        | Op::LayoutBulk
         | Op::TabGroupCreate
         | Op::TabGroupGet
         | Op::TabGroupList
