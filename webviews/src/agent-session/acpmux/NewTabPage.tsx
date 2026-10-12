@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
@@ -267,6 +268,17 @@ export function NewTabPage({
   // The field was wholly selected before this edit, so a typed prefix starts it over.
   const replacing = useRef(false);
   const list = useRef<HTMLDivElement>(null);
+  // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
+  // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
+  const [dismissed, setDismissed] = useState<string>();
+  const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
@@ -275,7 +287,9 @@ export function NewTabPage({
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
-  const open = focused && query.trim() !== "";
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const open = focused && query.trim() !== "" && query !== dismissed;
   const suggestions = useMemo(
     () =>
       omnibarRows(query, kind, {
@@ -292,6 +306,8 @@ export function NewTabPage({
   const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
+    // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
+    if (list.current?.hasAttribute("data-escaped")) return;
     list.current?.querySelector<HTMLElement>(`#acpmux-omni-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   // A pane without a known folder names none rather than showing "No folder".
@@ -507,7 +523,7 @@ export function NewTabPage({
         </form>
         {rows.length > 0 && (
           <div
-            ref={list}
+            ref={attachList}
             className="acpmux-omni"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -535,10 +551,10 @@ export function NewTabPage({
                   <span className="acpmux-omni-title">
                     {row.type === "ask" && <b>{t(NEW_TAB_LABELS.ask, { agent })}: </b>}
                     {rowTitle(row)}
-                  </span>
+                  </span>{" "}
                   {rowDetail(row) && <span className="acpmux-omni-detail">{rowDetail(row)}</span>}
                 </span>
-                <span className="acpmux-omni-action">
+                <span className="acpmux-omni-action" data-popup-skip>
                   {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
                   {index === selected && <kbd>↵</kbd>}
                 </span>
