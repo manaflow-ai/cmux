@@ -24,7 +24,8 @@ const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
   stopped: "bgTask.state.stopped",
 };
 
-/// The last turn that edited files: its totals (the checkpoint's once loaded) and its files.
+/// The last turn that edited files: its files as its diff shows them (the checkpoint's once
+/// loaded) and their totals.
 export type SummaryChanges = {
   additions: number;
   deletions: number;
@@ -136,6 +137,7 @@ export function SummaryPopover({
                 type="button"
                 className="acpmux-summary-row acpmux-summary-link"
                 aria-label={t("header.changes")}
+                disabled={!onOpenChanges}
                 onClick={() => onOpenChanges?.()}
               >
                 <Icon name="diff.file" size={ROW_ICON} row />

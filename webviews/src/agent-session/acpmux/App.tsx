@@ -2528,10 +2528,11 @@ function AcpmuxPane() {
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
   }, [snapshot.rows, snapshot.sessionId]);
-  const lastChanges = useMemo(() => {
-    const counts = lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined;
-    return counts && { ...counts, files: lastEditTurn!.files };
-  }, [lastEditTurn, turnCountsFor]);
+  // Its files are the diff's own (the checkpoint's once loaded), so each opens at its file there.
+  const lastChanges = useMemo(
+    () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
+    [lastEditTurn, turnCountsFor],
+  );
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
   // Each turn is scanned again only when its rows change, so streaming rescans the live turn alone.
   const previewTurns = useRef(new Map<string, { key: string; url: string | undefined }>());

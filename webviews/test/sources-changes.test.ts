@@ -57,7 +57,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
   test("the Sources popover lists the turn's changed files and opens each one's diff", async () => {
     const page = await stage("agent-pane.edited-files", "fourteen-files");
     await page.click(".acpmux-summary-button");
-    const section = page.locator('.acpmux-summary-popover section[aria-label="Changes"]');
+    const section = page.locator(".acpmux-summary-popover section", { has: page.locator(".acpmux-summary-file") });
     await section.waitFor();
     const files = section.locator(".acpmux-summary-file");
     expect(await files.count()).toBe(5);
