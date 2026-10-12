@@ -87,6 +87,11 @@ public final class ConversationViewController: UIViewController {
     private(set) var hasPositionedInitially = false
     /// Rows already prefetched (see +Prefetch); reset when rows change.
     var prefetchedRange: Range<Int> = 0..<0
+    /// The reuse identifier each message row last dequeued its cell with.
+    /// A row's cell must be dequeued with the same identifier while UIKit
+    /// still holds it (on screen or prefetched): reconfiguring an item with
+    /// another identifier raises. See `messageReuseID(for:height:)`.
+    private var messageReuseIDs: [String: String] = [:]
     /// The catch-up arrow (see +CatchUp).
     let catchUpButton = UIButton(type: .custom)
     /// Between viewDidAppear and viewWillDisappear.
@@ -183,7 +188,9 @@ public final class ConversationViewController: UIViewController {
         collectionView.alwaysBounceVertical = true
         collectionView.dataSource = self
         collectionView.delegate = self
-        collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseID)
+        for reuseClass in 0..<ConversationReuseClass.count {
+            collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseID(class: reuseClass))
+        }
         collectionView.register(TimestampCell.self, forCellWithReuseIdentifier: TimestampCell.reuseID)
         collectionView.register(LoadingCell.self, forCellWithReuseIdentifier: LoadingCell.reuseID)
         collectionView.register(ConversationStartCell.self, forCellWithReuseIdentifier: ConversationStartCell.reuseID)
@@ -343,6 +350,7 @@ public final class ConversationViewController: UIViewController {
             ConversationTheme.displayScale = traitCollection.displayScale
             layoutCache.invalidateAll()
             invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
             collectionView.reloadData()
         }
         if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
@@ -352,6 +360,7 @@ public final class ConversationViewController: UIViewController {
             || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
             layoutCache.invalidateAll()
             invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
             collectionView.reloadData()
         }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
@@ -359,6 +368,7 @@ public final class ConversationViewController: UIViewController {
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             layout.invalidateLayout()
+            forgetAllMessageReuseIDs()
             collectionView.reloadData()
             view.setNeedsLayout()
         }
@@ -835,6 +845,7 @@ public final class ConversationViewController: UIViewController {
             rowIDs = newRows.map(\.id)
             rowMemo.appliedGeneration = generation ?? -1
             invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
             collectionView.reloadData()
             collectionView.layoutIfNeeded()
             if !newRows.isEmpty {
@@ -932,6 +943,7 @@ public final class ConversationViewController: UIViewController {
         }
 
         layoutCache.forget(rowIDs: deleted.lazy.map { oldIDs[$0.item] })
+        forgetMessageReuseIDs(deleted.lazy.map { oldIDs[$0.item] })
         let carriedMetrics = diff.metrics
         let updates = {
             self.rows = newRows
@@ -1251,8 +1263,11 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         switch rows[indexPath.item] {
         case let .message(model):
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
+            let reuseID = messageReuseID(for: model.rowID, height: cellLayout.height)
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseID, for: indexPath) as! MessageCell
+            if let previous = cell.model?.rowID, previous != model.rowID { messageReuseIDs[previous] = nil }
+            messageReuseIDs[model.rowID] = reuseID
             cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
@@ -1309,6 +1324,25 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             )
             return cell
         }
+    }
+
+    /// Message cells queue for reuse by how many rows like theirs fit on
+    /// screen (ConversationReuseClass), so UIKit's reuse queues keep every
+    /// cell instead of dropping tall rows' cells. A row whose cell UIKit
+    /// may still hold keeps the identifier it was dequeued with.
+    private func messageReuseID(for rowID: String, height: CGFloat) -> String {
+        if let reuseID = messageReuseIDs[rowID] { return reuseID }
+        return MessageCell.reuseID(class: ConversationReuseClass.index(rowHeight: height, viewportHeight: collectionView.bounds.height))
+    }
+
+    /// Forgets the identifiers of message rows whose cells UIKit let go.
+    private func forgetMessageReuseIDs(_ rowIDs: some Sequence<String>) {
+        for rowID in rowIDs { messageReuseIDs[rowID] = nil }
+    }
+
+    /// After a reload UIKit holds no cell for any row.
+    private func forgetAllMessageReuseIDs() {
+        messageReuseIDs.removeAll()
     }
 
     public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
