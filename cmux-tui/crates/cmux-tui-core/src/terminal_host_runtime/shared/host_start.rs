@@ -38,7 +38,7 @@ pub(crate) fn start_host_runtime(
     master: Box<dyn MasterPty + Send>,
     mut child: HostChild,
     seed: &[u8],
-    program_status: Option<crate::program_status::ProgramStatusSnapshot>,
+    program_status: Option<ProgramStatusSnapshot>,
 ) -> anyhow::Result<Arc<HostShared>> {
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     let pid = child.process_id();
