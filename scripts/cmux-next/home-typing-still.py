@@ -11,12 +11,18 @@ edges have no partial pixels, also after the transcript moves by half a device p
 snapshot every text row's anchored side (incoming left, outgoing right) and top lie on whole device pixels, its
 balloon's edges are where the app draws them (an outgoing text balloon a little inside its frame, 2281879), and an
 incoming balloon's straight edges have no partial pixels (c1457e5 row-snap; home_pixels.check_rows). Then two width
-changes of the transcript in one main-thread turn: the rows follow the second at once (f11642b resize-pace). Socket only, no system input. Runs on
+changes of the transcript in one main-thread turn: the rows follow the second at once (f11642b resize-pace;
+a first pass over the 2 ms frame budget defers it as intended: SKIP of that proof, and the rows must follow a frame
+later). The half-pixel snapshot also has the pane's right edge on half a device pixel: my (outgoing) rows' right
+edges are snapped (82ccac1). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+
+# The pane width trim (pt) that puts the transcript's right edge on half a device pixel (with the 0.25 pt move, 2x).
+FRACTION_TRIM = 0.5
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import SKIPPED, check_rows, mean_rgb, read_png  # noqa: E402
@@ -123,7 +129,11 @@ try:
     # MessagesLab c1457e5 (row-snap): every message row rests on whole device pixels too, so the move is on both
     # axes (a vertical move puts the rows' top and bottom edges on half a pixel without the snap).
     k0 = 2.0
+    # MessagesLab 82ccac1 (snap-followup): my rows snap their right edge, so the pane's right edge goes onto a
+    # fraction of a device pixel too: the transcript narrows by 0.5 pt (with the 0.25 pt move, its right edge is half a
+    # device pixel off the grid, as a pane split to a fractional width).
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0, "dy": 0.5 / k0})
+    rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM]})
     time.sleep(0.2)  # test harness: one display frame for the move to show
     half = rpc("debug.home.drive", {"action": "typing"}) or {}
     half_rows = rpc("debug.home.drive", {"action": "rows"}) or {}
@@ -159,6 +169,8 @@ try:
     # top edges (window y from the bottom: y + height).
     check("the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
           and all(abs(((half.get(k, 0) * k0) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")), half)
+    check("the transcript's right edge sits on half a device pixel", abs(((half_rows.get("hostRight", 0) * k0) % 1) - 0.5) < 0.01,
+          {k: half_rows.get(k) for k in ("hostRight", "trim", "scale")})
     if half.get("ok") and os.path.exists(half_shot):
         scale, _, inner, bg, diff, partial = measure(half, half_shot)
         px_edges = [half["x"] * scale, (half["y"] + half["height"]) * scale]
@@ -177,7 +189,8 @@ try:
     # request: no display frame between), as a divider drag or a live resize can. After the second change the
     # outgoing rows must already end 80 pt further left, and no width pass may be deferred.
     base = rpc("debug.home.drive", {"action": "rows"}) or {}
-    paced = rpc("debug.home.drive", {"action": "resize", "trims": [40, 80]}) or {}
+    paced = rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM + 40, FRACTION_TRIM + 80]}) or {}
+    after_frame = rpc("debug.home.drive", {"action": "rows"}) or {}  # a later request: at least one display frame later
     rpc("debug.home.drive", {"action": "resize", "trims": [0]})
     steps = paced.get("steps") or []
     check("resize pace: two width changes in one turn", bool(paced.get("ok")) and len(steps) == 2 and bool(base.get("ok")), paced)
@@ -192,9 +205,24 @@ try:
         print(f"     resize pace: passes {steps[0]['passes']} -> {steps[1]['passes']}, deferred in the second change {deferred};"
               f" outgoing right edges moved left by (first, second) {moved}", flush=True)
         check("resize pace: outgoing rows to compare", bool(keys), {"base": list(b0), "after": list(s2)})
-        check("resize pace: the second width change in the frame ran its pass at once (none deferred)", deferred == 0, steps)
-        check("resize pace: after the second change the rows are laid out for the new width (outgoing right edges 80 pt left)",
-              bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
+        # The frame budget (2 ms): a first pass that cost more defers the second change to the next frame, as the
+        # pin intends (a slow Debug pass is no failure). Then the rows must follow by the next request, and the
+        # proof of the same-frame layout is not made (said in the output, not passed silently).
+        budget = paced.get("budgetMs", 2.0); first_ms = steps[0].get("ms", 0)
+        over = first_ms >= budget
+        print(f"     resize pace: first step {first_ms:.2f} ms, second {steps[1].get('ms', 0):.2f} ms, frame budget {budget:.2f} ms", flush=True)
+        if deferred and over:
+            print(f"SKIP resize pace same-frame proof: the first pass took {first_ms:.2f} ms (budget {budget:.2f} ms), so the"
+                  " deferral is the intended one", flush=True)
+            SKIPPED.append("resize pace same-frame")
+            later = outgoing_right(after_frame.get("rows") or [])
+            check("resize pace: after the deferral the rows follow the new width a frame later (outgoing right edges 80 pt left)",
+                  bool(keys) and all(k in later and abs(b0[k] - later[k] - 80) <= 0.6 for k in keys),
+                  {k: round(b0[k] - later.get(k, b0[k]), 2) for k in keys})
+        else:
+            check("resize pace: the second width change in the frame ran its pass at once (none deferred)", deferred == 0, steps)
+            check("resize pace: after the second change the rows are laid out for the new width (outgoing right edges 80 pt left)",
+                  bool(keys) and all(abs(v[0] - 40) <= 0.6 and abs(v[1] - 80) <= 0.6 for v in moved.values()), moved)
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

@@ -675,10 +675,8 @@ final class RowCell: UICollectionViewCell {
             for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
                 l.contentsScale = Fixture.renderScale
             }
-            // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new grid.
-            if let c = typingClip.animation(forKey: "breath.clip.position.x") {
-                clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
-            }
+            // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new
+            // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
             applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
@@ -1187,22 +1185,48 @@ final class RowCell: UICollectionViewCell {
         return d.isFinite ? d : 0
     }
 
-    /// The row's content (contentView) moved by less than half a device pixel so that the row's top and left edge lie on
-    /// whole device pixels of the window (macOS; zero on iOS). Messages' rows sit on whole device pixels: its incoming
-    /// edges are crisp at 798.00, 864.00 px in deactivate-activate tp0000ms. The rows' places in the view are whole
-    /// pixels (ThreadPreview.height); this covers a host that starts the window view on a fraction of a point (cmux
-    /// Home's panes, `--rows-origin`). From `windowY`, the model place: a moving row keeps its snap through the motion
-    /// (mid frames are not snapped) and rests on the grid.
+    /// The row's content (contentView) moved by less than half a device pixel so that the row's top and its anchored
+    /// side lie on whole device pixels of the window (macOS; zero on iOS). Messages' rows sit on whole device pixels: its
+    /// incoming edges are crisp at 798.00, 864.00 px in deactivate-activate tp0000ms, its outgoing right edges at whole
+    /// pixels too. The rows' places in the view are whole pixels (ThreadPreview.height); this covers a host that starts
+    /// the window view on a fraction of a point or makes it a fraction of a pixel wide (cmux Home's panes,
+    /// `--rows-origin`, `--rows-width-frac`). The anchored side (RowCell.anchorsRight): the right edge for my rows
+    /// (outgoing bubbles, receipts, my labels and previews: they keep a whole-point distance to the row's right edge),
+    /// the left edge for the others (incoming rows, the typing indicator, separators). From `windowY`, the model place: a
+    /// moving row keeps its snap through the motion (mid frames are not snapped) and rests on the grid.
     private(set) var rowSnap = CGPoint.zero
     /// The content's window y: the row's top plus its snap (fills, badge, typing).
     var contentWindowY: CGFloat { windowY + rowSnap.y }
+    /// Rows drawn from the row's right edge: my bubbles, labels, reply counts and thread previews, and the receipts
+    /// (Delivered, Read: right-aligned at Metrics.receiptRight). Their drawn right edges keep a fixed distance to the
+    /// row's right edge at every width (Metrics.rightEdge: width - 20 pt, my bubbles and previews; receiptRight: width
+    /// - 35.8 pt, receipts, labels, reply counts). Centered rows (separators, unsent notes) and the others keep the left.
+    static func anchorsRight(_ spec: RowSpec) -> Bool {
+        switch spec.kind {
+        case let .part(p): return p.outgoing
+        case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
+        case .receipt: return true
+        case let .threadPreview(pv): return pv.outgoing
+        case .separator, .unsent, .typing: return false
+        }
+    }
+    /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
+    /// row's drawn right edge is its width (`spec.width`) from the cell's left (one display frame of a live resize can
+    /// lay the cell out at the next width before its row is made again).
+    static func anchorX(_ spec: RowSpec?, _ frame: CGRect) -> CGFloat {
+        guard let spec, anchorsRight(spec) else { return frame.minX }
+        return frame.minX + spec.width
+    }
+    /// The display scale and the indicator's (snapped) place the typing clip's keyframes were made for
+    /// (clipTypingBody): a change of either makes them again (refreshSnap).
+    private var clipScale: CGFloat = 0, clipPosition = CGPoint.zero
     /// Moves the content to the snapped place; true when the snap changed.
     @discardableResult private func snapRow() -> Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         let s = max(1, Fixture.renderScale)
-        let left = layer.frame.minX
-        guard windowY.isFinite, left.isFinite else { return false }
-        let d = CGPoint(x: RowCell.snap(left, windowPlace.origin.x, windowPlace.axis.x, scale: s),
+        let x = RowCell.anchorX(spec, layer.frame)
+        guard windowY.isFinite, x.isFinite else { return false }
+        let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
                         y: RowCell.snap(windowY, windowPlace.origin.y, windowPlace.axis.y, scale: s))
         guard d != rowSnap else { return false }
         rowSnap = d
@@ -1225,10 +1249,27 @@ final class RowCell: UICollectionViewCell {
             guard case .typing? = spec?.kind else { return }
             snapTyping()
             // A running clip read the old place's pixel grid: it starts again on the new one (same wave phase).
-            if let c = typingClip.animation(forKey: "breath.clip.position.x") {
-                clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
-            }
+            restartTypingClip()
         }
+    }
+
+    /// The row and the typing indicator snap again for the current display scale and the row's anchored side; the
+    /// window view calls it in decorate after windowPlace and windowY (a scale change keeps both: the window moved to
+    /// a display with another backing scale, MessagesWindowView.setRenderScale; a reused cell now shows a row of the
+    /// other side). No change: no work beyond the snap's arithmetic.
+    func refreshSnap() {
+        if snapRow() { placeFills() }
+        guard case .typing? = spec?.kind else { return }
+        snapTyping()
+        // The running clip's keyframes hold the pixel grid of the scale and place they were made at (a scale change; a
+        // windowPlace and windowY change in one pass, where the place's restart read the old y): they start again.
+        if clipScale != max(1, Fixture.renderScale) || clipPosition != typingContainer.position { restartTypingClip() }
+    }
+
+    /// A running typing clip starts again from the current place and scale (the same wave phase).
+    private func restartTypingClip() {
+        guard let c = typingClip.animation(forKey: "breath.clip.position.x") else { return }
+        clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
     }
 
     /// cmux: the outgoing gradient's colours and their locations from one
@@ -1389,7 +1430,9 @@ final class RowCell: UICollectionViewCell {
     private func clipTypingBody(_ w: Springs.Breath, about b: CGPoint, begin: CFTimeInterval) {
         guard w.amplitude > 0, w.amplitude < 1, w.period > 0 else { return }
         let r = RowDraw.typingBubble
-        let s = Double(max(1, Fixture.renderScale))
+        clipScale = max(1, Fixture.renderScale)
+        clipPosition = typingContainer.position
+        let s = Double(clipScale)
         // Each edge (container coordinates), its offset d from b (it moves e x d at scale 1 + e) and its rest place's
         // offset f from the nearest device pixel of the window (px, -0.5..0.5, along the edge's direction of motion;
         // 0 after snapTyping), read from the window's layer tree.

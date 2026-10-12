@@ -187,6 +187,10 @@ final class HostView: NSView {
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
     }
 
+    /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged
+    /// calls MessagesWindowView.setRenderScale, which re-rasterizes and, from MessagesLab 82ccac1, re-snaps the rows,
+    /// the typing indicator and its clip and remakes the thread-preview heights at the new scale
+    /// (scripts/cmux-next/home-scale-change.py). Attaching to a window of another scale takes the same path (windowChanged).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard let s = window?.backingScaleFactor, s != DisplayScale.current else { return }

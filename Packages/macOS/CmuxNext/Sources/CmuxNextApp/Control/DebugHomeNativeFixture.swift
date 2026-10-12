@@ -95,6 +95,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                                              "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
             }
             return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
+                            "scale": .number(Double(view.window?.backingScaleFactor ?? 0)), "trim": .number(Double(view.debugTranscriptWidthTrim)),
+                            "hostRight": .number(Double(view.debugHostFrame.maxX)),
                             "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
         case "resize":
             // Width changes of the transcript, one after another in this one main-thread turn (so in one
@@ -110,13 +112,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             }
             var steps: [JSONValue] = []
             for trim in trims {
+                // The step's main-thread time (its width pass with the layout it causes), to tell a deferral the
+                // frame budget asks for (a pass of 2 ms or more, e.g. a Debug build) from one it does not.
+                let t0 = CACurrentMediaTime()
                 view.debugTrimWidth(CGFloat(trim))
+                let ms = (CACurrentMediaTime() - t0) * 1000
                 let c = view.debugWidthPasses
                 steps.append(.object(["trim": .number(trim), "passes": .number(Double(c.passes)), "deferred": .number(Double(c.deferred)),
-                                      "rows": rowsJSON()]))
+                                      "ms": .number(ms), "rows": rowsJSON()]))
             }
             let c0 = view.debugWidthPasses
-            return .object(["ok": .bool(!trims.isEmpty), "steps": .array(steps),
+            return .object(["ok": .bool(!trims.isEmpty), "steps": .array(steps), "budgetMs": .number(view.debugWidthPassBudget * 1000),
                             "passes": .number(Double(c0.passes)), "deferred": .number(Double(c0.deferred))])
         case "nudge":
             // The transcript moves by dx, dy points in its pane (a pane on a fraction of a point).
