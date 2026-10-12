@@ -12,9 +12,10 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let outputQueue = DispatchQueue(label: "cnm.ghostty.output", qos: .userInteractive)
     private var lastGrid: (Int, Int) = (0, 0)
-    private let freedLock = NSLock()
+    nonisolated private let freedLock = NSLock()
     nonisolated(unsafe) private var _freed = false
-    private var freed: Bool {
+    /// Read on the output queue: lock-protected, so not main-actor isolated.
+    nonisolated private var freed: Bool {
         get { freedLock.withLock { _freed } }
         set { freedLock.withLock { _freed = newValue } }
     }
