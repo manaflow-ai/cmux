@@ -366,9 +366,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   current: number | undefined;
   /// The newest event reduced so far.
   private latest = 0;
+  /// The rows in order as of the last ``sorted()``, and each one's index there: a snapshot of a
+  /// long chat whose rows only changed in place copies this instead of sorting every row again.
+  private ordered: AcpmuxRow[] | undefined;
+  private orderedIndex = new Map<string, number>();
 
   override set(id: string, row: AcpmuxRow): this {
-    if (!this.order.has(id)) {
+    const known = this.order.has(id);
+    if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
         this.latest = Math.max(this.latest, this.current);
@@ -377,7 +382,38 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    if (this.ordered) this.keepOrdered(id, row, known);
     return super.set(id, row);
+  }
+
+  /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
+  /// sorts after every row, otherwise ``sorted()`` sorts again.
+  private keepOrdered(id: string, row: AcpmuxRow, known: boolean): void {
+    const ordered = this.ordered!;
+    const index = this.orderedIndex.get(id);
+    if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
+      ordered[index] = row;
+      return;
+    }
+    const last = ordered.at(-1);
+    const order = this.order.get(id) ?? 0;
+    const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
+    if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
+      this.orderedIndex.set(id, ordered.length);
+      ordered.push(row);
+      return;
+    }
+    this.ordered = undefined;
+  }
+
+  /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
+  /// time (the tie-break, which a streamed delta moves) cannot move it.
+  private ownsSlot(index: number): boolean {
+    const ordered = this.ordered!;
+    const order = this.order.get(ordered[index]!.id);
+    const before = ordered[index - 1];
+    const after = ordered[index + 1];
+    return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
   }
 
   /// An event was reduced (it may have made no row).
@@ -386,12 +422,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 
   override delete(id: string): boolean {
+    // Every text delta drops the typing row, which is usually gone already.
+    if (!this.has(id)) return false;
+    this.ordered = undefined;
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
   }
 
   override clear(): void {
+    this.ordered = undefined;
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -409,13 +449,20 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Moves the rows made without an event after every event, keeping their order: what a lag
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
+    this.ordered = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
-    return [...this.values()].sort((a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at);
+    if (!this.ordered) {
+      this.ordered = [...this.values()].sort(
+        (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
+      );
+      this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
+    }
+    return this.ordered.slice();
   }
 }
 
@@ -673,7 +720,7 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => this.receive(String(message.data));
+      socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
     try {
       const initialized = await this.request("initialize", {
@@ -1607,6 +1654,10 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = "connected"): void {
+    acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  }
+
+  private emitNow(connection: string): void {
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;
