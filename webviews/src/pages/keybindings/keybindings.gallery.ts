@@ -208,6 +208,12 @@ export default keybindingsPageEntry({
     "search-keyboard": {
       note: "Search Escape clears the query, arrows move selection, and Return records an editable row.",
       bindings,
+      checks: {
+        layoutShiftMax: {
+          value: 0.35,
+          reason: "Filtering changes the visible row set; the fixed scroll region keeps the page controls stable.",
+        },
+      },
       play: searchKeyboard,
     },
     "search-readonly": {
