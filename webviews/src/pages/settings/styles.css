@@ -311,7 +311,7 @@ mark {
 
 .field {
   min-width: 0;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--input-bg);
@@ -424,7 +424,7 @@ mark {
 
 .segment {
   position: relative;
-  padding: 2px 10px;
+  padding: 1px 10px;
   border-radius: 5px;
   background: transparent;
   cursor: default;
