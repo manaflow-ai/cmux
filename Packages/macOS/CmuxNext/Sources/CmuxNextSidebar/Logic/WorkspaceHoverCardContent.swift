@@ -35,8 +35,13 @@ struct WorkspaceHoverCardContent: Equatable {
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
         if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
         if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
-        for entry in workspace.reported?.entries ?? [] {
+        // As many entries as the row shows, then how many more (the daemon keeps up to 64).
+        let entries = workspace.reported?.entries ?? []
+        for entry in entries.prefix(SidebarWorkspaceStatus.visibleEntryLimit) {
             facts.append(Fact(icon: .listBulletItem, text: entry.displayText, mark: entry.icon, image: entry.image))
+        }
+        if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
+            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit)))
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
