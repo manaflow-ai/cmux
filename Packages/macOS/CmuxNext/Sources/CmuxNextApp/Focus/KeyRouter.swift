@@ -292,7 +292,11 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// The last intercepted action, its window, and whether it ran (false:
     /// refused, such as Cmd-W on a top page) (for `debug.key`).
-    private(set) var lastInterception: (action: ActionID, window: String, ran: Bool)?
+    private(set) var lastInterception: (action: ActionID, window: String, ran: Bool)? {
+        didSet { interceptions += 1 }
+    }
+    /// Counts `lastInterception` updates, so `debug.key` `last` tells a new key from an old one.
+    private(set) var interceptions = 0
 
     // MARK: Chords
 

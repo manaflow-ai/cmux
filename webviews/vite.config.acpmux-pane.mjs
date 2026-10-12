@@ -2,6 +2,7 @@ import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 
 // Dev server for the real agent pane (src/agent-session/acpmux) with hot
 // reload. A Debug or tagged cmux-next launched with
@@ -17,6 +18,7 @@ const port = Number(process.env.CMUX_AGENT_PANE_DEV_PORT) || 4176;
 
 export default defineConfig({
   root: paneRoot,
+  cacheDir: viteCacheDir,
   server: {
     host: "127.0.0.1",
     port,

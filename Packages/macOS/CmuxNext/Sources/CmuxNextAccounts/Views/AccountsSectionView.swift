@@ -51,7 +51,7 @@ private struct AccountsHeader: View {
                         .accessibilityIdentifier("cmux.accounts.signInCmux")
                 }
                 Spacer(minLength: Metrics.space4)
-                if model.isRefreshing { ProgressView().controlSize(.mini) }
+                if model.isRefreshing { ThemedSpinner(size: 10) }
                 Button(AccountsStrings.refresh) { model.refresh() }
                     .buttonStyle(AccountsButtonStyle(palette: palette))
                     .disabled(model.isRefreshing)

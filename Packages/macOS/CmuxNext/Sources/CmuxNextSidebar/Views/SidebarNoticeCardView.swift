@@ -25,7 +25,7 @@ final class SidebarNoticeCardView: NSView {
     /// List lines under the detail (a changelog), one label each.
     private var lineLabels: [NSTextField] = []
     private let icon = NSImageView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
@@ -54,10 +54,6 @@ final class SidebarNoticeCardView: NSView {
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isIndeterminate = true
-        spinner.isDisplayedWhenStopped = false
         content.wantsLayer = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
@@ -82,7 +78,7 @@ final class SidebarNoticeCardView: NSView {
         self.notice = notice
         isHidden = notice == nil
         guard let notice else {
-            spinner.stopAnimation(nil)
+            spinner.spin(false)
             return
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
@@ -105,8 +101,7 @@ final class SidebarNoticeCardView: NSView {
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
         let spins = notice.progress == .indeterminate
         icon.isHidden = notice.symbol == nil || spins
-        spinner.isHidden = !spins
-        if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(spins)
         closeButton.isHidden = notice.dismissLabel == nil
         closeButton.label = notice.dismissLabel ?? ""
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }

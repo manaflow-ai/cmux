@@ -2,9 +2,10 @@
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
 // focus, and Escape closes it. It looks like the native tooltip and the title tooltip
 // (pages/shared/desktop.css): the solid popup surface, primary ink, an optional shortcut hint.
-import type { ReactElement, ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
-import { usePortalContainer } from "./UiProvider";
+import { usePopupHost, usePortalContainer } from "./UiProvider";
+import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
 
@@ -28,12 +29,17 @@ export interface TooltipProps {
 
 export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipProps) {
   const container = usePortalContainer();
+  const host = usePopupHost();
+  const [trigger, setTrigger] = useState<HTMLElement | null>(null);
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts).
+  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip" });
   return (
     <BaseTooltip.Root>
-      <BaseTooltip.Trigger render={children} />
+      <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup className="ui-tooltip">
+          <BaseTooltip.Popup ref={host ? setPopup : undefined} className="ui-tooltip">
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
             {label}
           </BaseTooltip.Popup>

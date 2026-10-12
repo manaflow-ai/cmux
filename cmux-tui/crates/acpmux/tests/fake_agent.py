@@ -555,6 +555,12 @@ def main():
             if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
                 os._exit(0)
         elif m == "session/load":
+            # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
+            # another Codex holds the thread: "Internal error", the reason in data.details.
+            if os.environ.get("FAKE_LOAD_ERROR"):
+                error = {"code": -32603, "message": "Internal error", "data": {"details": os.environ["FAKE_LOAD_ERROR"]}}
+                send({"jsonrpc": "2.0", "id": rid, "error": error})
+                continue
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt
             # for it fails "Session not found", as real adapters answer.

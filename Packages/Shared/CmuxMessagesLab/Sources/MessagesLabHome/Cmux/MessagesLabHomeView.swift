@@ -278,6 +278,18 @@ public final class MessagesLabHomeView: NSView {
         return out
     }
 
+    /// Automation (DEBUG socket): the typing bubble's body (RowCell.typingBody) in window
+    /// coordinates (AppKit: origin at the bottom left), nil when no typing row shows.
+    public func debugTypingBubbleFrame() -> CGRect? {
+        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return nil }
+        for case let cell as RowCell in demo.collection.visibleCells {
+            guard case .typing? = cell.spec?.kind, !cell.isHidden else { continue }
+            let inHost = cell.typingBody.convert(cell.typingBody.bounds, to: hostLayer)
+            return controller.host.convert(inHost, to: nil)
+        }
+        return nil
+    }
+
     /// Automation (DEBUG socket): the text of the newest `limit` messages
     /// this view holds (its own store), oldest first.
     public func debugMessageTexts(limit: Int = 10) -> [String] {
