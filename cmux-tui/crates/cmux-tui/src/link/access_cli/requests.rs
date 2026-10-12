@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::grants::{self, Mode, Store};
-use super::{Failure, grant, is_secret};
+use super::{Failure, grant, is_secret, shared_file};
 use crate::link::sync_cli;
 
 /// How long `request` polls between status questions.
@@ -229,13 +229,15 @@ pub(super) fn triage(socket: &Path, machine: &str, sessions: &[String]) -> Resul
             continue;
         }
         let here = std::fs::symlink_metadata(&path).ok();
+        let is_dir = here.as_ref().is_some_and(|meta| meta.is_dir());
         ask.push(json!({
             "request_id": request.id,
             "session": session,
             "path": path,
             "reason": request.reason,
             "exists": here.is_some(),
-            "folder": here.is_some_and(|meta| meta.is_dir()),
+            "folder": is_dir,
+            "always_folder": here.is_some().then(|| always_folder(&path, is_dir)),
         }));
     }
     Ok(json!({"answered": answered, "ask": ask}))
@@ -245,6 +247,14 @@ fn answer_machine(socket: &Path, request_id: &str, mut answer: Value) -> Result<
     answer["request_id"] = json!(request_id);
     sync_cli::machine_call(socket, "access-request-answer", answer).map_err(machine_failure)?;
     Ok(())
+}
+
+/// The folder "Always" shares for `path`: a git working copy's top folder
+/// when it is in one (only a whole working copy can be shared), else the
+/// folder itself, or a file's folder.
+fn always_folder(path: &Path, is_dir: bool) -> PathBuf {
+    let folder = if is_dir { path } else { path.parent().unwrap_or(path) };
+    sync_cli::git_top(folder).unwrap_or_else(|| folder.to_path_buf())
 }
 
 /// The person's answer to one request.
@@ -296,19 +306,15 @@ pub(super) fn answer(
             .unwrap_or_else(|| "file".to_string());
         let at = format!("{root}/local/requests/{request_id}/{name}");
         let copied = if is_dir {
-            sync_cli::push_kept(socket, &canonical, &at, &|relative| !is_secret(relative))
-                .map(|_| ())
+            let keep = |relative: &str, git: bool| shared_file(&canonical, relative, git);
+            sync_cli::push_kept(socket, &canonical, &at, &keep).map(|_| ())
         } else {
             sync_cli::copy_file(socket, &canonical, &at)
         };
         copied.map_err(machine_failure)?;
         at
     } else {
-        let folder = if is_dir {
-            canonical.clone()
-        } else {
-            canonical.parent().map(Path::to_path_buf).unwrap_or_default()
-        };
+        let folder = always_folder(&canonical, is_dir);
         let granted = grant(socket, machine, session, root, Mode::Read, &folder)?;
         let remote = granted["grant"]["remote"].as_str().unwrap_or_default().to_string();
         let inside = canonical.strip_prefix(&folder).unwrap_or(Path::new(""));

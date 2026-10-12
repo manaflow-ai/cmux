@@ -22,9 +22,12 @@
 //!   the machine already read stays read: a revoke stops what comes next.
 //! - `grants [--machine ID] [--session ID]`: the grants kept here.
 //!
-//! What may be shared and the record: [`grants`]. Secret files never go from
-//! a shared folder, at any depth ([`is_secret`]); a read-only grant never
-//! writes on this Mac.
+//! What may be shared and the record: [`grants`]. What goes of a shared
+//! folder: its files (a git working copy's tracked and untracked files that
+//! are not ignored), never a repository (`.git` of the copy or of a nested
+//! one) and never a secret file at any depth ([`shared_file`]). A
+//! read-write grant is refused for a git working copy. A read-only grant
+//! never writes on this Mac.
 //!
 //! Output: one JSON line on stdout; `{"ok":true,...}` and exit 0, or
 //! `{"ok":false,"error":...,"error_code":...}` and exit 1 (a folder that
@@ -51,28 +54,52 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
        cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH | --always PATH | --deny [--reason TEXT])";
 
-/// File names that never go from a shared folder: env files, credential
-/// files, private keys and keychains.
+/// File names that never go from a shared folder (ASCII case folded):
+/// env, credential and key files. Best effort: a secret under any other
+/// name goes with the folder the person shared.
 const SECRET_NAMES: &[&str] = &[
     ".netrc",
     ".git-credentials",
     ".npmrc",
     ".pypirc",
     ".pgpass",
+    ".htpasswd",
+    ".vault-token",
+    ".boto",
+    ".s3cfg",
+    ".terraformrc",
+    ".dockercfg",
+    ".yarnrc.yml",
+    "credentials",
+    "credentials.json",
+    "credentials.toml",
     "id_rsa",
     "id_dsa",
     "id_ecdsa",
+    "id_ecdsa_sk",
     "id_ed25519",
+    "id_ed25519_sk",
+];
+/// File name endings that never go from a shared folder.
+const SECRET_SUFFIXES: &[&str] = &[
+    ".keychain",
+    ".keychain-db",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".ppk",
+    ".jks",
+    ".keystore",
+    ".tfstate",
+    ".tfvars",
 ];
 /// Folders whose files never go from a shared folder.
-const SECRET_FOLDERS: &[&str] = &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure"];
+const SECRET_FOLDERS: &[&str] =
+    &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", "gcloud", ".gem", ".cargo"];
 
-/// Whether the file at `relative` (in a shared folder) is a secret file. A
-/// repository's own files (`.git/...`) are judged by the sync's own rules.
+/// Whether the file at `relative` (in a shared folder) is a secret file.
 fn is_secret(relative: &str) -> bool {
-    if relative.starts_with(".git/") {
-        return false;
-    }
     let mut names = relative.split('/').peekable();
     while let Some(name) = names.next() {
         let lower = name.to_ascii_lowercase();
@@ -84,10 +111,34 @@ fn is_secret(relative: &str) -> bool {
         }
         return lower.starts_with(".env")
             || SECRET_NAMES.contains(&lower.as_str())
-            || lower.ends_with(".keychain")
-            || lower.ends_with(".keychain-db");
+            || SECRET_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix));
     }
     false
+}
+
+/// Whether the file at `relative` of the shared `folder` goes (`git`: the
+/// folder is a git working copy). Never: a secret file, anything of a
+/// repository (no `.git` part under any spelling, so neither a working
+/// copy's own repository nor a nested one goes: its config, hooks and
+/// history stay here), a sync's own leftovers, and in git a path git lists
+/// below a folder that is now a symlink (it would read outside the folder).
+fn shared_file(folder: &Path, relative: &str, git: bool) -> bool {
+    let names: Vec<&str> = relative.split('/').collect();
+    if is_secret(relative)
+        || names.iter().any(|name| sync_cli::is_dotgit(name) || name.starts_with(".cmux-sync"))
+        || names.last().is_some_and(|name| name.ends_with(".cmux-sync-part"))
+    {
+        return false;
+    }
+    if !git {
+        // The walk enters no symlink, so every path is below real folders.
+        return true;
+    }
+    let mut at = folder.to_path_buf();
+    names[..names.len().saturating_sub(1)].iter().all(|name| {
+        at.push(name);
+        std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
+    })
 }
 
 /// Parsed flags and positional arguments.
@@ -299,6 +350,16 @@ fn grant(
     let folder_text = folder.to_str().ok_or_else(|| {
         Failure::new("grant_refused", format!("{} is not a UTF-8 path", folder.display()))
     })?;
+    // A read-write copy of a git working copy would let the machine's
+    // staged paths choose which files here the next push reads.
+    if mode == Mode::Write && sync_cli::in_git(&folder) {
+        return Err(Failure::new(
+            "grant_refused",
+            format!(
+                "{folder_text} is in a git working copy: share it read-only, or move the chat with it"
+            ),
+        ));
+    }
     let mut store = Store::open()?;
     if store.grants.iter().any(|other| {
         other.machine == machine
@@ -312,11 +373,25 @@ fn grant(
         ));
     }
     let remote = grants::remote_of(root, &folder);
-    let mut synced = sync_copy(socket, &folder, &remote, mode);
+    let same = |kept: &Grant| {
+        kept.machine == machine && kept.session == session && kept.folder == folder_text
+    };
+    let before = store.grants.iter().find(|kept| same(kept)).cloned();
+    // A read-write copy turning read-only brings the machine's work back
+    // first, so the read-only push does not overwrite it.
+    if let Some(before) = &before
+        && before.mode == Mode::Write
+        && before.remote == remote
+        && mode == Mode::Read
+    {
+        let back = sync_copy(socket, &folder, &remote, Mode::Write, false);
+        if back["ok"] != json!(true) {
+            return Err(failure_of(&back));
+        }
+    }
+    let mut synced = sync_copy(socket, &folder, &remote, mode, true);
     if synced["ok"] != json!(true) {
-        let code = synced["error_code"].as_str().unwrap_or("sync_failed").to_string();
-        let error = synced["error"].as_str().unwrap_or_default().to_string();
-        return Err(Failure { code, error });
+        return Err(failure_of(&synced));
     }
     let grant = Grant {
         machine: machine.to_string(),
@@ -326,31 +401,48 @@ fn grant(
         mode,
     };
     // One grant per chat and folder: a second one replaces the first.
-    store.grants.retain(|kept| {
-        !(kept.machine == grant.machine
-            && kept.session == grant.session
-            && kept.folder == grant.folder)
-    });
-    // A mode change of the folder's only chat applies to its copy.
+    store.grants.retain(|kept| !same(kept));
     store.grants.push(grant.clone());
     store.save()?;
+    // A copy the replaced grant left under another root goes like a revoked one.
+    if let Some(before) = before
+        && before.remote != grant.remote
+    {
+        let (removed, _) = forget_copies(&store, Some(socket), &[before]);
+        synced["removed"] = json!(removed);
+    }
     synced["grant"] = grant_json(&grant);
     Ok(synced)
 }
 
+fn failure_of(answer: &Value) -> Failure {
+    Failure::new(
+        answer["error_code"].as_str().unwrap_or("sync_failed"),
+        answer["error"].as_str().unwrap_or_default(),
+    )
+}
+
+/// `sync`: each copy under the grants lock, checked against the record
+/// again, so a revoke waits for one copy at most and nothing it revoked goes
+/// after it returned.
 fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Failure> {
-    let store = Store::open()?;
+    let copies = Store::open()?.copies(machine, session);
     let mut synced = Vec::new();
-    for ((folder, remote), mode) in store.copies(machine, session) {
+    for ((folder, remote), mode) in copies {
+        let store = Store::open()?;
+        if store.copies(machine, session).get(&(folder.clone(), remote.clone())) != Some(&mode) {
+            continue;
+        }
         let mut entry = match grants::shareable(Path::new(&folder)) {
             Ok(canonical) if canonical.as_os_str() == folder.as_str() => {
-                sync_copy(socket, &canonical, &remote, mode)
+                sync_copy(socket, &canonical, &remote, mode, false)
             }
             // Moved, replaced by a symlink, or no longer shareable: it stays
             // here and nothing goes until the person shares it again.
             _ => json!({"ok": false, "error_code": "grant_folder_changed",
-                                     "error": format!("{folder} is no longer the shared folder")}),
+                        "error": format!("{folder} is no longer the shared folder")}),
         };
+        drop(store);
         entry["folder"] = json!(folder);
         entry["remote"] = json!(remote);
         entry["mode"] = json!(mode);
@@ -360,11 +452,16 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
 }
 
 /// One copy, synced: for `write` the machine's changes come back first, then
-/// this Mac's go. Its answer has `ok` and the counts, or the failure.
-fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode) -> Value {
+/// this Mac's go. `first`: the person is sharing it now, so a copy this Mac
+/// has no record of (never pushed, or not as this Mac left it) is started
+/// over; on a later sync that stops it instead, since the machine's work
+/// may not have come back. Its answer has `ok` and the counts, or the
+/// failure.
+fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode, first: bool) -> Value {
     let mut pulled = Value::Null;
     if mode == Mode::Write {
-        match sync_cli::pull_back(socket, folder, remote) {
+        let keep_new = |relative: &str| shared_file(folder, relative, false);
+        match sync_cli::pull_back(socket, folder, remote, &keep_new) {
             Back::Done(summary) => pulled = summary,
             Back::Conflict(conflicts, reasons) => {
                 let mut error = format!(
@@ -377,17 +474,15 @@ fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode) -> Value {
                 return json!({"ok": false, "error_code": "sync_conflict", "error": error,
                               "conflicts": conflicts});
             }
-            // Never pushed from here, or the machine's copy is not the one
-            // this Mac left (deleted, or changed by hand): there is nothing
-            // to bring back, and the push below starts the copy over.
-            Back::Failed { code, .. } if code == "sync_no_base" || code == "sync_base_mismatch" => {
-            }
+            Back::Failed { code, .. }
+                if first && (code == "sync_no_base" || code == "sync_base_mismatch") => {}
             Back::Failed { code, error } => {
                 return json!({"ok": false, "error_code": code, "error": error});
             }
         }
     }
-    match sync_cli::push_kept(socket, folder, remote, &|relative| !is_secret(relative)) {
+    let keep = |relative: &str, git: bool| shared_file(folder, relative, git);
+    match sync_cli::push_kept(socket, folder, remote, &keep) {
         Ok(summary) => {
             let mut answer = summary.json();
             answer["ok"] = json!(true);
@@ -421,14 +516,34 @@ fn revoke(
             && folder.as_ref().is_none_or(|folder| &grant.folder == folder)
     });
     store.grants = kept;
+    if let Some(folder) = &folder
+        && revoked.is_empty()
+    {
+        return Err(Failure::new(
+            "grant_not_found",
+            format!("{folder} is not shared with this chat"),
+        ));
+    }
     store.save()?;
+    let (removed, left) = forget_copies(&store, socket, &revoked);
+    Ok(json!({"revoked": revoked.len(), "removed": removed, "left_on_machine": left}))
+}
+
+/// Deletes from the machine the read-only copies of `ended` grants that no
+/// grant left in `store` shares (with `socket`); answers the copies deleted
+/// and the ones left there.
+fn forget_copies(
+    store: &Store,
+    socket: Option<&Path>,
+    ended: &[Grant],
+) -> (Vec<String>, Vec<String>) {
     let mut removed = Vec::new();
     let mut left = Vec::new();
-    for grant in &revoked {
+    for grant in ended {
         let shared = store
             .grants
             .iter()
-            .any(|other| other.machine == machine && other.remote == grant.remote);
+            .any(|other| other.machine == grant.machine && other.remote == grant.remote);
         let deleted = match socket {
             Some(socket) if grant.mode == Mode::Read && !shared => {
                 sync_cli::delete_remote(socket, &grant.remote).is_ok()
@@ -441,7 +556,7 @@ fn revoke(
             left.push(grant.remote.clone());
         }
     }
-    Ok(json!({"revoked": revoked.len(), "removed": removed, "left_on_machine": left}))
+    (removed, left)
 }
 
 fn list(machine: Option<&str>, session: Option<&str>) -> Result<Value, Failure> {

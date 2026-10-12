@@ -128,9 +128,14 @@ pub(super) enum Back {
 }
 
 /// A pull of `remote_root` back into `local` ([`pull`]), for `cmux link
-/// access`.
-pub(super) fn pull_back(socket: &Path, local: &Path, remote_root: &str) -> Back {
-    match pull::pull(socket, local, remote_root) {
+/// access`: a new file of the machine `keep_new` refuses stays there.
+pub(super) fn pull_back(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep_new: &dyn Fn(&str) -> bool,
+) -> Back {
+    match pull::pull_kept(socket, local, remote_root, keep_new) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
         Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
@@ -240,23 +245,41 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
 }
 
 fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
-    push_kept(socket, local, remote_root, &|_| true)
+    push_kept(socket, local, remote_root, &|_, _| true)
+}
+
+/// Whether `folder` is in a git working copy (its top folder or below it).
+pub(super) fn in_git(folder: &Path) -> bool {
+    !matches!(local::GitDirs::of(folder), Ok(None))
+}
+
+/// The top folder of the git working copy `folder` is in; None outside git.
+pub(super) fn git_top(folder: &Path) -> Option<PathBuf> {
+    let top = local::git(folder, &["rev-parse", "--show-toplevel"]).ok()?;
+    std::fs::canonicalize(top.trim()).ok()
+}
+
+/// Whether `name` reads as `.git` on any disk ([`names::is_dotgit`]).
+pub(super) fn is_dotgit(name: &str) -> bool {
+    names::is_dotgit(name)
 }
 
 /// A push that leaves out (and counts as skipped) every file `keep` refuses,
-/// by its path relative to the folder: `cmux link access` keeps secret files
-/// of a shared folder here ([`super::access_cli`]).
+/// by its path relative to the folder and whether the folder is a git
+/// working copy: `cmux link access` keeps secret files and repositories of
+/// a shared folder here ([`super::access_cli`]).
 pub(super) fn push_kept(
     socket: &Path,
     local: &Path,
     remote_root: &str,
-    keep: &dyn Fn(&str) -> bool,
+    keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let mut set = local::collect(&local)?;
     let before = set.files.len();
-    set.files.retain(|relative, _| keep(relative));
+    let git = set.git;
+    set.files.retain(|relative, _| keep(relative, git));
     set.skipped += (before - set.files.len()) as u64;
     let manifest_name = if set.git { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     // The manifest's own name is never pushed over it.
