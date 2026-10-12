@@ -474,6 +474,9 @@ final class RowCell: UICollectionViewCell {
     /// draw it). The render server draws its edges at the final transform, so they stay one pixel wide while the
     /// bubble grows and breathes, and its top sits on a whole device pixel at rest (snapTyping), as Messages'.
     let typingBody = CAShapeLayer()
+    /// macOS: the body's parent in the container (masksToBounds): while the bubble breathes, its frame is the body's
+    /// frame rounded to whole device pixels in the window, as Messages clips its bubble (clipTypingBody).
+    let typingClip = CALayer()
     var dots: [CALayer] = []
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
@@ -553,12 +556,18 @@ final class RowCell: UICollectionViewCell {
         contentView.clipsToBounds = false
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
-        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingBody, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
             l.actions = noActions
             l.contentsScale = Fixture.renderScale
         }
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
         typingBody.frame = RowDraw.typingBubble
+        typingClip.actions = noActions
+        typingClip.masksToBounds = true
+        typingClip.anchorPoint = .zero
+        typingClip.position = Self.typingClipRest.origin
+        typingClip.bounds = Self.typingClipRest
+        typingClip.addSublayer(typingBody)
         // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
         let r = RowDraw.typingBubble.height / 2
@@ -625,7 +634,7 @@ final class RowCell: UICollectionViewCell {
         contentView.layer.removeAllAnimations()
         // fillGradient is a sublayer of fillContainer (removeAllAnimations does not recurse): a reused cell kept
         // the previous row's gradient counter-springs (ledger .fillGradient) while `applied` restarted empty.
-        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] + typingDiscs { l.removeAllAnimations() }
+        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, typingClip, receiptOld] + typingDiscs { l.removeAllAnimations() }
         badge?.removeAllAnimations(); badgeGlyph?.removeAllAnimations()
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
@@ -663,8 +672,12 @@ final class RowCell: UICollectionViewCell {
             palette = Fixture.paletteGeneration
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows the screen.
-            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingBody, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
                 l.contentsScale = Fixture.renderScale
+            }
+            // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new grid.
+            if let c = typingClip.animation(forKey: "breath.clip.position.x") {
+                clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
             }
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -914,14 +927,14 @@ final class RowCell: UICollectionViewCell {
         // status) it landed on top of the running dots and hid them (dogfood:
         // "if the user unfocuses, we lose the typing dots"; --typing-focus-check).
         // macOS: the body layer goes under the bitmap (first), the bitmap next.
-        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first(where: { $0 !== typingBody }) !== bitmap {
+        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first(where: { $0 !== typingClip }) !== bitmap {
             bitmap.removeFromSuperlayer()
             typingContainer.insertSublayer(bitmap, at: 0)
         }
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        if typingContainer.sublayers?.first !== typingBody {
-            typingBody.removeFromSuperlayer()
-            typingContainer.insertSublayer(typingBody, at: 0)
+        if typingContainer.sublayers?.first !== typingClip {
+            typingClip.removeFromSuperlayer()
+            typingContainer.insertSublayer(typingClip, at: 0)
         }
 #endif
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
@@ -943,21 +956,33 @@ final class RowCell: UICollectionViewCell {
     }
 
     /// macOS: moves the typing group (bubble container and tail discs) by less than half a device pixel so that the
-    /// bubble's top edge lies on a whole device pixel in the window at rest (Messages' straight edges sit on the
-    /// pixel grid: top 1907.00 px in its stills; ours lay wherever the row's fractional window y put them). The
-    /// left edge (20 pt) is whole when the cell's window x is (the transcript pane starts at a whole point). Runs
-    /// when the row is configured and when its window y changes (scroll, layout); the group's animations are
-    /// additive, so they keep running about the snapped place.
+    /// bubble's top and left edges lie on whole device pixels of the window's backing store at rest (Messages' straight
+    /// edges sit on the pixel grid: top 1907.00 px, left 40.00 px in its stills; ours lay wherever the row's
+    /// fractional window y put them). The place is the window view's origin in the window's layer tree
+    /// (`windowPlace`, set by the window view: a host such as cmux Home can start the view on a fraction of a point)
+    /// plus the row's y in the view (`windowY`) and the cell's x. Runs when the row is configured and when either
+    /// changes (scroll, layout); the group's animations are additive, so they keep running about the snapped place.
     private func snapTyping() {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard case .typing? = spec?.kind else { return }
-        let s = max(1, Fixture.renderScale), top = windowY + RowDraw.typingBubble.minY
-        guard top.isFinite else { return }
-        let dy = (top * s).rounded() / s - top
+        let s = max(1, Fixture.renderScale)
+        let top = windowY + RowDraw.typingBubble.minY, left = layer.frame.minX + RowDraw.typingBubble.minX
+        guard top.isFinite, left.isFinite else { return }
+        // The edge's place in the window's layer tree (origin + sign x view coordinate), rounded to a device pixel,
+        // as a move in view coordinates.
+        // k: the window's length of one view point along the axis (+1 or -1 when not scaled). A tie (an edge exactly
+        // half a pixel off) rounds up in the window, the same in every pass.
+        func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat) -> CGFloat {
+            guard abs(k) > 1e-6 else { return 0 }
+            let r = o + k * v
+            return ((r * s + 1e-6).rounded() / s - r) / k
+        }
+        let dy = snap(top, windowPlace.origin.y, windowPlace.axis.y), dx = snap(left, windowPlace.origin.x, windowPlace.axis.x)
+        guard dx.isFinite, dy.isFinite else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         let a = RowDraw.typingAnchor
-        typingContainer.position = CGPoint(x: a.x, y: a.y + dy)
-        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) { l.position = CGPoint(x: r.midX, y: r.midY + dy) }
+        typingContainer.position = CGPoint(x: a.x + dx, y: a.y + dy)
+        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) { l.position = CGPoint(x: r.midX + dx, y: r.midY + dy) }
         CATransaction.commit()
 #endif
     }
@@ -1158,6 +1183,20 @@ final class RowCell: UICollectionViewCell {
         CATransaction.commit()
     }
 
+    /// The window view's origin in its window's layer tree and the window length of one view point along each axis (pt; +1 or -1 unscaled),
+    /// set by the window view with `windowY`: the typing indicator snaps to the window's device pixels (snapTyping).
+    var windowPlace = (origin: CGPoint.zero, axis: CGPoint(x: 1, y: 1)) {
+        didSet {
+            guard windowPlace.origin != oldValue.origin || windowPlace.axis != oldValue.axis else { return }
+            guard case .typing? = spec?.kind else { return }
+            snapTyping()
+            // A running clip read the old place's pixel grid: it starts again on the new one (same wave phase).
+            if let c = typingClip.animation(forKey: "breath.clip.position.x") {
+                clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
+            }
+        }
+    }
+
     /// cmux: the outgoing gradient's colours and their locations from one
     /// stop list. A palette change that set only the colours left a cell
     /// made under the measured palette (8 stops) with 11 themed colours.
@@ -1297,8 +1336,90 @@ final class RowCell: UICollectionViewCell {
         Self.breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
         Self.breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
         for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { Self.breathe(l, "transform.scale", w, gain: 1, begin: insert) }
+        clipTypingBody(body, about: b, begin: insert)
 #endif
     }
+
+    /// Messages draws the breathing bubble at its scaled size and clips it to its frame rounded to whole device
+    /// pixels: an edge whose outer pixel is covered less than half stops on the whole pixel inside, one covered half
+    /// or more shows its partial pixel (lossless send-typed-media-take1, every frame of 2.2 s at rest: the right and
+    /// bottom edges hold on a whole pixel, then jump 0.5 px and grow; the left edge stays at 40.00 px while it moves
+    /// out by less than half a pixel; tools/evidence/anim/typanchor.py, ANIMATIONS.md section 6 cx-3cb typing-anchor). `typingClip` (the
+    /// body's parent, masksToBounds, in the container's coordinates) does the same: its frame is the body's frame
+    /// rounded in the window, mapped back through the container's scale about `b`, as linear keyframes (61 per wave
+    /// for the scale, plus a pair at each time an edge crosses half a device pixel: the jump). Render server; Presenter
+    /// reads them too (scalar key paths). It assumes the body's edges on whole device pixels at rest (snapTyping: the
+    /// top; the left edge, 20 pt, when the cell's window x is whole). At rest and while the bubble appears the clip is
+    /// larger than the body (RowCell.typingClipRest).
+    private func clipTypingBody(_ w: Springs.Breath, about b: CGPoint, begin: CFTimeInterval) {
+        guard w.amplitude > 0, w.amplitude < 1, w.period > 0 else { return }
+        let r = RowDraw.typingBubble
+        let s = Double(max(1, Fixture.renderScale))
+        // Each edge (container coordinates), its offset d from b (it moves e x d at scale 1 + e) and its rest place's
+        // offset f from the nearest device pixel of the window (px, -0.5..0.5, along the edge's direction of motion;
+        // 0 after snapTyping), read from the window's layer tree.
+        let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
+        let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
+        func rest(_ v: CGFloat, _ v1: CGFloat) -> Double {
+            let g = Double(v) * s, k = Double(v1 - v)
+            guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
+            let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
+            return abs(f) > 1e-6 ? f : 0
+        }
+        let fx = rest(o.x, o1.x), fy = rest(o.y, o1.y)
+        let edges: [(p: Double, d: Double, f: Double)] = [Double(r.minX), Double(r.maxX), Double(r.minY), Double(r.maxY)].enumerated().map {
+            ($0.element, $0.element - Double($0.offset < 2 ? b.x : b.y), $0.offset < 2 ? fx : fy)
+        }
+        // Wave phase u (0..0.5) of a scale offset e on the rise; the fall is 1 - u.
+        func phase(_ e: Double) -> Double { acos(max(-1, min(1, 1 - 2 * e / w.amplitude))) / (2 * .pi) }
+        var keys: [(u: Double, side: Double)] = (0...60).map { (Double($0) / 60, 0) }
+        for edge in edges where abs(edge.d) > 1e-9 {
+            // The edge's place f + e d s (px from its rest pixel) crosses a half pixel h at e = (h - f) / (d s).
+            let reach = w.amplitude * edge.d * s
+            var h = (min(edge.f, edge.f + reach) - 0.5).rounded(.down) + 0.5
+            while h < max(edge.f, edge.f + reach), h < 64 {
+                let e = (h - edge.f) / (edge.d * s)
+                if e > 0, e < w.amplitude {
+                    let u = phase(e)
+                    keys += [(u, -1), (u, 1), (1 - u, -1), (1 - u, 1)]
+                }
+                h += 1
+            }
+        }
+        keys.sort { $0.u != $1.u ? $0.u < $1.u : $0.side < $1.side }
+        func clipped(_ edge: (p: Double, d: Double, f: Double), _ e: Double) -> Double {
+            // The window edge rounded to a whole device pixel, as an offset q from its rest place, mapped back through the
+            // container's scale about b: b + (d + q) / (1 + e).
+            let q = ((edge.f + e * edge.d * s).rounded() - edge.f) / s
+            return (edge.p - edge.d) + (edge.d + q) / (1 + e)
+        }
+        var x0: [NSNumber] = [], y0: [NSNumber] = [], wd: [NSNumber] = [], ht: [NSNumber] = [], times: [NSNumber] = []
+        for k in keys {
+            let u = min(1, max(0, k.u + k.side * 1e-9))
+            let e = w.amplitude * (1 - cos(2 * .pi * u)) / 2
+            let c = edges.map { clipped($0, e) }
+            guard c.count == 4, let l = c.first, let rr = c.dropFirst().first, let t = c.dropFirst(2).first, let bt = c.last else { continue }
+            x0.append(NSNumber(value: l)); y0.append(NSNumber(value: t))
+            wd.append(NSNumber(value: rr - l)); ht.append(NSNumber(value: bt - t))
+            times.append(NSNumber(value: k.u))
+        }
+        for (path, values) in [("position.x", x0), ("bounds.origin.x", x0), ("position.y", y0), ("bounds.origin.y", y0),
+                               ("bounds.size.width", wd), ("bounds.size.height", ht)] {
+            let a = CAKeyframeAnimation(keyPath: path)
+            a.values = values
+            a.keyTimes = times
+            a.calculationMode = .linear
+            a.duration = w.period
+            a.repeatCount = .infinity
+            a.beginTime = begin + w.start
+            a.isRemovedOnCompletion = false
+            typingClip.add(a, forKey: "breath.clip.\(path)")
+        }
+    }
+
+    /// The clip's frame at rest and while the bubble appears: 2 pt around the body (no clip). Its bounds' origin is
+    /// its position, so the body keeps the container's coordinates (RowDraw.typingBubble).
+    static let typingClipRest = RowDraw.typingBubble.insetBy(dx: -2, dy: -2)
 
     /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
     var needsTypingBreath: Bool {
@@ -1315,7 +1436,7 @@ final class RowCell: UICollectionViewCell {
     /// The reply replaces the indicator: Messages shows it at rest from the arrival's first frame on
     /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
     func stopTypingBreath() {
-        for l in [typingContainer] + typingDiscs {
+        for l in [typingContainer, typingClip] + typingDiscs {
             for k in l.animationKeys() ?? [] where k.hasPrefix("breath.") { l.removeAnimation(forKey: k) }
         }
     }

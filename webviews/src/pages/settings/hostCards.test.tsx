@@ -1,6 +1,6 @@
 // R82 commit 4: the Swift window's last cards are drawn by the page (the Theme section has its own
-// test, themeStudio.test.tsx). The wallpaper grid
-// writes appearance.background behind the experimental switch, Terminal shows the Ghostty facts,
+// test, themeStudio.test.tsx). The background picker (Change Background…, cx-t2x.4) previews and
+// writes appearance.background on Appearance, Terminal shows the Ghostty facts,
 // and Advanced shows the settings file and every problem of the last load.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -13,19 +13,52 @@ const { renderPage, settle } = await import("./testing");
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
 
-test("the wallpaper grid shows behind the experimental switch and writes appearance.background", async () => {
-  const hidden = await renderPage({ path: "/settings/experimental" });
-  expect(hidden.container.querySelector('[data-card="backdrop"]')).toBeNull();
-  hidden.unmount();
+test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({
-    path: "/settings/experimental",
-    mock: { values: { "appearance.experimentalControls": true } },
+    path: "/settings/appearance?focus=appearance.background",
+    mock: { values: { "appearance.background": "starryNight" } },
   });
-  const grid = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
-  expect(grid.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
-  await act(async () => grid.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!.click());
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect(picker.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
+  // Its Opacity slider is in the picker, and the two rows are not repeated in Window Background.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  expect(page.container.querySelectorAll('[data-row-key="appearance.backgroundOpacity"]').length).toBe(1);
+  // The picker is not a row: the row keys (↑/↓) step from the search field to its Opacity row.
+  expect(page.container.querySelector('[data-row-key="appearance.background"]')).toBeNull();
+  // Change Background… lands on the saved choice, not on the slider.
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("The Starry Night");
+
+  const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => {
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: "starryNight",
+  });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  await act(async () => tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.preview.end").at(-1)).toMatchObject({ key: "appearance.background" });
+
+  await act(async () => tile.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
+  page.unmount();
+});
+
+test("sweeping the pointer across the picker previews nothing", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => {
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.preview").length).toBe(0);
   page.unmount();
 });
 

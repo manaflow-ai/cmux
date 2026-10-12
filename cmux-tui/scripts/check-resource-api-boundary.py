@@ -1074,6 +1074,10 @@ def _validate_catalog_type(
                 "operations.settings.snapshot.result",
                 "errors.settings.invalid.details.fields.accepted",
                 "errors.settings.invalid.details.fields.value",
+                # A keybinding's args are the command's own object, passed
+                # through unchanged (keybindings.json, cx-9ce.17).
+                "types.KeybindingEntry.fields.args.value.values",
+                "operations.keybindings.set.params.fields.args.values",
                 # Sidebar layout sections and items: the reducer validates
                 # them, and a newer app's values and keys must survive a
                 # round trip (sidebar-sections.md L5), which a closed

@@ -82,6 +82,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             onNew: { [weak self] in self?.newFromEmptyState() }
         )
         themeScope.root(contentView)
+        contentView.backgroundMenu = { [weak services] in services?.registry.makeContextMenu(for: .windowBackground) }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.

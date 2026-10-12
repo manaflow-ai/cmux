@@ -233,6 +233,7 @@ public final class CmuxDialogView: NSView {
         label.font = font
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
+        label.focusRingType = .none
         performWithTheme { label.textColor = role == .primary ? Palette.textPrimary : Palette.textSecondary }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label

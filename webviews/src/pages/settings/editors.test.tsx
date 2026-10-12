@@ -72,6 +72,12 @@ describe("editors", () => {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
           continue;
         }
+        // Change Background…'s art picker draws appearance.background as its tiles.
+        if (row.key === "appearance.background") {
+          if (!page.container.querySelector('[data-card="backdrop"] .backdrop-tile'))
+            failures.push(`${row.key}: no art picker`);
+          continue;
+        }
         // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
         if (row.key === "appearance.themeEdits") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);

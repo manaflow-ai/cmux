@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b70d434c9f9a178525df98301a88b847e1f8977aead2a210b5f00215c06127ae",
+  "catalog_sha256": "6d452cecd78d84c0bab584af63ed0eca9fe3ee272598ca5690b8c15669d7b6a5",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -218,6 +218,18 @@
       "class": "read"
     },
     "history.visit.title": {
+      "class": "mutation"
+    },
+    "keybindings.get": {
+      "class": "read"
+    },
+    "keybindings.remove": {
+      "class": "mutation"
+    },
+    "keybindings.reset": {
+      "class": "mutation"
+    },
+    "keybindings.set": {
       "class": "mutation"
     },
     "machine.get": {

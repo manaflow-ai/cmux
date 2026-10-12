@@ -258,6 +258,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod command_history;
+pub(crate) mod keybindings;
 mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
@@ -721,6 +722,8 @@ pub struct Mux {
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,
+    /// The keybindings.json owner, beside the settings file (mux/keybindings.rs).
+    keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.

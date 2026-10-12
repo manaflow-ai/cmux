@@ -67,23 +67,26 @@ final class TerminalThemeSetting {
     func follow(_ settings: SettingsController) {
         // An opacity write with Material unset names the material of the config files' own blur.
         settings.ghosttyBackgroundBlur = { GhosttyConfigBackground.loaded.blur }
-        // The theme, its edits and the window background follow `applied`, so a theme picker's or
-        // the Opacity slider's live preview repaints the window; the rest follows the loaded
+        // The theme, its edits, the window background and the backdrop art follow `applied`, so a
+        // theme picker's, the Opacity slider's or the background picker's live preview repaints the
+        // window; the rest follows the loaded
         // settings, so a font size slider's preview never reloads Ghostty per tick. A background step
         // repaints at once and reloads Ghostty after the steps stop (`apply`).
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
-             background: settings.applied.windowBackground)
+             background: settings.applied.windowBackground, art: settings.applied.backdropSelection)
         observation = Task { [weak self] in
-            for await (snapshot, theme, edits, background) in ObservationStream({
-                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground)
+            for await (snapshot, theme, edits, background, art) in ObservationStream({
+                (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
+                 settings.applied.backdropSelection)
             }) {
-                self?.take(snapshot, theme: theme, edits: edits, background: background)
+                self?.take(snapshot, theme: theme, edits: edits, background: background, art: art)
             }
         }
     }
 
-    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride) {
-        backdropScope.setBackdropSelection(snapshot.backdropSelection)
+    private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
+                      art: BackdropSelection?) {
+        backdropScope.setBackdropSelection(art)
         backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
