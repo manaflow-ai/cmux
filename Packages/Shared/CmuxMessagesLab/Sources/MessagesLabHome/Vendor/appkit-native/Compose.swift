@@ -132,22 +132,38 @@ final class FieldTextView: NSTextView {
         var caretFrame = CGRect.zero
         if Self.caretLog { Self.log("caret update reset \(reset)") }
         if show {
-            let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
-            let r = convert(window.convertFromScreen(screen), from: nil)
-            caretFrame = convert(CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17), to: host)
+            // The caret's place in the text view (TextKit 2's caret segment, the text laid out), then in
+            // the host: right also before the field's first layout. AppKit's `firstRect` is in screen
+            // coordinates and gave a zero rect while the field was outside the window (focus before the
+            // window's first layout: --caret-log line (-1675, -57, 0, 0), the caret hidden; the layout
+            // that brought the field in moved no view of the field, so the caret stayed hidden).
+            let local: CGRect
+            if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
+                local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: 1, height: 17)
+            } else {
+                let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+                let r = convert(window.convertFromScreen(screen), from: nil)
+                local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17)
+            }
+            caretFrame = convert(local, to: host)
             // A caret line scrolled out of the field (past `ComposeView.maxHeight`) hides the caret,
             // as UIKit's in Messages' field.
             if let clip = fieldClip {
                 let v = clip.convert(clip.bounds, to: host)
                 show = caretFrame.midY >= v.minY && caretFrame.midY <= v.maxY
             }
-            if Self.caretLog { Self.log("line \(r) caret \(caretFrame) shown \(show) reset \(reset)") }
+            if Self.caretLog { Self.log("line \(local) caret \(caretFrame) shown \(show) reset \(reset)") }
         }
         guard show else { caretView.isHidden = true; caretLayer.removeAllAnimations(); return }
         caretView.frame = caretFrame
         let wasHidden = caretView.isHidden
         caretView.isHidden = false
         if reset || wasHidden || caretLayer.animation(forKey: "blink") == nil { startBlink() }
+    }
+
+    /// The caret as drawn (self-test): shown, its frame in the field's host, its blink running.
+    var caretState: (shown: Bool, frame: CGRect, blinks: Bool) {
+        (!caretView.isHidden && caretView.superview != nil, caretView.frame, caretLayer.animation(forKey: "blink") != nil)
     }
 
     /// Caret geometry against the line rect AppKit reports: Messages' caret is 62.5-63.5 x
@@ -277,12 +293,13 @@ final class FieldTextView: NSTextView {
     /// caret segment, after the field's whole text is laid out (TextKit 2 lays out only lines near
     /// the viewport, and a line outside it has an estimated place: lab e2e 2026-10-10, Up to line 1
     /// left the field at its end). The field's text is short.
-    private func caretRect(at index: Int) -> CGRect? {
+    /// UPSTREAM: the caret at a soft wrap is at the end of the line above (the selection's affinity).
+    private func caretRect(at index: Int, upstream: Bool = false) -> CGRect? {
         guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
               let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
         tlm.ensureLayout(for: tlm.documentRange)
         var line: CGRect?
-        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: [.rangeNotRequired]) { _, r, _, _ in
+        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
             line = r; return false
         }
         guard let l = line else { return nil }
@@ -839,8 +856,7 @@ final class ComposeView: UIView {
         let attachmentsChanged = d.attachments != chips
         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
-        // Only a send that took a draft: Return on an empty field is rejected by the engine but
-        // still commits as a send (the flag stays as it was, as Messages' field).
+        // Only a send that took a draft (a rejected send is not committed: Store.apply).
         if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
         else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
         CATransaction.begin(); CATransaction.setDisableActions(true)
