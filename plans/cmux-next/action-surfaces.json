@@ -19256,6 +19256,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud bring-back",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudBringBack",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Bring Back Local",
+      "title_key" : "action.cloudBringBack",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud ssh",
       "context_menu" : "offered",
       "context_menus" : [
@@ -26795,15 +26823,28 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "cloudBringBack",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "cloud",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 4
+          "order" : 5
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 5,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26817,7 +26858,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 6,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26831,7 +26872,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26842,14 +26883,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -26860,13 +26901,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -32192,7 +32233,7 @@
               "children" : [
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "cloudMove",
+                  "id" : "cloudBringBack",
                   "kind" : "action",
                   "order" : 0,
                   "visible_when" : {
@@ -32204,25 +32245,25 @@
                   }
                 },
                 {
-                  "kind" : "separator",
-                  "order" : 1
-                },
-                {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToPaneLeft",
+                  "id" : "cloudMove",
                   "kind" : "action",
-                  "order" : 2,
+                  "order" : 1,
                   "visible_when" : {
                     "debug_only" : false,
-                    "feature" : null,
+                    "feature" : "cloud",
                     "requires" : [
 
                     ]
                   }
                 },
                 {
+                  "kind" : "separator",
+                  "order" : 2
+                },
+                {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToPaneRight",
+                  "id" : "moveSurfaceToPaneLeft",
                   "kind" : "action",
                   "order" : 3,
                   "visible_when" : {
@@ -32235,7 +32276,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToPaneUp",
+                  "id" : "moveSurfaceToPaneRight",
                   "kind" : "action",
                   "order" : 4,
                   "visible_when" : {
@@ -32248,7 +32289,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToPaneDown",
+                  "id" : "moveSurfaceToPaneUp",
                   "kind" : "action",
                   "order" : 5,
                   "visible_when" : {
@@ -32261,7 +32302,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "tab.moveToNewSplit",
+                  "id" : "moveSurfaceToPaneDown",
                   "kind" : "action",
                   "order" : 6,
                   "visible_when" : {
@@ -32274,7 +32315,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "tab.moveToNewColumn",
+                  "id" : "tab.moveToNewSplit",
                   "kind" : "action",
                   "order" : 7,
                   "visible_when" : {
@@ -32287,7 +32328,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "palette.moveTabToNewWorkspace",
+                  "id" : "tab.moveToNewColumn",
                   "kind" : "action",
                   "order" : 8,
                   "visible_when" : {
@@ -32300,7 +32341,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "tab.moveToNewWindow",
+                  "id" : "palette.moveTabToNewWorkspace",
                   "kind" : "action",
                   "order" : 9,
                   "visible_when" : {
@@ -32313,7 +32354,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "tab.moveToNewDockColumn",
+                  "id" : "tab.moveToNewWindow",
                   "kind" : "action",
                   "order" : 10,
                   "visible_when" : {
@@ -32326,7 +32367,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceLeft",
+                  "id" : "tab.moveToNewDockColumn",
                   "kind" : "action",
                   "order" : 11,
                   "visible_when" : {
@@ -32339,7 +32380,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceRight",
+                  "id" : "moveSurfaceLeft",
                   "kind" : "action",
                   "order" : 12,
                   "visible_when" : {
@@ -32352,7 +32393,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToPreviousPane",
+                  "id" : "moveSurfaceRight",
                   "kind" : "action",
                   "order" : 13,
                   "visible_when" : {
@@ -32365,7 +32406,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveSurfaceToNextPane",
+                  "id" : "moveSurfaceToPreviousPane",
                   "kind" : "action",
                   "order" : 14,
                   "visible_when" : {
@@ -32378,9 +32419,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "tab.moveToWorkspace",
+                  "id" : "moveSurfaceToNextPane",
                   "kind" : "action",
                   "order" : 15,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tab.moveToWorkspace",
+                  "kind" : "action",
+                  "order" : 16,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
