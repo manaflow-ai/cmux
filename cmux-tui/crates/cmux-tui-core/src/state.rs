@@ -50,6 +50,7 @@ pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
 mod last_tab_closes_workspace_tests;
+pub(crate) mod layout_bulk;
 #[cfg(test)]
 mod layout_bulk_tests;
 #[cfg(test)]
