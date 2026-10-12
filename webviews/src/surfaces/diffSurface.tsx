@@ -15,6 +15,7 @@ import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
+import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
 import type { DiffViewerConfig } from "../types";
 import { sanitizeViewerPrefs } from "../viewer-prefs";
 import { installWebviewStyles } from "./installWebviewStyles";
@@ -79,6 +80,7 @@ export async function renderDiffSurface(
 ): Promise<void> {
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
+  installWebviewStyles("git", gitStyles);
   installDiffLanguageHostAPI(languages);
   // Code and diff colors follow the terminal theme in place (appearance.ts); the empty state's
   // listener stops first.

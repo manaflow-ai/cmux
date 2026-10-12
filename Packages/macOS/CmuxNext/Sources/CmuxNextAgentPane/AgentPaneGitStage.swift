@@ -79,10 +79,10 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         }
     }
 
-    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows. Nil on success,
-    /// else git's message or why it did not run.
-    @concurrent static func run(_ request: AgentPaneGitStage, roots: [String], home: String = NSHomeDirectory()) async -> String? {
-        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
+    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows (`home` defaults
+    /// to the user's). Nil on success, else git's message or why it did not run.
+    @concurrent public static func run(_ request: AgentPaneGitStage, roots: [String], home: String? = nil) async -> String? {
+        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home ?? NSHomeDirectory()) {
         case .refused(let message): return message
         case .folder(let folder):
             guard let hunk = request.hunk else { return await AgentPaneGitProcess.run(request.arguments(in: folder), timeout: timeout) }
@@ -108,13 +108,13 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
 
 extension AgentPaneGitStage {
     /// `git.stage` or `git.unstage` arrived without a real click or key press in the pane.
-    nonisolated static var needsGestureMessage: String {
+    public nonisolated static var needsGestureMessage: String {
         String(localized: "agentPane.error.gitStageGesture", defaultValue: "Staging needs a click or key press in the pane.",
                bundle: .module)
     }
 
     /// `git.stage` or `git.unstage` whose params break its contract.
-    nonisolated static var invalidMessage: String {
+    public nonisolated static var invalidMessage: String {
         String(localized: "agentPane.error.gitStageInvalid", defaultValue: "The app refused the staging request.", bundle: .module)
     }
 
