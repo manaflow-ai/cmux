@@ -64,7 +64,6 @@ enum WorkspaceMetadataHandlers {
             context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
-        registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)

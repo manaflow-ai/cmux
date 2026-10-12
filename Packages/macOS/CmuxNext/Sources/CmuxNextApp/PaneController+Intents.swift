@@ -244,8 +244,9 @@ extension PaneController {
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
         let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
-        let items = menu.items + menu.items.compactMap(\.submenu).flatMap(\.items)  // it sits in the New submenu
-        if let item = items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
+        // It sits in a submenu (More > New).
+        func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
+        if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
            let title = registry.title(for: sameKind.newActionID) {
             item.title = title
         }
