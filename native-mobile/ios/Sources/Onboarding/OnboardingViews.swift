@@ -2,26 +2,47 @@ import AuthenticationServices
 import SwiftUI
 import VisionKit
 
+enum LegalLinks {
+    static let terms = URL(string: "https://cmux.com/terms-of-service")!
+    static let privacy = URL(string: "https://cmux.com/privacy-policy")!
+    static let download = URL(string: "https://cmux.com")!
+}
+
 /// Launch and sign-in: the cmux mark, one line, Sign in with Apple.
 struct SignInScreen: View {
     let app: AppModel
     @State private var error: String?
     @State private var showDevLogin = false
     @State private var working = false
+    @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
             CmuxMark().frame(width: 72, height: 72)
+                .scaleEffect(appeared || reduceMotion ? 1 : 0.86)
                 .onLongPressGesture(minimumDuration: 1.5) { showDevLogin = true }
-            Text(String(localized: "cmux"))
-                .font(.system(size: 34, weight: .semibold, design: .default))
-                .padding(.top, 20)
-            Text(String(localized: "Your Mac's terminals and agents,\nin your pocket."))
-                .font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .padding(.top, 8)
+                .accessibilityHidden(true)
+            Group {
+                Text(String(localized: "cmux"))
+                    .font(.largeTitle.weight(.semibold))
+                    .padding(.top, 20)
+                    .accessibilityAddTraits(.isHeader)
+                Text(String(localized: "Your Mac's terminals and agents,\nin your pocket."))
+                    .font(.title3).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 24)
+            }
+            .opacity(appeared || reduceMotion ? 1 : 0)
+            .offset(y: appeared || reduceMotion ? 0 : 10)
             Spacer()
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
+                if let error {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .font(.footnote).foregroundStyle(Theme.danger).multilineTextAlignment(.center)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 SignInWithAppleButton(.continue) { request in
                     request.requestedScopes = [.fullName, .email]
                 } onCompletion: { result in
@@ -31,19 +52,33 @@ struct SignInScreen: View {
                 .frame(height: 54)
                 .clipShape(Capsule())
                 .disabled(working)
-                if let error {
-                    Text(error).font(.footnote).foregroundStyle(Theme.danger).multilineTextAlignment(.center)
+                .overlay {
+                    if working {
+                        Capsule().fill(.white)
+                        ProgressView().tint(.black)
+                    }
                 }
-                Text(String(localized: "By continuing you agree to the Terms and Privacy Policy."))
+                Text(legalText)
                     .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                    .tint(.secondary)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
+            .opacity(appeared || reduceMotion ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
         .preferredColorScheme(.dark)
+        .animation(.smooth(duration: 0.3), value: error)
         .sheet(isPresented: $showDevLogin) { DevLoginSheet(app: app) }
+        .onAppear { withAnimation(.smooth(duration: 0.6).delay(0.05)) { appeared = true } }
+    }
+
+    private var legalText: AttributedString {
+        let raw = String(localized: "By continuing you agree to the [Terms](\(LegalLinks.terms.absoluteString)) and [Privacy Policy](\(LegalLinks.privacy.absoluteString)).")
+        var value = (try? AttributedString(markdown: raw)) ?? AttributedString(raw)
+        for run in value.runs where run.link != nil { value[run.range].underlineStyle = .single }
+        return value
     }
 
     private func handle(_ result: Result<ASAuthorization, any Error>) {
@@ -52,16 +87,27 @@ struct SignInScreen: View {
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let tokenData = credential.identityToken, let token = String(data: tokenData, encoding: .utf8) else {
                 error = String(localized: "Sign in with Apple didn't return a token.")
+                Haptics.warning()
                 return
             }
             let name = credential.fullName.flatMap { PersonNameComponentsFormatter().string(from: $0) }
             working = true
+            error = nil
             Task {
                 defer { working = false }
-                do { try await app.signInWithApple(identityToken: token, name: name) } catch { self.error = error.localizedDescription }
+                do {
+                    try await app.signInWithApple(identityToken: token, name: name)
+                    Haptics.success()
+                } catch {
+                    Haptics.warning()
+                    self.error = error.localizedDescription
+                }
             }
         case .failure(let failure):
-            if (failure as? ASAuthorizationError)?.code != .canceled { error = failure.localizedDescription }
+            if (failure as? ASAuthorizationError)?.code != .canceled {
+                Haptics.warning()
+                error = failure.localizedDescription
+            }
         }
     }
 }
@@ -111,28 +157,41 @@ struct CmuxMark: View {
 
 // MARK: Connect a Mac (Codex flow)
 
-/// Empty state when no Mac is paired.
+/// Where the pairing flow starts.
+enum PairingEntry: Hashable {
+    /// Instructions, then the QR scanner.
+    case intro
+    /// Straight to the 4 + 4 code boxes.
+    case manual
+    /// For people without cmux on a Mac yet.
+    case setup
+}
+
+/// Empty state when no Mac is paired (Codex "Connect your computer").
 struct ConnectMacEmptyState: View {
-    let onConnect: () -> Void
+    let onStart: (PairingEntry) -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "desktopcomputer").font(.system(size: 30, weight: .light))
-            Text(String(localized: "Connect your Mac")).font(.headline).padding(.top, 4)
-            Text(String(localized: "Pair the Mac running cmux to see its terminals and agents here."))
-                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-            Button(action: onConnect) {
-                Text(String(localized: "Connect a Mac")).font(.body.weight(.semibold))
-                    .padding(.horizontal, 22).frame(height: 44)
-                    .foregroundStyle(Color(uiColor: .systemBackground))
-                    .background(Capsule().fill(Color.primary))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 10)
-            .accessibilityIdentifier("pair.start")
+        StateMessageView(
+            systemImage: "laptopcomputer.and.iphone",
+            title: String(localized: "Connect your Mac"),
+            message: String(localized: "Open cmux on your Mac and get a pairing code to see its terminals and agents here.")
+        ) {
+            Button(String(localized: "Scan QR code")) { onStart(.intro) }
+                .buttonStyle(.primaryCapsule)
+                .accessibilityIdentifier("pair.start")
+            Button(String(localized: "Enter code manually")) { onStart(.manual) }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("pair.manualEntry")
+            Button(String(localized: "Don't have cmux on a Mac?")) { onStart(.setup) }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 44)
+                .padding(.top, 6)
+                .accessibilityIdentifier("pair.setup")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -142,9 +201,8 @@ struct ConnectingState: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            ProgressView().controlSize(.large)
-            Text(hostName.map { String(localized: "Connecting to \($0)…") } ?? String(localized: "Connecting…"))
-                .font(.subheadline).foregroundStyle(.secondary)
+            ProgressView().controlSize(.regular)
+            WorkingText(text: hostName.map { String(localized: "Connecting to \($0)…") } ?? String(localized: "Connecting…"))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -156,84 +214,301 @@ struct OfflineState: View {
     let onRetry: () -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "wifi.exclamationmark").font(.system(size: 30, weight: .light))
-            Text(String(localized: "Couldn't reach \(hostName)")).font(.headline).padding(.top, 4)
-            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 40)
-            Text(String(localized: "Make sure the Mac is awake and cmux is running."))
-                .font(.footnote).foregroundStyle(.tertiary)
-            Button(action: onRetry) {
-                Text(String(localized: "Retry")).font(.body.weight(.semibold))
-                    .padding(.horizontal, 26).frame(height: 44)
-                    .foregroundStyle(Color(uiColor: .systemBackground))
-                    .background(Capsule().fill(Color.primary))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 10)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        LoadFailedView(
+            title: String(localized: "Couldn't reach \(hostName)"),
+            message: String(localized: "Make sure the Mac is awake, online and running cmux."),
+            onRetry: onRetry
+        )
     }
 }
 
-/// Pair a Mac: instructions → scan the QR or type the 8-symbol code.
+/// Pair a Mac, Codex style: intro → QR scanner (or 4 + 4 code) → connected.
+/// Pushed steps keep the interactive swipe back.
 struct PairingFlow: View {
     let app: AppModel
+    var entry: PairingEntry = .intro
     @Environment(\.dismiss) private var dismiss
+    @State private var path: [Step] = []
     @State private var showManual = false
-    @State private var scanning = false
+    @State private var pairedName: String?
+
+    enum Step: Hashable { case intro, scan }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Spacer()
-                Image(systemName: "desktopcomputer").font(.system(size: 44, weight: .light))
-                Text(String(localized: "Get a pairing code")).font(.title3.weight(.semibold)).padding(.top, 18)
-                Text(String(localized: "On your Mac, open cmux and choose Settings › Phone › Pair iPhone, or run:"))
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    .padding(.horizontal, 36).padding(.top, 8)
-                Text("cmux-native-host pair-code")
-                    .font(.system(.footnote, design: .monospaced))
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.elevated))
-                    .padding(.top, 14)
-                    .textSelection(.enabled)
-                Spacer()
-                VStack(spacing: 12) {
-                    if DataScannerViewController.isSupported {
-                        Button { scanning = true } label: {
-                            Text(String(localized: "Scan QR code")).font(.body.weight(.semibold))
-                                .frame(maxWidth: .infinity).frame(height: 52)
-                                .foregroundStyle(Color(uiColor: .systemBackground))
-                                .background(Capsule().fill(Color.primary))
-                        }
-                        .buttonStyle(.plain)
+        NavigationStack(path: $path) {
+            root
+                .navigationDestination(for: Step.self) { step in
+                    switch step {
+                    case .intro: PairIntroView { path.append(.scan) }
+                    case .scan: PairScanView(onCode: pair) { showManual = true }
                     }
-                    Button { showManual = true } label: {
-                        Text(String(localized: "Enter code manually")).font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity).frame(height: 52)
-                            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.25)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("pair.manual")
                 }
-                .padding(.horizontal, 24).padding(.bottom, 12)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button(role: .close) { dismiss() } }
-            }
-            .sheet(isPresented: $showManual) {
-                PairCodeSheet(app: app) { dismiss() }
-                    .presentationDetents([.height(360)])
-            }
-            .fullScreenCover(isPresented: $scanning) {
-                QRScanner { code in
-                    scanning = false
-                    Task { try? await app.pair(code: code); dismiss() }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { Button(role: .close) { dismiss() } }
                 }
-                .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showManual) {
+            PairCodeSheet(app: app) { finish() }
+                .presentationDetents([.height(380)])
+                .presentationCornerRadius(32)
+        }
+        .overlay {
+            if let pairedName {
+                PairedView(hostName: pairedName) { dismiss() }
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
+        .animation(.smooth(duration: 0.35), value: pairedName)
         .preferredColorScheme(.dark)
+        .onAppear { if entry == .manual { showManual = true } }
+    }
+
+    @ViewBuilder
+    private var root: some View {
+        switch entry {
+        case .setup:
+            SetupMacView(email: app.user?.email) { path.append(.intro) }
+        case .intro, .manual:
+            PairIntroView { path.append(.scan) }
+        }
+    }
+
+    private func pair(_ code: String) {
+        Task {
+            do {
+                try await app.pair(code: code)
+                finish()
+            } catch {
+                Haptics.warning()
+                showManual = true
+            }
+        }
+    }
+
+    private func finish() {
+        showManual = false
+        Haptics.success()
+        pairedName = app.connection?.host.name ?? String(localized: "your Mac")
+    }
+}
+
+/// Step 1: where to find the code on the Mac.
+struct PairIntroView: View {
+    let onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ScrollView {
+                VStack(spacing: 10) {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 44, weight: .light))
+                        .symbolEffect(.bounce, options: .nonRepeating)
+                        .padding(.bottom, 10)
+                        .accessibilityHidden(true)
+                    Text(String(localized: "Get a pairing code"))
+                        .font(.title3.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    Text(String(localized: "Make sure cmux is open on your Mac."))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Text(String(localized: "In cmux on your Mac, open Settings › iPhone and click Pair iPhone. Or run this in a terminal:"))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .padding(.top, 10)
+                    Text(verbatim: "cmux-native-host pair-code")
+                        .font(.system(.footnote, design: .monospaced))
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.elevated))
+                        .textSelection(.enabled)
+                        .padding(.top, 6)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 36)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button(String(localized: "Continue"), action: onContinue)
+                .buttonStyle(.primaryCapsuleWide)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("pair.continue")
+        }
+        .background(Theme.background)
+    }
+}
+
+/// Step 2: rounded camera viewport with corner guides (Codex), plus a way
+/// out to the manual code.
+struct PairScanView: View {
+    let onCode: (String) -> Void
+    let onManual: () -> Void
+    @State private var scanned = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ZStack {
+                RoundedRectangle(cornerRadius: 36, style: .continuous).fill(Theme.elevated)
+                if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
+                    QRScanner { code in
+                        guard !scanned else { return }
+                        scanned = true
+                        Haptics.success()
+                        onCode(code)
+                    }
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "camera").font(.title2)
+                        Text(String(localized: "Camera unavailable"))
+                            .font(.footnote)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                ScanCorners()
+                    .stroke(Color(red: 1, green: 0.8, blue: 0.1), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                    .padding(22)
+                    .accessibilityHidden(true)
+            }
+            .frame(width: 260, height: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(localized: "Camera viewfinder"))
+            Text(String(localized: "Scan QR code to pair"))
+                .font(.headline)
+                .padding(.top, 28)
+            Text(String(localized: "Point your camera at the code shown on your Mac."))
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .padding(.top, 4)
+                .padding(.horizontal, 36)
+            Spacer()
+            Button(String(localized: "Pair manually instead"), action: onManual)
+                .buttonStyle(.outlineCapsule)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("pair.manual")
+        }
+        .background(Theme.background)
+    }
+}
+
+/// Four L-shaped corner guides.
+struct ScanCorners: Shape {
+    func path(in rect: CGRect) -> Path {
+        let length = min(rect.width, rect.height) * 0.16
+        let radius: CGFloat = 14
+        var path = Path()
+        for (corner, dx, dy) in [(CGPoint(x: rect.minX, y: rect.minY), 1.0, 1.0),
+                                 (CGPoint(x: rect.maxX, y: rect.minY), -1.0, 1.0),
+                                 (CGPoint(x: rect.minX, y: rect.maxY), 1.0, -1.0),
+                                 (CGPoint(x: rect.maxX, y: rect.maxY), -1.0, -1.0)] {
+            path.move(to: CGPoint(x: corner.x, y: corner.y + dy * length))
+            path.addArc(tangent1End: corner, tangent2End: CGPoint(x: corner.x + dx * length, y: corner.y), radius: radius)
+            path.addLine(to: CGPoint(x: corner.x + dx * length, y: corner.y))
+        }
+        return path
+    }
+}
+
+/// For people with no Mac running cmux yet (Codex "Set up Codex").
+struct SetupMacView: View {
+    let email: String?
+    let onInstalled: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    Image(systemName: "laptopcomputer.and.arrow.down")
+                        .font(.system(size: 44, weight: .light))
+                        .symbolEffect(.bounce, options: .nonRepeating)
+                        .padding(.top, 40)
+                        .accessibilityHidden(true)
+                    Text(String(localized: "Set up cmux on your Mac"))
+                        .font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 18)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(String(localized: "This app connects to cmux running on your Mac."))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 6)
+                    VStack(alignment: .leading, spacing: 22) {
+                        row("terminal", String(localized: "Run terminals and coding agents on your Mac, then follow and answer them from here."))
+                        row("qrcode", email.map { String(localized: "Install cmux, open Settings › iPhone and pair this phone. Use the same account (\($0)).") }
+                            ?? String(localized: "Install cmux, open Settings › iPhone and pair this phone."))
+                    }
+                    .padding(.top, 34)
+                }
+                .padding(.horizontal, 32)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            VStack(spacing: 12) {
+                Button(String(localized: "I have cmux on my Mac"), action: onInstalled)
+                    .buttonStyle(.primaryCapsuleWide)
+                    .accessibilityIdentifier("pair.setup.installed")
+                ShareLink(item: LegalLinks.download, subject: Text(String(localized: "Download cmux for Mac")), message: Text(String(localized: "Install cmux on your Mac, then pair your iPhone."))) {
+                    Text(String(localized: "Send me the download link"))
+                }
+                .buttonStyle(.outlineCapsule)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
+        }
+        .background(Theme.background)
+    }
+
+    private func row(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .frame(width: 28)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Final step: the connection confirmation with a drawn checkmark.
+struct PairedView: View {
+    let hostName: String
+    let onDone: () -> Void
+    @State private var shown = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            ZStack {
+                Circle().fill(Theme.success.opacity(0.16)).frame(width: 96, height: 96)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(Theme.success)
+                    .symbolEffect(.drawOn, isActive: !shown)
+            }
+            .accessibilityHidden(true)
+            Text(String(localized: "Connected"))
+                .font(.title2.weight(.semibold))
+                .padding(.top, 22)
+                .accessibilityAddTraits(.isHeader)
+            Text(String(localized: "\(hostName) is paired with this iPhone."))
+                .font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 6)
+                .padding(.horizontal, 36)
+            Spacer()
+            Button(String(localized: "Done"), action: onDone)
+                .buttonStyle(.primaryCapsuleWide)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+                .accessibilityIdentifier("pair.done")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.background)
+        .onAppear { shown = true }
     }
 }
 
@@ -244,6 +519,7 @@ struct PairCodeSheet: View {
     @State private var code = ""
     @State private var error: String?
     @State private var pairing = false
+    @State private var shake = 0
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -254,8 +530,16 @@ struct PairCodeSheet: View {
             HStack {
                 Button(role: .close) { dismiss() }.buttonStyle(.glass)
                 Spacer()
+                PasteButton(payloadType: String.self) { strings in
+                    guard let first = strings.first else { return }
+                    Task { @MainActor in code = clean(first) }
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
             }
             Text(String(localized: "Pair manually")).font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
             Text(String(localized: "Enter the pairing code shown on your Mac.")).font(.subheadline).foregroundStyle(.secondary)
             ZStack {
                 TextField("", text: $code)
@@ -263,46 +547,73 @@ struct PairCodeSheet: View {
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
+                    .textContentType(.oneTimeCode)
                     .opacity(0.01)
                     .onChange(of: code) { _, value in
-                        let cleaned = String(value.uppercased().filter { Self.alphabet.contains($0) }.prefix(8))
-                        if cleaned != code { code = cleaned }
+                        let cleaned = clean(value)
+                        if cleaned != code { code = cleaned; return }
+                        if !cleaned.isEmpty { error = nil }
+                        Haptics.selection()
                         if cleaned.count == 8 { pair() }
                     }
+                    .accessibilityLabel(String(localized: "Pairing code"))
+                    .accessibilityValue(code.isEmpty ? String(localized: "Empty") : code.map(String.init).joined(separator: " "))
                     .accessibilityIdentifier("pair.codeField")
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     boxes(0..<4)
-                    Text("–").foregroundStyle(.secondary)
+                    Text(verbatim: "–").foregroundStyle(.secondary).accessibilityHidden(true)
                     boxes(4..<8)
                 }
-                .onTapGesture { focused = true }
-            }
-            if let error { Text(error).font(.footnote).foregroundStyle(Theme.danger) }
-            Button(action: pair) {
-                Group {
-                    if pairing { ProgressView() } else { Text(String(localized: "Pair")).font(.body.weight(.semibold)) }
+                .frame(maxWidth: .infinity)
+                .keyframeAnimator(initialValue: CGFloat(0), trigger: shake) { content, offset in
+                    content.offset(x: offset)
+                } keyframes: { _ in
+                    KeyframeTrack {
+                        SpringKeyframe(-12, duration: 0.07)
+                        SpringKeyframe(10, duration: 0.07)
+                        SpringKeyframe(-6, duration: 0.07)
+                        SpringKeyframe(0, duration: 0.1)
+                    }
                 }
-                .frame(maxWidth: .infinity).frame(height: 50)
-                .foregroundStyle(Color(uiColor: .systemBackground))
-                .background(Capsule().fill(Color.primary.opacity(code.count == 8 ? 1 : 0.35)))
+                .contentShape(.rect)
+                .onTapGesture { focused = true }
+                .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
+            if let error {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote).foregroundStyle(Theme.danger)
+                    .transition(.opacity)
+            }
+            Button(action: pair) {
+                if pairing { ProgressView().tint(Color(uiColor: .systemBackground)) } else { Text(String(localized: "Pair")) }
+            }
+            .buttonStyle(.primaryCapsuleWide)
             .disabled(code.count < 8 || pairing)
             .accessibilityIdentifier("pair.submit")
         }
         .padding(20)
+        .animation(.smooth(duration: 0.2), value: error)
         .onAppear { focused = true }
+    }
+
+    private func clean(_ value: String) -> String {
+        String(value.uppercased().filter { Self.alphabet.contains($0) }.prefix(8))
     }
 
     private func boxes(_ range: Range<Int>) -> some View {
         HStack(spacing: 6) {
             ForEach(range, id: \.self) { index in
                 let chars = Array(code)
-                Text(index < chars.count ? String(chars[index]) : "")
+                let filled = index < chars.count
+                Text(filled ? String(chars[index]) : "")
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                    .frame(width: 36, height: 48)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.elevated))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(index == chars.count && focused ? Color.primary.opacity(0.6) : .clear, lineWidth: 1.5))
+                    .frame(maxWidth: 38).frame(height: 50)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.elevated))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(error != nil ? Theme.danger.opacity(0.7)
+                                      : index == chars.count && focused ? Color.primary.opacity(0.6) : .clear, lineWidth: 1.5))
+                    .scaleEffect(filled ? 1 : 0.97)
+                    .animation(.snappy(duration: 0.18), value: filled)
             }
         }
     }
@@ -315,11 +626,11 @@ struct PairCodeSheet: View {
             defer { pairing = false }
             do {
                 try await app.pair(code: String(code.prefix(4)) + "-" + String(code.suffix(4)))
-                Haptics.success()
                 onPaired()
             } catch {
                 Haptics.warning()
                 self.error = error.localizedDescription
+                shake += 1
                 code = ""
             }
         }
@@ -331,13 +642,16 @@ struct QRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
-        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], isHighlightingEnabled: true)
+        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], isHighlightingEnabled: false)
         scanner.delegate = context.coordinator
         try? scanner.startScanning()
         return scanner
     }
 
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
+    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {
+        if !controller.isScanning { try? controller.startScanning() }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {

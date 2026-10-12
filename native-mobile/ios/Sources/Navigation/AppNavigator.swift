@@ -21,11 +21,17 @@ final class AppNavigator {
     /// App-level sheets and dialogs opened from the sidebar.
     var showSettings = false
     var showPairing = false
+    var pairingEntry: PairingEntry = .intro
     var confirmSignOut = false
 
     /// The UIKit container that owns the slide animation.
     @ObservationIgnored weak var container: SidebarContainerController?
     @ObservationIgnored private var restoredHost: String?
+
+    func startPairing(_ entry: PairingEntry = .intro) {
+        pairingEntry = entry
+        showPairing = true
+    }
 
     func openSidebar() { container?.setOpen(true, animated: true) }
     func closeSidebar() { container?.setOpen(false, animated: true) }

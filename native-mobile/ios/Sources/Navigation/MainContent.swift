@@ -14,7 +14,7 @@ struct SidebarRoot: View {
         )
         .ignoresSafeArea()
         .sheet(isPresented: $navigator.showSettings) { SettingsScreen(app: app) }
-        .sheet(isPresented: $navigator.showPairing) { PairingFlow(app: app) }
+        .sheet(isPresented: $navigator.showPairing) { PairingFlow(app: app, entry: navigator.pairingEntry) }
         .confirmationDialog(String(localized: "Sign out of cmux?"), isPresented: $navigator.confirmSignOut, titleVisibility: .visible) {
             Button(String(localized: "Sign Out"), role: .destructive) {
                 navigator.closeSidebar()

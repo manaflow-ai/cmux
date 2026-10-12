@@ -10,6 +10,7 @@ struct SidebarPanel: View {
     @State private var query = ""
     @State private var expanded: Set<Int> = []
     @State private var pendingClose: DaemonTab?
+    @State private var renaming: DaemonWorkspace?
     @FocusState private var searchFocused: Bool
 
     private static let collapsedLimit = 4
@@ -19,12 +20,9 @@ struct SidebarPanel: View {
             LazyVStack(alignment: .leading, spacing: 2) {
                 if !searching {
                     items
-                    Text(String(localized: "Workspaces"))
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    Divider()
                         .padding(.horizontal, 14)
-                        .padding(.top, 22)
-                        .padding(.bottom, 2)
+                        .padding(.top, 14)
                 }
                 workspaces
             }
@@ -40,6 +38,7 @@ struct SidebarPanel: View {
         .onChange(of: navigator.sidebarOpen) { _, open in
             if !open { endSearch() }
         }
+        .renameWorkspaceAlert($renaming, connection: app.connection)
     }
 
     // MARK: Header
@@ -108,8 +107,8 @@ struct SidebarPanel: View {
                     }
                 }
             }
-            Button { navigator.showPairing = true } label: {
-                Label(String(localized: "Connect a Mac"), systemImage: "plus")
+            Button { navigator.startPairing() } label: {
+                Label(String(localized: "Add a Mac"), systemImage: "plus")
             }
             if let connection = app.connection, !connection.path.isEmpty {
                 Section(String(localized: "Connection")) {
@@ -178,16 +177,59 @@ struct SidebarPanel: View {
     private var workspaces: some View {
         if let connection = app.connection {
             let groups = filtered(connection.workspaces)
+            if !searching, let kind = connection.phase.statusKind(hostName: connection.host.name), !connection.workspaces.isEmpty {
+                ConnectionStatusCapsule(kind: kind, onRetry: { app.reconnect() })
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .transition(.opacity)
+            }
             if groups.isEmpty {
-                Text(searching && !query.isEmpty ? String(localized: "No matching terminals") : String(localized: "No terminals yet"))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                switch connection.phase {
+                case .connecting where !searching:
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(0..<4, id: \.self) { index in
+                            SkeletonRow(titleWidth: [150, 110, 170, 90][index], subtitleWidth: [90, 120, 70, 100][index], leading: 8)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 6)
+                    .shimmer()
+                    .accessibilityLabel(String(localized: "Loading terminals"))
+                case .offline where !searching:
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(String(localized: "Couldn't reach \(connection.host.name)"))
+                            .font(.subheadline.weight(.medium))
+                        Button(String(localized: "Retry")) { app.reconnect() }
+                            .buttonStyle(.primaryCapsule)
+                            .controlSize(.small)
+                    }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+                default:
+                    Text(searching && !query.isEmpty ? String(localized: "No terminals match “\(query)”") : String(localized: "No terminals yet"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
             }
             ForEach(groups) { workspace in
                 workspaceSection(workspace, connection: connection)
             }
+        } else if !app.hosts.isEmpty || !app.hostsLoaded {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(0..<3, id: \.self) { _ in SkeletonRow(leading: 8) }
+            }
+            .padding(.horizontal, 14)
+            .shimmer()
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(String(localized: "No Mac connected")).font(.subheadline).foregroundStyle(.secondary)
+                Button(String(localized: "Connect your Mac")) { navigator.startPairing() }
+                    .buttonStyle(.primaryCapsule)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
         }
     }
 
@@ -198,8 +240,9 @@ struct SidebarPanel: View {
         let shown = isExpanded ? terminals : Array(terminals.prefix(Self.collapsedLimit - 1))
 
         HStack(spacing: 6) {
-            Text(workspace.displayName)
-                .font(.subheadline.weight(.semibold))
+            Text(highlighted(workspace.displayName, searching ? query : ""))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             if let unread = workspace.unreadCount, unread > 0 {
                 Text("\(unread)")
@@ -214,7 +257,11 @@ struct SidebarPanel: View {
         .padding(.top, 12)
         .padding(.bottom, 2)
         .contentShape(.rect)
+        .accessibilityAddTraits(.isHeader)
         .contextMenu {
+            Button { renaming = workspace } label: {
+                Label(String(localized: "Rename Workspace…"), systemImage: "pencil")
+            }
             Button {
                 Task {
                     if let surface = try? await connection.newTerminal(in: workspace) {
@@ -228,19 +275,13 @@ struct SidebarPanel: View {
             SidebarTerminalRow(
                 tab: tab,
                 agent: connection.agents[tab.surface],
-                selected: navigator.destination == .terminal(surface: tab.surface)
+                selected: navigator.destination == .terminal(surface: tab.surface),
+                query: searching ? query : ""
             ) {
                 navigator.select(.terminal(surface: tab.surface), hostID: hostID)
             }
             .contextMenu {
-                if let cwd = tab.cwd {
-                    Button { UIPasteboard.general.string = cwd } label: {
-                        Label(String(localized: "Copy Path"), systemImage: "doc.on.doc")
-                    }
-                }
-                Button(role: .destructive) { pendingClose = tab } label: {
-                    Label(String(localized: "Close Terminal"), systemImage: "xmark")
-                }
+                TerminalContextMenu(tab: tab, onRename: { renaming = workspace }, onClose: { pendingClose = tab })
             }
             // Anchored on the row so the popover points at the terminal it closes.
             .confirmationDialog(
@@ -279,19 +320,7 @@ struct SidebarPanel: View {
     }
 
     private func filtered(_ workspaces: [DaemonWorkspace]) -> [DaemonWorkspace] {
-        let withTerminals = workspaces.filter { $0.tabs.contains(where: \.isTerminal) }
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard searching, !needle.isEmpty else { return withTerminals }
-        return withTerminals.compactMap { workspace in
-            let matches = workspace.tabs.filter { tab in
-                tab.isTerminal && [tab.displayTitle, tab.cwd ?? "", tab.gitBranch ?? "", workspace.displayName]
-                    .contains { $0.lowercased().contains(needle) }
-            }
-            guard !matches.isEmpty else { return nil }
-            var copy = workspace
-            copy.screens = [DaemonScreen(id: 0, name: nil, active: true, panes: [DaemonPane(id: 0, name: nil, activeTab: nil, tabs: matches, dead: nil)])]
-            return copy
-        }
+        filterWorkspaces(workspaces, query: searching ? query : "")
     }
 
     // MARK: Footer
@@ -413,6 +442,7 @@ struct SidebarTerminalRow: View {
     let tab: DaemonTab
     let agent: DaemonAgent?
     let selected: Bool
+    var query = ""
     let action: () -> Void
 
     var body: some View {
@@ -430,11 +460,11 @@ struct SidebarTerminalRow: View {
                 }
                 .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(tab.displayTitle)
-                        .font(.body)
+                    Text(highlighted(tab.displayTitle, query))
+                        .font(.body.weight(selected ? .semibold : .regular))
                         .lineLimit(1)
                     if let cwd = tab.shortCwd {
-                        Text(cwd)
+                        Text(highlighted(cwd, query))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
