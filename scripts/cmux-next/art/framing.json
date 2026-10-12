@@ -179,6 +179,9 @@
  "durer-praying-hands": {
   "mode": "auto"
  },
+ "el-greco-view-of-toledo": {
+  "mode": "auto"
+ },
  "ensor-skeleton-painter": {
   "mode": "auto",
   "quality": 38
@@ -208,6 +211,9 @@
   "mode": "auto"
  },
  "gentileschi-judith": {
+  "mode": "auto"
+ },
+ "gericault-raft-of-the-medusa": {
   "mode": "auto"
  },
  "gerome-botsaris": {
@@ -271,6 +277,9 @@
   "quiet": "right"
  },
  "hokusai-umezawa": {
+  "mode": "auto"
+ },
+ "holbein-ambassadors": {
   "mode": "auto"
  },
  "kandinsky-composition-viii": {
@@ -395,6 +404,9 @@
   "mode": "auto"
  },
  "moran-burning-philadelphia": {
+  "mode": "auto"
+ },
+ "moreau-apparition": {
   "mode": "auto"
  },
  "mucha-job": {
@@ -558,6 +570,9 @@
   "mode": "auto"
  },
  "waterhouse-ophelia": {
+  "mode": "auto"
+ },
+ "whistler-falling-rocket": {
   "mode": "auto"
  },
  "wood-american-gothic": {

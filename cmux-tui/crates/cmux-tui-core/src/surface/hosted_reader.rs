@@ -23,6 +23,9 @@ pub(super) struct HostedReader {
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
+    /// Where the shell is between its prompt marks, for the prompt-time
+    /// reset of a dead program's modes.
+    pub(super) shell_marks: crate::prompt_mode_reset::ShellMarks,
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_bells: PendingBells,
     /// Test seam: slows applying each output frame so tests can build an

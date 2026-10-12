@@ -1198,6 +1198,9 @@
 				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>gericault-raft-of-the-medusa</string>
+				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1250,6 +1253,7 @@
 				<string>kramskoi-unknown-woman</string>
 				<string>michelangelo-creation-of-adam</string>
 				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
 				<string>brueghel-wooden-vessel</string>
 				<string>dahl-dresden-moonlight</string>
 				<string>bosschaert-wan-li-vase</string>
@@ -1301,6 +1305,7 @@
 				<string>van-gogh-almond-blossom</string>
 				<string>van-gogh-fishing-boats</string>
 				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
 				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
@@ -1383,6 +1388,9 @@
 				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>gericault-raft-of-the-medusa</string>
+				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1435,6 +1443,7 @@
 				<string>kramskoi-unknown-woman</string>
 				<string>michelangelo-creation-of-adam</string>
 				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
 				<string>brueghel-wooden-vessel</string>
 				<string>dahl-dresden-moonlight</string>
 				<string>bosschaert-wan-li-vase</string>
@@ -1486,6 +1495,7 @@
 				<string>van-gogh-almond-blossom</string>
 				<string>van-gogh-fishing-boats</string>
 				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
 				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
@@ -2546,6 +2556,26 @@
 			<string>Group Projects By</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>sidebar.showSpaces</string>
+			<key>pfm_title</key>
+			<string>Show Spaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>sidebar.showProfileControl</string>
+			<key>pfm_title</key>
+			<string>Show Profile Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

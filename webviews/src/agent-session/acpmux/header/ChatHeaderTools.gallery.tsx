@@ -8,6 +8,7 @@ import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
   onTerminal: (mode: "toggle" | "open") => void;
+  onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
   tabTools?: boolean;
   sideTabs?: boolean;
@@ -230,6 +231,7 @@ const keyboardSubmenu: Play = async (ctx) => {
 
 const base: HeaderToolsProps = {
   onTerminal: () => undefined,
+  onSplitDown: () => undefined,
   onBrowser: () => undefined,
   summary,
   menu: menuRows,

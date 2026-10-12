@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 #if DEBUG
@@ -82,10 +83,8 @@ enum RemoteBrowserPages {
             } catch {
                 lastLocalFailure = String(describing: error)
                 guard let window = pane?.view.window else { return }
-                let alert = NSAlert()
-                alert.messageText = RemoteBrowserStrings.hostDidNotStart
-                alert.informativeText = RemoteBrowserStrings.hostFailure(error)
-                alert.beginSheetModal(for: window, completionHandler: nil)
+                CmuxDialogCenter.shared.present(CmuxDialogSpec(title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
+                                                               buttons: [.ok()]), in: .window(window)) { _ in }
             }
         }
     }
