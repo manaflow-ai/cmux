@@ -98,10 +98,21 @@ export function createAcpmuxDebug(
   let nominal = 1000 / 60;
   let running = false;
   let generation = 0;
+  /** How far the last fling scrolled and the view it scrolled, in CSS pixels. */
+  let geometry = { distance: 0, viewport: 0 };
 
   const flingStats = () => {
     if (timestamps.length < 2) return { running, frames: 0 };
-    return { running, rows: host.rowCount(), ...frameStats(timestamps, nominal) };
+    const perFrame = geometry.distance / (timestamps.length - 1);
+    return {
+      running,
+      rows: host.rowCount(),
+      ...frameStats(timestamps, nominal),
+      distance_px: Math.round(geometry.distance),
+      viewport_px: geometry.viewport,
+      // The scroll per frame, in viewports: past what the transcript mounts ahead, frames blank.
+      viewports_per_frame: geometry.viewport > 0 ? round2(perFrame / geometry.viewport) : 0,
+    };
   };
 
   return {
@@ -139,6 +150,7 @@ export function createAcpmuxDebug(
             : Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index])));
         scroller.scrollTop = scroller.scrollHeight;
         const from = scroller.scrollTop;
+        geometry = { distance: from, viewport: scroller.clientHeight };
         acpmuxPerf.resetFrames();
         await new Promise<void>((resolve) => {
           let start: number | undefined;
