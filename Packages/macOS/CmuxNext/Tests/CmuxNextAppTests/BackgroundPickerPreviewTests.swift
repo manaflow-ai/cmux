@@ -89,26 +89,36 @@ import Testing
                                          clickCount: 1, pressure: 1))
     }
 
-    /// The workspace content in a container, with a pane-like view over the left half of the layout.
-    static func make() -> WorkspaceContentView {
+    /// The workspace content filling a window, with a pane-like view over the left half of the layout.
+    static func make() -> (NSWindow, WorkspaceContentView) {
+        _ = NSApplication.shared
         let registry = ActionRegistry.standard()
         let layout = NSView()
         let view = WorkspaceContentView(layoutView: layout, bar: TabStripView(model: TabStripModel()))
         view.backgroundMenu = { registry.makeContextMenu(for: .windowBackground) }
-        let container = NSView(frame: view.frame)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 700))
+        window.contentView = container
+        view.frame = container.bounds
         container.addSubview(view)
         view.layout()
         layout.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: layout.bounds.width / 2, height: layout.bounds.height)))
-        return view
+        return (window, view)
     }
 
     @Test func rightClickingTheWindowBackgroundOffersChangeBackground() throws {
-        let view = Self.make()
-        #expect(Self.titles(view.menu(for: try Self.rightClick(at: view.bounds.width - 40))).contains("Change Background…"))
+        let (window, view) = Self.make()
+        defer { window.close() }
+        #expect(view.layoutView.frame.width == 1100)
+        #expect(Self.titles(view.menu(for: try Self.rightClick(at: 1060))).contains("Change Background…"))
     }
 
     @Test func aRightClickAPaneDidNotTakeOffersNoBackgroundMenu() throws {
-        let view = Self.make()
+        let (window, view) = Self.make()
+        defer { window.close() }
+        #expect(view.hitTest(NSPoint(x: 40, y: 350)) != nil)
         #expect(!Self.titles(view.menu(for: try Self.rightClick(at: 40))).contains("Change Background…"))
     }
 }
