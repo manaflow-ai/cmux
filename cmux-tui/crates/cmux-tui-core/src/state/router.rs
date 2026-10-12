@@ -380,10 +380,10 @@ pub(crate) fn dispatch(
         Op::LayoutBulk => {
             // The level's selectors may name the anchor; the session check
             // takes only machine and session.
-            let session = crate::ResourceSelectors {
+            let session = ResourceSelectors {
                 machine: selectors.machine.clone(),
                 session: selectors.session.clone(),
-                ..crate::ResourceSelectors::default()
+                ..ResourceSelectors::default()
             };
             ensure_session(mux, &session)?;
             let bulk =

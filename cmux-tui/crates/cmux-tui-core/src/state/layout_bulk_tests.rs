@@ -222,7 +222,8 @@ fn the_request_selectors_name_the_anchor_when_there_is_none() {
     });
     let closed = mutate(&mux, "layout.bulk", current, "current");
     assert_eq!(closed["tab_ids"].as_array().unwrap().len(), 2);
-    assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 1);
+    let left = mux.with_state(|state| state.panes[&pane.unwrap()].tabs.len());
+    assert_eq!(left, 1, "only the current tab stays");
     assert_eq!(groups(&mux).len(), 2, "two gestures, two groups");
 }
 
@@ -257,7 +258,7 @@ fn close_other_workspaces_from_home_closes_the_rest_and_keeps_home() {
         &mux,
         "layout.bulk",
         json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": [home]}),
-        "home",
+        "named-home",
     );
     assert_eq!(named["workspace_ids"], json!([]));
     assert_eq!(live_workspaces(&mux), 1);
