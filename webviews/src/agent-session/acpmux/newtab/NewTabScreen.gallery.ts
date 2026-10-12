@@ -269,7 +269,7 @@ export default agentPaneEntry({
       },
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs and visited pages: those rows (with their favicons, a glyph while one loads) and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: {
           tabs: [
@@ -290,12 +290,32 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Two tabs, the two pages and the search: five presses end on the last row.
-        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        // Ask, the search and four matches: six presses from Ask end on the last row.
+        for (let step = 0; step < 6; step++) await ctx.press("ArrowDown");
+      },
+    },
+    "typed-reddit": {
+      note: 'The omnibar (Leo 2026-10-12): "reddit" completes to reddit.com (a top site), highlighted for Return, then the matching tab and workspace, a web search and Ask, in a popover over the page (no reflow); a blank browser tab is never offered.',
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            { id: "tab-blank", kind: "browser", title: "about:blank", detail: "about:blank", workspace: "workspace-3" },
+            { id: "tab-1", kind: "browser", title: "Reddit API docs", detail: "reddit.com/dev/api", icon: SITE_ICON },
+          ],
+          workspaces: [{ id: "workspace-1", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "about:blank" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("reddit", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
       },
     },
     "typed-address": {
-      note: "An address: open it first, then a web search.",
+      note: "An address: open it first (highlighted), then a web search and Ask.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
