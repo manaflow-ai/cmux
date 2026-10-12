@@ -134,10 +134,11 @@ function shapeTurn(
     }
   const answer = final >= 0 ? body[final] : undefined;
   // Work before the answer folds away (all of it, when the turn ended without one); edits
-  // also close the turn as their card. Subagent groups stay out, under the fold's line.
+  // also close the turn as their card. Subagent groups and the todo list stay out, under the
+  // fold's line.
   const before = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
-  const work = before.filter((row) => !isSubagentGroup(row));
-  const groups = before.filter(isSubagentGroup);
+  const work = before.filter((row) => !staysOut(row));
+  const groups = before.filter(staysOut);
   const after = final >= 0 ? body.slice(final + 1) : [];
   // Edits after the answer join the card too, so its Undo covers the whole turn.
   const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
@@ -222,6 +223,10 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
   ];
 }
 
+/// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
+/// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
+const staysOut = (row: AcpmuxRow) => isSubagentGroup(row) || (row.kind === "plan" && row.plan !== undefined);
+
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
 /// reloaded turn without timing, and its answer and edits draw after it.
@@ -234,7 +239,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
       break;
     }
   const before = final >= 0 ? rows.slice(0, final) : rows;
-  const work = before.filter((row) => !isSubagentGroup(row));
+  const work = before.filter((row) => !staysOut(row));
   if (work.length === 0) return rows;
   const id = `${WORKED}-${user.id}`;
   const open = expanded.has(id);
@@ -244,7 +249,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
-    ...before.filter(isSubagentGroup),
+    ...before.filter(staysOut),
     ...(final >= 0 ? rows.slice(final) : []),
     ...editsCard(edits),
   ];

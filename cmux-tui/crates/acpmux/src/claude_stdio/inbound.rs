@@ -106,6 +106,13 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, &input).await));
                         }
+                        // The todo list is the turn's ACP plan (cx-ncc.80): clients
+                        // draw it as a checklist.
+                        if name == "TodoWrite"
+                            && let Some(plan) = todo_plan(&input)
+                        {
+                            out.push(upd(plan));
+                        }
                         out.push(upd(json!({
                             "sessionUpdate": "tool_call",
                             "toolCallId": c.get("id"),
@@ -460,4 +467,25 @@ impl Translator {
             "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
         })
     }
+}
+
+/// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
+/// (pending, in_progress or completed, as ACP names them). Nil for input
+/// that is not a todo list.
+fn todo_plan(input: &Value) -> Option<Value> {
+    let entries: Vec<Value> = input
+        .get("todos")?
+        .as_array()?
+        .iter()
+        .filter_map(|todo| {
+            let content = todo.get("content").and_then(Value::as_str)?;
+            let status = todo
+                .get("status")
+                .and_then(Value::as_str)
+                .filter(|status| matches!(*status, "in_progress" | "completed"))
+                .unwrap_or("pending");
+            Some(json!({"content": content, "status": status, "priority": "medium"}))
+        })
+        .collect();
+    Some(json!({"sessionUpdate": "plan", "entries": entries}))
 }
