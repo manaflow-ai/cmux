@@ -10,8 +10,9 @@ import XCTest
 @testable import cmux
 #endif
 
-/// Previous/Next (Leo 2026-10-12, Chrome tab keys) move between sidebar workspaces, what
-/// Chrome calls tabs, wrapping at the ends, even from a pane with two or more tabs.
+/// Previous/Next (Leo 2026-10-09, rapid switching): a focused pane with two or more tabs steps
+/// its tabs and wraps inside the pane; otherwise the keys move between sidebar workspaces,
+/// wrapping at the ends.
 @MainActor
 @Suite(.serialized)
 struct RapidSwitchTests {
@@ -36,23 +37,24 @@ struct RapidSwitchTests {
     }
 
     @Test
-    func aPaneWithTwoTabsStillMovesBetweenSidebarWorkspaces() throws {
+    func aPaneWithTwoTabsStepsItsTabsAndWrapsInsideThePane() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        _ = manager.addWorkspace(title: "Build", select: false)
-        let order = manager.tabs.map(\.id)
+        let other = manager.addWorkspace(title: "Build", select: false)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
-        let panels = workspace.sidebarOrderedPanelIds()
-        #expect(panels.count == 2)
-        workspace.focusPanel(panels[0])
+        let order = workspace.sidebarOrderedPanelIds()
+        #expect(order.count == 2)
+        workspace.focusPanel(order[0])
 
         manager.stepTabOrWorkspace(forward: true)
-        #expect(manager.selectedTabId == order[1], "Next from a two-tab pane moves to the next workspace")
-        #expect(workspace.focusedPanelId == panels[0], "the pane keeps its selected tab")
-        manager.selectWorkspace(workspace)
+        #expect(manager.selectedTabId == workspace.id, "a pane with two tabs keeps Next inside it")
+        #expect(workspace.focusedPanelId == order[1])
+        manager.stepTabOrWorkspace(forward: true)
+        #expect(manager.selectedTabId == workspace.id, "Next on the pane's last tab wraps in the pane")
+        #expect(workspace.focusedPanelId == order[0])
         manager.stepTabOrWorkspace(forward: false)
-        #expect(manager.selectedTabId == order[1], "Previous on the first workspace wraps to the last")
-        #expect(workspace.focusedPanelId == panels[0])
+        #expect(workspace.focusedPanelId == order[1])
+        #expect(manager.selectedTabId != other.id)
     }
 }
