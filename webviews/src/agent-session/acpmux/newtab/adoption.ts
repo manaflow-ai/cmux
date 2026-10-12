@@ -5,8 +5,11 @@
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
+import { omnibarContext } from "../omnibar";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
+/// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
+export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
 
 /// A cold New Tab page's context before the handshake (cx-0rpl.10): the host answers
 /// `newTab.context` at once, while `ready` waits for acpmux, so the page draws its frame (layout,
@@ -55,4 +58,27 @@ export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
     return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);
   }, [onAdopt]);
   return generation;
+}
+
+/// Takes each places event's open tabs and workspaces into the shown page's bar, in place: no
+/// remount, so what is typed and the caret stay (Leo 2026-10-11: rows for workspaces gone since
+/// stayed listed).
+export function useNewTabPlaces(
+  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
+): void {
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const places = omnibarContext((event as CustomEvent).detail);
+      if (!places) return;
+      update(
+        (host) =>
+          host && {
+            ...host,
+            omnibar: { ...(host.omnibar ?? places), tabs: places.tabs, workspaces: places.workspaces },
+          },
+      );
+    };
+    window.addEventListener(NEW_TAB_PLACES_EVENT, handle);
+    return () => window.removeEventListener(NEW_TAB_PLACES_EVENT, handle);
+  }, [update]);
 }

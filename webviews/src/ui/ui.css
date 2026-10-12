@@ -1,4 +1,5 @@
 @import "./popupSurface.css";
+@import "./ghost.css";
 
 /* The wrapper's look (R139 desktop feel): system font, chrome that is not selectable, focus rings
    only for keyboard focus (`:focus-visible`), colors only from the shared web theme (`--cmux-*`)
