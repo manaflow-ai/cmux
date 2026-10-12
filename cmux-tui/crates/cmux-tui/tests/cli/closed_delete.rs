@@ -256,6 +256,9 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
 /// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
 fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
     fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if !node.is_object() {
+            return None;
+        }
         if node["kind"] == "leaf" && node["pane_id"] == pane {
             return Some(node["tab_ids"].clone());
         }
