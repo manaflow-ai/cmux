@@ -2129,7 +2129,11 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
-    let preservesExplicitEphemeralWebsiteDataStore: Bool
+    private(set) var preservesExplicitEphemeralWebsiteDataStore: Bool
+    /// The native-session exchange running before a trusted app page loads.
+    private(set) var appSessionBootstrapTask: Task<Void, Never>?
+    /// Replaces the signed-in exchange in tests; production uses the app's auth graph.
+    var appSessionRequestProvider: (@MainActor (URL) async -> BrowserAppSessionRequestOutcome)?
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0

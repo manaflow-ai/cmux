@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxBrowser
+import CmuxCloud
 import Foundation
 import Testing
 import WebKit
@@ -312,6 +313,72 @@ struct BrowserWebContentProcessTests {
 
         #expect(cleanupAttemptCount == 3)
         #expect(registry.hasOwnership)
+    }
+
+    @Test
+    func directAppPricingNavigationLoadsInTheNativeSessionStore() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestedURLs: [URL] = []
+        panel.appSessionRequestProvider = { url in
+            requestedURLs.append(url)
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+
+        panel.navigate(to: pricingURL)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestedURLs == [pricingURL])
+        #expect(panel.websiteDataStore === sessionStore)
+        #expect(panel.webView.configuration.websiteDataStore === sessionStore)
+        #expect(panel.websiteDataStore !== profileStore)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func failedAppPricingSessionExchangeStillLoadsThePage() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+
+        panel.navigate(to: pricingURL)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestCount == 1)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func ordinaryNavigationSkipsTheNativeSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+
+        panel.navigate(to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("pricing"))
+
+        #expect(panel.appSessionBootstrapTask == nil)
+        #expect(requestCount == 0)
     }
 
     @Test
