@@ -34,7 +34,7 @@ struct HeaderSplitOrderTests {
         }
 
         init() {
-            for (id, kind) in [("splitRight", TabKind.pty), ("splitBrowserRight", .browser)] {
+            for (id, kind) in [("splitRight", TabKind.pty), ("splitDown", .pty), ("splitBrowserRight", .browser)] {
                 registry.register(Action(id: ActionID(rawValue: id), title: id, invoke: { [unowned self] invocation in
                     invocations[id] = invocation
                     split(invocation.target?.id, kind: kind)
@@ -122,6 +122,21 @@ struct HeaderSplitOrderTests {
         #expect(row.invocations["splitRight"]?.opensTerminal == true)
         row.click("splitBrowserRight", toggles: toggles)
         #expect(row.invocations["splitBrowserRight"]?.opensTerminal == false)
+    }
+
+    /// Split Down (cx-kk7lm) asks for a terminal under the chat, even after Terminal opened one right
+    /// of it, and its second click closes that terminal, not Terminal's.
+    @Test func splitDownOpensATerminalUnderTheChatAndClosesIt() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        row.click("splitRight", toggles: toggles)
+        let right = row.tabs[1]
+        row.click("splitDown", toggles: toggles)
+        #expect(row.invocations["splitDown"]?.target?.id == row.chat)
+        #expect(row.invocations["splitDown"]?.opensTerminal == true)
+        #expect(row.tabs.count == 3)
+        #expect(toggles.headerState(chat: row.chat, store: row.store).lit.contains("splitDown"))
+        row.click("splitDown", toggles: toggles)
+        #expect(row.tabs == [row.chat, right])
     }
 
     /// A split the user closed is forgotten: the button never claims, and later closes, a terminal

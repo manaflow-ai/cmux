@@ -21,6 +21,9 @@ import { useSyncExternalStore } from "react";
 /// Preview owns a browser tab beside the chat on the local page the chat's last turn started or
 /// mentioned (its preview card's address); it shows only while there is one or its page is open.
 ///
+/// Split Down owns a terminal under the chat (cx-kk7lm): with Terminal, the chat's Split Right, it is
+/// the Split Right and Split Down every pane's toolbar has.
+///
 /// Files owns a tree of the chat's folder beside it (cx-p4rt). It is off by default until it is
 /// styled: the right-click menu lists it unchecked, and checking it adds the button.
 ///
@@ -28,7 +31,7 @@ import { useSyncExternalStore } from "react";
 /// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
 /// closing nothing) and shows them again. It always toggles; its mode is ignored.
 
-export type QuickActionId = "terminal" | "browser" | "changes" | "files" | "preview" | "newTab";
+export type QuickActionId = "terminal" | "splitDown" | "browser" | "changes" | "files" | "preview" | "newTab";
 /// `toggle`: a second click closes the split the first one opened. `open`: every click opens another.
 export type QuickActionMode = "toggle" | "open";
 export interface QuickAction {
@@ -36,7 +39,7 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["terminal", "browser", "changes", "files", "preview", "newTab"];
+const ids: readonly QuickActionId[] = ["terminal", "splitDown", "browser", "changes", "files", "preview", "newTab"];
 /// Not shown until a person adds them.
 const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["files"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
