@@ -15,7 +15,7 @@ struct SettingsWorkspaceBackgrounds {
 
 extension SettingsPageProvider {
     /// `cmux.settings.backdrop.workspace` reads a workspace's background; `.set` saves one (null
-    /// follows the app's); `.preview` shows one (`end: true` stops).
+    /// follows the app's; a user gesture); `.preview` shows one (`end: true` stops).
     func workspaceBackground(_ op: String, params: JSONValue, context: PageCallContext) throws -> JSONValue {
         guard let workspaceBackgrounds else { throw PageError(code: "cmux.page.unavailable", message: "no workspace backgrounds") }
         guard let workspace = params["workspace"]?.stringValue, let title = workspaceBackgrounds.title(workspace) else {
@@ -25,8 +25,13 @@ extension SettingsPageProvider {
             return ["workspace": .string(workspace), "title": .string(title),
                     "value": workspaceBackgrounds.value(workspace).map(JSONValue.string) ?? .null]
         }
-        guard context.userGesture else { throw PageError(code: "cmux.page.gesture", message: "a workspace background needs a user gesture") }
-        if op == "cmux.settings.backdrop.workspace.preview", params["end"] == .bool(true) {
+        // A preview writes nothing, so like `cmux.settings.preview` it needs no gesture: a dwell is
+        // a pointer move, and closing Settings ends it long after the last click.
+        let preview = op == "cmux.settings.backdrop.workspace.preview"
+        guard preview || context.userGesture else {
+            throw PageError(code: "cmux.page.gesture", message: "a workspace background needs a user gesture")
+        }
+        if preview, params["end"] == .bool(true) {
             workspaceBackgrounds.preview(nil, workspace)
             return .object([:])
         }
@@ -39,7 +44,7 @@ extension SettingsPageProvider {
             }
         }
         let background = value?.stringValue
-        if op == "cmux.settings.backdrop.workspace.preview" {
+        if preview {
             workspaceBackgrounds.preview(.some(background), workspace)
         } else {
             workspaceBackgrounds.set(background, workspace)

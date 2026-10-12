@@ -40,6 +40,8 @@ final class ThemeCoordinator {
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// A workspace background the picker shows without saving it; the inner nil follows the app's.
     var backgroundPreview: (workspace: String, value: String?)?
+    /// Shows a Shuffle Daily workspace's next work when the day turns.
+    var dayObservers: [any NSObjectProtocol] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
 
@@ -123,6 +125,7 @@ final class ThemeCoordinator {
         let local = services.machines.local
         let workspaceBackgrounds = self.workspaceBackgrounds
         Task { await workspaceBackgrounds.load() }
+        dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the

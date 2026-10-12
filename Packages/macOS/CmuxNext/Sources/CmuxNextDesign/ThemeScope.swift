@@ -22,9 +22,15 @@ public final class ThemeScope {
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
+    /// A room shows the background its shown workspace pinned (cx-t2x.5),
+    /// so a top page (`show(nil)`) is back on the app's.
     public var backdropSelection: BackdropSelection? {
-        pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
+        if let shown, shown.pinsBackdrop { return shown.backdropSelection }
+        return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
     }
+    /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
+    private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
+    private var isPinned = false
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
         return nil
@@ -69,8 +75,11 @@ public final class ThemeScope {
         guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
         selectedBackdropSelection = selection
         pinsNoBackdrop = none
+        isPinned = selection != nil
         BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
+        // The rooms showing this scope draw its background.
+        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
     }
 
     /// Changes live tuning without changing theme colors or persisted settings.
@@ -214,10 +223,12 @@ public final class ThemeScope {
             if candidate === self { return }
             next = candidate.shown
         }
+        let backdrop = backdropSelection
         shown?.viewers.remove(self)
         shown = scope
         scope?.viewers.add(self)
         refreshDisplay(animated: animated, repaint: true)
+        if backdropSelection != backdrop { repaintBackdropArt() }
     }
 
     /// Repaints and notifies when `tokens` moved away from what was last

@@ -38,8 +38,8 @@ export function useBackdropsShown(): boolean {
  * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
  * background in every window without writing it; a click keeps it; leaving restores the saved one.
  * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
- * stays the default. Opened for a workspace, the tiles choose that workspace's own background
- * (cx-t2x.5), shown in its windows only, until All Workspaces is picked.
+ * stays the default. Opened for a workspace, This Workspace makes the tiles choose that
+ * workspace's own background (cx-t2x.5), shown while it is shown.
  */
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
@@ -50,8 +50,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
   const [workspaceBackground, setWorkspaceBackground, workspaceRead] = useWorkspaceBackground(workspace);
-  const [scopeAll, setScopeAll] = useState(false);
-  const own = scopeAll ? null : workspaceBackground;
+  // All Workspaces until This Workspace is picked: Change Background… keeps choosing for every window.
+  const [ownScope, setOwnScope] = useState(false);
+  const own = ownScope ? workspaceBackground : null;
   const backdrops = host?.backdrops ?? [];
   const cancelDwell = () => {
     if (dwell.current !== null) clearTimeout(dwell.current);
@@ -92,9 +93,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     cancelDwell();
     if (own) {
       const value = id === FOLLOW_ID ? null : id;
-      if (await store.setWorkspaceBackground(own.workspace, value)) setWorkspaceBackground({ ...own, value });
-      // Saving drops the host's preview; nothing is left to end.
-      previewing.current = null;
+      if (await store.setWorkspaceBackground(own.workspace, value)) {
+        setWorkspaceBackground({ ...own, value });
+        // Saving dropped the host's preview; nothing is left to end.
+        previewing.current = null;
+      }
     } else {
       await store.set(BACKGROUND_KEY, id);
     }
@@ -146,7 +149,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           own={own !== null}
           onChange={(choice) => {
             endPreview();
-            setScopeAll(!choice);
+            setOwnScope(choice);
           }}
         />
       )}

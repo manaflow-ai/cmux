@@ -1,14 +1,27 @@
 import CmuxNextDesign
+import CmuxNextSettings
 import Foundation
 
 /// Each workspace's own background (cx-t2x.5). The window's backdrop reads its room scope, so the
 /// room scope takes the shown workspace's pick; a workspace without one follows the app's
 /// `appearance.background`.
 extension ThemeCoordinator {
-    /// Shows `content`'s background in its window, when it is the shown workspace.
+    /// Gives `content`'s scope its background; its window's room shows it while it is shown.
     func applyWorkspaceBackground(_ content: WorkspaceContentController) {
-        guard let window = services.windows.controllers.first(where: { $0.content === content }) else { return }
-        window.themeScope.pinBackdrop(workspaceBackgroundPin(content.workspace.id))
+        content.themeScope.pinBackdrop(workspaceBackgroundPin(content.workspace.id))
+    }
+
+    /// Re-applies on a new day (or a clock or time zone change), so a Shuffle Daily workspace
+    /// shows that day's work, like `appearance.background`'s own timer.
+    func observeDayChanges() -> [any NSObjectProtocol] {
+        [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.workspaceBackgrounds.backgrounds.values.contains(BackdropSelectionSetting.dailyID) else { return }
+                    self.apply()
+                }
+            }
+        }
     }
 
     /// The store key of a workspace: its home session and durable key.

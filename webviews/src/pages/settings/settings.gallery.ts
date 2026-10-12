@@ -178,8 +178,11 @@ Object.assign(variants, {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [wait('[data-card="backdrop"] .backdrop-scope')],
-    note: "Change Background… on a workspace: This Workspace (Research) chosen, following All Workspaces until it has its own.",
+    steps: [
+      wait('[data-card="backdrop"] .backdrop-scope'),
+      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
+    ],
+    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
