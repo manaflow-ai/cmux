@@ -5,7 +5,10 @@
 
 use serde_json::json;
 
-use super::tests::{error_code, mutate, pane_id, pane_tab_ids, read, send, tab_id, terminal_tabs};
+use super::tests::{
+    Session, empty_workspace, error_code, mutate, pane_id, pane_tab_ids, read, send, tab_id,
+    terminal_tabs,
+};
 use crate::mux::*;
 use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
@@ -49,10 +52,11 @@ fn groups(mux: &Arc<Mux>) -> Vec<Value> {
 #[test]
 fn close_other_tabs_is_one_group_that_keeps_pinned_tabs_and_reopens_whole() {
     let mux = Mux::new_for_test("bulk-tabs", SurfaceOptions::default());
+    // tabs[1] is the anchor: it stays, so it names the pane throughout.
     let tabs = terminal_tabs(&mux, 5);
     let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
     mutate(&mux, "tab.pin", json!({"tab": ids[3]}), "pin");
-    let before = pane_tab_ids(&mux, tabs[0]);
+    let before = pane_tab_ids(&mux, tabs[1]);
 
     let closed = mutate(
         &mux,
@@ -61,7 +65,7 @@ fn close_other_tabs_is_one_group_that_keeps_pinned_tabs_and_reopens_whole() {
         "others",
     );
     assert_eq!(closed["tab_ids"], json!([ids[0], ids[2], ids[4]]));
-    assert_eq!(pane_tab_ids(&mux, tabs[0]), vec![ids[3].clone(), ids[1].clone()]);
+    assert_eq!(pane_tab_ids(&mux, tabs[1]), vec![ids[3].clone(), ids[1].clone()]);
     let listed = groups(&mux);
     assert_eq!(listed.len(), 1, "one gesture, one group: {listed:?}");
     assert_eq!(listed[0]["kind"], "tab");
@@ -78,7 +82,7 @@ fn close_other_tabs_is_one_group_that_keeps_pinned_tabs_and_reopens_whole() {
 
     let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen");
     assert_eq!(reopened["tab_ids"].as_array().unwrap().len(), 3);
-    assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), before.len());
+    assert_eq!(pane_tab_ids(&mux, tabs[1]).len(), before.len());
     assert!(groups(&mux).is_empty());
 }
 
@@ -191,4 +195,92 @@ fn closing_a_workspace_selection_is_one_group_and_reopens_every_workspace() {
         Some("pane-right"),
     );
     assert_eq!(error_code(unordered), "validation.invalid");
+}
+
+/// Without an anchor the request's selectors name it, as `cmux tab <selector>
+/// close --others` sends them: a tab id, or `current` down to the tab.
+#[test]
+fn the_request_selectors_name_the_anchor_when_there_is_none() {
+    let mux = Mux::new_for_test("bulk-selectors", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 3);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+
+    let closed = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "tab", "selector": "to_right", "tab": ids[0]}),
+        "by-id",
+    );
+    assert_eq!(closed["tab_ids"], json!([ids[1], ids[2]]));
+
+    let pane = mux.with_state(|state| state.pane_of(tabs[0]));
+    mux.new_tab(pane, None, None).unwrap();
+    mux.new_tab(pane, None, None).unwrap();
+    let current = json!({
+        "verb": "close", "level": "tab", "selector": "others",
+        "workspace": "current", "screen": "current", "pane": "current", "tab": "current",
+    });
+    let closed = mutate(&mux, "layout.bulk", current, "current");
+    assert_eq!(closed["tab_ids"].as_array().unwrap().len(), 2);
+    assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 1);
+    assert_eq!(groups(&mux).len(), 2, "two gestures, two groups");
+}
+
+/// Close Other Workspaces from the home workspace closes every other one:
+/// home anchors the selector but never closes, not even when a selection
+/// names it.
+#[test]
+fn close_other_workspaces_from_home_closes_the_rest_and_keeps_home() {
+    let session = Session::new("bulk-home");
+    let mux = session.open();
+    let home = send(&mux, "workspace.ensure_home", json!({}), Some("home")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+    let second = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+
+    let closed = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "others", "anchor": home}),
+        "others",
+    );
+    assert_eq!(closed["workspace_ids"], json!([first, second]));
+    let live = mux.with_state(|state| {
+        state.workspaces.iter().map(|workspace| workspace.public_id.to_string()).collect::<Vec<_>>()
+    });
+    assert_eq!(live, vec![home.clone()]);
+
+    let named = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": [home]}),
+        "home",
+    );
+    assert_eq!(named["workspace_ids"], json!([]));
+    assert_eq!(live_workspaces(&mux), 1);
+    mux.shutdown();
+}
+
+/// The result names only the workspaces the call closed: a chosen workspace
+/// with no tab has nothing to close and stays.
+#[test]
+fn a_workspace_selection_reports_only_the_workspaces_it_closed() {
+    let mux = Mux::new_for_test("bulk-empty", SurfaceOptions::default());
+    let empty = empty_workspace(&mux, "empty");
+    let full = workspace_public(&mux, workspace_of(&mux, terminal_tabs(&mux, 1)[0]));
+
+    let closed = mutate(
+        &mux,
+        "layout.bulk",
+        json!({"verb": "close", "level": "workspace", "selector": "selection", "ids": [empty, full]}),
+        "selection",
+    );
+    assert_eq!(closed["workspace_ids"], json!([full]));
+    let live = mux.with_state(|state| {
+        state.workspaces.iter().map(|workspace| workspace.public_id.to_string()).collect::<Vec<_>>()
+    });
+    assert!(live.contains(&empty), "the empty workspace stays: {live:?}");
 }
