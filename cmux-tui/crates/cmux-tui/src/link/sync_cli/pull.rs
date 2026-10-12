@@ -487,7 +487,8 @@ fn place(local: &Path, relative: &str, staged: &Path, permissions: u32) -> anyho
             Ok(meta) if meta.is_dir() => {}
             Ok(_) => bail!("{} is not a folder", at.display()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&at).with_context(|| format!("cannot make {}", at.display()))?
+                std::fs::create_dir(&at)
+                    .with_context(|| format!("cannot make {}", at.display()))?;
             }
             Err(error) => return Err(error.into()),
         }

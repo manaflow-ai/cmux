@@ -147,14 +147,14 @@ pub(super) fn plan(
     let mut staged = None;
     if vm.staged != base.staged {
         if here.staged == vm.staged {
-            settled.staged = vm.staged.clone();
+            settled.staged = vm.staged;
         } else if here.staged != base.staged {
             let why = "both this Mac and the machine changed what is staged";
             conflicts.push((".git/index".into(), why.into()));
         } else {
             match staged_commit(&quarantine, &vm_index)? {
                 Some(commit) => {
-                    settled.staged = vm.staged.clone();
+                    settled.staged = vm.staged;
                     staged = Some(commit);
                 }
                 None => {
