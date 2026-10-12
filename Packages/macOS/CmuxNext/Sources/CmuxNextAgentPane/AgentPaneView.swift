@@ -140,6 +140,13 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            configuration.userContentController.addUserScript(WKUserScript(source: """
+            window.__cmuxT = {docStart: performance.now()};
+            document.addEventListener('readystatechange', () => { window.__cmuxT['ready_' + document.readyState] = performance.now(); });
+            document.addEventListener('DOMContentLoaded', () => { window.__cmuxT.dcl = performance.now();
+              requestAnimationFrame(() => { window.__cmuxT.raf1 = performance.now(); requestAnimationFrame(() => { window.__cmuxT.raf2 = performance.now(); }); }); });
+            new PerformanceObserver((list) => { for (const e of list.getEntries()) window.__cmuxT[e.name] = e.startTime; }).observe({type: 'paint', buffered: true});
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             inputReadiness = PageInputReadiness(configuration: configuration)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG

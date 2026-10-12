@@ -39,6 +39,14 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         AgentPaneWarmup.finish()
         let dump = "JSON.stringify(performance.getEntries().map(e => [e.entryType + '.' + e.name.split('/').pop(), performance.timeOrigin + e.startTime, performance.timeOrigin + (e.responseEnd || e.startTime + e.duration)]).concat([['timeOrigin', performance.timeOrigin, performance.timeOrigin]]))"
+        webView.callAsyncJavaScript("await new Promise(r => setTimeout(r, 700)); const t = window.__cmuxT || {}; return JSON.stringify(Object.entries(t).map(([k, v]) => [k, performance.timeOrigin + v]));", arguments: [:], in: nil, in: .page) { result in
+            guard case .success(let value) = result, let text = value as? String, let data = text.data(using: .utf8),
+                  let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return }
+            for row in rows where row.count == 2 {
+                guard let name = row[0] as? String, let at = row[1] as? Double else { continue }
+                AgentPaneLaunchTimings.shared.mark("diag.t.\(name)@\(at)")
+            }
+        }
         webView.evaluateJavaScript(dump) { result, _ in
             guard let text = result as? String, let data = text.data(using: .utf8),
                   let rows = try? JSONSerialization.jsonObject(with: data) as? [[Any]] else { return }
