@@ -32,6 +32,7 @@ import urllib.request
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
+TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,11 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
         return Decision("skip", f"no {TREE_PREFLIGHT_JOB!r} job: not a tree-publishing run")
+    # The macOS fallback publishes the tree while its Linux-cross legs stay red:
+    # nothing is left to rescue, and a rerun would only rerun publish.
+    published = [job["name"] for job in jobs if job.get("name") in TREE_PUBLISH_JOBS and job.get("conclusion") == "success"]
+    if published:
+        return Decision("skip", f"{published[0]} succeeded: the tree is published")
     attempt = int(run.get("run_attempt") or 1)
     if attempt >= MAX_ATTEMPTS:
         return Decision("skip", f"attempt {attempt} reached the cap of {MAX_ATTEMPTS}")
