@@ -110,7 +110,7 @@ final class AgentPageHibernation {
         for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key) == nil {
             let remaining = threshold - (current - at).seconds
             if remaining <= 0 {
-                _ = key // red: a due page stays, as before (cx-x15rz)
+                release(key)
             } else {
                 next = min(next ?? remaining, remaining)
             }
