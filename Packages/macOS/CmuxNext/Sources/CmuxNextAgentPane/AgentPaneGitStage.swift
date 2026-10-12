@@ -79,10 +79,10 @@ public nonisolated struct AgentPaneGitStage: Equatable, Sendable {
         }
     }
 
-    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows. Nil on success,
-    /// else git's message or why it did not run.
-    @concurrent public static func run(_ request: AgentPaneGitStage, roots: [String], home: String = NSHomeDirectory()) async -> String? {
-        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
+    /// Runs the request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows (`home` defaults
+    /// to the user's). Nil on success, else git's message or why it did not run.
+    @concurrent public static func run(_ request: AgentPaneGitStage, roots: [String], home: String? = nil) async -> String? {
+        switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home ?? NSHomeDirectory()) {
         case .refused(let message): return message
         case .folder(let folder):
             guard let hunk = request.hunk else { return await AgentPaneGitProcess.run(request.arguments(in: folder), timeout: timeout) }
