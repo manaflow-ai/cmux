@@ -158,33 +158,40 @@ def toasts():
     return [t.get("message", "") for t in shown_toasts()]
 
 
-def import_through(browser, filename):
-    """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog."""
-    reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
-    check(reply.get("performed") is True, f"the action runs as a person's palette run ({reply})")
-    shown = wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser dialog ({browser})")
-    if not shown:
-        return None
-    rpc("debug.dialog", {"set": {"browser": browser}})
-    rpc("debug.dialog", {"press": "continue"})
-    steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
-    if not steps:
-        return shown
-    rpc("debug.dialog", {"press": "choose"})
-    # The picker is the palette; at first launch it can take seconds to open.
-    wait_for(lambda: rpc("debug.focus").get("context", {}).get("palette_open"), "the file picker opens", 20)
-    time.sleep(0.8)  # the picker's first listing
-    type_text(EXPORTS + "/")
-    report = key("return")
-    if "palette_page" not in report:
-        print("note: picker key reply", report, flush=True)
-    print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
-    type_text(filename.split(".")[0])
-    report = key("forwarddelete")
-    print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
-    report = key("return")
-    print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
-    return shown, steps
+def import_through(browser, filename, attempts=2):
+    """Runs the action, picks `browser`, checks its steps, and picks `filename` in the picker; the steps dialog.
+
+    Soon after launch the picker can close before its first key (the window
+    taking focus); then the whole flow runs once more."""
+    for attempt in range(attempts):
+        reply = rpc("debug.toast", {"perform": "browser.importFromFiles"})
+        check(reply.get("performed") is True, f"the action runs as a person's palette run ({reply})")
+        shown = wait_for(lambda: dialog("cmux.dialog.importFiles.browser"), f"the browser dialog ({browser})")
+        if not shown:
+            return None
+        rpc("debug.dialog", {"set": {"browser": browser}})
+        rpc("debug.dialog", {"press": "continue"})
+        steps = wait_for(lambda: dialog("cmux.dialog.importFiles.steps"), f"{browser}'s export steps")
+        if not steps:
+            return shown
+        rpc("debug.dialog", {"press": "choose"})
+        # The picker is the palette; at first launch it can take seconds to open.
+        wait_for(lambda: rpc("debug.focus").get("context", {}).get("palette_open"), "the file picker opens", 20)
+        time.sleep(0.8)  # the picker's first listing
+        type_text(EXPORTS + "/")
+        report = key("return")
+        if "palette_page" not in report:
+            print(f"note: picker closed before its keys (attempt {attempt + 1})", report, flush=True)
+            continue
+        print("note: picker folder", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+        type_text(filename.split(".")[0])
+        report = key("forwarddelete")
+        print("note: picker filtered", {k: report.get(k) for k in ("palette_page", "palette_selected")}, flush=True)
+        report = key("return")
+        print("note: picker chose", {k: report.get(k) for k in ("palette_page", "palette_selected", "palette_open")}, flush=True)
+        return shown, steps
+    check(False, f"the file picker stays open for {filename}")
+    return None
 
 
 
