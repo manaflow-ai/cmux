@@ -91,6 +91,9 @@ impl Hub {
             let live = check
                 .then(|| {
                     let procs = crate::adopt_live::processes();
+                    if fam == "opencode" {
+                        return crate::adopt_live::named_use(&id, &procs);
+                    }
                     crate::adopt_live::live_use(
                         &id,
                         &found.file,
@@ -154,6 +157,7 @@ fn indexed_stores(
     let harness = match family {
         "claude" => cmux_chat_index::AdapterKind::ClaudeCode,
         "codex" => cmux_chat_index::AdapterKind::Codex,
+        "opencode" => cmux_chat_index::AdapterKind::OpenCode,
         _ => return Vec::new(),
     };
     let key = cmux_chat_index::ChatKey { harness, session_id: id.to_owned() };

@@ -57,6 +57,6 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
-        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors
+        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
     }
 }
