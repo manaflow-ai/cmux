@@ -10,18 +10,18 @@ Each failing row has a bead.
 | Row | Score | Evidence |
 | --- | --- | --- |
 | Claude Code TUI task and resume | WORKS | A real task wrote `hello.txt`. `/exit`, then `claude -c`, answered from the same session. [Screenshot](evidence/urd5-claude-resume.png) |
-| Codex TUI task and resume | WORKS | A real task wrote `codex.txt`. `codex resume --last` answered from the same session. [Screenshot](evidence/urd5-codex-resume.png) |
+| Codex TUI task and resume | WORKS | A real task wrote `codex.txt`. Resumed with `codex resume --last`, it answered "codex.txt" to a follow-up. Codex redraws the resumed transcript, so the screenshot alone does not show the restart. [Screenshot](evidence/urd5-codex-resume.png) |
 | Several browser tabs | PARTIAL | Three browser tabs opened in one workspace with titles and URL bar. [Screenshot](evidence/urd5-sidebar-browser.png) |
 | Browser back/forward/reload | UNVERIFIED | Pages never painted (load stayed at starting), and `browser back/forward/reload` timed out. This may be slot-only (sandboxed WebKit networking): cx-urd.64. |
-| Rename | BROKEN, fix in [#20000](https://github.com/manaflow-ai/cmux/pull/20000) | `cmux workspace <id> rename` committed, but the sidebar kept the old name for 30 s and only updated after an unrelated change. [Idle 30 s](evidence/urd5-rename-idle-30s.png), [after another event](evidence/urd5-rename-after-agent-event.png). The resource `workspace.rename` and `workspace.move` paths sent no tree delta: cx-urd.63. |
+| Rename | BROKEN, fix in [#20000](https://github.com/manaflow-ai/cmux/pull/20000) | `cmux workspace <id> rename` committed, but the sidebar did not follow. [Idle strip](evidence/urd5-rename-idle-30s.png): "Daily driver" renamed to "Daily"; frames at 2, 5, 10, 20 and 30 s still show "Daily driver". [Busy strip](evidence/urd5-rename-after-agent-event.png): before, then 1, 3, 6 and 12 s after renaming "status" to "Status check". The new name only appears once an unrelated agent-hook update ("Claude is waiting") forces a resync. The resource `workspace.rename` and `workspace.move` paths sent no tree delta: cx-urd.63. |
 | Groups | WORKS | `workspace group create/add` made a collapsible Projects group holding Research. [Screenshot](evidence/urd5-sidebar-browser.png) |
-| Idle/Running (agents) | WORKS | With `cmux agent hook install claude codex`, the row showed Running during a turn and finished after it. [Screenshot](evidence/urd5-agent-working.png) |
+| Idle/Running (agents) | WORKS | With `cmux agent hook install claude codex`, the "status" row showed the running spinner during a Claude turn ([screenshot](evidence/urd5-agent-working.png)) and "Claude finished" after it (first frame of the [busy strip](evidence/urd5-rename-after-agent-event.png)). |
 | Idle/Running (plain commands) | MISSING | Status reads only agent hooks, OSC 7501 and chat turns. `sleep 30` shows no status: cx-urd.65. |
-| Notifications | WORKS (sidebar) | `cmux notify` put an unread badge and body on the row. [Screenshot](evidence/urd5-ssh.png). macOS banners are not observable on capture slots, so they are UNVERIFIED there. `notify --reply` was verified live under cx-wnivp. |
+| Notifications | WORKS (sidebar) | `cmux notify` put the unread badge (1) and body ("all green") on the Research row. [Screenshot](evidence/urd5-sidebar-browser.png). macOS banners are not observable on capture slots, so they are UNVERIFIED there. `notify --reply` was verified live under cx-wnivp. |
 | SSH | WORKS | `remote.connect` and `remote.newWorkspace` against a private sshd on the slot opened a remote terminal (`SSH_CONNECTION ... 22101`). [Screenshot](evidence/urd5-ssh.png) |
 | Cloud | UNVERIFIED | Capture slots have no test Cloud account, and personal credentials never go on a slot: cx-urd.66. |
 | Update install | WORKS | `scripts/cmux-next/update-e2e.py` from 3829509799401 to 3830170534701: 20 PASS, 1 PENDING (rollback is not built). It used a local copy of the feed, because the live appcast holds only one item and no deltas: cx-urd.67. The Claude screenshot footer shows "Update installed · Restart to update". |
-| Import classic | WORKS | `cmux workspace import-classic` created a Terminal workspace from classic state. [Screenshot](evidence/urd5-ssh.png) |
+| Import classic | WORKS | After `cmux workspace import-classic`, the sidebar gained the "Terminal" row (below workspace-1). [Screenshot](evidence/urd5-ssh.png) |
 
 Top fix: cx-urd.63 (rename/move delta), red-then-green in #20000.
 
