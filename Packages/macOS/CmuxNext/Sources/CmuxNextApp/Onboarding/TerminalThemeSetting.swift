@@ -62,6 +62,9 @@ final class TerminalThemeSetting {
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
     /// The clock Shuffle Daily reads (tests move it to another day).
     var now: () -> Date = Date.init
+    /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
+    private var shufflesDaily = false
+    private var dayObservers: [any NSObjectProtocol] = []
     static let backgroundReloadDelay = Duration.milliseconds(60)
     private var observation: Task<Void, Never>?
 
@@ -79,6 +82,15 @@ final class TerminalThemeSetting {
         take(settings.snapshot, theme: settings.applied.appTheme, edits: settings.applied.themeEdits,
              background: settings.applied.windowBackground, art: settings.applied.backdropSelection,
              daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root))
+        // A time zone or clock change moves local midnight, which the armed timer cannot see.
+        for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
+            dayObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.shufflesDaily else { return }
+                    self.showDailyArt()
+                }
+            })
+        }
         observation = Task { [weak self] in
             for await (snapshot, theme, edits, background, art, daily) in ObservationStream({
                 (settings.snapshot, settings.applied.appTheme, settings.applied.themeEdits, settings.applied.windowBackground,
@@ -91,6 +103,7 @@ final class TerminalThemeSetting {
 
     private func take(_ snapshot: CmuxConfigSnapshot, theme: String?, edits: ThemeEdits, background: WindowBackgroundOverride,
                       art: BackdropSelection?, daily: Bool) {
+        shufflesDaily = daily
         if daily {
             showDailyArt()
         } else {
