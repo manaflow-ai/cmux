@@ -1086,14 +1086,15 @@ export function Composer({
                         ? chooser.current?.click()
                         : id === "screenshot" || id === "window"
                           ? // Back to the prompt either way (the + menu doesn't take focus back),
-                            // unless the person moved focus elsewhere while the capture ran.
+                            // unless the person moved focus out of the composer while the capture ran.
                             void capture?.(id === "window" ? "window" : "screen")
                               .then(async (file) => {
                                 if (file) await attach.current([file]);
                               })
                               .finally(() => {
                                 const focused = document.activeElement;
-                                if (!focused || focused === document.body) field.current?.focus();
+                                if (!focused || focused === document.body || form.current?.contains(focused))
+                                  field.current?.focus();
                               })
                           : id === "mention"
                             ? mention()
