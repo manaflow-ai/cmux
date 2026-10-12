@@ -39,7 +39,7 @@ struct SharedIndicatorSurfacesTests {
     func aSectionItemShowsItsWorkspacesIndicator(busy: Bool) throws {
         let workspace = try #require(try store(busy: busy).workspaces.first)
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
-        row.configure(SidebarTopProjection.workspaceInfo(workspace), style: .list)
+        row.configure(SidebarWorkspaceItems.workspaceInfo(workspace), style: .list)
         #expect(shown(row) == (busy ? .busy(progress: nil) : nil))
     }
 
