@@ -80,6 +80,19 @@ struct BrowserCLIDialogTests {
         }
     }
 
+    @Test(arguments: ["", "  answer  ", "  "])
+    func promptAcceptPreservesExplicitText(text: String) async throws {
+        try await withPanel { panel, params in
+            var answer: String?
+            enqueue(panel, kind: .javaScriptPrompt) { _, text in answer = text }
+            var params = params
+            params["text"] = text
+            let response = try await request("browser.dialog.accept", params)
+            #expect(response["ok"] as? Bool == true)
+            #expect(answer == text)
+        }
+    }
+
     @Test func queuedUIDialogCanBeAnsweredWithoutPageScript() async throws {
         try await withPanel { panel, params in
             panel.browserDialogsOwnedByCLI = false

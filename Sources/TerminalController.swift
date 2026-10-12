@@ -10044,7 +10044,8 @@ class TerminalController {
             v2MainSync {
                 // A native dialog blocks page JavaScript. Resolve the panel's
                 // authoritative queue before asking WebKit to execute anything.
-                let text = v2String(params, "text") ?? v2String(params, "prompt_text")
+                // Empty and whitespace-only prompt answers are meaningful.
+                let text = (params["text"] as? String) ?? (params["prompt_text"] as? String)
                 guard let dialog = ctx.browserPanel.respondToJavaScriptDialog(accept: accept, text: text) else {
                     return .err(code: "not_found", message: "No pending dialog", data: ["pending": []])
                 }
