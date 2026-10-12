@@ -57,32 +57,47 @@ export interface PopupHost {
   listen(listener: (event: PopupEvent) => void): () => void;
 }
 
-/** A host over a native call (`popup.show/update/hide`) and the window event `cmux-popup`. */
-export function nativePopupHost(
-  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+/**
+ * A host over the native calls (`post("show" | "update" | "hide", model)`) and the host's events
+ * (`listen`, which returns its unsubscribe).
+ */
+export function createPopupHost(
+  post: (call: "show" | "update" | "hide", params: Record<string, unknown>) => Promise<unknown>,
+  listen: (listener: (event: PopupEvent) => void) => () => void,
 ): PopupHost {
-  const quiet = (method: string, params: Record<string, unknown> = {}) => post(method, params).catch(() => undefined);
+  const quiet = (call: "show" | "update" | "hide", params: Record<string, unknown> = {}) =>
+    post(call, params).catch(() => undefined);
   let current: object | null = null;
   return {
     show(model, owner) {
       current = owner;
-      return quiet("popup.show", { ...model });
+      return quiet("show", { ...model });
     },
     update(model, owner) {
-      if (owner === current) void quiet("popup.update", { ...model });
+      if (owner === current) void quiet("update", { ...model });
     },
     hide(owner) {
       if (owner !== current) return;
       current = null;
-      void quiet("popup.hide");
+      void quiet("hide");
     },
     owner: () => current,
-    listen(listener) {
+    listen,
+  };
+}
+
+/** The agent pane's legacy bridge: `popup.show/update/hide` and the window event `cmux-popup`. */
+export function nativePopupHost(
+  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): PopupHost {
+  return createPopupHost(
+    (call, params) => post(`popup.${call}`, params),
+    (listener) => {
       const receive = (event: Event) => listener((event as CustomEvent<PopupEvent>).detail);
       window.addEventListener("cmux-popup", receive);
       return () => window.removeEventListener("cmux-popup", receive);
     },
-  };
+  );
 }
 
 const ROWS = '[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="separator"],hr';
