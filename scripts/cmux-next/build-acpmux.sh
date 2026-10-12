@@ -81,6 +81,39 @@ cache_bin="$cache_dir/acpmux"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# An nx-remote --app-from-fleet job (NX_APP set, for example
+# `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- scripts/cmux-next/build-acpmux.sh --print-path`):
+# the fleet-built app carries acpmux in Resources/bin, with acpmux.version
+# naming the commit it was built from. Seed the commit-addressed cache from it
+# instead of running Cargo, only when that commit is this tree's commit, the
+# binary is a regular file and it has every requested architecture. Without
+# NX_APP, or when any check fails, nothing changes.
+if [[ -n "${NX_APP:-}" && ! -x "$cache_bin" ]]; then
+  app_bin="$NX_APP/Contents/Resources/bin/acpmux"
+  app_commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$NX_APP/Contents/Resources/bin/acpmux.version" 2>/dev/null || true)"
+  app_archs="$(lipo -archs "$app_bin" 2>/dev/null || true)"
+  why=""
+  if [[ ! -f "$app_bin" || -L "$app_bin" || ! -x "$app_bin" ]]; then
+    why="no regular executable at $app_bin"
+  elif [[ "$app_commit" != "$source_commit" ]]; then
+    why="the app's acpmux is from commit ${app_commit:-unknown}, not $source_commit"
+  else
+    for arch in $archs; do
+      [[ " $app_archs " == *" $arch "* ]] || why="the app's acpmux has architectures ${app_archs:-unknown}, not $archs"
+    done
+  fi
+  if [[ -z "$why" ]]; then
+    mkdir -p "$cache_dir"
+    cp -f "$app_bin" "$cache_bin.tmp.$$"
+    chmod 755 "$cache_bin.tmp.$$"
+    mv -f "$cache_bin.tmp.$$" "$cache_bin"
+    printf '%s\n' "commit=$source_commit" "source=nx-app" "archs=$app_archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+    echo "acpmux from the fleet-built app $NX_APP (no Cargo build)" >&2
+  else
+    echo "warning: not using the acpmux of NX_APP: $why" >&2
+  fi
+fi
+
 if [[ -x "$cache_bin" ]]; then
   if [[ "$print_path" -eq 1 ]]; then
     printf '%s\n' "$cache_bin"

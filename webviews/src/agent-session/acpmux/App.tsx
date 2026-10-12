@@ -115,6 +115,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
   openReportedImage,
@@ -1753,6 +1754,7 @@ function AcpmuxPane() {
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
   const forkable = canFork(snapshot);
   const forkSeq = latestForkSeq(snapshot.rows);
+  const forkAny = forksAnyTurn(snapshot.summary?.family);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
@@ -2140,6 +2142,7 @@ function AcpmuxPane() {
       ...(forkable && {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
+        forkAny,
       }),
       ...(stableEditSeqs.size > 0 && {
         edit: {
@@ -2189,6 +2192,7 @@ function AcpmuxPane() {
       stableBranches,
       forkable,
       forkSeq,
+      forkAny,
       stableEditSeqs,
       connected,
       hunkReview,
