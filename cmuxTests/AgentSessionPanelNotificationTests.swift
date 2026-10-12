@@ -134,7 +134,6 @@ extension AgentNotificationRegressionTests {
         defer { store.closeAll() }
         var notices: [AgentSessionTurnNotifier.Notice] = []
         var started = false
-        var answered = false
         let notifier = AgentSessionTurnNotifier(
             surfaceID: UUID(), workspaceID: { UUID() }, workingDirectory: { nil },
             deliver: { notices.append($0) }
@@ -142,7 +141,6 @@ extension AgentNotificationRegressionTests {
         store.eventSink = { event in
             notifier.observe(event)
             if event["type"] as? String == "provider.started" { started = true }
-            if event["type"] as? String == "provider.output", (event["text"] as? String)?.contains("All done.") == true { answered = true }
         }
         let session = try await store.start(
             plan: AgentSessionLaunchPlan(
@@ -157,9 +155,10 @@ extension AgentNotificationRegressionTests {
         while !started, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         #expect(started, "the fake OpenCode session started")
         try await store.writeLine(sessionId: session.sessionId, text: "Read the file")
-        while !(answered && !notices.isEmpty), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
-        // A second notice would follow right behind the first.
-        try? await Task.sleep(for: .milliseconds(500))
+        // The turn's notice carries the final answer; a per-step notice comes before it.
+        while !notices.contains(where: { $0.body.contains("All done.") }), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         #expect(notices.count == 1, "one notification per OpenCode turn: \(notices.map(\.body))")
         #expect(notices.first?.body.contains("All done.") == true)
     }
