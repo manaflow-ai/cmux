@@ -1,8 +1,9 @@
-//! `cmux git commit`, `cmux git push` and `cmux git worktree create|apply`
-//! through a real daemon: the session host commits and pushes in a real
-//! repository with a local bare remote, makes a chat's worktree on a new
-//! branch beside the user's checkout, which it leaves untouched, and applies
-//! that worktree's work back to the checkout as uncommitted changes.
+//! `cmux git commit`, `cmux git push` and `cmux git worktree
+//! create|apply|remove` through a real daemon: the session host commits and
+//! pushes in a real repository with a local bare remote, makes a chat's
+//! worktree on a new branch beside the user's checkout, which it leaves
+//! untouched, applies that worktree's work back to the checkout as
+//! uncommitted changes, and removes the worktree without losing work.
 #![cfg(unix)]
 
 use super::*;
@@ -357,5 +358,103 @@ fn a_worktree_chats_work_applies_to_the_main_checkout_as_uncommitted_changes() {
     assert!(!refused.status.success(), "the main checkout applied to itself");
     let reason = String::from_utf8_lossy(&refused.stderr).to_string();
     assert!(reason.contains("not_a_worktree"), "{reason}");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn removing_a_worktree_chat_keeps_unsaved_work_unless_told_to_discard_it() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-git-worktree-remove-{}-{:x}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    let server = HeadlessServer::start_with_options(
+        "git-worktree-remove",
+        None,
+        None,
+        &[("HOME", home.to_str().unwrap())],
+    );
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let create = |name: &str, key: &str| {
+        let args = ["worktree", "create", "--name", name, "--idempotency-key", key];
+        assert_success(&git_cli(&server, &repo, &args));
+        home.join(".cmux/worktrees/project").join(name)
+    };
+    let reason = |output: &Output| String::from_utf8_lossy(&output.stderr).to_string();
+
+    // A chat's worktree with a commit of its own and a file it never added.
+    let worktree = create("chat", "c1");
+    fs::write(worktree.join("a.txt"), "two\n").unwrap();
+    git(&worktree, &["commit", "-q", "-am", "work"]);
+    fs::write(worktree.join("notes.txt"), "draft\n").unwrap();
+
+    // Its uncommitted work keeps it.
+    let refused = git_cli(&server, &worktree, &["worktree", "remove", "--idempotency-key", "r1"]);
+    assert!(!refused.status.success(), "a worktree with uncommitted work was removed");
+    assert!(reason(&refused).contains("uncommitted_changes"), "{}", reason(&refused));
+    assert!(worktree.join("notes.txt").exists());
+
+    // So does a commit that is on no remote and not on its base.
+    fs::remove_file(worktree.join("notes.txt")).unwrap();
+    let refused = git_cli(&server, &worktree, &["worktree", "remove", "--idempotency-key", "r2"]);
+    assert!(!refused.status.success(), "a worktree with unpushed commits was removed");
+    assert!(reason(&refused).contains("unpushed_commits"), "{}", reason(&refused));
+    assert!(worktree.exists());
+
+    // Told to discard it, the worktree, its branch and its recorded base go; the checkout stays.
+    let args = ["worktree", "remove", "--discard", "--idempotency-key", "r3"];
+    let removed = git_cli(&server, &worktree, &args);
+    assert_success(&removed);
+    let value = json_output(&removed);
+    assert_eq!(value["value"]["branch"], "cmux/chat", "{value}");
+    assert_eq!(value["value"]["branch_deleted"], true, "{value}");
+    assert!(!worktree.exists());
+    let branches = git(&repo, &["branch", "--list", "cmux/chat"]);
+    assert_eq!(branches, "");
+    let listed = git(&repo, &["worktree", "list", "--porcelain"]);
+    assert!(!listed.contains("cmux/chat"), "{listed}");
+    let config = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["config", "--get", "branch.cmux/chat.cmuxBase"])
+        .output()
+        .unwrap();
+    assert!(!config.status.success(), "the recorded base outlived its branch");
+    assert_eq!(fs::read_to_string(repo.join("a.txt")).unwrap(), "one\n");
+
+    // A worktree with nothing of its own goes without asking.
+    let clean = create("clean", "c2");
+    let args = ["worktree", "remove", "--idempotency-key", "r4"];
+    assert_success(&git_cli(&server, &clean, &args));
+    assert!(!clean.exists());
+    assert_eq!(git(&repo, &["branch", "--list", "cmux/clean"]), "");
+
+    // Commits on a detached HEAD live only there: they keep it too.
+    let detached = create("detached", "c3");
+    git(&detached, &["checkout", "-q", "--detach"]);
+    fs::write(detached.join("a.txt"), "three\n").unwrap();
+    git(&detached, &["commit", "-q", "-am", "detached work"]);
+    let args = ["worktree", "remove", "--idempotency-key", "r6"];
+    let refused = git_cli(&server, &detached, &args);
+    assert!(!refused.status.success(), "a detached HEAD's commits were removed");
+    assert!(reason(&refused).contains("unpushed_commits"), "{}", reason(&refused));
+    assert!(detached.exists());
+
+    // The main checkout is no worktree to remove.
+    let args = ["worktree", "remove", "--discard", "--idempotency-key", "r5"];
+    let refused = git_cli(&server, &repo, &args);
+    assert!(!refused.status.success(), "the main checkout was removed");
+    assert!(reason(&refused).contains("not_a_worktree"), "{}", reason(&refused));
+    assert!(repo.join("a.txt").exists());
     let _ = fs::remove_dir_all(root);
 }

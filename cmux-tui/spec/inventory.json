@@ -64,6 +64,7 @@
     "git.status",
     "git.worktree.apply",
     "git.worktree.create",
+    "git.worktree.remove",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
