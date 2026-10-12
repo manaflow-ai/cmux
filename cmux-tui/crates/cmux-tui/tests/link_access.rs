@@ -284,6 +284,11 @@ fn a_read_write_grant_brings_machine_edits_back_and_stops_on_a_conflict() {
     assert!(!ok, "{mixed}");
     assert_eq!(mixed["error_code"], "grant_mode_conflict", "{mixed}");
 
+    // A read-write folder that became a git working copy stops syncing.
+    git(&folder, &["init", "-q", "-b", "main"]);
+    let stopped = world.sync(&[]);
+    assert_eq!(stopped["synced"][0]["error_code"], "grant_folder_changed", "{stopped}");
+
     // Revoking a read-write grant keeps the machine's copy: it may hold work
     // not brought back yet.
     let (ok, revoked) = world.access(&[
@@ -314,7 +319,7 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 #[test]
-fn a_shared_working_copy_goes_without_any_repository_ignored_files_or_files_past_a_symlink() {
+fn a_grant_of_a_working_copy_sends_no_repository_ignored_file_or_file_past_a_symlink() {
     let world = World::new();
     let home = &world.home;
     // A git working copy: a tracked secret file, ignored output, a remote

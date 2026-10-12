@@ -389,7 +389,10 @@ fn grant(
             return Err(failure_of(&back));
         }
     }
-    let mut synced = sync_copy(socket, &folder, &remote, mode, true);
+    // Only a copy no grant of this machine holds yet is started over; one a
+    // grant holds may have machine work that has not come back.
+    let first = !store.grants.iter().any(|kept| kept.machine == machine && kept.remote == remote);
+    let mut synced = sync_copy(socket, &folder, &remote, mode, first);
     if synced["ok"] != json!(true) {
         return Err(failure_of(&synced));
     }
@@ -434,7 +437,12 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
             continue;
         }
         let mut entry = match grants::shareable(Path::new(&folder)) {
-            Ok(canonical) if canonical.as_os_str() == folder.as_str() => {
+            // A read-write folder that became a git working copy stops (its
+            // pull would take the machine's staged paths into the index).
+            Ok(canonical)
+                if canonical.as_os_str() == folder.as_str()
+                    && !(mode == Mode::Write && sync_cli::in_git(&canonical)) =>
+            {
                 sync_copy(socket, &canonical, &remote, mode, false)
             }
             // Moved, replaced by a symlink, or no longer shareable: it stays
