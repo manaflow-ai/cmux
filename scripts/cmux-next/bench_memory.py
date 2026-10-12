@@ -194,6 +194,9 @@ def open_workspace(app: App, recipe: str, url: str, index: int):
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
             print(f"   {kind} in {workspace}: {response.get('message') or response.get('error')}", file=sys.stderr)
+    # Tabs of a workspace that was never shown do not load; show it once, as
+    # a user who opened it would, so its pages and renderers count.
+    app.run("workspace.selectLast")
     return workspace
 
 
