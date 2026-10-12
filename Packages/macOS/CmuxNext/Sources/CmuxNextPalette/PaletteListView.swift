@@ -221,6 +221,8 @@ final class PaletteTableView: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         PalettePress.track(event, in: self, row: { point in
+            // A point over the search bar or footer still maps to a row scrolled out of view.
+            guard self.visibleRect.contains(point) else { return nil }
             let index = self.row(at: point)
             return index >= 0 ? index : nil
         }, select: { index in
