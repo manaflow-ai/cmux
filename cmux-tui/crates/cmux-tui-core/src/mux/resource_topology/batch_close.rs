@@ -526,12 +526,37 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<(WorkspaceMutationResult, BatchCloseOutcome)> {
-        let fingerprint = json!({
+        self.close_workspace_ending_terminals_for(
+            target,
+            requested_key,
+            expected_generation,
+            expected_revision,
+            mutation,
+            None,
+        )
+    }
+
+    /// Same, with an optional `reason` (`close-reason-v1`): a `session_end` close commits the
+    /// same way but is not recorded in the closed history. The reason is part of the request a
+    /// key names.
+    pub(crate) fn close_workspace_ending_terminals_for(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        reason: Option<CloseReason>,
+    ) -> anyhow::Result<(WorkspaceMutationResult, BatchCloseOutcome)> {
+        let mut fingerprint = json!({
             "op": "close-workspace",
             "workspace": target,
             "key": requested_key,
             "end_terminals": true,
         });
+        if let Some(reason) = reason {
+            fingerprint["reason"] = json!(reason.as_str());
+        }
         // A retry of a committed close replays before the selector resolves.
         {
             let registry = self.workspace_registry.lock().unwrap();
@@ -566,7 +591,7 @@ impl Mux {
             expected_generation,
             expected_workspace_revision: expected_revision,
             authorize_workspace: true,
-            record_closed: true,
+            record_closed: reason.is_none(),
             room: None,
         })?;
         let revision = match outcome.workspace_revision {

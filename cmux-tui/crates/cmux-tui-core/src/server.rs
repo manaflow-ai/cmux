@@ -1887,6 +1887,10 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         end_terminals: bool,
+        /// `close-reason-v1`, with `end_terminals`: `session_end` (the app closing a workspace
+        /// whose first tab did not start) keeps the close out of closed history.
+        #[serde(default)]
+        reason: Option<crate::mux::CloseReason>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3684,8 +3688,9 @@ fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
-            cmd_workspaces::close_workspace(mux, client, workspace, key, end_terminals, mutation)
+        Command::CloseWorkspace { workspace, key, end_terminals, reason, mutation } => {
+            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason };
+            cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {
             cmd_workspaces::mark_workspaces_provider_managed(mux, authority)

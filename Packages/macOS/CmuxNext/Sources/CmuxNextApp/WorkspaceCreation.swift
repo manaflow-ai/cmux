@@ -47,7 +47,7 @@ enum WorkspaceCreation {
             try await withTerminal(
                 createWorkspace: { try await connection.createWorkspace(name: name, key: key).key },
                 createTerminal: terminal,
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection) }
+                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
             )
         }
     }
@@ -76,7 +76,7 @@ enum WorkspaceCreation {
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
                 },
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection) }
+                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
             )
         }
     }

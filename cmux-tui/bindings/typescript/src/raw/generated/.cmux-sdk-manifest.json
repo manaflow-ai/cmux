@@ -2,32 +2,32 @@
   "files": [
     {
       "path": "commands.ts",
-      "sha256": "c32de7f339b1c40c957f3b1df6c47ead49433d7dd04310c722f2c86b41cb8af1",
-      "size": 132371
+      "sha256": "e713201b4f487e4ce94e4c4bd4a548abf5f17d6942c3d3eb907707b8b0ec3495",
+      "size": 132500
     },
     {
       "path": "events.ts",
-      "sha256": "933ed8f708d02443ab8d6a36a38c662b3895d4686086435dfce76e5ff3648084",
+      "sha256": "a09ea5e75343689e9102df912930e075e205ae4dd202119be3017193617f1d12",
       "size": 23583
     },
     {
       "path": "index.ts",
-      "sha256": "0be34df1e138e4b3219bb4552b626a5798307a503e24d625cb80ad6c3bc5998f",
+      "sha256": "9bb7db223ff11ecd656d02965103d83bbfe0017a0a6ef1e8c40670a5c653d0c6",
       "size": 272
     },
     {
       "path": "metadata.ts",
-      "sha256": "0c21a7bb3a4052e266b7785feb0b2481f1ed99bd1ed46135f56a0903f2ef2514",
-      "size": 638349
+      "sha256": "06584bdc2bf91ac094f2f79ac05df0d6f6f0cb0d4db40a6b501e582783647784",
+      "size": 638806
     },
     {
       "path": "types.ts",
-      "sha256": "7a43e9df02722f83a8b3904c46449b40a161426d086d5a5060b20bb7655d5ce9",
+      "sha256": "9d77971f601a8ab9363f205d3c8398dd8f8e1cb96916f901003c0b47232f94c5",
       "size": 37206
     }
   ],
   "format": 1,
-  "ir_sha256": "7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f",
+  "ir_sha256": "7eacbbb0253cd1ef1500bd88d2f65792463e9af4abac74fef0e4ce17aab02f66",
   "language": "typescript",
   "mux_protocol": 12,
   "schema_version": 2
