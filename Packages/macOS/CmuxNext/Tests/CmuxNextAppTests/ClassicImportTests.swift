@@ -101,6 +101,17 @@ struct ClassicImportTests {
         #expect(shapes.contains { $0.hasPrefix("right(down(app|chat:claude)|") }, "\(shapes)")
     }
 
+    /// A folder classic saved that no longer exists on this Mac (a deleted
+    /// project or a cleared /tmp) opens in the home folder; the workspace
+    /// still comes over with its splits.
+    @Test func aWorkspaceWhoseFolderIsGoneStillComesOver() async throws {
+        let shapes = try await importClassic(Self.everything) { session in
+            #expect(session.contains("/Users/cmux/p4rt-full/proj/app"), "the fixture's folders changed")
+            return session.replacingOccurrences(of: "/Users/cmux/p4rt-full/proj/app", with: "/Users/cmux/p4rt-full/gone/app")
+        }.shapes["full"] ?? []
+        #expect(shapes.contains { $0.hasPrefix("right(down(app|chat:claude)|") }, "\(shapes)")
+    }
+
     /// An SSH workspace opens on its host (classic: `cmux ssh cmux@127.0.0.1
     /// --port 2222`), through the daemon for that destination.
     @Test func anSSHWorkspaceOpensOnItsHost() async throws {
