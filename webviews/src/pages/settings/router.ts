@@ -51,7 +51,8 @@ export function fragmentLocation(fragment: string, state: unknown): FragmentLoca
   } as FragmentLocation;
 }
 
-export type SettingsLocation = { section: string; focus: string | null };
+/** `workspace` is the workspace Change Background… came from (the picker's This Workspace). */
+export type SettingsLocation = { section: string; focus: string | null; workspace: string | null };
 
 /**
  * The category and focused key of a router href such as `/settings/appearance?focus=a.b`. The path
@@ -63,9 +64,14 @@ export function parseLocation(href: string): SettingsLocation {
   const match = /^\/settings\/([^/]+)/.exec(url.pathname);
   const focus = url.searchParams.get("focus");
   const home = focus ? homes.get(focus) : undefined;
-  return { section: home?.category ?? categoryOf(match ? decodeURIComponent(match[1]!) : undefined), focus };
+  const section = home?.category ?? categoryOf(match ? decodeURIComponent(match[1]!) : undefined);
+  return { section, focus, workspace: url.searchParams.get("workspace") };
 }
 
-export function sectionHref(section: string, focus?: string | null): string {
-  return `/settings/${encodeURIComponent(section)}${focus ? `?focus=${encodeURIComponent(focus)}` : ""}`;
+export function sectionHref(section: string, focus?: string | null, workspace?: string | null): string {
+  const query = new URLSearchParams();
+  if (focus) query.set("focus", focus);
+  if (workspace) query.set("workspace", workspace);
+  const search = query.toString();
+  return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;
 }

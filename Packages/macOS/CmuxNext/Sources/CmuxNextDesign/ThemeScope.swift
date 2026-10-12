@@ -22,13 +22,23 @@ public final class ThemeScope {
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
-    public var backdropSelection: BackdropSelection? { selectedBackdropSelection ?? parent?.backdropSelection }
+    /// A room shows the background its shown workspace pinned (cx-t2x.5),
+    /// so a top page (`show(nil)`) is back on the app's.
+    public var backdropSelection: BackdropSelection? {
+        if let shown, shown.pinsBackdrop { return shown.backdropSelection }
+        return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
+    }
+    /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
+    private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
+    private var isPinned = false
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
         return nil
     }
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
     private var selectedBackdropSelection: BackdropSelection?
+    /// Plain glass here even when an ancestor has art (``pinBackdrop(_:)``).
+    private var pinsNoBackdrop = false
     private var selectedAppearanceTuning: AppearanceTuning?
     /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
     /// like art: one app-wide setting, read by every surface's owner through
@@ -52,6 +62,24 @@ public final class ThemeScope {
         // finds it ready.
         BackdropImageStore.shared.prewarm(selection)
         repaintBackdropArt()
+    }
+
+    /// Gives this scope its own background over its ancestors' (a workspace's own pick, cx-t2x.5):
+    /// `.none` is plain glass even under art, `.inherit` follows the ancestors again.
+    public func pinBackdrop(_ pin: BackdropPin) {
+        let (selection, none): (BackdropSelection?, Bool) = switch pin {
+        case .inherit: (nil, false)
+        case .none: (nil, true)
+        case .selection(let selection): (selection, false)
+        }
+        guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
+        selectedBackdropSelection = selection
+        pinsNoBackdrop = none
+        isPinned = selection != nil
+        BackdropImageStore.shared.prewarm(selection)
+        repaintBackdropArt()
+        // The rooms showing this scope draw its background.
+        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
     }
 
     /// Changes live tuning without changing theme colors or persisted settings.
@@ -195,10 +223,12 @@ public final class ThemeScope {
             if candidate === self { return }
             next = candidate.shown
         }
+        let backdrop = backdropSelection
         shown?.viewers.remove(self)
         shown = scope
         scope?.viewers.add(self)
         refreshDisplay(animated: animated, repaint: true)
+        if backdropSelection != backdrop { repaintBackdropArt() }
     }
 
     /// Repaints and notifies when `tokens` moved away from what was last

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -822,6 +822,7 @@
+@@ -840,6 +840,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
          case .typing: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
