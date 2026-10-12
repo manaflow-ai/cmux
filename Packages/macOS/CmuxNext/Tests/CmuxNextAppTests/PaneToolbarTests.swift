@@ -32,7 +32,10 @@ struct PaneToolbarTests {
         }
 
         func choose(_ menu: NSMenu?, _ title: String) {
-            guard let menu, menu.indexOfItem(withTitle: title) >= 0 else { return Issue.record("no \(title)") }
+            guard let menu, menu.indexOfItem(withTitle: title) >= 0 else {
+                Issue.record("no \(title)")
+                return
+            }
             menu.performActionForItem(at: menu.indexOfItem(withTitle: title))
         }
     }
