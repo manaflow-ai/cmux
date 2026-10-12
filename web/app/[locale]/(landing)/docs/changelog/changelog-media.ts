@@ -53,6 +53,39 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.65.1": {
+    title: "Keyboard Navigation, Session Search, Smarter Cmd-Click, Smaller Download",
+    features: [
+      {
+        title: "Move Around From the Keyboard",
+        description:
+          "Ctrl-Tab and Cmd-Shift-] / [ move between sidebar workspaces from any pane. Ctrl-Cmd-E focuses the sidebar, Ctrl-Cmd-1 through 9 focuses a pane by number, and Cmd-Shift-B jumps back to the pane where you last sent a prompt.",
+        tryIt: "Press `⌃⌘1` to focus the first pane.",
+      },
+      {
+        title: "Find Agent Sessions by What Was Said",
+        description:
+          "Global search finds open Claude Code and Codex sessions by the text of their conversations.",
+        tryIt: "Press `⌘⌥F` and type something you remember from the session.",
+      },
+      {
+        title: "Smarter Cmd-Click on Paths",
+        description:
+          "Cmd-click opens relative paths as files, folders in Finder, and notes.md:12 in the Markdown viewer. Cmd-hover underlines only paths that exist.",
+        tryIt: "Hold `⌘` over a file path in a terminal and click it.",
+      },
+      {
+        title: "Program Status in the Sidebar",
+        description:
+          "Programs can report idle, working, blocked, done, or error with OSC 7501, and the workspace sidebar shows it. Scripts can follow program_status.changed on the cmux-events stream.",
+      },
+      {
+        title: "Smaller Download",
+        description:
+          "Stable ships thin arm64 and x86_64 builds in a smaller DMG with a one-hop update path.",
+      },
+    ],
+  },
   "0.65.0": {
     title: "Agents over SSH, Crash Recovery, Predictive Echo, Settings Redesign, Terminal Import",
     features: [
