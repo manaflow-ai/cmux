@@ -177,6 +177,27 @@ struct ClassicImportTests {
         #expect(imported.notice?.contains("scrollback") == true, "\(imported.notice ?? "no toast")")
     }
 
+    /// Every terminal of a split workspace gets its own scrollback: a later
+    /// tab of a pane (`logs`) and each split's new pane (`web`, `db`), not
+    /// only the workspace's first terminal.
+    @Test func eachSplitTerminalGetsItsOwnScrollback() async throws {
+        let imported = try await importClassic(Self.splits, probe: true) { session in
+            var session = session
+            for name in ["api/logs", "web", "db"] {
+                let terminal = #""workingDirectory":"/Users/cmux/p4rt-classic/proj/"# + name + #""}"#
+                #expect(session.contains(terminal), "the fixture's \(name) terminal changed")
+                session = session.replacingOccurrences(
+                    of: terminal, with: #""scrollback":"saved in "# + name + #"\n","workingDirectory":"/Users/cmux/p4rt-classic/proj/"# + name + #""}"#)
+            }
+            return session
+        }
+        for (tab, name) in [("logs", "api/logs"), ("web", "web"), ("db", "db")] {
+            let screen = imported.probes["split api/\(tab)"] ?? ""
+            #expect(screen.contains("saved in \(name)"), "\(tab): \(screen)")
+            #expect(screen.components(separatedBy: "saved in ").count == 2, "\(tab) printed another terminal's scrollback: \(screen)")
+        }
+    }
+
     /// A session acpmux cannot resume as a chat (its plan is the harness's
     /// own terminal) stays a terminal in its folder, never a broken chat.
     @Test func anAgentSessionAcpmuxCannotResumeStaysATerminal() async throws {
