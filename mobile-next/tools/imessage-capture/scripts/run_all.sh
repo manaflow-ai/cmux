@@ -6,7 +6,7 @@ ROOT="${CNM_ROOT:-$HOME/cnm/imessage}"
 U="$(cat "$ROOT/udid")"
 S="$(dirname "$0")/run_scenario.sh"
 xcb() { (cd "$ROOT/proj" && xcodebuild -project IMsgCapture.xcodeproj -scheme IMsgUITests -destination "id=$U" \
-  -derivedDataPath "$ROOT/dd" test-without-building -only-testing:"IMsgUITests/$1" > "$ROOT/logs/$1.log" 2>&1; echo "$1 rc=$?"); }
+  -derivedDataPath "$ROOT/dd" test-without-building -only-testing:"IMsgUITests/$1" > "$ROOT/logs/${1//\//_}.log" 2>&1; echo "$1 rc=$?"); }
 mkdir -p "$ROOT/logs"
 xcrun simctl ui "$U" appearance light
 xcrun simctl status_bar "$U" override --time 9:41 --batteryLevel 100 --batteryState discharging --cellularBars 4 --wifiBars 3 --dataNetwork wifi --operatorName ""

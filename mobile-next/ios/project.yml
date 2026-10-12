@@ -55,7 +55,7 @@ targets:
         CNMBackendURL: $(CNM_BACKEND_URL)
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.mobile
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native
         PRODUCT_NAME: CmuxNext
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CNM_BACKEND_URL: https://cmux-next-mobile-native.debussy.workers.dev
@@ -69,7 +69,7 @@ targets:
       - target: CmuxNext
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.mobile.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: CmuxNext
 schemes:

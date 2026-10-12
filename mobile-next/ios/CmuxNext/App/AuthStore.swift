@@ -4,7 +4,7 @@ import Security
 
 /// Keeps the signed-in session in the Keychain (this device only).
 struct AuthStore {
-    private let service = "dev.cmux.next.mobile.session"
+    private let service = "dev.cmux.next.native.session"
     private let account = "default"
 
     func load() -> BackendSession? {

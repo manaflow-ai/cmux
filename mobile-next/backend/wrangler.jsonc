@@ -21,7 +21,7 @@
   // "send_email": [{ "name": "SEND_EMAIL" }],
 
   "vars": {
-    "APPLE_AUDIENCE": "dev.cmux.next.mobile",
+    "APPLE_AUDIENCE": "dev.cmux.next.native",
     "EMAIL_FROM": "cmux <no-reply@cmux.dev>",
     "TEST_EMAIL_DOMAIN": "test.cmux.dev"
   }

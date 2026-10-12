@@ -53,6 +53,18 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.2)
     }
 
+    /// Dismisses a context menu by tapping the dimmed backdrop on the side away from the menu.
+    func dismissMenu() {
+        let anchor = ["Copy", "Pin", "Mark as Unread", "Unpin"].map { app.buttons[$0] }.first { $0.exists }
+        if let f = anchor?.frame {
+            let x: CGFloat = f.midX < 201 ? 385 : 17
+            pt(x, min(f.maxY + 60, 760)).tap()
+        } else {
+            pt(385, 700).tap()
+        }
+        SMS.pause(1.2)
+    }
+
     func dump(_ tag: String) { print("=== \(tag) ===\n" + app.debugDescription) }
 
     // MARK: 1. Conversation list
@@ -90,18 +102,17 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.2)
         still("s1-row-context-menu")
         SMS.mark("dismiss-row-menu")
-        pt(201, 120).tap()
-        SMS.pause(1.5)
+        dismissMenu()
 
         SMS.mark("search-tap")
-        app.searchFields.firstMatch.tap()
+        pt(201, 822).tap()
         SMS.pause(1.5)
         still("s1-search-active")
-        app.searchFields.firstMatch.typeText("dinner")
+        app.typeText("dinner")
         SMS.pause(1.5)
         still("s1-search-results")
         dump("SEARCH")
-        app.buttons["close"].firstMatch.tap()
+        if app.buttons["close"].exists { app.buttons["close"].firstMatch.tap() } else { pt(366, 503).tap() }
         SMS.pause(1.5)
     }
 
@@ -139,8 +150,22 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.0)
         still("s1-pinned-context-menu")
         dump("PIN-MENU")
-        if app.buttons["Unpin"].exists { app.buttons["Unpin"].tap() } else { pt(201, 820).tap() }
+        if app.buttons["Unpin"].exists { app.buttons["Unpin"].tap() } else { dismissMenu() }
         SMS.pause(1.5)
+    }
+
+    func testProbeEdge() throws {
+        app.staticTexts[Chat.a].firstMatch.tap()
+        SMS.pause(1.5)
+        drag(CGPoint(x: 3, y: 450), CGPoint(x: 400, y: 450), velocity: 1500, hold: 0.0)
+        SMS.pause(1.5)
+        let inList = !app.navigationBars.buttons["BackButton"].exists
+        print("CNM-EDGE-RESULT-1 inList=\(inList)")
+        if !inList {
+            pt(3, 450).press(forDuration: 0.0, thenDragTo: pt(300, 450), withVelocity: .fast, thenHoldForDuration: 0)
+            SMS.pause(1.5)
+            print("CNM-EDGE-RESULT-2 inList=\(!app.navigationBars.buttons["BackButton"].exists)")
+        }
     }
 
     func testProbeState() throws {
@@ -162,7 +187,7 @@ final class Scenarios: XCTestCase {
         drag(CGPoint(x: 2, y: 450), CGPoint(x: 130, y: 450), velocity: 250, hold: 0.4)
         SMS.pause(1.5)
         SMS.mark("edge-complete")
-        drag(CGPoint(x: 2, y: 450), CGPoint(x: 320, y: 450), velocity: 900, hold: 0.0)
+        drag(CGPoint(x: 3, y: 450), CGPoint(x: 400, y: 450), velocity: 1500, hold: 0.0)
         SMS.pause(1.5)
         SMS.mark("push-2")
         app.staticTexts[Chat.a].firstMatch.tap()
@@ -252,12 +277,8 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.5)
         still("s4-tapback-menu-received")
         dump("TAPBACK-MENU")
-        let candidates = ["Heart", "Love", "heart", "Loved"]
-        var tapped = false
-        for c in candidates where app.buttons[c].exists {
-            SMS.mark("tap-heart"); app.buttons[c].tap(); tapped = true; break
-        }
-        if !tapped { pt(201, 820).tap() }
+        let heart = app.images.matching(NSPredicate(format: "identifier BEGINSWITH 'heart'")).firstMatch
+        if heart.exists { SMS.mark("tap-heart"); heart.tap() } else { dismissMenu() }
         SMS.pause(2.0)
         still("s4-after-heart")
 
@@ -267,17 +288,17 @@ final class Scenarios: XCTestCase {
         SMS.pause(1.5)
         still("s4-tapback-menu-sent")
         dump("TAPBACK-MENU-SENT")
-        for c in ["Thumbs Up", "Like", "Liked", "thumbsup"] where app.buttons[c].exists {
-            SMS.mark("tap-thumb"); app.buttons[c].tap(); tapped = true; break
-        }
+        let thumb = app.images.matching(NSPredicate(format: "identifier BEGINSWITH 'thumbsup'")).firstMatch
+        if thumb.exists { SMS.mark("tap-thumb"); thumb.tap() } else { dismissMenu() }
         SMS.pause(2.0)
         still("s4-after-thumb")
         SMS.mark("long-press-dismiss")
-        received.press(forDuration: 1.0)
+        let perfect = app.textViews.matching(identifier: "CKBalloonTextView").matching(NSPredicate(format: "value BEGINSWITH %@", "Perfect")).firstMatch
+        perfect.press(forDuration: 1.0)
         SMS.pause(1.5)
+        still("s4-context-menu-copy")
         SMS.mark("dismiss-menu")
-        pt(201, 120).tap()
-        SMS.pause(1.5)
+        dismissMenu()
     }
 
     // MARK: 5. Interactive keyboard dismissal
@@ -332,12 +353,11 @@ final class Scenarios: XCTestCase {
         still("s7-\(mode)-composer-keyboard")
         app.textFields["messageBodyField"].typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 10))
         dismissKeyboardIfNeeded()
-        let received = app.textViews.matching(identifier: "CKBalloonTextView").matching(NSPredicate(format: "value == %@", "Yes! 7pm works for me")).firstMatch
+        let received = app.textViews.matching(identifier: "CKBalloonTextView").matching(NSPredicate(format: "value BEGINSWITH %@", "Perfect")).firstMatch
         received.press(forDuration: 1.0)
         SMS.pause(1.2)
         still("s7-\(mode)-tapback-menu")
-        pt(201, 120).tap()
-        SMS.pause(1.0)
+        dismissMenu()
         openChat(Chat.b)
         SMS.pause(0.8)
         still("s7-\(mode)-transcript-b")
