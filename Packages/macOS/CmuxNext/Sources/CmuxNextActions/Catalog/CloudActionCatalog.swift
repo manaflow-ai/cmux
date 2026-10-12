@@ -76,6 +76,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.optionalPathString, CatalogArgument.optionalMachine], targets: [.tab],
                 cliName: "cloud move"
             ),
+            // Bring Back Local (cmuxterm-hq#1874 slice 4): the reverse, on a Cloud chat tab that
+            // a move from this Mac put there.
+            ActionDescriptor(
+                id: "cloudBringBack",
+                title: String(localized: "action.cloudBringBack", defaultValue: "Bring Back Local", bundle: .module),
+                keywords: ["vm", "cloud", "move", "back", "local", "chat", "agent", "sync"], category: .cloud,
+                symbol: "icloud.and.arrow.down", surfaces: [.palette, .contextMenu], targets: [.tab],
+                cliName: "cloud bring-back"
+            ),
             ActionDescriptor(
                 id: "cloudSSH",
                 title: String(localized: "action.cloudSSH", defaultValue: "Open Cloud SSH Terminal", bundle: .module),
