@@ -227,6 +227,66 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
+    // The Ghostty clipboard callback is synchronous and may run off-main; this
+    // short lock protects the compare-and-consume of a pending selection transaction.
+    private let clipboardWritePermitLock = NSLock()
+    private struct ClipboardWriteTransaction {
+        let deadline: UInt64
+        var remainingWrites: UInt8
+    }
+    private var clipboardWriteTransaction: ClipboardWriteTransaction?
+
+    /// Arms a bounded transaction for asynchronous writes caused by one pointer selection.
+    ///
+    /// A triple-click produces a word write followed by a line write, so the
+    /// caller may reserve more than one callback for the same gesture. The
+    /// transaction is replaced by a newer gesture and never accumulates stale
+    /// writes from an earlier selection.
+    ///
+    /// - Parameter writeCount: Number of non-empty callbacks this gesture may
+    ///   produce, clamped to the supported range of one through three.
+    public func permitClipboardWriteForUserGesture(writeCount: Int = 1) {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWriteTransaction = ClipboardWriteTransaction(
+            deadline: DispatchTime.now().uptimeNanoseconds + 15_000_000_000,
+            remainingWrites: UInt8(max(1, min(writeCount, 3)))
+        )
+    }
+
+    /// Consumes one callback from the pending pointer-selection transaction.
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard var transaction = clipboardWriteTransaction,
+              DispatchTime.now().uptimeNanoseconds <= transaction.deadline else {
+            clipboardWriteTransaction = nil
+            return false
+        }
+        transaction.remainingWrites -= 1
+        clipboardWriteTransaction = transaction.remainingWrites == 0 ? nil : transaction
+        return true
+    }
+
+    /// Returns whether a non-empty callback may write this surface's clipboard.
+    ///
+    /// Automatic writes remain governed by the surface trust policy. Manual
+    /// mirrors additionally require a pending user-selection transaction.
+    ///
+    /// - Parameter contentLength: Number of bytes in the callback payload.
+    /// - Returns: Whether the callback is admitted.
+    public func permitsClipboardWrite(contentLength: Int) -> Bool {
+        guard contentLength > 0 else { return false }
+        return allowsAutomaticClipboardWrite
+            || (ioMode == .manualMirror && consumeClipboardWritePermit())
+    }
+
+    /// Cancels a pending pointer-selection clipboard permit.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWriteTransaction = nil
+        clipboardWritePermitLock.unlock()
+    }
     /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
     /// remain denied by the runtime policy regardless of this flag.
     public let allowsRemoteClipboardWrites: Bool

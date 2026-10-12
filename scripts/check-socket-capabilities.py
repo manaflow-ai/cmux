@@ -69,6 +69,7 @@ debug.textbox.inline_fixture
 debug.textbox.interact
 debug.type
 debug.window.screenshot
+debug.window_hints
 debug.workspace_todo.checklist_add_field
 dogfood.feedback.submit
 feed.text

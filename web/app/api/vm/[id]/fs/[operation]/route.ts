@@ -42,10 +42,10 @@ export async function GET(request: Request, { params }: { params: Promise<Params
     if (!account.ok) return account.response;
     const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id };
     const run = operation === "dir"
-      ? await runVmRoute(listVmFiles(base, path), { request })
+      ? await runVmRoute(listVmFiles(base, path), { request, readDeadline: { operation: "filesRead" } })
       : operation === "read"
-        ? await runVmRoute(readVmFile(base, path), { request })
-        : await runVmRoute(statVmFile(base, path), { request });
+        ? await runVmRoute(readVmFile(base, path), { request, readDeadline: { operation: "filesRead" } })
+        : await runVmRoute(statVmFile(base, path), { request, readDeadline: { operation: "filesRead" } });
     if (!run.ok) return run.response;
     setSpanPath(span, id, path);
     if (operation === "read") {
