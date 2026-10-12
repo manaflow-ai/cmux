@@ -1915,7 +1915,7 @@ svg[data-icon-fill] {
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
   cursor: pointer;

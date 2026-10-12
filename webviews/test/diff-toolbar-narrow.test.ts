@@ -68,6 +68,7 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html`);
     await page.locator("#source-menu").waitFor();
+    await page.getByRole("button", { name: "Commit", exact: true }).waitFor();
     const capsules = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("#toolbar *, #diff-pill *")].flatMap((element) => {
         const { width, height } = element.getBoundingClientRect();
