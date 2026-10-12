@@ -81,7 +81,10 @@ struct BrowserToolbar: View {
     private let style = BrowserStyle.shared
 
     private var collapsed: Bool { chrome.bar == .collapsed && !chrome.editing }
-    private var splitBack: Bool { tab?.canGoForward == true }
+    private var history: BackForwardState {
+        BackForwardState(tab: tab, local: local != nil, sidesVisible: chrome.sidesVisible, editing: chrome.editing)
+    }
+    private var splitBack: Bool { history.forwardShown }
 
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: safeBottom, keyboard: keyboard, bar: chrome.bar, pillBottom: pillBottom,
@@ -96,8 +99,8 @@ struct BrowserToolbar: View {
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(local == nil ? sideOpacity : 0)
                 .position(x: layout.back.midX, y: layout.back.midY)
-                .allowsHitTesting(sideOpacity > 0 && local == nil)
-                .accessibilityHidden(sideOpacity == 0 || local != nil)
+                .allowsHitTesting(history.visible)
+                .accessibilityHidden(!history.visible)
             capsule(layout.capsule)
                 .position(x: layout.capsule.midX, y: layout.capsule.midY)
             rightButton(layout.right)
@@ -133,29 +136,44 @@ struct BrowserToolbar: View {
     /// slide and fade inside it, and the disabled tint crossfades. All of it
     /// rides the toolbar spring (no pop).
     @ViewBuilder private func backButton(_ r: CGRect) -> some View {
-        let canBack = tab?.canGoBack == true
+        let canBack = history.backEnabled
         let control = style.metrics.control
+        let half = splitBack ? r.width / 2 : control
         ZStack(alignment: .leading) {
+            // The forward glyph is drawn whether or not it can be tapped, so
+            // it slides and fades with the capsule; the button over it only
+            // exists while there is forward history (a hidden, scaled-down
+            // button stayed in the hit and accessibility trees).
+            Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
+                .foregroundStyle(style.colors.label)
+                .frame(width: max(1, r.width / 2), height: r.height)
+                .opacity(splitBack ? 1 : 0)
+                .scaleEffect(splitBack ? 1 : 0.6, anchor: .leading)
+                .offset(x: splitBack ? r.width / 2 : control / 2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             Button(action: onBack) {
                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
-                    .frame(width: splitBack ? r.width / 2 : control, height: r.height)
+                    .frame(width: half, height: r.height)
                     .contentShape(.rect)
             }
             .disabled(!canBack)
             .foregroundStyle(canBack ? style.colors.label : style.colors.glyphDisabled)
+            .frame(width: half, height: r.height)
             .accessibilityLabel("Back")
-            Button(action: onForward) {
-                Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
-                    .frame(width: max(1, r.width / 2), height: r.height)
-                    .contentShape(.rect)
+            if splitBack {
+                // Laid out (not offset) beside the back half, so its hit
+                // area is exactly the forward half.
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0).frame(width: half)
+                    Button(action: onForward) {
+                        Color.clear
+                            .frame(width: max(1, r.width - half), height: r.height)
+                            .contentShape(.rect)
+                    }
+                    .accessibilityLabel("Forward")
+                }
             }
-            .foregroundStyle(style.colors.label)
-            .opacity(splitBack ? 1 : 0)
-            .scaleEffect(splitBack ? 1 : 0.6, anchor: .leading)
-            .offset(x: splitBack ? r.width / 2 : control / 2)
-            .allowsHitTesting(splitBack)
-            .accessibilityHidden(!splitBack)
-            .accessibilityLabel("Forward")
         }
         .buttonStyle(.plain)
         .opacity(chrome.menuOpen ? 0.3 : 1)

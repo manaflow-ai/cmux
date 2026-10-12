@@ -368,7 +368,10 @@ final class BrowserModel {
     /// Opens a new tab showing the start page; returns its id.
     @discardableResult
     func newTab(url: String? = nil, onCreated: ((String) -> Void)? = nil) async -> String? {
-        guard let client = connection.client else { return nil }
+        guard let client = connection.client else {
+            notice = "Couldn't open a new tab: not connected to your Mac."
+            return nil
+        }
         do {
             let tab = try await client.createTab(url: url ?? "about:blank")
             merge(tab)
@@ -378,7 +381,9 @@ final class BrowserModel {
             await attach(tab.id)
             return tab.id
         } catch {
-            errorText = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            // A toast, not the full-screen error: the current tab (or the
+            // grid) stays as it was.
+            notice = Self.createFailureNotice("a new tab", error)
             return nil
         }
     }
@@ -462,8 +467,21 @@ final class BrowserModel {
         return "https://www.google.com/search?q=" + q
     }
 
-    func goBack() { if let id = activeTabId { Task { try? await connection.client?.goBack(id) } } }
-    func goForward() { if let id = activeTabId { Task { try? await connection.client?.goForward(id) } } }
+    func goBack() { history(.back) }
+    func goForward() { history(.forward) }
+
+    /// Sends the step for the active tab. A failure (link down, host error)
+    /// is a toast instead of a silent no-op.
+    private func history(_ step: BrowserHistoryStep) {
+        guard let id = activeTabId else { return }
+        Task {
+            do {
+                try await step.send(id, on: connection.requireClient())
+            } catch {
+                notice = "Couldn't \(step.verb): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            }
+        }
+    }
 
     func reloadOrStop() {
         guard let tab = activeTab else { return }
