@@ -49,11 +49,14 @@ export type TurnActions = {
 
 export const TurnActionsContext = createContext<TurnActions>({});
 
-/// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`.
+/// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
+/// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).
 export function chatLoginCommand(
   catalog: AcpmuxSnapshot["catalog"],
   harness: string | undefined,
-  _health: HarnessHealth | undefined,
+  health: HarnessHealth | undefined,
 ): string | undefined {
-  return catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  const checked = health && health.id === harness ? health.login?.trim() : undefined;
+  return profile || checked || undefined;
 }
