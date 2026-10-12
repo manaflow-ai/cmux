@@ -292,7 +292,7 @@ public nonisolated enum SidebarEdits {
         return removed
     }
 
-    static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
+    public static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
         guard let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
         if let group = position.group,
            let n = sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),
