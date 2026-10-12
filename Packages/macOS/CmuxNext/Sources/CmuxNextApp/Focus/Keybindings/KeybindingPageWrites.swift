@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextPages
 import CmuxNextSettings
 
