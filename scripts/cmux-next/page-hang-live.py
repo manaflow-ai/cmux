@@ -112,7 +112,8 @@ def run_page(name, url, hangs_on_click):
     opened = {id: w for id, w in app_windows().items() if id not in before}
     check(not opened, f"{name}: the card is inline, no window or dialog opened ({opened})")
     reply = page_status(press="wait")
-    check(reply.get("pressed") == "1" and not card_shown(), f"{name}: Wait hides the card ({reply})")
+    hidden = quiet_wait(lambda: not card_shown(), 5)
+    check(reply.get("pressed") == "1" and bool(hidden), f"{name}: Wait hides the card ({reply})")
     click_page()
     check(bool(quiet_wait(card_shown, HANG_SECONDS)), f"{name}: the card comes back while the page still hangs")
     reply = page_status(press="exit")
