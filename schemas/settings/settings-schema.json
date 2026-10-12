@@ -340,6 +340,7 @@
               "sidebar.workspaceRow.progress",
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
+              "sidebar.workspaceRow.notification",
               "sidebar.workspaceRow.secondLineOrder"
             ],
             "title" : {
@@ -550,7 +551,8 @@
               "notifications.attention.duration",
               "notifications.attention.persist",
               "notifications.attention.showOnTab",
-              "notifications.attention.showOnSidebar"
+              "notifications.attention.showOnSidebar",
+              "notifications.attention.moveToTop"
             ],
             "title" : {
               "key" : "settings.group.attention",
@@ -14827,6 +14829,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.notification.help",
+        "text" : "The text of the workspace's newest unread notification."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -14836,12 +14886,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -14889,6 +14947,7 @@
         "cmux-next"
       ],
       "default" : [
+        "notification",
         "directory",
         "branch",
         "process",
@@ -14923,7 +14982,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -15541,6 +15600,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.terminal",
+        "text" : "Terminal Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.terminal.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "terminal",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "terminal",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -15550,12 +15659,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -15631,7 +15748,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -16249,6 +16366,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.agent",
+        "text" : "Agent Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.agent.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "agent",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "agent",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -16258,12 +16425,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -16339,7 +16514,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -16957,6 +17132,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.browser",
+        "text" : "Browser Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.browser.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "browser",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "browser",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -16966,12 +17191,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -17047,7 +17280,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -17665,6 +17898,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.mixed",
+        "text" : "Mixed Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.mixed.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "mixed",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "mixed",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -17674,12 +17957,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -17755,7 +18046,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -20549,6 +20840,53 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.moveToTop.help",
+        "text" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.moveToTop",
+      "keywords" : [
+        "reorder",
+        "sort",
+        "bump"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "moveToTop"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.moveToTop",
+        "text" : "Move the Workspace to the Top"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -22058,7 +22396,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "57e8fc173fd93a8e3e0568fef6eac3592bffddfe2bba764cc24a0ed9fe8424b4",
+  "schema_hash" : "5269e4eb3bc1af7a643a7960017016c5439d1d26a97533402874b1860cce41ea",
   "sections" : [
     {
       "id" : "general",

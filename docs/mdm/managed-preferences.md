@@ -193,7 +193,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.progress` | boolean | `true` |  | Progress. A progress bar under the row and the busy mark of running work. |
 | `sidebar.workspaceRow.working` | boolean | `true` |  | Agent Working. A mark while an agent works in the workspace. |
 | `sidebar.workspaceRow.log` | boolean | `true` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
-| `sidebar.workspaceRow.secondLineOrder` | array | `["directory","branch","process","agentStatus","ports","lastActivity"]` | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
+| `sidebar.workspaceRow.notification` | boolean | `true` |  | Latest Notification. The text of the workspace's newest unread notification. |
+| `sidebar.workspaceRow.secondLineOrder` | array | `["notification","directory","branch","process","agentStatus","ports","lastActivity"]` | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.terminal.branch` | boolean |  |  | Git Branch |
@@ -206,7 +207,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.terminal.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.terminal.working` | boolean |  |  | Agent Working |
 | `sidebar.workspaceRow.terminal.log` | boolean |  |  | Log |
-| `sidebar.workspaceRow.terminal.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.terminal.notification` | boolean |  |  | Latest Notification |
+| `sidebar.workspaceRow.terminal.secondLineOrder` | array |  | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.agent.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.agent.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.agent.branch` | boolean |  |  | Git Branch |
@@ -219,7 +221,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.agent.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.agent.working` | boolean |  |  | Agent Working |
 | `sidebar.workspaceRow.agent.log` | boolean |  |  | Log |
-| `sidebar.workspaceRow.agent.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.agent.notification` | boolean |  |  | Latest Notification |
+| `sidebar.workspaceRow.agent.secondLineOrder` | array |  | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.browser.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.browser.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.browser.branch` | boolean |  |  | Git Branch |
@@ -232,7 +235,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.browser.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.browser.working` | boolean |  |  | Agent Working |
 | `sidebar.workspaceRow.browser.log` | boolean |  |  | Log |
-| `sidebar.workspaceRow.browser.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.browser.notification` | boolean |  |  | Latest Notification |
+| `sidebar.workspaceRow.browser.secondLineOrder` | array |  | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `sidebar.workspaceRow.mixed.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.mixed.directory` | boolean |  |  | Folder |
 | `sidebar.workspaceRow.mixed.branch` | boolean |  |  | Git Branch |
@@ -245,7 +249,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.mixed.progress` | boolean |  |  | Progress |
 | `sidebar.workspaceRow.mixed.working` | boolean |  |  | Agent Working |
 | `sidebar.workspaceRow.mixed.log` | boolean |  |  | Log |
-| `sidebar.workspaceRow.mixed.secondLineOrder` | array |  | `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
+| `sidebar.workspaceRow.mixed.notification` | boolean |  |  | Latest Notification |
+| `sidebar.workspaceRow.mixed.secondLineOrder` | array |  | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
@@ -292,6 +297,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.persist` | boolean | `true` |  | Keep Ring Until Read |
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
+| `notifications.attention.moveToTop` | boolean | `true` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
 | `feed.github.enabled` | boolean | `false` |  | Connect GitHub. Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first. |

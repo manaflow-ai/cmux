@@ -96,6 +96,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
     public var lastMessage: String?
+    /// The text of the newest unread notification in the workspace's tabs
+    /// (`WorkspaceRowElement.notification`); nil once they are read.
+    public var notificationText: String?
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
