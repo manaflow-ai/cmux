@@ -12,9 +12,14 @@ struct MessageCellLayout {
     /// iOS 26): iOS 27 pads 14 pt on each side; iOS 26 sits the glyphs
     /// against the margin, 10 pt below the balloon's top and 16.84 pt above
     /// its bottom (measured against the timestamp above and the next bubble).
+    /// At accessibility sizes iOS 26 grows the balloon with the text
+    /// bubbles' padding (10 to 12 pt, so 26.84 to 32.2 pt of room) and keeps
+    /// the glyphs 10 pt under its top: a 118.09 pt balloon at AX3 for the
+    /// same 72 pt glyph.
     static var emojiGlyphInsets: UIEdgeInsets {
         if #available(iOS 27, *) { return UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14) }
-        return UIEdgeInsets(top: 10, left: 0, bottom: 16.84, right: 0)
+        let room = (10 + 16.84) * ConversationTheme.bubbleVerticalPadding / 10
+        return UIEdgeInsets(top: 10, left: 0, bottom: room - 10, right: 0)
     }
 
     static var emojiBalloonInsets: CGSize {
