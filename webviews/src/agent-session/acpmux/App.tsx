@@ -11,7 +11,7 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
-import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
   layoutConversation,
@@ -1415,8 +1415,10 @@ export function VirtualTranscript({
       const top = clamped ? scrolledTo.current.top : live;
       const atLatest =
         clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
-      // At the first row nothing above can move it.
-      if (top > 0 && didOpenAtLatest.current && atLatest) {
+      // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
+      // heights and settle back to fit, and its reply must still be followed once it overflows
+      // (cx-ubd1y). Away from it, at the first row nothing above can move it.
+      if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
@@ -2344,7 +2346,10 @@ function AcpmuxPane() {
     () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
-  const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession);
+  const pickerCatalog = pickerState.catalog;
+  // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
+  const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
@@ -2523,10 +2528,12 @@ function AcpmuxPane() {
     let end = at + 1;
     while (end < rows.length && rows[end]!.kind !== "user") end += 1;
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
-    const key = `${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
+    // Keyed by the chat too: another chat's rows never read as this one's.
+    const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
     if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
     return lastEdit.current;
-  }, [snapshot.rows]);
+  }, [snapshot.rows, snapshot.sessionId]);
+  // Its files are the diff's own (the checkpoint's once loaded), so each opens at its file there.
   const lastChanges = useMemo(
     () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
     [lastEditTurn, turnCountsFor],
@@ -2554,7 +2561,9 @@ function AcpmuxPane() {
     previewTurns.current = seen;
     return found;
   }, [snapshot.rows]);
-  const toggleLastChanges = () => {
+  // The summary's Changes: the turn's diff, toggled; a file of it opens the diff at that file.
+  const toggleLastChanges = (path?: string) => {
+    if (path) return lastEditTurn && openDiff(lastEditTurn.rowId, path);
     if (diffView && diffOpen) return closeDiff();
     if (lastEditTurn) openDiff(lastEditTurn.rowId);
   };
@@ -4004,6 +4013,7 @@ function AcpmuxPane() {
       {snapshot.permissionGroups?.supported && (
         <PermissionPanel
           state={snapshot.permissionGroups}
+          working={snapshot.isWorking}
           onRespond={(groupId, revision, decision) => {
             void callNative("chat.permission_group.respond", { groupId, revision, decision });
           }}
@@ -4450,6 +4460,8 @@ function AcpmuxPane() {
               acpmux={snapshot.catalog}
               {...(harnessFolder ? { cwd: harnessFolder } : {})}
               callNative={callNative}
+              checking={harnessesChecking}
+              refreshCatalog={pickerState.refresh}
               onClose={() => setHarnessesOpen(false)}
               onStart={() => {
                 setHarnessesOpen(false);

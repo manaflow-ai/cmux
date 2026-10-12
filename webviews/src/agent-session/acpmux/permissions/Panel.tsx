@@ -11,6 +11,8 @@ const choices: Record<PermissionDecision, StringKey> = {
 
 type Props = {
   state: PermissionClientState;
+  /// The chat's turn is running: an answered group's receipt shows only until its turn ends.
+  working: boolean;
   onRespond(groupId: string, revision: number, decision: PermissionDecision): void;
   onRetry(): void;
   onRevoke(): void;
@@ -64,7 +66,7 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
   );
 }
 
-export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
   const t = useT();
   const shortcuts = {
     allow_once: useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce),
@@ -118,9 +120,17 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
       for (const [name, handler] of handlers) window.removeEventListener(`cmux-acpmux-${name}`, handler);
     };
   }, []);
+  // The answered group whose turn has ended: its receipt left the chat with that turn, and a later
+  // turn that asks nothing does not bring it back (cx-1lq0s).
+  const last = state.groups.at(-1);
+  const answered = last && last.state !== "pending" && last.state !== "collecting" ? last.groupId : undefined;
+  const [ended, setEnded] = useState<string>();
+  useEffect(() => {
+    if (!working && answered) setEnded(answered);
+  }, [working, answered]);
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
-  const receipt = pending.length === 0 ? state.groups.at(-1) : undefined;
+  const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
   if (!pending.length && !receipt && !state.chatAllowance && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   return (
