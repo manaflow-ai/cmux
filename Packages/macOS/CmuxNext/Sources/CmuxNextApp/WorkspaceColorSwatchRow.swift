@@ -4,7 +4,9 @@ import CmuxNextDesign
 
 /// The workspace menu's Color row (Leo 2026-10-11): the group colors as one row of swatches in
 /// place of a Color submenu. A swatch runs its choice (Set Workspace Color with that color); the
-/// current color is ringed, the hovered one ringed in the theme accent.
+/// current color is ringed, the hovered one ringed in the theme accent. In a themed menu
+/// (`NSMenu.themeRows(in:)`) the accent is the menu scope's. The title and the current ring are
+/// `labelColor`, as `ThemedMenuRowView` inks the rows around it on AppKit's menu material.
 @MainActor
 enum WorkspaceColorSwatchRow {
     static let action: ActionID = "palette.workspaceColor"
@@ -27,11 +29,13 @@ enum WorkspaceColorSwatchRow {
 }
 
 /// One row: the row's title, then a swatch per choice.
-final class WorkspaceColorSwatchView: NSView {
+final class WorkspaceColorSwatchView: NSView, ThemedMenuItemView {
     private let title: NSAttributedString
     private let choices: [NSMenuItem]
     private var swatches: [NSRect] = []
     private var hovered: Int?
+    /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
+    private var menuScope: ThemeScope?
     private static let diameter: CGFloat = 14, gap: CGFloat = 6, height: CGFloat = 28
     /// Where the menu's own item titles start and its shortcuts end, measured from captures of
     /// the shipped menu.
@@ -66,6 +70,23 @@ final class WorkspaceColorSwatchView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    func adoptMenuScope(_ scope: ThemeScope) {
+        menuScope = scope
+        needsDisplay = true
+    }
+
+    /// The hovered swatch's ring: the menu scope's accent.
+    @objc var hoverRingColor: NSColor {
+        if let menuScope { return menuScope.perform { Palette.accent } }
+        return performWithTheme { Palette.accent }
+    }
+
+    /// A swatch whose color can't be read: the scope's tertiary ink, not the system gray.
+    @objc var unknownSwatchColor: NSColor {
+        if let menuScope { return menuScope.perform { Palette.textTertiary } }
+        return performWithTheme { Palette.textTertiary }
+    }
+
     override func layout() {
         super.layout()
         var x = bounds.width - Self.trailingInset - CGFloat(choices.count) * (Self.diameter + Self.gap) + Self.gap
@@ -78,11 +99,12 @@ final class WorkspaceColorSwatchView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let size = title.size()
         title.draw(at: NSPoint(x: Self.titleInset, y: ((bounds.height - size.height) / 2).rounded()))
+        let hoverRing = hoverRingColor, unknown = unknownSwatchColor
         for (index, rect) in swatches.enumerated() {
             let color = ActionRegistry.menuRun(of: choices[index])?.arguments["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
-            (color?.markColor ?? .systemGray).setFill()
+            (color?.markColor ?? unknown).setFill()
             NSBezierPath(ovalIn: rect).fill()
-            let ringed = index == hovered ? Palette.accent : choices[index].state == .on ? NSColor.labelColor : nil
+            let ringed = index == hovered ? hoverRing : choices[index].state == .on ? NSColor.labelColor : nil
             if let ringed {
                 ringed.setStroke()
                 let ring = NSBezierPath(ovalIn: rect.insetBy(dx: -2.5, dy: -2.5))
