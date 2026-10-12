@@ -224,7 +224,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         placeholder.textColor = .placeholderText
         placeholder.isUserInteractionEnabled = false
         placeholder.isAccessibilityElement = false
-        fieldGlass.contentView.addSubview(placeholder)
+        // Over the field glass rather than in its content view, which is
+        // its own blending group: there a compositing filter only meets the
+        // clear content view (`ConversationTheme.composerInkCompositing`).
+        insertSubview(placeholder, aboveSubview: fieldGlass)
         updatePlaceholder()
 
         sendButton.backgroundColor = Self.sendBlue
@@ -256,7 +259,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.setPreferredSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17), forImageIn: .normal)
         micButton.isUserInteractionEnabled = false
         micButton.isAccessibilityElement = false
-        fieldGlass.contentView.addSubview(micButton)
+        insertSubview(micButton, aboveSubview: placeholder)
+        applyInkCompositing()
 
         sendLaterChip.isHidden = true
         sendLaterChip.onEdit = { [weak self] in self?.onSendLaterEdit?() }
@@ -320,10 +324,12 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let trailing = sendSize.width + 10
         textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
+            .offsetBy(dx: row.field.minX, dy: row.field.minY)
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
         sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
         // Messages centers the microphone 21 pt in from the field's end.
         micButton.frame = CGRect(x: field.width - 38, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
+            .offsetBy(dx: row.field.minX, dy: row.field.minY)
         // A fixed 20 pt continuous corner, not a capsule: the field keeps it
         // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
         fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
@@ -338,9 +344,18 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         fieldGlass.layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+        applyInkCompositing()
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             applyScaledFonts()
         }
+    }
+
+    /// The placeholder and microphone blend into the field as Messages'
+    /// do (`ConversationTheme.composerInkCompositing`).
+    private func applyInkCompositing() {
+        let filter = ConversationTheme.composerInkCompositing(traitCollection)
+        placeholder.layer.compositingFilter = filter
+        micButton.layer.compositingFilter = filter
     }
 
     /// The field's text and placeholder follow Dynamic Type; the field grows with them.
