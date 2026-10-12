@@ -9,6 +9,11 @@ import CmuxNextPages
 import Foundation
 import Testing
 
+/// The shared conformance vectors (`schemas/keybindings/keybinding-vectors.json`,
+/// R59) run through keybindings.json: each vector's entries and removals
+/// are written to the file the daemon watches, and once the app loaded
+/// them its binding table resolves the vector's keys as the file says.
+///
 /// A rebind the Keyboard Shortcuts page makes that cmux.json cannot hold
 /// (three keys) goes to keybindings.json through the real daemon
 /// (cx-9ce.17), and the binding table has it again after cmux and the
@@ -20,7 +25,9 @@ struct KeybindingsFileRelaunchTests {
         let services: AppServices
         let provider: KeybindingsPageProvider
 
-        init(root: URL, session: String, binary: URL) async throws {
+        /// `noopActions`: every catalog action runs anywhere its context holds
+        /// (the vectors' rule) instead of the app's handlers.
+        init(root: URL, session: String, binary: URL, noopActions: Bool = false) async throws {
             let config = root.appending(path: "cmux.json")
             let launcher = DaemonLauncher(
                 configuration: .init(binary: binary, session: session, stateDirectory: root.appending(path: "state")),
@@ -30,7 +37,11 @@ struct KeybindingsFileRelaunchTests {
                 })
             _ = NSApplication.shared
             let services = AppServices(environment: AppEnvironment.current([:]))
-            AppActions.bind(services)
+            if noopActions {
+                for descriptor in services.registry.descriptors { services.registry.bind(descriptor.id, invoke: { _ in }) }
+            } else {
+                AppActions.bind(services)
+            }
             let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: config,
                                               managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
             await settings.reload()
@@ -104,5 +115,82 @@ struct KeybindingsFileRelaunchTests {
         let relaunched = second.entries(command, keys: keys).map(\.source)
         await second.quit()
         #expect(relaunched == [.user], "the rebind was gone after the relaunch")
+    }
+
+    enum Outcome: Equatable {
+        case action(String, CmuxNextSettings.JSONValue?)
+        case armed
+        case none
+    }
+
+    @Test func theConformanceVectorsResolveFromKeybindingsJSON() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        var schemas = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { schemas.deleteLastPathComponent() }
+        let vectors = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: schemas.appending(path: "schemas/keybindings/keybinding-vectors.json"))) as? [String: Any])
+        let rows = try #require(vectors["vectors"] as? [[String: Any]])
+        #expect(rows.count >= 20)
+        let root = FileManager.default.temporaryDirectory.appending(path: "cn-keyvec-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: root.appending(path: "cmux.json"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appending(path: "keybindings.json")
+        let launch = try await Launch(root: root, session: "cn-keyvec-\(UUID().uuidString.prefix(8).lowercased())", binary: binary,
+                                      noopActions: true)
+        await launch.wait { launch.connected }
+        var results: [String] = []
+        for (index, row) in rows.enumerated() {
+            let name = row["name"] as? String ?? "?"
+            let bindings = row["bindings"] as? [[String: Any]] ?? []
+            let removals = (row["removals"] as? [[String: Any]] ?? []).map { entry in
+                entry.merging(["command": "-" + (entry["command"] as? String ?? "")]) { $1 }
+            }
+            // A marker entry makes every vector's file differ from the last one's.
+            let mark = "vectorIndex == v\(index)"
+            let marker: [String: Any] = ["key": "cmd+ctrl+opt+shift+0", "command": "toggleSidebar", "when": mark]
+            try JSONSerialization.data(withJSONObject: bindings + removals + [marker]).write(to: file, options: .atomic)
+            await launch.wait {
+                let layers = launch.services.registry.keyBindingLayers
+                return layers.user.count == bindings.count + 1 && layers.removals.count == removals.count
+                    && layers.user.last?.when?.text == (try? WhenClause.parse(mark))?.text
+            }
+            let context = (row["context"] as? [String: Any] ?? [:]).compactMapValues { any -> KeyContextValue? in
+                if let flag = any as? Bool, CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID() { return .bool(flag) }
+                if let number = any as? Double { return .number(number) }
+                return (any as? String).map(KeyContextValue.string)
+            }
+            let keys = (row["keys"] as? [String] ?? []).joined(separator: " ")
+            let report = KeybindingReports.resolve(keys, context: KeyContext(context), registry: launch.services.registry, window: nil)
+            guard case .object(let object)? = report else {
+                results.append("\(name): keys do not parse")
+                continue
+            }
+            let expect = row["expect"] as? [String: Any] ?? [:]
+            let winner = object["winner"]?.objectValue
+            let actual: Outcome = switch object["outcome"]?.stringValue {
+            case "run": .action(winner?["command"]?.stringValue ?? "?", winner?["args"])
+            case "armed": .armed
+            default: .none
+            }
+            let expected: Outcome
+            if let action = expect["action"] as? String {
+                let args = (expect["args"] as? [String: Any]).map { args in
+                    CmuxNextSettings.JSONValue.object(args.mapValues { any in
+                        if let flag = any as? Bool, CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID() { return .bool(flag) }
+                        if let number = any as? Int { return CmuxNextSettings.JSONValue(number) }
+                        return .string("\(any)")
+                    })
+                }
+                expected = .action(action, args)
+            } else {
+                expected = expect["armed"] as? Bool == true ? .armed : .none
+            }
+            if actual != expected { results.append("\(name): \(actual), expected \(expected)") }
+        }
+        let issues = launch.services.keybindingsFile.issues
+        await launch.quit()
+        #expect(results.isEmpty, "\(results.joined(separator: "\n"))")
+        #expect(issues.isEmpty, "\(issues)")
     }
 }
