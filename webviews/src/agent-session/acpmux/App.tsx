@@ -846,6 +846,12 @@ const WARM_VIEWPORTS = 1;
 const JUMP_LATEST_DISTANCE = 80;
 /// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
 const JUMP_LATEST_SETTLE_MS = 600;
+/// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
+/// transcript this long before it) and that stays within about a line of it is not a scroll up.
+/// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
+/// the latest line, which stopped the chat following for good (cx-02st5).
+const READER_SCROLL_MS = 1000;
+const STRAY_SCROLL_PX = 24;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
 function scrollRangeIn(scroller: HTMLElement, range: Range) {
   const box = range.getBoundingClientRect();
@@ -1157,6 +1163,11 @@ export function VirtualTranscript({
     };
   }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
+  const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
+  const strayFrom = (top: number, latest: number) =>
+    latest - top < STRAY_SCROLL_PX && performance.now() - readerAt.current > READER_SCROLL_MS;
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -1417,7 +1428,10 @@ export function VirtualTranscript({
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
       const atLatest =
-        clamped || unmoved ? scrolledTo.current.atLatest : top >= old.totalHeight - node.clientHeight - 1;
+        clamped || unmoved
+          ? scrolledTo.current.atLatest
+          : top >= old.totalHeight - node.clientHeight - 1 ||
+            (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
@@ -1453,6 +1467,7 @@ export function VirtualTranscript({
       const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
       const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
       node.scrollTop = top;
+      followTrace.set(top);
       setScroll({ top, delta: 0 });
       setFollowing(top >= latest - 1);
       didOpenAtLatest.current = true;
@@ -1589,18 +1604,27 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
-    const next = event.currentTarget.scrollTop;
+    const node = event.currentTarget;
+    const next = node.scrollTop;
     const was = scrolledTo.current;
-    scrolledTo.current = scrollPosition(event.currentTarget, layout.totalHeight);
+    scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+    if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
+      // Not the reader's scroll: the view keeps following the reply.
+      scrolledTo.current = { top: latest, atLatest: true };
+      node.scrollTop = latest;
+      followTrace.set(latest);
+      return;
+    }
     if (was.atLatest && !scrolledTo.current.atLatest)
       followTrace.stopped({
         top: next,
         previous: was.top,
-        latest: layout.totalHeight - event.currentTarget.clientHeight,
-        scrollHeight: event.currentTarget.scrollHeight,
-        clientHeight: event.currentTarget.clientHeight,
+        latest,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
       });
-    followTrace.update(event.currentTarget, layout.totalHeight, scrolledTo.current.atLatest);
+    followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
@@ -1633,6 +1657,7 @@ export function VirtualTranscript({
   useEffect(() => {
     const node = ref.current;
     const reader = () => {
+      readerAt.current = performance.now();
       followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
