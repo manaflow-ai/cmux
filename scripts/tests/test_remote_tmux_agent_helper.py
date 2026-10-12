@@ -152,6 +152,9 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = self._tmux_calls()
         self.assertTrue(any("set-option" in call and "default-command" in call for call in calls))
+        self.assertTrue(any(
+            call[2:6] == ["list-panes", "-s", "-t", "$1"] for call in calls
+        ))
         self.assertTrue(any("send-keys" in call and "init.sh" in " ".join(call) for call in calls))
 
     def test_install_does_not_inject_into_busy_shell_input(self):
