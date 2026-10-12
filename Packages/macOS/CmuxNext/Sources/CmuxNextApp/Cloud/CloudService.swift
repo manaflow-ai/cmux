@@ -44,6 +44,10 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// Move to Cloud's CLI and machine folders.
+    @ObservationIgnored var move = CloudMoveSetup()
+    /// What Retry does for each chat whose move stopped.
+    @ObservationIgnored let moveRetries = CloudMoveRetries()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -81,6 +85,7 @@ final class CloudService {
             allowedOps: { await CloudCredentialRelay.bundledServedOps() }
         ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
+        move.cli = binary
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }

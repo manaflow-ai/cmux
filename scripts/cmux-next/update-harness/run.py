@@ -218,6 +218,19 @@ def surface_shots(sock, out, phase, log, popover):
     return shots
 
 
+def island_state(sock):
+    """The active window's update pages (debug.update_surfaces state, cx-asynu)."""
+    return rpc(sock, "debug.update_surfaces", {"action": "state"}).get("result", {})
+
+
+def island_check(result, name, state, **expected):
+    """Records `state` under `name` with each expected key's verdict; a miss marks the run failed."""
+    misses = {k: (state.get(k), v) for k, v in expected.items() if state.get(k) != v}
+    result.setdefault("island_lifecycle", {})[name] = {"state": state, "misses": misses}
+    if misses:
+        result.setdefault("island_failures", []).append(name)
+
+
 def write_notes(feed, keys, info, log):
     """Signed release notes for `info`'s build, laid out like the real feed: notes/<build>.json + .sig."""
     build, short = info["CFBundleVersion"], info.get("CFBundleShortVersionString", "0")
@@ -319,11 +332,19 @@ def main():
     ap.add_argument("--surface-shots", action="store_true",
                     help="capture the React update surfaces: the staged card's highlights popover before the "
                          "restart and the Updated card after it, light and dark (debug.window_snapshot)")
+    ap.add_argument("--island-lifecycle", action="store_true",
+                    help="with --surface-shots and --notes: check that each update page exists only while its card "
+                         "shows (debug.update_surfaces state): the Updated card's page at launch and none after its x, "
+                         "no highlights page before staging, the highlights page drawn (the popover opens only with "
+                         "a measured page) and 3 staged items (the updater's data) once staged, the Updated card's "
+                         "page drawn after the restart")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
     a = ap.parse_args()
+    if a.island_lifecycle and not (a.surface_shots and a.notes):
+        ap.error("--island-lifecycle needs --surface-shots and --notes")
 
     if a.port == 0:
         probe = socket.socket()
@@ -459,6 +480,21 @@ def main():
             result["v1_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
             time.sleep(2.0)  # capture timing only: the card's page loads and reports its height
             result["v1_updated_shots"] = surface_shots(sock, out, "v1-updated", log, popover=False)
+        if a.island_lifecycle:
+            # Launch: the Updated card's page only. A launch check may stage the update already, so
+            # the highlights page must follow the card, not be absent.
+            state = island_state(sock)
+            island_check(result, "v1-launch", state, updatedCard="true", updatedPage="true", highlights=state.get("card"))
+            rpc(sock, "debug.update_surfaces", {"action": "dismiss-updated"})
+            deadline = time.monotonic() + 5
+            while island_state(sock).get("updatedCard") == "true" and time.monotonic() < deadline:
+                time.sleep(0.2)  # the sidebar applies the dismissal on its next model pass
+            state = island_state(sock)
+            idle = state.get("card") == "false"
+            island_check(result, "v1-after-dismiss", state, updatedCard="false", updatedPage="false",
+                         highlights=state.get("card"), **({"sidebarWebViews": 0} if idle else {}))
+            result["island_lifecycle"]["v1-after-dismiss"]["idle"] = idle
+            log("island lifecycle", json.dumps(result["island_lifecycle"]))
         if not first(marks.read(), "updater_created", pid=v1_pid):
             raise SystemExit("v1 did not start the harness updater (is it a DEBUG build with the harness keys?)")
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
@@ -492,6 +528,11 @@ def main():
             log("highlights", json.dumps(highlights, ensure_ascii=False)[:2000])
         if a.surface_shots:
             result["ready_shots"] = surface_shots(sock, out, "ready", log, popover=True)
+        if a.island_lifecycle:
+            items = len((result.get("highlights") or {}).get("items") or [])
+            shown = result["ready_shots"].get("ready-light-popover-shown", {})
+            island_check(result, "v1-staged", dict(island_state(sock), items=items, popoverShown=shown.get("shown")),
+                         card="true", highlights="true", items=3, popoverShown="true")
         if terminal:
             terminal.start(v1)
             agent.start()
@@ -590,6 +631,10 @@ def main():
             if a.surface_shots:
                 result["v2_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
                 result["updated_shots"] = surface_shots(sock, out, "updated", log, popover=False)
+            if a.island_lifecycle:
+                state = island_state(sock)
+                island_check(result, "v2-updated", dict(state, drawn=float(state.get("updatedHeight", "0")) > 0),
+                             updatedCard="true", updatedPage="true", drawn=True)
         except OSError as error:
             result["v2_socket_error"] = str(error)
         if a.second_hop:
@@ -639,6 +684,11 @@ def main():
                 os.unlink(record)
             with open(os.path.join(out, "timeline.json"), "w") as f:
                 json.dump(result, f, indent=1)
+    if a.island_lifecycle:
+        log("island lifecycle", json.dumps(result.get("island_lifecycle")))
+        if result.get("island_failures") or len(result.get("island_lifecycle", {})) != 4:
+            raise SystemExit(f"island lifecycle failed: {result.get('island_failures')}, "
+                             f"phases {sorted(result.get('island_lifecycle', {}))} of 4")
 
 
 if __name__ == "__main__":

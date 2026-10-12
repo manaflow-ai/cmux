@@ -60,6 +60,11 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
     expect(result.play, result.report).toBe("pass");
   });
 
+  test("a capture too large to attach says so", async () => {
+    const result = await play("attach-screenshot-too-large");
+    expect(result.play, result.report).toBe("pass");
+  });
+
   test("a cancelled Attach Window… attaches nothing", async () => {
     const result = await play("attach-window-cancelled");
     expect(result.play, result.report).toBe("pass");

@@ -22,6 +22,9 @@ extension AgentTabStore {
         // of a first page (``opensFirstPage(on:chat:)``).
         let remote = !daemon.isLocal
         guard !remote || chat != nil else { throw DaemonError.notConnected }
+        // A chat of this Mac (an outside chat it resumes, a past chat of its list) never opens in a
+        // workspace of another machine (cx-k21v).
+        if remote, chat?.adopt != nil || chat?.pastChat != nil { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
         let record: AgentSessionRef
         if remote {
             guard let registry = Self.registryHost(of: daemon) else { throw DaemonError.notConnected }
@@ -44,7 +47,7 @@ extension AgentTabStore {
             return response.surface
         }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[key] = firstPageNewTab?(cwd)
+        newTabPages[key] = firstPageNewTab?(cwd, nil)
         // The tree can list the tab before this reply, and a pane showing it
         // then made a plain chat: it becomes the page now, unless it already has a session.
         if let view = views[key], let page = newTabPages[key]?.page {
@@ -94,10 +97,13 @@ extension AgentTabStore {
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller, keep: tabs?.sessions[key] != nil)
             }
         }
-        tabs.firstPageNewTab = { [weak services] cwd in
+        tabs.firstPageNewTab = { [weak services] cwd, beside in
             guard let services else { return nil }
-            var page = NewTabPage.page(services, selected: nil)
-            page.cwd = cwd
+            // A page beside a chat of another machine shows that machine's folders (cx-k21v).
+            // (A chat of this Mac keeps the plain page, as before.)
+            let tab = beside.flatMap { services.locateTab($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
+            var page = NewTabPage.page(services, selected: tab)
+            page.cwd = cwd ?? page.cwd
             let handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
                 guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)

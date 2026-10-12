@@ -1,4 +1,5 @@
-//! `closed.delete` through the CLI and a real daemon.
+//! `closed.delete` through the CLI and a real daemon, and the screen that
+//! `closed.reopen` publishes on `session.events` (cx-gzh.24).
 #![cfg(unix)]
 
 use super::*;
@@ -114,4 +115,228 @@ fn state_cli_closed_delete_and_clear_through_a_real_daemon() {
         .unwrap();
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("--since-ms"));
+}
+
+/// A `session.events` subscription; its lines arrive on the receiver. The
+/// returned writer keeps the stream's connection open.
+fn session_events(server: &HeadlessServer) -> (impl Sized + use<>, mpsc::Receiver<String>) {
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "reopen-screen-events",
+        "operation": "session.events",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_44444444444444448444444444444444",
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    writer.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let remaining =
+            deadline.checked_duration_since(Instant::now()).expect("no session.events reply");
+        let line = rx.recv_timeout(remaining).expect("no session.events reply");
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == "reopen-screen-events" {
+            assert_eq!(message["ok"], true, "session.events failed: {message}");
+            return (writer, rx);
+        }
+    }
+}
+
+/// The tab ids of the session snapshot.
+fn tab_ids(server: &HeadlessServer) -> Vec<String> {
+    state_cli_topology(server)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| tab["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// The one tab that `after` has and `before` lacks.
+fn new_tab(before: &[String], after: &[String]) -> String {
+    let fresh = after.iter().filter(|tab| !before.contains(tab)).collect::<Vec<_>>();
+    assert_eq!(fresh.len(), 1, "expected one new tab: before={before:?} after={after:?}");
+    fresh[0].clone()
+}
+
+/// Read delta items until one upserts `tab`; return the changes of that
+/// item and every delta item before it since the last call.
+fn changes_through_tab_upsert(rx: &mpsc::Receiver<String>, tab: &str) -> Vec<serde_json::Value> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(line) = rx.recv_timeout(remaining) else { break };
+        let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let item = &message["item"];
+        if message["type"] != "stream_item" || item["kind"] != "delta" {
+            continue;
+        }
+        let changes = item["changes"].as_array().cloned().unwrap_or_default();
+        let has_tab = changes.iter().any(|change| {
+            change["kind"] == "upsert" && change["resource"] == "tab" && change["id"] == tab
+        });
+        seen.push(changes);
+        if has_tab {
+            return seen.pop().unwrap();
+        }
+    }
+    panic!("no delta upserted tab {tab}; deltas={seen:?}");
+}
+
+/// The content id of `tab`'s upsert in `changes`.
+fn tab_content(changes: &[serde_json::Value], tab: &str) -> serde_json::Value {
+    changes
+        .iter()
+        .find(|change| change["resource"] == "tab" && change["id"] == tab)
+        .map(|change| change["value"]["content_id"].clone())
+        .unwrap_or_else(|| panic!("no upsert of tab {tab}: {changes:?}"))
+}
+
+/// Whether `changes` upsert a screen whose layout holds `tab`.
+fn screen_holds_tab(changes: &[serde_json::Value], tab: &str) -> bool {
+    changes.iter().any(|change| {
+        change["kind"] == "upsert"
+            && change["resource"] == "screen"
+            && change["value"]["layout"].to_string().contains(&format!("\"{tab}\""))
+    })
+}
+
+/// A client that builds pane tabs from the screen layout sees a reopened
+/// tab at once: the delta that upserts the reopened tab also upserts its
+/// screen with the tab in the layout, as for a normal `tab create`.
+#[test]
+fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
+    let server = HeadlessServer::start("closed-reopen-screen");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let pane = snapshot["tabs"].as_array().unwrap()[0]["pane_id"].as_str().unwrap().to_string();
+    let (_stream, rx) = session_events(&server);
+
+    let before = tab_ids(&server);
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &pane]);
+    let created = new_tab(&before, &tab_ids(&server));
+    let changes = changes_through_tab_upsert(&rx, &created);
+    let terminal = tab_content(&changes, &created);
+    assert!(
+        screen_holds_tab(&changes, &created),
+        "a tab create published no screen with tab {created}: {changes:?}"
+    );
+
+    state_cli(&server, None, &["tab", &created, "close"]);
+    let before = tab_ids(&server);
+    assert!(!before.contains(&created), "the closed tab is still open: {before:?}");
+    let reopen = state_cli(&server, None, &["closed", "reopen"]);
+    let reopened = new_tab(&before, &tab_ids(&server));
+    assert_eq!(reopen["value"]["tab_ids"], serde_json::json!([reopened]), "{reopen}");
+    let changes = changes_through_tab_upsert(&rx, &reopened);
+    // The reopen gave the still-running terminal a new view
+    // (`terminal.project`), not a new shell.
+    assert_eq!(tab_content(&changes, &reopened), terminal, "{changes:?}");
+    assert!(
+        screen_holds_tab(&changes, &reopened),
+        "closed.reopen published tab {reopened} with no screen that holds it: {changes:?}"
+    );
+}
+
+/// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
+fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
+    fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if !node.is_object() {
+            return None;
+        }
+        if node["kind"] == "leaf" && node["pane_id"] == pane {
+            return Some(node["tab_ids"].clone());
+        }
+        ["first", "second"]
+            .iter()
+            .find_map(|side| find(&node[*side], pane))
+            .or_else(|| node["columns"].as_array()?.iter().find_map(|column| find(column, pane)))
+    }
+    changes
+        .iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "screen")
+        .find_map(|change| find(&change["value"]["layout"]["root"], pane))
+}
+
+/// `terminal.move` to another pane restates the screen in the delta that
+/// moves the tab, so a client that builds pane tabs from the screen layout
+/// shows the tab in its new pane at once (cx-gzh.25).
+#[test]
+fn terminal_move_to_another_pane_publishes_the_changed_screen() {
+    let server = HeadlessServer::start("terminal-move-screen");
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let first = snapshot["tabs"].as_array().unwrap()[0].clone();
+    let source = first["pane_id"].as_str().unwrap().to_string();
+    let before = tab_ids(&server);
+    state_cli(&server, None, &["tab", "create", "terminal", "--pane", &source]);
+    let moved = new_tab(&before, &tab_ids(&server));
+    let pane_ids = |snapshot: &serde_json::Value| -> Vec<String> {
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let before = pane_ids(&state_cli_topology(&server));
+    state_cli(&server, None, &["pane", &source, "split", "--right"]);
+    let snapshot = state_cli_topology(&server);
+    let target = pane_ids(&snapshot)
+        .into_iter()
+        .find(|pane| !before.contains(pane))
+        .expect("the split made no pane");
+    let find = |kind: &str, field: &str, value: &str| {
+        snapshot[kind]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item[field] == value)
+            .unwrap_or_else(|| panic!("no {kind} with {field} {value}: {snapshot}"))
+            .clone()
+    };
+    let terminal = find("terminals", "tab_id", &moved)["id"].as_str().unwrap().to_string();
+    let screen = find("panes", "id", &target)["screen_id"].as_str().unwrap().to_string();
+    let workspace = find("screens", "id", &screen)["workspace_id"].as_str().unwrap().to_string();
+    let (_stream, rx) = session_events(&server);
+
+    state_cli(
+        &server,
+        None,
+        &[
+            "terminal",
+            &terminal,
+            "move",
+            "--workspace",
+            &workspace,
+            "--screen",
+            &screen,
+            "--pane",
+            &target,
+            "--index",
+            "0",
+        ],
+    );
+    let changes = changes_through_tab_upsert(&rx, &moved);
+    let Some(target_tabs) = leaf_tabs(&changes, &target) else {
+        panic!("terminal.move published no screen with pane {target}: {changes:?}");
+    };
+    assert!(target_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
+    let source_tabs = leaf_tabs(&changes, &source).expect("no source leaf");
+    assert!(!source_tabs.as_array().unwrap().contains(&serde_json::json!(moved)), "{changes:?}");
 }
