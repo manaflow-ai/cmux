@@ -86,6 +86,12 @@ struct ForkApi {
   int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
   int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
   int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 20: import with the conflicting rows' indices, and Replace
+  // for them (the person's explicit choice; shim_password_import.mm).
+  int (*password_import_v2)(const char*, const cmux_shim_password_entry*, int,
+                            void (*)(void*, int, int, int, const int*, int), void*) = nullptr;
+  int (*password_import_replace)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int),
+                                 void*) = nullptr;
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
