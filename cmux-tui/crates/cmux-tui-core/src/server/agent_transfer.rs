@@ -859,6 +859,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             };
             let entry = Move { files, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
+            // The chat is leaving this machine: no new tab of it may name it.
+            mux.forget_landed_agent_session(&source_session);
             Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
                        "manifest": manifest}))
         }
@@ -886,6 +888,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
+            mux.forget_landed_agent_session(&session);
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id } => {

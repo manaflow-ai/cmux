@@ -1884,8 +1884,13 @@ so Move to Cloud opens the moved chat on the machine it landed on. The
 daemon keeps the 16 most recent landed chats, each for 24 h, in the
 owner-only `agent-transfer-landed.json` next to its registry, rewritten
 atomically, so a retried open after a daemon restart still works (an
-in-memory session keeps them in memory only). Any other session, another
-store's `registry:` host, and every bind stay refused.
+in-memory session keeps them in memory only). The file counts only as a
+regular file owned by the daemon's user, opened without following a
+symlink, and a record dated more than a minute ahead is ignored. A chat this
+daemon begins (or commits) moving away again with `agent-transfer-begin` is
+forgotten, so it never opens here again unless it lands here again. Any
+other session, another store's `registry:` host, and every bind stay
+refused.
 
 Closing the tab deletes its frontend and source records in the close's
 commit (closing any frontend browser tab deletes its frontend record and
