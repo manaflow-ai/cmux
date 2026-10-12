@@ -4,17 +4,20 @@ import CmuxNextSettings
 import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
-/// `agentPane.editedFiles.*` and `agentPane.showContextUsage`. Each change reaches every open view; a new view gets the current
+/// `agentPane.editedFiles.*`, `agentPane.showContextUsage` and `diff.colors`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
+    /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
+    private(set) var diffColors = "theme"
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
+    private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setShowContextUsage(_:)``).
     private weak var settings: SettingsController?
 
@@ -52,6 +55,14 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        diffColorsObservation = Task { [weak self] in
+            for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
+                guard let self else { return }
+                diffColors = value.flatMap { DiffPrefKey.accepts("colors", $0) ? $0.stringValue : nil } ?? "theme"
+                push()
+            }
+        }
     }
 
     /// The composer's Hide or Show Context Usage: writes `agentPane.showContextUsage`, which the
@@ -67,5 +78,6 @@ final class AgentPanePageSettings {
         view.editedFiles = editedFiles
         view.zoom = zoom
         composer.push(to: view)
+        view.pushDiffColors(diffColors)
     }
 }

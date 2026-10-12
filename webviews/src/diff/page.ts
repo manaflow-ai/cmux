@@ -12,10 +12,14 @@
 // Patches are served by the host at `cmux-page://cmux.diff/__patch/<token>/...`.
 import { createPageClient, isPageError, type PageClient } from "../pages/shared/pageClient";
 import type { DiffViewerConfig } from "../types";
+import { setDiffChangeColors } from "../appearance";
+import { sanitizeViewerPrefs } from "../viewer-prefs";
 
 export const DIFF_PAGE_CONFIG_OP = "cmux.diff.config";
 export const DIFF_PAGE_EVENTS = "cmux.diff.events";
 export const DIFF_PAGE_LANGUAGES = "cmux.diff.languages";
+/** The host's prefs after each change made elsewhere (DiffPageProvider+Stores `prefsStream`). */
+export const DIFF_PAGE_PREFS_STREAM = "cmux.diff.prefs";
 export const DIFF_PAGE_COMMENTS_OP = "cmux.diff.comments";
 /** The path prefix of the patches the page host serves. */
 export const DIFF_PAGE_PATCH_PREFIX = "/__patch/";
@@ -101,6 +105,20 @@ export async function startPageDiffLanguages(
     if (!isUnknownOp(error)) console.warn("cmux diff languages stream failed", error);
   }
   return initial;
+}
+
+/**
+ * Follows the host's `cmux.diff.prefs` stream, so a Diff Colors change in Settings recolors the
+ * open tab in place. A host without the stream is fine (the tab keeps the colors it opened with).
+ */
+export async function startPageDiffPrefs(page: Pick<PageClient, "subscribe">): Promise<void> {
+  try {
+    await page.subscribe<{ prefs?: unknown }>(DIFF_PAGE_PREFS_STREAM, (value) => {
+      setDiffChangeColors(sanitizeViewerPrefs(value?.prefs).colors);
+    });
+  } catch (error) {
+    if (!isUnknownOp(error)) console.warn("cmux diff prefs stream failed", error);
+  }
 }
 
 function isUnknownOp(error: unknown): boolean {

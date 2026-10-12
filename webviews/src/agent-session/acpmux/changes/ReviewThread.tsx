@@ -2,6 +2,7 @@
 // author and a link to it on GitHub. A resolved thread folds to one line the reader can open. An
 // open one offers Address (cx-ncc.77.3), which sends the agent a prompt to address it.
 import React from "react";
+import { Markdown } from "../conversation/Markdown";
 import { useT } from "../i18n";
 import type { AddressState, ReviewThread as Thread } from "./reviewThreads";
 
@@ -26,11 +27,17 @@ export function ReviewThread({
               comment.author || t("review.ghost")
             )}
           </div>
-          <div className="acpmux-review-body">{comment.body}</div>
+          <Markdown className="acpmux-review-body" plainCode>
+            {comment.body}
+          </Markdown>
         </li>
       ))}
     </ol>
   );
+  // A folded thread still says who said what: the first comment's author and its opening line,
+  // as plain text (no links or chips inside the summary), skipping a fence like ```suggestion.
+  const first = thread.comments[0];
+  const opening = first && plainLine(first.body);
   const where = thread.line === undefined ? thread.path : `${thread.path}:${thread.line}`;
   return (
     <section
@@ -41,7 +48,15 @@ export function ReviewThread({
     >
       {thread.resolved ? (
         <details>
-          <summary>{t("review.resolved")}</summary>
+          <summary>
+            <span className="acpmux-review-summary-state">{t("review.resolved")}</span>
+            {first && (
+              <span className="acpmux-review-summary-text">
+                {first.author || t("review.ghost")}
+                {opening ? `: ${opening}` : null}
+              </span>
+            )}
+          </summary>
           {comments}
         </details>
       ) : (
@@ -86,4 +101,19 @@ export function ReviewThread({
       )}
     </section>
   );
+}
+
+/// A comment's first prose line without its Markdown marks: links keep their text, code and
+/// emphasis lose their marks, and fence, heading and quote markers go.
+function plainLine(body: string): string | undefined {
+  const line = body
+    .split("\n")
+    .map((text) => text.trim())
+    .find((text) => text && !text.startsWith("```") && !text.startsWith("~~~"));
+  return line
+    ?.replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*)/, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(?<![\w*])(\*\*|__)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2")
+    .replace(/(?<![\w*])(\*|_)(\S(?:.*?\S)?)\1(?![\w*])/g, "$2");
 }
