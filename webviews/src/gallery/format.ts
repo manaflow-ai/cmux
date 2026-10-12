@@ -362,59 +362,25 @@ export type GalleryEntry =
   | PasswordsPageEntry
   | ComponentEntry<any>
   | NativeEntry;
-export const settingsPageEntry = (entry: Omit<SettingsPageEntry, "host">): SettingsPageEntry => ({
-  ...entry,
-  host: "settings-page",
-});
-export const passwordsPageEntry = (entry: Omit<PasswordsPageEntry, "host">): PasswordsPageEntry => ({
-  ...entry,
-  host: "passwords-page",
-});
 export type HostKind = GalleryEntry["host"];
 
-/** Identity helpers that check an entry against its host's variant type. */
-export const agentPaneEntry = (entry: Omit<AgentPaneEntry, "host">): AgentPaneEntry => ({
-  ...entry,
-  host: "agent-pane",
-});
-export const markdownPageEntry = (entry: Omit<MarkdownPageEntry, "host">): MarkdownPageEntry => ({
-  ...entry,
-  host: "markdown-page",
-});
-export const diffPageEntry = (entry: Omit<DiffPageEntry, "host">): DiffPageEntry => ({ ...entry, host: "diff-page" });
-export const appsPageEntry = (entry: Omit<AppsPageEntry, "host">): AppsPageEntry => ({ ...entry, host: "apps-page" });
-export const cloudPageEntry = (entry: Omit<CloudPageEntry, "host">): CloudPageEntry => ({
-  ...entry,
-  host: "cloud-page",
-});
-export const codeRouterPageEntry = (entry: Omit<CodeRouterPageEntry, "host">): CodeRouterPageEntry => ({
-  ...entry,
-  host: "coderouter-page",
-});
-export const changelogPageEntry = (entry: Omit<ChangelogPageEntry, "host">): ChangelogPageEntry => ({
-  ...entry,
-  host: "changelog-page",
-});
-export const iconPickerPageEntry = (entry: Omit<IconPickerPageEntry, "host">): IconPickerPageEntry => ({
-  ...entry,
-  host: "icon-picker-page",
-});
-export const editorPageEntry = (entry: Omit<EditorPageEntry, "host">): EditorPageEntry => ({
-  ...entry,
-  host: "editor-page",
-});
-export const historyPageEntry = (entry: Omit<HistoryPageEntry, "host">): HistoryPageEntry => ({
-  ...entry,
-  host: "history-page",
-});
-export const keybindingsPageEntry = (entry: Omit<KeybindingsPageEntry, "host">): KeybindingsPageEntry => ({
-  ...entry,
-  host: "keybindings-page",
-});
-export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
-  return { ...entry, host: "component" };
-}
-export const nativeEntry = (entry: Omit<NativeEntry, "host">): NativeEntry => ({ ...entry, host: "native" });
+export {
+  settingsPageEntry,
+  passwordsPageEntry,
+  agentPaneEntry,
+  markdownPageEntry,
+  diffPageEntry,
+  appsPageEntry,
+  cloudPageEntry,
+  codeRouterPageEntry,
+  changelogPageEntry,
+  iconPickerPageEntry,
+  editorPageEntry,
+  historyPageEntry,
+  keybindingsPageEntry,
+  componentEntry,
+  nativeEntry,
+} from "./entry";
 
 export const DEFAULT_STAGE_HEIGHT = 520;
 

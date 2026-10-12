@@ -70,6 +70,8 @@ const RULES = [
   "webviews/test/gallery-coverage.test.ts",
   "webviews/test/support/prScope.ts",
   "webviews/scripts/gallery/entries.ts",
+  // The entry constructors build the covers and ids every coverage test reads.
+  "webviews/src/gallery/entry.ts",
 ];
 const LISTS = ["webviews/test/gallery-coverage.allowlist.json", /^webviews\/src\/.*\.gallery\.tsx?$/];
 const scope = prScope({ rules: RULES, lists: LISTS });
