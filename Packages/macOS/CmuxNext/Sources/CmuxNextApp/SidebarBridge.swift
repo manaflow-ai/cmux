@@ -99,7 +99,7 @@ final class SidebarBridge {
         let machines = services.machines
         let registry = services.windows.registry
         let layout = services.sidebarLayout
-        let pageTabs = services.agentTabs.pageTabs
+        let agentTabs = services.agentTabs
         let notifications = services.notifications
         let creations = services.cloud.creations
         let services = services
@@ -117,7 +117,7 @@ final class SidebarBridge {
             for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
-                    newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                    newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
                 return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
@@ -136,7 +136,7 @@ final class SidebarBridge {
             return spaceCache.sections(for: key) {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
                               hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
-                              newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                              newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                               top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace,
                               tabTitle: Self.tabTitle(services))
             }
@@ -183,7 +183,7 @@ final class SidebarBridge {
         }
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state, creations: services.cloud.creations,
                                                               hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                                              newTabPages: services.agentTabs.pageTabs.ids,
+                                                              newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
                                                               tabTitle: Self.tabTitle(services))
@@ -279,6 +279,11 @@ final class SidebarBridge {
     typealias TabTitle = (TabModel) -> String
 
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
+    /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
+    static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
+        tabs.pageTabs.ids
+    }
+
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { titles.title($0) }

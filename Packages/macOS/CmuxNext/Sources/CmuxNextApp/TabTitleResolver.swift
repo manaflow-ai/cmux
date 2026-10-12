@@ -41,6 +41,11 @@ struct TabTitleResolver {
         }
     }
 
+    /// The agent tabs' New Tab pages and `pages`' page tabs (tests).
+    init(agentTabs: AgentTabStore, pages: InternalPageTabStore? = nil) {
+        self.init(newTabPages: SidebarBridge.newTabPages(agentTabs, in: nil), pages: pages)
+    }
+
     /// Fixed sources (tests).
     init(newTabPages: Set<String> = [], pages: InternalPageTabStore? = nil) {
         self.newTabPages = newTabPages
