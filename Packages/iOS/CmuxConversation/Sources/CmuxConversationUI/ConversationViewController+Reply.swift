@@ -14,7 +14,8 @@ import UIKit
 /// offset and unwinds it on the way. Closing runs the same dynamics back.
 final class ReplyThreadOverlay: UIView {
     let blur = UIVisualEffectView(effect: nil)
-    /// `CKInlineReplyTranscriptBackgroundColor`: white 60 % (dark: black 40 %).
+    /// `CKInlineReplyTranscriptBackgroundColor` and the system-background
+    /// tint, folded into one wash (`ConversationVeilBlur.reply`).
     let dim = UIView()
     let content = UIScrollView()
     var contentHeight: CGFloat = 0
@@ -33,7 +34,10 @@ final class ReplyThreadOverlay: UIView {
         accessibilityIdentifier = "conversation.replyThread"
         content.accessibilityLabel = String(localized: "conversation.ax.replyTranscript", defaultValue: "Reply transcript", bundle: .module)
         addSubview(blur)
-        dim.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.4) : UIColor.white.withAlphaComponent(0.6) }
+        dim.backgroundColor = UIColor {
+            let veil = ConversationVeilBlur.reply(dark: $0.userInterfaceStyle == .dark)
+            return UIColor(white: veil.washWhite, alpha: veil.washAlpha)
+        }
         dim.alpha = 0
         addSubview(dim)
         addSubview(content)
@@ -66,23 +70,19 @@ final class ReplyThreadOverlay: UIView {
         if !hitsMessage { onClose?() }
     }
 
-    /// ChatKit's background is a radius-10 blur plus a 9 % system-background
-    /// wash. UIKit has no public radius, so a paused animator holds the light
-    /// (dark) blur style at the share of its strength that matches.
+    /// ChatKit's background is a pure radius-10 blur. UIKit has no public
+    /// pure blur, so a paused animator holds the ultra-thin material at the
+    /// share that matches (`ConversationVeilBlur.reply`).
     func setBlur(_ amount: CGFloat) {
+        let veil = ConversationVeilBlur.reply(dark: traitCollection.userInterfaceStyle == .dark)
         if blurAnimator == nil {
             let animator = UIViewPropertyAnimator(duration: 1, curve: .linear)
-            let style: UIBlurEffect.Style = traitCollection.userInterfaceStyle == .dark ? .dark : .light
-            animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: style) }
+            animator.addAnimations { [blur] in blur.effect = UIBlurEffect(style: .systemUltraThinMaterial) }
             animator.pausesOnCompletion = true
             blurAnimator = animator
         }
-        blurAnimator?.fractionComplete = max(0.0001, min(1, amount * Self.blurShareOfStyle))
+        blurAnimator?.fractionComplete = max(0.0001, min(1, amount * veil.materialShare))
     }
-
-    /// Share of the light style's blur that matches ChatKit's radius 10
-    /// (calibrated against Messages' blurred bubbles on iOS 26.5 and 27.0).
-    static let blurShareOfStyle: CGFloat = 1.0 / 3.0
 }
 
 /// A row about to travel: where its frame sits, where it starts and ends
