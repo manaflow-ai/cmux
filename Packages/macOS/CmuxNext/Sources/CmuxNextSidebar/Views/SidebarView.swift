@@ -192,7 +192,7 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111); the list follows
+        // Thin, shown only while scrolling (SCROLLBARS-THIN); the list follows
         // the clip's width when a legacy scroller narrows it.
         SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
@@ -222,7 +222,7 @@ public final class SidebarView: NSView {
     }
 
     private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.preferredStyle
+        scrollView.scrollerStyle = SystemScrollers.nativeStyle
         syncListSize()
     }
 

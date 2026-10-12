@@ -24,6 +24,15 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 FAKE_BUN = """#!/usr/bin/env bash
 [ "$1" = test ] || exit 9
 printf '%s\\n' "$2" >> "$BUN_CALLS"
+# A file that starts a Vite dev server holds the shared optimizer cache while it runs.
+if grep -q -e '"dev",' -e 'vite.config.gallery-dev.ts' "$2"; then
+  if mkdir "$DEV_SERVER_LOCK" 2> /dev/null; then
+    sleep 0.5
+    rmdir "$DEV_SERVER_LOCK"
+  else
+    printf 'overlap %s\\n' "$2" >> "$BUN_OVERLAPS"
+  fi
+fi
 case "$2" in
   *hang*) sleep 60 ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
@@ -41,7 +50,7 @@ def path_without_timeout(temp):
     farm = temp / "system-bin"
     farm.mkdir()
     for name in ("bash", "git", "xargs", "tr", "wc", "sort", "cat", "mktemp", "rm", "getconf",
-                 "sleep", "perl", "dirname", "env"):
+                 "sleep", "perl", "dirname", "env", "grep", "mkdir", "rmdir", "basename"):
         found = shutil.which(name)
         if found:
             (farm / name).symlink_to(found)
@@ -49,13 +58,13 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False):
+    def run_runner(self, files, without_timeout=False, contents=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
             path = web / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("", encoding="utf-8")
+            path.write_text((contents or {}).get(name, ""), encoding="utf-8")
         (web / "src" / "helper.ts").parent.mkdir(parents=True, exist_ok=True)
         (web / "src" / "helper.ts").write_text("", encoding="utf-8")
         subprocess.run(["git", "init", "-q", str(temp)], check=True)
@@ -66,8 +75,11 @@ class PerFileRunner(unittest.TestCase):
         (bin_dir / "bun").chmod(0o755)
         calls = temp / "calls"
         calls.write_text("", encoding="utf-8")
+        self.overlaps = temp / "overlaps"
+        self.overlaps.write_text("", encoding="utf-8")
         system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
         env = {**os.environ, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
+               "BUN_OVERLAPS": str(self.overlaps), "DEV_SERVER_LOCK": str(temp / "dev-server.lock"),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "4"}
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
@@ -100,6 +112,28 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_files_that_start_a_dev_server_never_run_at_once(self):
+        # editor-page, ui-a11y and text-field-focus start `vp dev` with the default config. Run at
+        # once on a fresh checkout, they optimize dependencies into one node_modules/.vite and the
+        # loser's page never loads: editor-page timed out on react-apps-check for #19746.
+        default_server = 'spawn(vp, ["dev", "--port", String(port), "--strictPort"]);\n'
+        settings_server = 'spawn(vp, [\n  "dev",\n  "--config",\n  "vite.config.settings-page.mjs",\n]);\n'
+        gallery_server = 'import config from "../vite.config.gallery-dev.ts";\n'
+        contents = {
+            "test/editor-page.test.ts": default_server,
+            "test/ui-a11y.test.ts": default_server,
+            "test/text-field-focus.test.ts": default_server,
+            "test/settings-scroll.test.ts": settings_server,
+            "test/composer-mention.test.ts": gallery_server,
+        }
+        files = [*contents, "test/a.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in files))
+        self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
+        self.assertIn("(5 dev server files one at a time after)", output)
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])

@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Variant `list`: dense rows grouped by status, in workflow order.
@@ -27,6 +28,7 @@ struct TasksListView: View {
                 }
             }
             .padding(.horizontal, 8).padding(.bottom, 12)
+            .thinScrollers()
         }
     }
 }

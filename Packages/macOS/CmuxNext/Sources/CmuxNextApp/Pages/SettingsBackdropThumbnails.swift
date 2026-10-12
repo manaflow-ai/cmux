@@ -2,30 +2,53 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The Settings page's wallpaper thumbnails (R82 commit 4): `cmux-page://cmux.settings/backdrop/<id>`
-/// answers a small PNG of that choice. Only ids in the bounded catalog are served, so the page
-/// cannot read arbitrary files through it.
+/// answers a small PNG of that choice. Only ids in the bounded catalog, and the person's own
+/// images in the backgrounds folder, are served, so the page cannot read arbitrary files through it.
 @MainActor
 final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     static let prefix = "backdrop"
     private let allowed: Set<String>
+    private let userImages: BackdropUserImages?
     private var cache: [String: Data] = [:]
 
-    init(choices: [BackdropSelection]) {
+    init(choices: [BackdropSelection], userImages: BackdropUserImages?) {
         allowed = Set(choices.map(\.id))
+        self.userImages = userImages
     }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.prefix == Self.prefix, request.path.count == 1,
-              let id = request.path[0].removingPercentEncoding, allowed.contains(id),
-              let selection = BackdropSelection(id: id) else { return nil }
+              let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
+              allowed.contains(id) || userImages?.contains(selection) == true else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
-        // Art reads its bundled thumbnail, so works that are not downloaded yet still show.
-        guard let image = selection.thumbnailURL.flatMap(NSImage.init(contentsOf:)) ?? selection.image(),
-              let data = Self.thumbnail(image) else { return nil }
+        // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
+        // (a photo can be tens of megabytes) decodes off the main actor; the desktop picture,
+        // which only the main actor can resolve, draws here.
+        let data: Data?
+        if let url = selection.thumbnailURL {
+            data = await Task.detached { Self.thumbnail(at: url) }.value
+        } else {
+            data = selection.image().flatMap(Self.thumbnail)
+        }
+        guard let data else { return nil }
         cache[id] = data
         return PageResource(data: data, mimeType: "image/png")
+    }
+
+    /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size.
+    nonisolated static func thumbnail(at url: URL) -> Data? {
+        let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 
     /// A 240-point-wide PNG (the grid shows tiles about 112 points wide on a 2x display).
