@@ -55,12 +55,23 @@ final class TerminalSession {
         }
     }
 
+    /// Resizes go out one at a time, latest size wins. A keyboard animation
+    /// fits several sizes in a burst; independent tasks reached the daemon in
+    /// any order and could leave the Mac on a stale intermediate grid.
+    @ObservationIgnored private var pendingResize: (cols: Int, rows: Int)?
+    @ObservationIgnored private var resizeTask: Task<Void, Never>?
+
     private func resize(to size: (cols: Int, rows: Int)) {
-        Task { [weak self] in
-            guard let self, let client = self.client else { return }
-            _ = try? await client.request("resize-surface", [
-                "surface": .number(Double(self.surfaceID)), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows)),
-            ])
+        pendingResize = size
+        guard resizeTask == nil else { return }
+        resizeTask = Task { [weak self] in
+            while let self, let next = self.pendingResize, let client = self.client {
+                self.pendingResize = nil
+                _ = try? await client.request("resize-surface", [
+                    "surface": .number(Double(self.surfaceID)), "cols": .number(Double(next.cols)), "rows": .number(Double(next.rows)),
+                ])
+            }
+            self?.resizeTask = nil
         }
     }
 
