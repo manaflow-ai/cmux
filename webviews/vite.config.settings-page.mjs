@@ -2,6 +2,7 @@ import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
 
 // Dev server for the Settings page (src/pages/settings) with hot reload. Outside the app the page
 // runs on the in-memory fake transport (src/pages/settings/fakeTransport.ts). Serve only: the
@@ -11,6 +12,7 @@ const webviewsRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)));
 const repoRoot = path.resolve(webviewsRoot, "..");
 
 export default defineConfig({
+  cacheDir: viteCacheDir,
   root: path.join(webviewsRoot, "src/pages/settings"),
   server: {
     host: "127.0.0.1",
