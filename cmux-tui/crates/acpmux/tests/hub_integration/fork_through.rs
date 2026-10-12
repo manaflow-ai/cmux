@@ -11,6 +11,9 @@ mod aside;
 // The context window a Claude chat reports, which shares these helpers too.
 #[path = "context_window.rs"]
 mod context_window;
+// Claude's todo list as an ACP plan, which shares these helpers too.
+#[path = "todo_plan.rs"]
+mod todo_plan;
 
 const FORK_OP: &str = "acp.session.fork";
 
