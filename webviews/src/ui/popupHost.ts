@@ -79,6 +79,25 @@ export function popupItems(popup: Element): { items: PopupItem[]; rows: Element[
   return { items, rows, highlighted };
 }
 
+/**
+ * The menu's height with every list in it at its designed size: a list that scrolls inside the
+ * menu counts its hidden rows too, up to its `--popup-scroll-cap` when it sets one (a list that
+ * scrolls by design at that size, as the folder menu's). A small window that squeezes a list
+ * below its cap does not make the menu fit.
+ */
+export function naturalHeight(popup: HTMLElement): number {
+  let hidden = 0;
+  for (const list of popup.querySelectorAll<HTMLElement>("*")) {
+    if (list.scrollHeight <= list.clientHeight + 1) continue;
+    const style = getComputedStyle(list);
+    if (!/auto|scroll/.test(style.overflowY)) continue;
+    const cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    const designed = Number.isFinite(cap) ? Math.min(list.scrollHeight, cap) : list.scrollHeight;
+    hidden += Math.max(0, designed - list.clientHeight);
+  }
+  return popup.scrollHeight + (popup.offsetHeight - popup.clientHeight) + hidden;
+}
+
 /** Whether the menu fits above or below `anchor` in the page (its natural height, every row). */
 export function fitsInPage(anchor: DOMRect, height: number, gap: number, viewportHeight: number): boolean {
   const below = viewportHeight - anchor.bottom - gap - EDGE;
@@ -135,7 +154,7 @@ export function useEscapingMenu(
       const at = anchorRef.current();
       const flat = !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
       const { items } = popupItems(element);
-      const natural = element.scrollHeight + (element.offsetHeight - element.clientHeight);
+      const natural = naturalHeight(element);
       if (!at || !flat || items.length === 0 || fitsInPage(at.getBoundingClientRect(), natural, gap, innerHeight))
         return;
       const first = model();
