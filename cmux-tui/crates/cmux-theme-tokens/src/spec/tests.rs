@@ -127,6 +127,7 @@ fn derive_matches_the_spec_reference_themes() {
 
 #[test]
 fn constants_match_the_spec() {
+    assert!(Spec::parse(DESIGN_TOKENS).is_ok(), "design-tokens.json theme section parses");
     let spec = spec();
     assert_eq!(spec.minimum_text_contrast, crate::MINIMUM_TEXT_CONTRAST);
     assert_eq!(spec.minimum_mark_contrast, crate::MINIMUM_MARK_CONTRAST);

@@ -23,7 +23,6 @@ use crate::Rgb;
 /// `plans/cmux-next/spec-proposals/visuals/design-tokens.json`).
 pub(crate) const DESIGN_TOKENS: &str =
     include_str!("../../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json");
-const NAME: &str = "design-tokens.json";
 
 /// A color source in a formula.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,11 +64,19 @@ pub(crate) struct Spec {
     pub minimum_mark_contrast: f64,
 }
 
-/// The compiled-in spec, parsed on first use. Panics when the file does not
-/// parse: the file is part of the crate, so that is a build defect.
+/// The compiled-in spec, parsed on first use. The file is part of the
+/// crate and the token oracle (`spec/tests.rs`) parses it and derives every
+/// reference theme, so a broken file fails the tests; at run time it gives
+/// no formulas (clear colors) rather than a crash.
 pub(crate) fn spec() -> &'static Spec {
     static SPEC: OnceLock<Spec> = OnceLock::new();
-    SPEC.get_or_init(|| Spec::parse(DESIGN_TOKENS).unwrap_or_else(|e| panic!("{NAME}: {e}")))
+    SPEC.get_or_init(|| {
+        Spec::parse(DESIGN_TOKENS).unwrap_or(Spec {
+            formulas: Vec::new(),
+            minimum_text_contrast: crate::MINIMUM_TEXT_CONTRAST,
+            minimum_mark_contrast: crate::MINIMUM_MARK_CONTRAST,
+        })
+    })
 }
 
 impl Spec {
@@ -105,17 +112,17 @@ impl Spec {
         })
     }
 
-    /// `theme.formulas.<token>` for `inputs`. Panics when the spec has no
-    /// such formula in a form this crate reads.
+    /// `theme.formulas.<token>` for `inputs`; clear when the spec has no
+    /// such formula in a form this crate reads (the oracle test catches it).
     pub(crate) fn color(&self, token: &str, inputs: &Inputs) -> Rgb {
         self.eval(token, inputs, 0)
     }
 
     fn eval(&self, token: &str, inputs: &Inputs, depth: usize) -> Rgb {
-        let formula =
-            self.formulas.iter().find(|(name, _)| name == token).map(|(_, f)| f).unwrap_or_else(
-                || panic!("{NAME}: theme.formulas.{token} is missing or not a color formula"),
-            );
+        let Some(formula) = self.formulas.iter().find(|(name, _)| name == token).map(|(_, f)| f)
+        else {
+            return Rgb::default();
+        };
         let source = |s: Source| match s {
             Source::Bg => inputs.bg,
             Source::Fg => inputs.fg,
@@ -134,10 +141,9 @@ impl Spec {
             Amount::Opacity => inputs.opacity,
         };
         match formula {
-            Formula::Same(other) => {
-                assert!(depth < 8, "{NAME}: theme.formulas.{token}: '=' references loop");
-                self.eval(other, inputs, depth + 1)
-            }
+            // A reference loop gives clear (the oracle test catches it).
+            Formula::Same(_) if depth >= 8 => Rgb::default(),
+            Formula::Same(other) => self.eval(other, inputs, depth + 1),
             Formula::Alpha(s, a) => source(*s).with_alpha(amount(*a)),
             Formula::Mix(from, to, a) => source(*from).mixed(source(*to), amount(*a)),
         }
