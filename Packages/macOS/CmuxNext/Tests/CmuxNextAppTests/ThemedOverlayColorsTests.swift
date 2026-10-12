@@ -79,8 +79,10 @@ import Testing
         let views: [NSView] = [sidebar, restart, placeholder, dialog, compose.view]
         for view in views { scope.root(view) }
 
-        let buttons = views.flatMap(Self.pushButtons(in:))
-        #expect(buttons.count >= 10)
+        // The sheets' factory-made buttons keep the system's automatic style, so they are named.
+        let found = views.flatMap(Self.pushButtons(in:))
+        #expect(found.count >= 7)
+        let buttons = found + [compose.cancelButton, compose.inviteButton]
         let fill = scope.perform { Palette.selectionFill }
         for button in buttons {
             let bezel = try #require(button.bezelColor, "\(button.title)")
