@@ -75,6 +75,24 @@ public enum HermesAgentIndex {
         limit: Int,
         stateDBPath: String = Self.defaultStateDBPath()
     ) -> HermesAgentIndexResult {
+        loadSessions(
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            stateDBPath: stateDBPath,
+            temporaryDirectory: FileManager.default.temporaryDirectory
+        )
+    }
+
+    static func loadSessions(
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int,
+        stateDBPath: String,
+        temporaryDirectory: URL
+    ) -> HermesAgentIndexResult {
         guard limit > 0, offset >= 0 else {
             return HermesAgentIndexResult(sessions: [], errors: [])
         }
@@ -91,7 +109,8 @@ public enum HermesAgentIndex {
         do {
             let result = try withStateDatabase(
                 stateDBPath: stateDBPath,
-                snapshotPrefix: "cmux-hermes-agent-search"
+                snapshotPrefix: "cmux-hermes-agent-search",
+                temporaryDirectory: temporaryDirectory
             ) { db in
                 try loadSessions(
                     db: db,

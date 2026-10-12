@@ -76,7 +76,8 @@ extension HermesAgentIndex {
         cwd: String?,
         startedAt: TimeInterval?,
         before upperBound: TimeInterval?,
-        stateDBPath: String
+        stateDBPath: String,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> RecoveryInspection? {
         let normalizedSessionIDs = Set(sessionIDs.compactMap(normalized))
         let cwdCandidates = cwd.map {
@@ -88,7 +89,8 @@ extension HermesAgentIndex {
         do {
             return try withStateDatabase(
                 stateDBPath: stateDBPath,
-                snapshotPrefix: "cmux-hermes-agent-recovery"
+                snapshotPrefix: "cmux-hermes-agent-recovery",
+                temporaryDirectory: temporaryDirectory
             ) { database in
                 try loadRecoveryInspection(
                     database: database,

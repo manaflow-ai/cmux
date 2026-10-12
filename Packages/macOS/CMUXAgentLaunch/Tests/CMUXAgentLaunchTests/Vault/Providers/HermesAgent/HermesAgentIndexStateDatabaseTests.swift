@@ -11,7 +11,8 @@ struct HermesAgentIndexStateDatabaseTests {
     func readsLiveWALDatabaseInPlace() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let hermesHome = root.appendingPathComponent("Hermes Home", isDirectory: true)
+        // Characters that need escaping in a SQLite `file:` URI.
+        let hermesHome = root.appendingPathComponent("Hermes Home ?#%", isDirectory: true)
         try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
         let dbURL = hermesHome.appendingPathComponent("state.db", isDirectory: false)
         let snapshotRoot = root.appendingPathComponent("tmp", isDirectory: true)
@@ -30,18 +31,23 @@ struct HermesAgentIndexStateDatabaseTests {
         VALUES ('uncommitted', 'tui', 'model-a', 20, 'Uncommitted');
         """)
 
-        let existences = HermesAgentIndex.sessionExistences(
+        let inspection = HermesAgentIndex.recoveryInspection(
             sessionIDs: ["committed", "uncommitted", "missing"],
-            stateDBPath: dbURL.path
+            cwd: nil,
+            startedAt: nil,
+            before: nil,
+            stateDBPath: dbURL.path,
+            temporaryDirectory: snapshotRoot
         )
-        #expect(existences == ["committed": .exists, "uncommitted": .missing, "missing": .missing])
+        #expect(inspection?.existingSessionIDs == ["committed"])
 
         let search = HermesAgentIndex.loadSessions(
             needle: "",
             cwdFilter: nil,
             offset: 0,
             limit: 10,
-            stateDBPath: dbURL.path
+            stateDBPath: dbURL.path,
+            temporaryDirectory: snapshotRoot
         )
         #expect(search.errors.isEmpty)
         #expect(search.sessions.map(\.sessionId) == ["committed"])
@@ -63,6 +69,38 @@ struct HermesAgentIndexStateDatabaseTests {
 
         try exec(writer, "COMMIT;")
         #expect(try FileManager.default.contentsOfDirectory(atPath: snapshotRoot.path).isEmpty)
+    }
+
+    @Test("Reports a locked database as unavailable instead of copying it")
+    func lockedDatabaseIsUnavailable() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        let snapshotRoot = root.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: snapshotRoot, withIntermediateDirectories: true)
+
+        try exec(dbURL, "PRAGMA journal_mode = DELETE;")
+        try makeHermesStateDB(at: dbURL)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('locked-session', 'cli', 'model-a', 10, 'Locked session');
+        """)
+        let writer = try openConnection(dbURL)
+        defer { sqlite3_close(writer) }
+        try exec(writer, "BEGIN EXCLUSIVE;")
+
+        let inspection = HermesAgentIndex.recoveryInspection(
+            sessionIDs: ["locked-session"],
+            cwd: nil,
+            startedAt: nil,
+            before: nil,
+            stateDBPath: dbURL.path,
+            temporaryDirectory: snapshotRoot
+        )
+        #expect(inspection == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: snapshotRoot.path).isEmpty)
+
+        try exec(writer, "COMMIT;")
     }
 
     @Test("Snapshots a rollback-journal database instead of holding its lock")
