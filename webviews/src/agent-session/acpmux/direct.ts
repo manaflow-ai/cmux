@@ -514,6 +514,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
+  /// before it, so the call and its updates draw no tool row.
+  private planCalls = new Set<string>();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold();
   private readonly listener: Listener;
@@ -761,6 +764,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
@@ -1254,6 +1258,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
@@ -1481,6 +1486,8 @@ export class AcpmuxDirectClient {
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      if (event.kind === "tool_call" && update.title === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
