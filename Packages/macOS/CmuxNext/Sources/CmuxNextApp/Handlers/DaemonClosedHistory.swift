@@ -68,12 +68,25 @@ enum DaemonClosedHistory {
     /// longer has owns nothing. Without a recorded window (an older or a
     /// remote daemon) the workspace's window decides.
     static func owner(of entry: Entry, window: String?, in services: AppServices) -> Owner {
-        if let recorded = entry.item.window {
-            if let window, recorded == recordID(window: window, in: services) { return .window }
-            guard let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return .otherWindow }
+        owner(of: entry, window: window, install: try? services.cloud.localDeviceID(), in: services)
+    }
+
+    /// Same, with this install's id read once (`newest` asks for every entry).
+    /// The recorded window decides only on this Mac's daemon, for a window of
+    /// this install the registry still has; anything else (a window that
+    /// merged into another, another Mac's daemon) falls back to the
+    /// workspace's window. A window item of a window the registry no longer
+    /// has cannot be reopened.
+    private static func owner(of entry: Entry, window: String?, install: String?, in services: AppServices) -> Owner {
+        if entry.daemon.isLocal, let install, let recorded = entry.item.window, recorded.hasPrefix(install + "/") {
             let windowID = String(recorded.dropFirst(install.count + 1))
-            return services.windows.registry.value.window(windowID)?.isOpen == true ? .otherWindow : .none
+            if let known = services.windows.registry.value.window(windowID) {
+                if windowID == window { return .window }
+                return known.isOpen ? .otherWindow : .none
+            }
+            if entry.item.kind == .window { return .otherWindow }
         }
+        if entry.item.kind == .window { return .otherWindow }
         guard let resource = entry.item.workspaceID, let workspace = entry.daemon.store.workspace(resourceID: resource),
               let owner = services.windows.registry.value.owner(of: workspace.id) else { return .none }
         return owner == window ? .window : .otherWindow
@@ -84,9 +97,9 @@ enum DaemonClosedHistory {
     /// the newest one no live window owns (a closed window among them).
     /// Never a group of another live window (decision 1).
     static func newest(for window: String?, in services: AppServices) -> Entry? {
-        let all = entries(allKinds, in: services)
-        return all.first { owner(of: $0, window: window, in: services) == .window }
-            ?? all.first { owner(of: $0, window: window, in: services) == .none }
+        let all = entries(allKinds, in: services), install = try? services.cloud.localDeviceID()
+        return all.first { owner(of: $0, window: window, install: install, in: services) == .window }
+            ?? all.first { owner(of: $0, window: window, install: install, in: services) == .none }
     }
 
     /// The entry with id `id` on any daemon.
@@ -149,8 +162,9 @@ enum DaemonClosedHistory {
             if item.kind == .window {
                 let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
                 if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
-                services.registry.refuse(RefusalStrings.noRecentlyClosedTab)
-                return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedTab)
+                let reason = RefusalStrings.noWindow(windowID ?? item.id)
+                services.registry.refuse(reason)
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
             if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
                 controller.selectWhenReported(tab: tab.rawValue)

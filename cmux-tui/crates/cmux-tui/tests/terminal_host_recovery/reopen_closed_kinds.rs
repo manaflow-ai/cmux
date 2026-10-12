@@ -260,6 +260,8 @@ fn a_closed_window_reopens_from_another_window() {
         .find(|workspace| workspace["name"] == "kinds")
         .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
         .expect("the workspace has a key");
+    // A window first written closed (restored closed) records nothing.
+    put_window(&harness, "win-c", None, false, "win-c-first-closed");
     put_window(&harness, "win-a", Some(&key), true, "win-a-open");
     put_window(&harness, "win-b", None, true, "win-b-open");
     put_window(&harness, "win-a", Some(&key), false, "win-a-close");
@@ -282,6 +284,19 @@ fn a_closed_window_reopens_from_another_window() {
     assert_eq!(window_groups(closed_list(&harness, "list-3")).len(), 1);
     put_window(&harness, "win-a", Some(&key), true, "win-a-open-3");
     assert!(window_groups(closed_list(&harness, "list-4")).is_empty());
+
+    // A window that is gone (its record deleted) leaves no group to reopen.
+    put_window(&harness, "win-a", Some(&key), false, "win-a-close-3");
+    assert_eq!(window_groups(closed_list(&harness, "list-5")).len(), 1);
+    resource_request(
+        &harness.socket,
+        "win-a-delete",
+        "window_record.delete",
+        serde_json::json!({"machine":"current","session":"current",
+                           "install_id":"reopen-kinds","window_id":"win-a"}),
+        Some("win-a-delete"),
+    );
+    assert!(window_groups(closed_list(&harness, "list-6")).is_empty());
 }
 
 /// A tab closed in window A's workspace belongs to A: Cmd-Shift-T in live

@@ -33,6 +33,9 @@ final class WindowRecordSaver {
     /// The daemon window records this install last put, by window id
     /// (`window-records-v1`): written again only when they change.
     private var mirrored: [String: JSONValue] = [:]
+    /// Whether this run read the daemon's records of this install once, so
+    /// records of windows that are gone (an earlier run) get deleted.
+    private var reconciled = false
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -137,6 +140,11 @@ final class WindowRecordSaver {
         guard daemon.supports(DaemonCapabilities.shared.windowRecords), let connection = daemon.connection,
               let install = try? services.cloud.localDeviceID() else { return }
         let registry = manager.registry.value
+        if !reconciled, let stored = try? await connection.state.windowRecordIDs(installID: install) {
+            reconciled = true
+            // Known as written, so the loop below deletes the ones no window wants.
+            for id in stored where mirrored[id] == nil { mirrored[id] = .null }
+        }
         var wanted: [String: JSONValue] = [:]
         for record in records {
             var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(registry.window(record.id)?.isOpen ?? true),
@@ -155,10 +163,13 @@ final class WindowRecordSaver {
         for id in Set(mirrored.keys).subtracting(wanted.keys) {
             do {
                 try await connection.state.deleteWindowRecord(installID: install, windowID: id)
+                mirrored[id] = nil
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                mirrored[id] = nil
             } catch {
+                // Kept: the next save tries the delete again.
                 daemon.logger.error("window_record.delete failed: \(String(describing: error), privacy: .public)")
             }
-            mirrored[id] = nil
         }
     }
 

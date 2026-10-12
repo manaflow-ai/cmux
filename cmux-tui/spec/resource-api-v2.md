@@ -222,6 +222,8 @@ are in scope for every window (`closed.list`/`closed.reopen` with `window`).
 `closed.reopen` of a window item reopens nothing in the daemon; its result's
 `window` names the record for the app to show again and `workspace_id` the
 session's active workspace.
+`closed.reopen` with neither `closed` nor `window` skips window items: only
+an app can show a window again, and it names its window.
 `workspace-group-icon-v1` gives a personal group an icon:
 `workspace_group.update {icon}` sets it to the shared icon string (one emoji
 or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
