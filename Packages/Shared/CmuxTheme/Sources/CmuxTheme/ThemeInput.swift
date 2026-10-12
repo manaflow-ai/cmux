@@ -1,7 +1,7 @@
 import Foundation
 
 /// The colors of the user's terminal theme, as the App reads them from the
-/// Ghostty config (`background`, `foreground`, `palette`, `selection-*`,
+/// Ghostty config (`background`, `foreground`, `palette`, `selection-*`, `cursor-color`,
 /// `background-opacity`, `background-blur`). Design derives every chrome
 /// color from this, so the window reads as one surface with the terminal.
 public struct ThemeInput: Hashable, Sendable {
@@ -15,6 +15,8 @@ public struct ThemeInput: Hashable, Sendable {
     public var selectionBackground: ThemeRGB?
     /// The selected text; set only when the config names an explicit color.
     public var selectionForeground: ThemeRGB?
+    /// The cursor; set only when the config names an explicit color.
+    public var cursor: ThemeRGB?
     /// `background-opacity`, 0...1.
     public var backgroundOpacity: Double
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
@@ -30,6 +32,7 @@ public struct ThemeInput: Hashable, Sendable {
     ///   - palette: ANSI entries 0...15; extra entries are dropped.
     ///   - selectionBackground: Only when the config names a color.
     ///   - selectionForeground: Only when the config names a color.
+    ///   - cursor: Only when the config names a color.
     ///   - backgroundOpacity: `background-opacity`, clamped to 0...1; opaque by default.
     ///   - backgroundBlur: `background-blur` as Ghostty encodes it; off by default.
     public init(
@@ -38,6 +41,7 @@ public struct ThemeInput: Hashable, Sendable {
         palette: [ThemeRGB] = [],
         selectionBackground: ThemeRGB? = nil,
         selectionForeground: ThemeRGB? = nil,
+        cursor: ThemeRGB? = nil,
         backgroundOpacity: Double = 1,
         backgroundBlur: Int = 0
     ) {
@@ -46,6 +50,7 @@ public struct ThemeInput: Hashable, Sendable {
         self.palette = Array(palette.prefix(16))
         self.selectionBackground = selectionBackground
         self.selectionForeground = selectionForeground
+        self.cursor = cursor.map { $0.withAlpha(1) }
         self.backgroundOpacity = min(max(backgroundOpacity, 0), 1)
         self.backgroundBlur = backgroundBlur
     }

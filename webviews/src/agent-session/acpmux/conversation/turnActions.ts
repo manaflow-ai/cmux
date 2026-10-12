@@ -3,6 +3,7 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { MessageBranch } from "./branches";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -10,8 +11,27 @@ export type TurnActions = {
   fork?: (throughSeq: number) => void;
   /// The only turn `fork` goes through (`latestForkSeq`): the latest completed turn.
   forkSeq?: number;
+  /// Edit and resend (cx-ncc.60): the prompts that edit in place, each with the turn its edit forks
+  /// through (`editableTurns`), and the send that forks there and sends the edited text.
+  edit?: {
+    seqs: ReadonlyMap<string, number>;
+    send: (rowId: string, throughSeq: number, text: string) => Promise<boolean>;
+  };
+  /// A prompt's versions (cx-ncc.61): the prompts an edit replaced or made, each with its sibling chats,
+  /// and the open that shows one of them in this pane.
+  branches?: {
+    of: ReadonlyMap<string, MessageBranch>;
+    open: (sessionId: string) => void;
+  };
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
+  /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
+  /// that moves the chat to the model picked and sends the prompt again there.
+  retryWith?: {
+    models: readonly { id: string; name: string }[];
+    current?: string;
+    retry: (rowId: string, prompt: string, model: string) => void;
+  };
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.

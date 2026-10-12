@@ -20,10 +20,16 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var harness: String?
     /// A chat that opened without its folder: the page explains it and offers Choose Folder.
     public var folderNeeded: AgentPaneFolderNeeded?
+    /// The device-wide chat (its index key, `harness:id`) whose past turns a new chat shows
+    /// read-only until it has a session (cx-khns1); an adopted chat shows them while its folder's
+    /// trust question holds the replay. Kept across page reloads.
+    public var pastChat: String?
 
     public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil,
-                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil) {
+                surface: AgentPaneSurface? = nil, harness: String? = nil, folderNeeded: AgentPaneFolderNeeded? = nil,
+                pastChat: String? = nil) {
         self.folderNeeded = folderNeeded
+        self.pastChat = pastChat
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
@@ -58,7 +64,7 @@ public final class AgentPaneSeedSource {
         guard read == nil else { return false }
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.folderNeeded == nil
+            && value.harness == nil && value.folderNeeded == nil && value.pastChat == nil
     }
 
     public init(_ seed: AgentPaneSeed) {

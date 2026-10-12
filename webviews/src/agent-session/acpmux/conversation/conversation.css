@@ -122,6 +122,200 @@
   color: var(--cv-text);
 }
 
+/* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
+/* Beside the chat and its composer; a narrow pane gives it the whole width. */
+.acpmux-artifact {
+  flex: 0 0 clamp(320px, 46%, 760px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: inset 1px 0 0 var(--agent-border);
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact {
+    position: absolute;
+    inset: 0;
+    z-index: var(--layer-overlay);
+    box-shadow: none;
+  }
+}
+.acpmux-artifact-bar {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 14px;
+  box-sizing: border-box;
+}
+.acpmux-artifact-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.acpmux-artifact-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-artifact-version {
+  min-width: 26px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
+.acpmux-artifact-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--acpmux-composer-tray);
+}
+.acpmux-artifact-tab {
+  all: unset;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: var(--text-detail);
+  line-height: 24px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
+  color: var(--agent-text);
+}
+.acpmux-artifact-tab[aria-pressed="true"] {
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+}
+.acpmux-artifact-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-artifact-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.acpmux-artifact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.acpmux-artifact-body > .cv-codeblock {
+  margin: 0 12px 12px;
+}
+.acpmux-artifact-doc {
+  padding: 4px 20px 20px;
+}
+.acpmux-artifact-run {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-artifact-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}
+/* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
+   reached them, as Claude's. */
+.cv-user__actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  padding-right: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.cv-user:hover .cv-user__actions,
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
+  opacity: 1;
+}
+/* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
+.cv-user__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-user__version-count {
+  min-width: 28px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--cv-text-muted);
+}
+/* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
+.cv-user__edit {
+  box-sizing: border-box;
+  width: min(100%, 560px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-radius: 16px;
+  background: var(--cv-bubble);
+  box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
+}
+.cv-user__edit-field {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--cv-line-height);
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.cv-user__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cv-user__edit-button {
+  all: unset;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 26px;
+  color: var(--cv-text);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  cursor: default;
+}
+.cv-user__edit-button:hover {
+  background: var(--cv-faint-rule);
+}
+.cv-user__edit-button--send {
+  color: var(--agent-surface);
+  background: var(--cv-text);
+  box-shadow: none;
+}
+.cv-user__edit-button--send:hover {
+  background: var(--cv-codeblock-text);
+}
+.cv-user__edit-button:disabled {
+  opacity: 0.4;
+}
+
 /* ---------- Markdown ---------- */
 
 .cv-md {
@@ -497,7 +691,9 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
-.acpmux-row__copy {
+/* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
+   otherwise put the button back in the flow, shown at rest. */
+.acpmux-row .acpmux-row__copy {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
@@ -510,7 +706,7 @@ pre.cv-math-source {
   opacity: 1;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-row__copy {
+  .acpmux-row .acpmux-row__copy {
     transition: opacity 120ms ease-out;
   }
 }
@@ -638,8 +834,27 @@ pre.cv-math-source {
 .cv-tool__chevron {
   margin-left: -4px;
 }
+/* A thought: "Thought" and its first line on one row, the full text below once opened (cx-ncc.73). */
 .cv-thought .cv-tool__text {
-  white-space: normal;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.cv-thought__label {
+  flex: none;
+}
+.cv-thought__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-muted);
+}
+.cv-thought__body {
+  margin: 2px 0 6px 22px;
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .cv-worked.is-toggle:hover,
 .cv-tool.is-toggle:hover {
@@ -920,6 +1135,13 @@ pre.cv-math-source {
   width: 20px;
   height: 20px;
   border-radius: 5px;
+}
+/* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
+.cv-iconbtn.cv-turn-retry-menu {
+  width: 14px;
+  min-width: 0;
+  padding: 0;
+  margin-left: -3px;
 }
 .cv-iconbtn:hover {
   color: var(--cv-text);
@@ -1516,12 +1738,15 @@ pre.cv-math-source {
   border: 0.5px solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
-  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  box-shadow: var(--ui-popup-shadow, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
+.acpmux-find__bar:focus-within {
+  border-color: var(--agent-accent);
+}
 .acpmux-find__field {
-  width: 180px;
+  width: min(180px, 40vw);
   height: 100%;
   padding: 0;
   border: 0;
@@ -1563,6 +1788,13 @@ pre.cv-math-source {
 .acpmux-find__step:hover:not(:disabled) {
   background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
 }
+.acpmux-find__up {
+  transform: rotate(180deg);
+}
+/* No match for the query: the count reads as an answer, not as quiet detail. */
+.acpmux-find__count[data-empty] {
+  color: var(--agent-text);
+}
 .acpmux-find__step:disabled {
   opacity: 0.4;
 }
@@ -1570,12 +1802,13 @@ pre.cv-math-source {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
-  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent);
 }
 ::highlight(acpmux-find-active) {
-  background-color: #f5c542;
-  color: #1d1d1f;
+  background-color: var(--agent-highlight, #f5c542);
+  color: var(--agent-highlight-text, #1d1d1f);
 }
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
@@ -1675,4 +1908,52 @@ pre.cv-math-source {
   background-color: var(--agent-page-bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+.cv-plan {
+  margin: 8px 0;
+  font-size: var(--text-body);
+}
+.cv-plan__heading {
+  height: 20px;
+  font-size: var(--text-caption);
+  color: var(--cv-text-muted);
+}
+.cv-plan__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-plan__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.cv-plan__mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--cv-text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.cv-plan__item[data-status="completed"] {
+  color: var(--cv-text-muted);
+  text-decoration: line-through;
+}
+.cv-plan__item[data-status="completed"] .cv-plan__mark {
+  border-color: transparent;
+  background: var(--cv-text-muted);
+  color: var(--agent-accent-text, #fff);
+}
+.cv-plan__item[data-status="in_progress"] {
+  font-weight: 600;
+}
+.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--agent-text);
 }

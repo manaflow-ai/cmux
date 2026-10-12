@@ -155,7 +155,7 @@ final class PaneOverlayView: NSView {
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
     /// Hides the overlay inside `rects` (its own coordinates): a docked
-    /// column covering this strip pane. Empty removes the mask.
+    /// column covering this strip pane, a pane in front of it. Empty removes the mask.
     func setExcluded(_ rects: [CGRect]) {
         let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
         guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
@@ -167,12 +167,11 @@ final class PaneOverlayView: NSView {
             return
         }
         let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-        let path = CGMutablePath()
-        path.addRect(bounds)
-        for rect in rects { path.addRect(rect) }
+        // Subtracted, not even-odd: a docked column and a pane in front can overlap.
+        let path = rects.reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(CGPath(rect: $1, transform: nil)) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.fillRule = .evenOdd
+        mask.fillRule = .nonZero
         mask.frame = bounds
         mask.path = path
         CATransaction.commit()

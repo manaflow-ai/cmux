@@ -85,6 +85,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
+    "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -92,6 +93,12 @@ export default agentPaneEntry({
       note: "No chats yet.",
       ready: newTab(),
       snapshot: noChat(),
+    },
+    "chats-unavailable": {
+      note: "The chat index did not answer: All chats says it could not load and offers Try again.",
+      ready: newTab(),
+      snapshot: noChat(),
+      native: {},
     },
     "many-chats": {
       note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
@@ -329,6 +336,15 @@ export default agentPaneEntry({
       note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
       ready: newTab({ template: "classic", templateSwitcher: true }),
       snapshot: noChat(manySessions(4)),
+    },
+    projects: {
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(4)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Projects" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
+      },
     },
     "switcher-off": {
       note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",

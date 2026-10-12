@@ -13,12 +13,12 @@
   --accent: var(--cmux-accent, var(--text));
   /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
   --row-focus: var(--cmux-row-focus, var(--accent-soft));
-  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-token, Canvas)));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 7px;
+  --row-pad-y: 3px;
   --row-pad-x: 12px;
-  --row-min: 38px;
+  --row-min: 28px;
   --card-radius: 10px;
   --sidebar-width: 208px;
   /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
@@ -33,9 +33,9 @@
 }
 
 :root[data-settings-look="dense"] {
-  --row-pad-y: 4px;
+  --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 30px;
+  --row-min: 26px;
   --card-radius: 0;
   --sidebar-width: 188px;
   font-size: 12px;
@@ -168,6 +168,12 @@
   border-radius: var(--card-radius);
 }
 
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
+}
+
 .row {
   min-height: var(--row-min);
   padding: var(--row-pad-y) var(--row-pad-x);
@@ -226,7 +232,7 @@
   margin-top: 3px;
   padding: 1px 7px 1px 5px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
 }
 
@@ -235,7 +241,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--muted-text);
 }
@@ -285,6 +291,28 @@
   background: var(--input-bg);
   border-radius: 6px;
   padding: 2px 10px;
+}
+
+/* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
+.button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
+/* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
+.group > .row-help {
+  margin-bottom: 8px;
+  white-space: normal;
 }
 
 .link-button {
@@ -387,7 +415,7 @@
   height: 0;
   border: 3.5px solid var(--text);
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px var(--cmux-surface-background, Canvas);
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-solid, Canvas);
 }
 
 .token-tuner-body {
@@ -438,7 +466,7 @@
 .token-tuner-slider input::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--cmux-surface-background, Canvas);
+  border: 2px solid var(--cmux-surface-solid, Canvas);
   border-radius: 50%;
   background: var(--accent);
   appearance: none;
@@ -531,8 +559,8 @@
 
 .theme-ball {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .theme-ball-empty {
@@ -593,6 +621,11 @@
 
 .theme-option-check {
   color: var(--accent-text);
+}
+
+.theme-empty {
+  padding: 6px;
+  font-size: var(--text-detail);
 }
 
 .theme-count {

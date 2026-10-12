@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 
@@ -34,13 +34,32 @@ export interface ContextMenuProps {
  * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
- * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
- * the invoking control when it has one.
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
+ * restore the invoking control when it remains connected at the close turn; navigation actions
+ * own any later focus changes. Like a native menu, it opens down and right of the pointer and
+ * flips up or left where that would leave the window.
  */
 export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  // Where the menu sits, measured before it paints.
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const node = menu.current;
+    if (!point || !node) {
+      setPlace(null);
+      return;
+    }
+    const { width, height } = node.getBoundingClientRect();
+    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
+    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
+    setPlace({
+      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
+      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
+    });
+  }, [point]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
     setPoint(null);
@@ -50,8 +69,18 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
   };
   const run = (item: ContextMenuItem | undefined) => {
     if (!item || item.disabled) return;
+    // Keep the opener across the action. The action may remove or replace it (for example, a
+    // sidebar row's Close action), so restoring before `onSelect` would focus a node that is about
+    // to disappear. Restore only when the action did not deliberately move focus elsewhere.
+    const target = returnFocus.current;
     close();
     item.onSelect();
+    queueMicrotask(() => {
+      if (!target?.isConnected) return;
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && focused !== document.documentElement) return;
+      target.focus({ preventScroll: true });
+    });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, restoreFocus = false) => {
     if (event.key === "Escape") {
@@ -61,6 +90,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       if (enabled.length === 0) return;
       event.preventDefault();
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      if (enabled.length === 0) return;
+      event.preventDefault();
+      setActive(event.key === "Home" ? 0 : enabled.length - 1);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       run(enabled[active]);
@@ -77,8 +110,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current =
-          target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
-          null;
+          target?.closest<HTMLElement>(
+            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
+          ) ?? null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -90,11 +124,14 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close()}
+              onPointerDown={() => close(true)}
             >
               <div
                 // Takes focus when it opens, so Up/Down/Return work.
-                ref={(node) => node?.focus()}
+                ref={(node) => {
+                  menu.current = node;
+                  node?.focus();
+                }}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 data-focus-ring="rows"
@@ -102,8 +139,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                 style={{
                   position: "fixed",
                   minWidth: 180,
-                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
-                  top: Math.max(4, point.y),
+                  left: place?.left ?? point.x,
+                  top: place?.top ?? point.y,
+                  visibility: place ? undefined : "hidden",
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
@@ -127,7 +165,15 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       data-highlighted={enabled[active] === item ? "" : undefined}
                       onClick={() => run(item)}
                     >
-                      {item.label}
+                      {/* A text label truncates with its full text as a tooltip; a composed label
+                          (text plus a shortcut) keeps its own flex layout. */}
+                      {typeof item.label === "string" ? (
+                        <span className="ui-menu-label" title={item.label}>
+                          {item.label}
+                        </span>
+                      ) : (
+                        item.label
+                      )}
                     </button>
                   </div>
                 ))}

@@ -11,6 +11,9 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 
+/** One item of an agent's todo list (an ACP `plan` entry). */
+export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -23,6 +26,8 @@ export type AcpmuxRow = {
   pending?: boolean;
   failed?: boolean;
   items?: AcpmuxActivity[];
+  /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
+  plan?: AcpmuxPlanEntry[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -47,6 +52,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
+  merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
@@ -129,6 +136,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
+  forkedAtSeq?: number;
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -374,6 +383,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
+  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }

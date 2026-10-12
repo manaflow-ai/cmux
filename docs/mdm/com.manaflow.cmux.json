@@ -615,6 +615,17 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.hostsToOpenInEmbeddedBrowser" : {
+      "default" : [
+
+      ],
+      "description" : "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hosts to Open in Embedded Browser",
+      "type" : "array"
+    },
     "browser.links.cmdClick" : {
       "default" : "backgroundTab",
       "description" : "In Chromium tabs, Download keeps Chrome's default.",
@@ -712,6 +723,12 @@
       "title" : "Search Suggestions",
       "type" : "boolean"
     },
+    "browser.openTerminalLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links clicked in terminal output open in your default browser.",
+      "title" : "Open Terminal Links in cmux Browser",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
@@ -738,6 +755,17 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.urlsToAlwaysOpenExternally" : {
+      "default" : [
+
+      ],
+      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "URLs to Always Open Externally",
+      "type" : "array"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -753,6 +781,17 @@
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
       "type" : "boolean"
+    },
+    "diff.colors" : {
+      "default" : "theme",
+      "description" : "diff.colors",
+      "enum" : [
+        "theme",
+        "muted",
+        "standard"
+      ],
+      "title" : "Diff Colors",
+      "type" : "string"
     },
     "diff.diffIndicators" : {
       "default" : "bars",

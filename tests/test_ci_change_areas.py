@@ -4459,7 +4459,10 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["scripts/ci/web_validation.py"], (False, False, False, False, False, False, False)),
         ([".github/workflows/ci-web.yml"], (True, True, True, True, True, True, True)),
         (["scripts/ci/web_subareas.py"], (True, True, True, True, True, True, True)),
+        # The webviews test runner is what react-apps-check runs, so a change to it runs that check.
+        (["scripts/ci/run-webviews-tests.sh"], (False, False, False, False, True, False, False)),
     )
+    assert module.is_web_change("scripts/ci/run-webviews-tests.sh")
     for paths, expected in cases:
         actual = web_subareas.classify_paths(paths)
         assert (

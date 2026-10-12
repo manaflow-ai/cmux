@@ -79,7 +79,35 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     }
 }
 
+/// Runs the helper for `source`'s `native_event` with a payload already read
+/// (classic cmux's hook commands, which pick the event from it).
+#[allow(dead_code)] // cmux-tui only; the standalone helper reads stdin
+pub(crate) fn run_with_payload(
+    source: String,
+    native_event: String,
+    payload: &[u8],
+    exe_prefix: &[&str],
+) -> ExitCode {
+    let result = parse_args([source, native_event])
+        .and_then(|args| run_reading(args, exe_prefix, || read_native_payload(payload)));
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cmux-tui-hook: {error:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+    run_reading(args, exe_prefix, || read_native_payload(io::stdin().lock()))
+}
+
+fn run_reading(
+    args: Args,
+    exe_prefix: &[&str],
+    payload: impl FnOnce() -> anyhow::Result<Value>,
+) -> anyhow::Result<()> {
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         drain_native_payload()?;
@@ -94,7 +122,7 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
             return Ok(());
         }
     };
-    let native = read_native_payload(io::stdin().lock())?;
+    let native = payload()?;
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,

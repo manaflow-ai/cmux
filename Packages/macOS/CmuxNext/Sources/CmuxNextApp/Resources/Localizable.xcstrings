@@ -8142,6 +8142,138 @@
         }
       }
     },
+    "sessionTransfer.error.chatFolderMissing": {
+      "comment": "session.transfer.pull of an agent chat failed because the chat's folder does not exist on this Mac; the chat stays in the other build. %@ is the folder path.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل هذه الدردشة في %@، وهو غير موجود على هذا الـ Mac، لذا بقيت في الإصدار الآخر. أنشئ هذا المجلد هنا، ثم انقل الدردشة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat radi u %@, koji nije na ovom Macu, pa je ostao u drugoj verziji. Napravite tu mapu ovdje, pa ponovo premjestite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat arbejder i %@, som ikke findes på denne Mac, så den blev i den anden build. Opret mappen her, og flyt derefter chatten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat arbeitet in %@; diesen Ordner gibt es auf diesem Mac nicht, daher ist der Chat im anderen Build geblieben. Lege den Ordner hier an und verschiebe den Chat dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat works in %@, which isn't on this Mac, so it stayed in the other build. Create that folder here, then move the chat again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat trabaja en %@, que no está en este Mac, así que se quedó en la otra compilación. Crea esa carpeta aquí y vuelve a mover el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette discussion travaille dans %@, qui n’existe pas sur ce Mac ; elle est donc restée dans l’autre build. Créez ce dossier ici, puis déplacez à nouveau la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat lavora in %@, che non è su questo Mac, quindi è rimasta nell'altra build. Crea quella cartella qui, poi sposta di nuovo la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットの作業フォルダ %@ はこのMacにないため、チャットはもう一方のビルドに残りました。ここにそのフォルダを作成してから、もう一度チャットを移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះធ្វើការនៅក្នុង %@ ដែលមិនមាននៅលើ Mac នេះទេ ដូច្នេះវានៅតែក្នុងកំណែផ្សេងទៀត។ បង្កើតថតនោះនៅទីនេះ រួចផ្លាស់ទីការជជែកម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 %@에서 작업하는데, 이 폴더가 이 Mac에 없어 채팅이 다른 빌드에 남아 있습니다. 여기에 해당 폴더를 만든 다음 채팅을 다시 이동하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten jobber i %@, som ikke finnes på denne Macen, så den ble værende i den andre builden. Opprett mappen her, og flytt chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat działa w %@, którego nie ma na tym Macu, więc pozostał w drugiej wersji. Utwórz tutaj ten folder, a potem przenieś czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat trabalha em %@, que não está neste Mac, então ele ficou na outra versão. Crie essa pasta aqui e mova o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат работает в %@, а этой папки нет на этом Mac, поэтому чат остался в другой сборке. Создайте эту папку здесь, затем снова перенесите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ทำงานใน %@ ซึ่งไม่มีอยู่บน Mac เครื่องนี้ แชทจึงยังอยู่ในบิลด์อื่น สร้างโฟลเดอร์นั้นที่นี่ แล้วย้ายแชทอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet %@ içinde çalışıyor ve bu klasör bu Mac’te yok, bu yüzden sohbet diğer derlemede kaldı. Klasörü burada oluşturun, ardından sohbeti yeniden taşıyın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат працює в %@, а цієї теки немає на цьому Mac, тож чат лишився в іншій збірці. Створіть цю теку тут, а потім знову перенесіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này làm việc trong %@, thư mục không có trên máy Mac này, nên nó vẫn ở bản dựng kia. Hãy tạo thư mục đó ở đây rồi chuyển cuộc trò chuyện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天在 %@ 中工作，而这台 Mac 上没有该文件夹，因此聊天仍留在另一个版本中。请在这里创建该文件夹，然后再次移动聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天在 %@ 中工作，而這台 Mac 上沒有該資料夾，因此聊天仍留在另一個版本中。請在這裡建立該資料夾，然後再次移動聊天。"
+          }
+        }
+      }
+    },
     "sessionTransfer.error.chatInChats": {
       "comment": "session.transfer.pull: the agent chat is in this build's agent service (or still moving there) but no tab opened. Chats is the sidebar's chat list.",
       "extractionState": "manual",
@@ -8402,6 +8534,306 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理聊天未移動：%@"
+          }
+        }
+      }
+    },
+    "classicImport.toast.imported": {
+      "comment": "A toast after Import Workspaces from Classic cmux opened the workspaces classic cmux (the older app) had saved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces from classic cmux are open."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Arbeitsbereiche aus dem klassischen cmux sind geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail de cmux classique sont ouverts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحات العمل من cmux الكلاسيكي مفتوحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo de cmux clásico están abiertos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典版 cmux 的工作區已開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典版 cmux 的工作区已打开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 cmux의 작업 공간을 열었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック版 cmux のワークスペースを開きました。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.none": {
+      "comment": "A toast when Import Workspaces from Classic cmux finds no session saved by classic cmux (the older app).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic cmux has no saved workspaces to import."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das klassische cmux hat keine gespeicherten Arbeitsbereiche zum Importieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux classique n’a aucun espace de travail enregistré à importer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد في cmux الكلاسيكي مساحات عمل محفوظة لاستيرادها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux clásico no tiene espacios de trabajo guardados para importar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典版 cmux 沒有可匯入的已儲存工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典版 cmux 没有可导入的已保存工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 cmux에 가져올 저장된 작업 공간이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック版 cmux には読み込める保存済みワークスペースがありません。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.failed": {
+      "comment": "A toast when Import Workspaces from Classic cmux could not open any of classic cmux's saved workspaces.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t import workspaces from classic cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche aus dem klassischen cmux konnten nicht importiert werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’importer les espaces de travail de cmux classique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استيراد مساحات العمل من cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron importar los espacios de trabajo de cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法從經典版 cmux 匯入工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从经典版 cmux 导入工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 cmux에서 작업 공간을 가져오지 못했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック版 cmux からワークスペースを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.cloudVMsStay": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when classic cmux (the older app) had Cloud VM workspaces, which the import leaves in classic cmux. Keep “Cloud VM” and “cmux-next” as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM workspaces stay in classic cmux; cmux-next can’t open them yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VM-Arbeitsbereiche bleiben im klassischen cmux; cmux-next kann sie noch nicht öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail Cloud VM restent dans cmux classique ; cmux-next ne peut pas encore les ouvrir."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات عمل Cloud VM في cmux الكلاسيكي؛ لا يستطيع cmux-next فتحها بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo de Cloud VM se quedan en cmux clásico; cmux-next aún no puede abrirlos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 工作區會留在經典版 cmux；cmux-next 目前還無法開啟它們。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 工作区会留在经典版 cmux；cmux-next 目前还无法打开它们。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM 작업 공간은 클래식 cmux에 남습니다. cmux-next에서는 아직 열 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VM のワークスペースはクラシック版 cmux に残ります。cmux-next ではまだ開けません。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.sshStays": {
+      "comment": "Added to the Import Workspaces from Classic cmux toast when some SSH workspaces of classic cmux (the older app) could not reach their host, so they stay in classic cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH workspaces whose host didn’t connect stay in classic cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Arbeitsbereiche, deren Host keine Verbindung herstellen konnte, bleiben im klassischen cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail SSH dont l’hôte ne s’est pas connecté restent dans cmux classique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات عمل SSH التي لم يتصل مضيفها في cmux الكلاسيكي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo SSH cuyo host no se conectó se quedan en cmux clásico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機未能連線的 SSH 工作區會留在經典版 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机未能连接的 SSH 工作区会留在经典版 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트에 연결하지 못한 SSH 작업 공간은 클래식 cmux에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに接続できなかった SSH ワークスペースはクラシック版 cmux に残ります。"
           }
         }
       }

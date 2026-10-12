@@ -292,6 +292,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -360,6 +361,118 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "copy-last-code-block": {
+      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) hands the app the last fenced block of the latest reply, not an earlier one.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("First try:\n\n```ts\nretry(fetch, 3);\n```", 5),
+        summary(4.9, { status: "completed" }),
+        user("Cap the backoff too", 3),
+        assistant(
+          "Two changes:\n\n```ts\nconst delay = Math.min(cap, base * 2 ** attempt);\n```\n\nand the call:\n\n```ts\nretry(fetch, { attempts: 3, cap: 8000 });\n```\n\nDone.",
+          2,
+        ),
+        summary(1.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
+        const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
+        if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
+      },
+    },
+    "archive-chat-key": {
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+        };
+        page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+        );
+      },
+    },
+    "thought-row": {
+      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(
+                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
+              ),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
+        if (ctx.document.body.textContent?.includes("jittered backoff"))
+          throw new Error("a closed thought shows only its first line");
+        await ctx.click({ selector: "button.cv-thought" });
+        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+      },
+    },
+    "thought-find": {
+      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      checks: {
+        longFrameFailMs: {
+          value: 120,
+          reason:
+            "Typing the query opens the turn's closed Worked for fold, which lays out the whole transcript (72-91 ms measured); its cost is tracked as a Find follow-up, not this row.",
+        },
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+        },
+      },
+      snapshot: chat([
+        user(prompt, 2),
+        activity(
+          [
+            thought(
+              "Check how the helper parses errors first.\n\nOn second thought, the retry wrapper swallows the status.",
+            ),
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+          ],
+          1.5,
+        ),
+        assistant("Retries now stop on a 4xx.", 1),
+        summary(0.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("find");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.type("thought");
+        const active = () => {
+          const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
+            .CSS.highlights;
+          return [...(highlights?.get("acpmux-find-active") ?? [])][0];
+        };
+        await ctx.waitFor(() => active() !== undefined);
+        const at = active()!.startContainer.parentElement;
+        if (!at?.closest(".cv-thought__body"))
+          throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
     },
     "working-tools": {
       note: "Tool calls running in a live turn.",
@@ -804,6 +917,28 @@ export default agentPaneEntry({
               .querySelector('[data-row-id="gallery-selection-answer"]')
               ?.getAttribute("data-transcript-selected") === "true",
         );
+      },
+    },
+    "keyboard-copy": {
+      note: "Play: select a transcript range, invoke both Ctrl-C and Cmd-C, and keep the range focused for copy feedback.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+        await ctx.press("Control+c");
+        await ctx.press("Meta+c");
+        await ctx.waitFor(() => {
+          const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
+          return (
+            answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement)
+          );
+        });
       },
     },
     "keyboard-focus": {

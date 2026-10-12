@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
-        AgentPaneHarnessHealth.provider = { [weak services] id, refresh in
+        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh in
             let rows = (try? await services?.agentHarnesses.health(refresh: refresh)) ?? []
             return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
         }
@@ -283,6 +283,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await settings.migrateLegacyQuitBehavior()
             // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
             _ = try? await settings.migrateLegacyWorkspaceRowKeys()
+            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
+            _ = try? await settings.migrateClassicSettings()
+            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
+            _ = try? await settings.importClassicShortcuts(marker: .standard)
+            _ = try? await settings.importClassicPreferences(marker: .standard)
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -296,6 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
                 DebugNowPlaying.register(on: control.service?.router, services: services)
+                DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 DebugBrowserExternal.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)

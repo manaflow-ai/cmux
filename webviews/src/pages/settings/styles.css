@@ -311,7 +311,7 @@ mark {
 
 .field {
   min-width: 0;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--input-bg);
@@ -424,7 +424,7 @@ mark {
 
 .segment {
   position: relative;
-  padding: 2px 10px;
+  padding: 1px 10px;
   border-radius: 5px;
   background: transparent;
   cursor: default;
@@ -603,7 +603,7 @@ mark {
   gap: 2px;
   padding: 1px 2px 1px 8px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: 4px;
   font-size: 12px;
 }
 
@@ -700,6 +700,12 @@ mark {
   font: inherit;
   text-align: left;
   justify-content: flex-start;
+}
+
+/* A profile row opens on click, so it answers the pointer like other clickable rows. */
+.row:has(> .host-toggle[aria-expanded="false"]:hover) {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .host-avatar {
@@ -824,7 +830,8 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px 0 0 36px;
+  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  padding: 6px 0 0 40px;
 }
 
 .accounts-body:empty {
@@ -886,6 +893,12 @@ mark {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* Why a chat root is refused: its own line under the path, wrapping rather than clipped. */
+.folder-reason {
+  max-width: 320px;
+  text-align: right;
 }
 
 .folder-item {

@@ -113,6 +113,7 @@
             "rows" : [
               "diff.layout",
               "diff.diffIndicators",
+              "diff.colors",
               "diff.wordWrap",
               "diff.wordDiffs",
               "diff.lineNumbers",
@@ -645,6 +646,18 @@
             "title" : {
               "key" : "settings.group.links",
               "text" : "Links"
+            }
+          },
+          {
+            "key" : "settings.group.terminalLinks",
+            "rows" : [
+              "browser.openTerminalLinksInCmuxBrowser",
+              "browser.hostsToOpenInEmbeddedBrowser",
+              "browser.urlsToAlwaysOpenExternally"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalLinks",
+              "text" : "Terminal Links"
             }
           },
           {
@@ -9570,6 +9583,75 @@
     },
     {
       "accepts" : [
+        "theme",
+        "muted",
+        "standard"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffColorsTheme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffColorsMuted",
+            "text" : "Muted"
+          },
+          "value" : "muted"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.standard",
+            "text" : "Standard"
+          },
+          "value" : "standard"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "theme",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.colors",
+      "keywords" : [
+        "diff",
+        "color",
+        "green",
+        "red",
+        "added",
+        "removed"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "colors"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.colors",
+        "text" : "Diff Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -15747,6 +15829,167 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openTerminalLinks.help",
+        "text" : "When off, links clicked in terminal output open in your default browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openTerminalLinksInCmuxBrowser",
+      "keywords" : [
+        "link",
+        "url",
+        "click",
+        "default browser"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openTerminalLinksInCmuxBrowser"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.openTerminalLinks",
+        "text" : "Open Terminal Links in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "localhost",
+          "*.example.com"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.hostWhitelist.help",
+        "text" : "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.hostsToOpenInEmbeddedBrowser",
+      "keywords" : [
+        "allowlist",
+        "whitelist",
+        "domain",
+        "link"
+      ],
+      "kind" : "host_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "hostsToOpenInEmbeddedBrowser"
+      ],
+      "refuses" : [
+        "localhost",
+        [
+          1
+        ]
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.hostWhitelist",
+        "text" : "Hosts to Open in Embedded Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalLinks",
+        "text" : "Terminal Links"
+      },
+      "help" : {
+        "key" : "settings.browser.externalPatterns.help",
+        "text" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.urlsToAlwaysOpenExternally",
+      "keywords" : [
+        "denylist",
+        "blocklist",
+        "regex",
+        "external",
+        "default browser"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "urlsToAlwaysOpenExternally"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.externalPatterns",
+        "text" : "URLs to Always Open Externally"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -18531,7 +18774,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e8533e1fb84bebe98a86954022551c39197743381896997eb86728d51c259659",
+  "schema_hash" : "6baff1efb4cfb9c41111f9488b3740f75b1d19952f3dea4fb3d24c9ce50b6c77",
   "sections" : [
     {
       "id" : "general",

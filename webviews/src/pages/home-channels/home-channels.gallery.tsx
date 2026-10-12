@@ -20,11 +20,13 @@ type Props = {
   offline?: boolean;
   /** The Chief's running reply in the Chief DM. */
   draft?: MockDraft;
+  /** Adds #incident, a thread with more replies than one page. */
+  longThread?: boolean;
 };
 
-function HomeChannelsGallery({ select, thread, offline = false, draft }: Props) {
+function HomeChannelsGallery({ select, thread, offline = false, draft, longThread = false }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft));
+    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread));
     if (select)
       void created.select(select).then(() => {
         if (thread) created.openThread(thread);
@@ -75,6 +77,9 @@ export default componentEntry<Props>({
     "pages/home-channels/Switcher.tsx#Switcher",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
+    "pages/home-channels/AddChannel.tsx#AddChannel",
+    "pages/home-channels/MessageRow.tsx#DraftRow",
+    "pages/home-channels/icons.tsx#HomeIcon",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -92,6 +97,26 @@ export default componentEntry<Props>({
     thread: {
       note: "The thread panel open on the sidebar-fix message.",
       props: { select: "c-release", thread: "c-release-m2" },
+    },
+    "thread-long": {
+      note: "A thread past one page: the panel counts every reply that is not retracted (the owner's stats), then loads the rest.",
+      props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
+      play: async (ctx) => {
+        const panelText = (selector: string) =>
+          [...ctx.document.querySelectorAll(`.hc-thread ${selector}`)].map((node) => node.textContent?.trim() ?? "");
+        const scroller = { selector: ".hc-thread .hc-timeline" };
+        // The first page: 100 of the 130 replies, and the control for the rest.
+        await ctx.waitFor(
+          () => panelText(".hc-md").includes("Update 100.") && ctx.document.querySelector(".hc-thread-more"),
+        );
+        // The count is the owner's (every reply that is not retracted), not the loaded ones.
+        await ctx.scroll(scroller, "top");
+        await ctx.waitFor(() => panelText(".hc-replies-line").some((line) => line.includes("129")));
+        await ctx.click({ selector: ".hc-thread-more" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".hc-thread-more"));
+        await ctx.scroll(scroller, "bottom");
+        await ctx.waitFor(() => panelText(".hc-md").includes("Update 130."));
+      },
     },
     switcher: {
       note: "Cmd-K opens the switcher; the best match is highlighted.",
@@ -191,6 +216,33 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
         await ctx.click({ role: "button", name: "Emoji" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
+      },
+    },
+    "emoji-return": {
+      note: "Return in the emoji search inserts the first result into the composer and closes the popover.",
+      props: { select: "c-chief" },
+      checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason: "The first open decodes the bundled emoji table (~290 KB JSON) once; later opens reuse it.",
+        },
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "Typing filters the grid a letter at a time, so the cells it keeps move to new places.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
+        await ctx.click({ role: "button", name: "Emoji" });
+        await ctx.type("rocket", { selector: ".hc-emoji-search" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
+        const first = ctx.document.querySelector(".hc-emoji-cell")?.textContent?.trim() ?? "";
+        await ctx.press("Enter");
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".hc-emoji") &&
+            (ctx.document.querySelector(".hc-main .hc-composer [contenteditable]")?.textContent ?? "").includes(first),
+        );
       },
     },
     "add-channel": {

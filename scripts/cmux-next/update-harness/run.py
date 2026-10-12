@@ -194,6 +194,30 @@ NOTES_ENTRIES = [
 ]
 
 
+def surface_shots(sock, out, phase, log, popover):
+    """Light and dark captures of the main window, and with `popover` of the highlights popover
+    (its own window, from debug.window_list). Returns what each capture wrote."""
+    shots = {}
+    for mode in ("light", "dark"):
+        rpc(sock, "debug.appearance", {"mode": mode})
+        if popover:
+            shown = rpc(sock, "debug.update_surfaces", {"action": "show-popover"}).get("result", {})
+            # Capture timing only: WebKit paints a page view moved into a new window on a later frame.
+            time.sleep(1.0)
+            windows = rpc(sock, "debug.window_list").get("result", {}).get("windows", [])
+            pops = [w for w in windows if w.get("kind") == "popover" and w.get("visible")]
+            shots[f"{phase}-{mode}-popover-shown"] = shown
+            shots[f"{phase}-{mode}-log"] = [l for l in rpc(sock, "updates.status").get("result", {}).get("log", []) if "surface" in l]
+            for index, window in enumerate(pops):
+                path = os.path.join(out, f"{phase}-{mode}-popover-{index}.png")
+                shots[path] = rpc(sock, "debug.window_snapshot", {"window": window["id"], "path": path}, timeout=30).get("result")
+        time.sleep(0.5)  # capture timing only: the appearance change repaints the page views
+        path = os.path.join(out, f"{phase}-{mode}-window.png")
+        shots[path] = rpc(sock, "debug.window_snapshot", {"kind": "main", "path": path}, timeout=30).get("result")
+    log(phase, "surface shots", json.dumps(shots)[:1500])
+    return shots
+
+
 def write_notes(feed, keys, info, log):
     """Signed release notes for `info`'s build, laid out like the real feed: notes/<build>.json + .sig."""
     build, short = info["CFBundleVersion"], info.get("CFBundleShortVersionString", "0")
@@ -292,6 +316,9 @@ def main():
                     help="publish signed release notes for v2 (a localized What's New document) next to the feed, "
                          "signed with the throwaway key, and read the staged highlights (updates.highlights)")
     ap.add_argument("--language", help="v1's AppleLanguages, for example ja")
+    ap.add_argument("--surface-shots", action="store_true",
+                    help="capture the React update surfaces: the staged card's highlights popover before the "
+                         "restart and the Updated card after it, light and dark (debug.window_snapshot)")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
@@ -384,6 +411,28 @@ def main():
         env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local"}
+        if a.surface_shots:
+            # v1 opens as if it had just updated from an older build: its "cmux Updated!" card shows
+            # at launch, so both appearances are captured with this config (the relaunched app
+            # starts without the harness environment).
+            record_dir = os.path.join(os.environ["HOME"], "Library/Application Support/cmux-next", i1["CFBundleIdentifier"])
+            os.makedirs(record_dir, exist_ok=True)
+            with open(os.path.join(record_dir, "last-update.json"), "w") as f:
+                json.dump({"fromVersion": "0.64.0", "fromBuild": str(base - 1), "toVersion": i1.get("CFBundleShortVersionString", "0"),
+                           "toBuild": i1["CFBundleVersion"], "stagedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "changelog": {"version": i1.get("CFBundleShortVersionString", "0"), "lines": ["New: Highlights before you restart"]},
+                           "highlights": {"version": i1.get("CFBundleShortVersionString", "0"), "build": i1["CFBundleVersion"],
+                                          "fromVersion": "0.64.0", "fromBuild": str(base - 1), "source": "whatsNew", "language": "en",
+                                          "date": time.strftime("%Y-%m-%d", time.gmtime()), "moreCount": 2,
+                                          "changelog": {"from": "0.64.0", "to": i1.get("CFBundleShortVersionString", "0")},
+                                          "items": [{"id": "a", "title": "Restart to Update is instant", "category": "new",
+                                                     "summary": "The click answers in one frame."},
+                                                    {"id": "b", "title": "Highlights before you restart", "category": "new"}]}}, f)
+            # Light and dark captures follow debug.appearance only with a theme for each.
+            config = os.path.join(work, "cmux.json")
+            with open(config, "w") as f:
+                json.dump({"appearance": {"theme": "light:Builtin Light,dark:Builtin Dark"}}, f)
+            env["CMUX_NEXT_CONFIG_FILE"] = config
         if a.required_update:
             config = os.path.join(work, "cmux.json")
             with open(config, "w") as f:
@@ -406,6 +455,10 @@ def main():
             raise SystemExit("v1 showed no window")
         if not wait_socket(sock, 60):
             raise SystemExit(f"v1's control socket {sock} did not open")
+        if a.surface_shots:
+            result["v1_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
+            time.sleep(2.0)  # capture timing only: the card's page loads and reports its height
+            result["v1_updated_shots"] = surface_shots(sock, out, "v1-updated", log, popover=False)
         if not first(marks.read(), "updater_created", pid=v1_pid):
             raise SystemExit("v1 did not start the harness updater (is it a DEBUG build with the harness keys?)")
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
@@ -437,6 +490,8 @@ def main():
                 time.sleep(0.5)
             result["highlights"] = highlights
             log("highlights", json.dumps(highlights, ensure_ascii=False)[:2000])
+        if a.surface_shots:
+            result["ready_shots"] = surface_shots(sock, out, "ready", log, popover=True)
         if terminal:
             terminal.start(v1)
             agent.start()
@@ -532,6 +587,9 @@ def main():
             shot = os.path.join(out, "v2-window.png")
             result["v2_snapshot"] = rpc(sock, "debug.window_snapshot", {"path": shot}, timeout=30)
             result["v2_status"] = rpc(sock, "updates.status")
+            if a.surface_shots:
+                result["v2_last_highlights"] = rpc(sock, "updates.highlights", {"last": True}).get("result")
+                result["updated_shots"] = surface_shots(sock, out, "updated", log, popover=False)
         except OSError as error:
             result["v2_socket_error"] = str(error)
         if a.second_hop:

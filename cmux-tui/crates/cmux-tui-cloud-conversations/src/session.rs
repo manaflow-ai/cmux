@@ -115,6 +115,43 @@ pub(crate) fn validate_api_base_url(raw: &str) -> Result<String, CloudError> {
     })
 }
 
+/// The cmux Cloud API origins a lease from a connection that is not the
+/// verified cmux app may name (cmux#13742 review P2-2): production, staging,
+/// the development and staging Workers, loopback, and the origins an
+/// operator lists in `CMUX_CLOUD_API_ORIGINS` (comma separated) for the
+/// daemon (`ServiceOptions::api_origins`). The app chooses its own origin (a
+/// debug build may override it).
+const KNOWN_API_ORIGINS: &[&str] = &[
+    "https://cloud-api.cmux.dev",
+    "https://cloud-api-staging.cmux.dev",
+    "https://cmux-api-development.debussy.workers.dev",
+    "https://cmux-api-staging.debussy.workers.dev",
+];
+
+pub(crate) fn check_known_origin(raw: &str, extra: &[String]) -> Result<(), CloudError> {
+    let origin = validate_api_base_url(raw)?;
+    let loopback = url::Url::parse(&origin).ok().is_some_and(|url| match url.host() {
+        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    });
+    if loopback
+        || KNOWN_API_ORIGINS.contains(&origin.as_str())
+        || extra
+            .iter()
+            .filter_map(|entry| validate_api_base_url(entry).ok())
+            .any(|known| known == origin)
+    {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "unknown_api_origin".into(),
+        message: format!("api_base_url {origin} is not a known cmux Cloud origin"),
+        retryable: false,
+    })
+}
+
 /// The `agt` claim (a chief id, `agent_...`) of a JWT-shaped token; `None`
 /// for a person's session token. Like `sub`, unverified here.
 pub(crate) fn token_agent(token: &str) -> Option<String> {

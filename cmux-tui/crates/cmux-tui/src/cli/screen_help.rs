@@ -24,7 +24,7 @@ USAGE
   cmux screen group remove --screens <screen_…,...>
 
 Pinned screens sort first and leave their group. Group colors: grey, blue,
-red, yellow, green, pink, purple, cyan, orange.
+red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB.
 
 SELECTORS
   <selector> is an id (screen_…), current, or an exact name. Prefix name:

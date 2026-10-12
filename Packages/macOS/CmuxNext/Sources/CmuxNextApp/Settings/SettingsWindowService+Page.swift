@@ -10,7 +10,10 @@ import CmuxNextSettingsWindow
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
-        [
+        // The app scope is not observable; reading the store's generation makes the page's
+        // host-lists watch re-send the Ghostty config preview after a config edit.
+        _ = ThemeStore.shared.generation
+        return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in

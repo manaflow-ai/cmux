@@ -92,6 +92,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
     /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
+    public var agentName: String?
+    /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
+    public var lastMessage: String?
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
@@ -141,6 +145,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live,
@@ -168,6 +173,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentName = agentName
         self.progress = progress
         self.tabs = tabs
         self.rowState = rowState

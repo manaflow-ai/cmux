@@ -135,6 +135,11 @@ on:
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_next_update_dev_daily.py
+      - scripts/cmux-next/update-dev-daily.sh
+      - tests/test_cmux_next_classic_to_next.py
+      - scripts/cmux-next/classic-to-next.py
+      - tests/fixtures/classic-to-next/**
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
@@ -258,6 +263,11 @@ on:
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_next_update_dev_daily.py
+      - scripts/cmux-next/update-dev-daily.sh
+      - tests/test_cmux_next_classic_to_next.py
+      - scripts/cmux-next/classic-to-next.py
+      - tests/fixtures/classic-to-next/**
       - scripts/ci/cmux_next_tree_notify.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
@@ -923,6 +933,7 @@ jobs:
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/ratchet-debt-issue.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
+          bash scripts/cmux-next/tests/pr-autofix.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -988,6 +999,15 @@ jobs:
         run: |
           python3 tests/test_cmux_next_generated_catch_up.py
           python3 tests/test_next_batch.py
+
+      # The cmux NEXT DEV update script (an unchanged build is left alone; an
+      # update keeps sessions and reopens the app) and the classic session import.
+      - name: DEV update and classic import scripts
+        id: dev-update-classic-import
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_update_dev_daily.py
+          python3 tests/test_cmux_next_classic_to_next.py
 
       # A pull request that changes the router replays the last 30 merged PRs' changed files
       # through the base router (the merge commit's HEAD^1) and its own: a tier the new router
@@ -1074,6 +1094,7 @@ jobs:
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.companion-workflows.outcome }}|Companion workflows
+            ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh

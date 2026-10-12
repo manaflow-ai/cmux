@@ -32,8 +32,8 @@ nonisolated enum AgentPaneGitProcess {
 
     /// Nil when git exits 0, else git's message: its `fatal:` or `error:` line, else its first line
     /// (`git commit` says "nothing to commit" on its output), or why it did not run.
-    static func run(_ arguments: [String], input: Data? = nil, timeout: Duration) async -> String? {
-        let outcome = await output(arguments, input: input, timeout: timeout)
+    static func run(_ arguments: [String], input: Data? = nil, timeout: Duration, network: Bool = false) async -> String? {
+        let outcome = await output(arguments, input: input, timeout: timeout, network: network)
         return outcome.status == 0 ? nil : outcome.message
     }
 
@@ -50,10 +50,20 @@ nonisolated enum AgentPaneGitProcess {
         }
     }
 
-    static func output(_ arguments: [String], input: Data? = nil, timeout: Duration) async -> Outcome {
-        await Task.detached(priority: .userInitiated) {
-            runSync(arguments, input: input, timeout: timeout)
+    /// `executable` (git unless named) with `arguments`, in `directory` when named. `network` runs
+    /// reach a remote (push, `gh`): they also get the user's tool folders, for credential helpers,
+    /// and the SSH agent.
+    static func output(_ arguments: [String], executable: String = "/usr/bin/git", directory: String? = nil,
+                       input: Data? = nil, timeout: Duration, network: Bool = false) async -> Outcome {
+        let environment = network ? networkEnvironment() : environment()
+        return await Task.detached(priority: .userInitiated) {
+            runSync(Command(executable: executable, arguments: arguments, directory: directory, environment: environment),
+                    input: input, timeout: timeout)
         }.value
+    }
+
+    private struct Command {
+        var executable: String, arguments: [String], directory: String?, environment: [String: String]
     }
 
     /// State the pipe's reader and the input's writer share with the run. Unchecked for the input
@@ -75,11 +85,12 @@ nonisolated enum AgentPaneGitProcess {
         }
     }
 
-    private static func runSync(_ arguments: [String], input: Data?, timeout: Duration) -> Outcome {
+    private static func runSync(_ command: Command, input: Data?, timeout: Duration) -> Outcome {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.environment = environment()
+        process.executableURL = URL(fileURLWithPath: command.executable)
+        process.arguments = command.arguments
+        process.environment = command.environment
+        if let directory = command.directory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
         let output = Pipe(), stdin = Pipe()
         process.standardError = output
         process.standardOutput = output
@@ -135,6 +146,27 @@ nonisolated enum AgentPaneGitProcess {
         var environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]
         if let home = ProcessInfo.processInfo.environment["HOME"] { environment["HOME"] = home }
         return environment
+    }
+
+    /// The plain environment, plus what reaching a remote takes: the user's tool folders (a
+    /// credential helper such as `gh` or Git Credential Manager), the SSH agent, and no prompt from
+    /// `gh` either.
+    static func networkEnvironment(_ app: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        var environment = environment()
+        environment["PATH"] = (toolFolders(app) + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
+        environment["SSH_AUTH_SOCK"] = app["SSH_AUTH_SOCK"]
+        environment["GH_PROMPT_DISABLED"] = "1"
+        environment["GH_NO_UPDATE_NOTIFIER"] = "1"
+        return environment
+    }
+
+    /// The App's own PATH, then the folders an app launched from Finder lacks.
+    static func toolFolders(_ app: [String: String]) -> [String] {
+        let home = app["HOME"] ?? NSHomeDirectory()
+        let folders = (app["PATH"] ?? "").split(separator: ":").map(String.init)
+            + AcpmuxEnvironment.installDirectories.map { $0.hasPrefix("~/") ? home + "/" + $0.dropFirst(2) : $0 }
+        var seen: Set<String> = []
+        return folders.filter { $0.hasPrefix("/") && seen.insert($0).inserted }
     }
 
     /// git did not finish before the deadline.

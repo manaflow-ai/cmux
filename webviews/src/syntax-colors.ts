@@ -75,10 +75,18 @@ export function withMinimumContrast(
   if (rgb == null || bg == null || target == null) return color.trim();
   if (contrast(rgb, bg) >= minimumContrast) return toHex(rgb);
   for (let step = 1; step <= 20; step++) {
-    const mixed = mix(rgb, target, step / 20);
+    // Measured as the hex it becomes, so rounding never drops it below the minimum.
+    const mixed = parseHex(toHex(mix(rgb, target, step / 20))) ?? target;
     if (contrast(mixed, bg) >= minimumContrast) return toHex(mixed);
   }
   return toHex(target);
+}
+
+/// `color` moved `amount` (0 to 1) of the way to `toward`; `color` itself when either is not hex.
+export function mixColors(color: string, toward: string, amount: number): string {
+  const from = parseHex(color);
+  const to = parseHex(toward);
+  return from == null || to == null ? color.trim() : toHex(mix(from, to, amount));
 }
 
 export function contrastBetween(a: string, b: string): number | null {

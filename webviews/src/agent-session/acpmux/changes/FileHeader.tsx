@@ -1,7 +1,7 @@
 // One edit's header in the changes view: name, badges, counts and the viewed toggle. It sits
 // outside Pierre's diff so collapsing or marking a file keeps the focused button.
 import React from "react";
-import type { DiffEdit, TurnFile } from "../diff";
+import type { DiffEdit, DiffHunk, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
 import { useT } from "../i18n";
 import { Counts } from "./Counts";
@@ -16,6 +16,8 @@ export type FileActions = {
   openFile: (path: string, where: OpenTarget) => void;
   /// Stage (or, in Staged, unstage) a file; absent where the view can't change the index.
   stage?: { unstage: boolean; run: (path: string) => void };
+  /// Stage (or, in Staged, unstage) one hunk of a file; absent outside Unstaged and Staged.
+  stageHunk?: { unstage: boolean; run: (path: string, hunk: DiffHunk) => void };
 };
 
 export function FileHeader({

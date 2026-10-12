@@ -145,6 +145,9 @@ enum RowDraw {
 
     /// The typing bubble without its dots (dots are layers that animate).
     static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
+    /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
+    static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
         Fixture.incoming.setFill()
@@ -444,7 +447,10 @@ enum PartRenderer {
             path.lineWidth = 1
             PreviewStyle.stroke.setStroke()
             path.stroke()
-            TextDraw.line(pv.textLine, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8, baseline: box.minY + 16.5, in: ctx)
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8,
+                              baseline: box.minY + 16.5 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+            }
         } else {
             let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
             path.lineWidth = 1
@@ -501,7 +507,11 @@ enum PartRenderer {
             path.lineWidth = 1
             PreviewStyle.outgoingStroke.setStroke()
             path.stroke()
-            TextDraw.line(pv.textLine, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5, baseline: box.minY + 16, in: ctx)
+            // A long root wraps: the next line's baseline is 11 pt lower (27 pt under the top, measured).
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5,
+                              baseline: box.minY + 16 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+            }
         } else {
             let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
             path.lineWidth = 1
