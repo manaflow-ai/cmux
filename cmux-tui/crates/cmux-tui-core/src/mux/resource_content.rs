@@ -145,19 +145,7 @@ impl Mux {
                     .cloned()
                     .collect::<Vec<_>>();
                 all_tabs.extend(tabs.iter().cloned());
-                let mut terminal_tab_order =
-                    terminal_tab_ids_in_canonical_order(all_tabs.iter().filter_map(|tab| {
-                        match &tab.content_id {
-                            ContentPublicId::Terminal(id) => Some((
-                                id.clone(),
-                                tab.pane_id.clone(),
-                                tab.position,
-                                tab.public_id.clone(),
-                            )),
-                            ContentPublicId::Browser(_) => None,
-                        }
-                    }));
-                let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
+                let terminal_tab_ids = terminal_tab_ids(&all_tabs, &terminal_id);
                 let durable = match &first {
                     Some((_, record)) => record.clone(),
                     None => registry.terminal_record(&host_id)?.context("no durable host")?,
@@ -370,19 +358,24 @@ impl Mux {
                 let terminal_surface = state
                     .surfaces
                     .get(&surface)
+                    .cloned()
                     .context("terminal selector resolved a missing surface")?;
-                let (terminal_cols, terminal_rows) = terminal_surface.size();
-                let mut terminal_value = json!({
-                    "id":terminal_id,
-                    "tab_id":source_tab.public_id,
-                    "title":terminal_surface.title(),
-                    "cols":terminal_cols.max(1),
-                    "rows":terminal_rows.max(1),
-                    "running":!terminal_surface.is_dead(),
-                });
-                if let Some(cwd) = terminal_surface.spawn_cwd() {
-                    terminal_value["cwd"] = json!(cwd);
-                }
+                // The result is the terminal's public snapshot (the catalog's
+                // TerminalSnapshot), from the one terminal builder.
+                let host = self
+                    .resource_terminal_host_identity(&terminal_surface)
+                    .context("terminal has no host identity")?;
+                let durable_terminal = registry
+                    .terminal_record(&host.terminal_id)?
+                    .context("terminal has no durable host")?;
+                let terminal_snapshot = |tabs: &[RegistryTab]| {
+                    public_terminal_snapshot(
+                        &terminal_id,
+                        &durable_terminal,
+                        Some(terminal_surface.as_ref()),
+                        terminal_tab_ids(tabs, &terminal_id),
+                    )
+                };
                 let source_pane_id = source_tab.pane_id.clone();
                 let structural = source_pane_slot != target_pane_slot
                     && state.panes.get(&source_pane_slot).is_some_and(|pane| pane.tabs.len() == 1);
@@ -396,7 +389,7 @@ impl Mux {
                         source_pane_slot,
                         target_pane_slot,
                         index,
-                        json!({"terminal":terminal_id,"value":terminal_value}),
+                        json!({"terminal":terminal_id,"value":terminal_snapshot(&topology.tabs)?}),
                     );
                 }
                 let mut source_pane = topology
@@ -509,6 +502,15 @@ impl Mux {
                     workspace_id: Some(target_workspace_id),
                 });
 
+                let moved_tabs = topology
+                    .tabs
+                    .iter()
+                    .filter(|tab| tab.pane_id != source_pane_id && tab.pane_id != target_pane_id)
+                    .chain(&source_tabs)
+                    .chain(&target_tabs)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let terminal_value = terminal_snapshot(&moved_tabs)?;
                 let source_public = source_pane.public_id.clone();
                 let target_public = target_pane.public_id.clone();
                 let source_delta_tabs = source_tabs.clone();
@@ -846,6 +848,18 @@ fn push_pane_delta(changes: &mut Vec<Value>, pane: &RegistryPane, focused: bool)
             "zoomed": false,
         },
     }));
+}
+
+/// `terminal`'s tab ids in canonical order among `tabs`.
+fn terminal_tab_ids(tabs: &[RegistryTab], terminal: &TerminalPublicId) -> Vec<TabPublicId> {
+    terminal_tab_ids_in_canonical_order(tabs.iter().filter_map(|tab| match &tab.content_id {
+        ContentPublicId::Terminal(id) => {
+            Some((id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone()))
+        }
+        ContentPublicId::Browser(_) => None,
+    }))
+    .remove(terminal)
+    .unwrap_or_default()
 }
 
 fn push_tab_delta(changes: &mut Vec<Value>, tab: &RegistryTab, focused: bool) {
