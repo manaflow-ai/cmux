@@ -9,16 +9,17 @@ import WebKit
 /// page has loaded or the launch settled (`LaunchSettle`).
 public enum AgentPaneWarmup {
     private static var view: WKWebView?
+    /// probe4 (to drop): one in-memory store for every agent page, so the prewarmed process fits the first.
+    static let dataStore = WKWebsiteDataStore.nonPersistent()
     private static let diagDelegate = WarmupDiagDelegate() // diag (to drop)
 
     public static func start() {
         guard view == nil else { return }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = dataStore
         configuration.processPool = AgentPaneView.processPool
         // diag (to drop): load the real page here to see how early it can be live.
         let source = AgentPaneView.bundledPage.map { AgentPaneSource.bundled($0) }
-        source?.register(on: configuration)
         configuration.userContentController.addUserScript(WKUserScript(source: """
         window.__cmuxT = {docStart: performance.now()};
         document.addEventListener('DOMContentLoaded', () => { window.__cmuxT.dcl = performance.now();
@@ -28,18 +29,16 @@ public enum AgentPaneWarmup {
         let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
         view.navigationDelegate = diagDelegate
         AgentPaneLaunchTimings.shared.mark("diag.warm.load")
-        if let source { source.load(into: view) } else { view.loadHTMLString("<!doctype html><title></title>", baseURL: nil) }
+        _ = source
+        view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
+        // probe4 (to drop): a prewarmed web process (initialized, no page) for the first agent page.
+        let warm = NSSelectorFromString("_warmInitialProcess")
+        if AgentPaneView.processPool.responds(to: warm) {
+            _ = AgentPaneView.processPool.perform(warm)
+            AgentPaneLaunchTimings.shared.mark("diag.warm.prewarmed")
+        }
         self.view = view
         WebKitProcessProbe.start()
-        // probe3 (to drop): the main thread serves only WebKit until the page loaded (+60 ms for its
-        // first paint) or 400 ms: how soon can the real page be live with a free main thread?
-        let cap = Date().addingTimeInterval(0.4)
-        var settle: Date?
-        while Date() < (settle ?? cap) {
-            if settle == nil, diagDelegate.finished { settle = min(cap, Date().addingTimeInterval(0.06)) }
-            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.002))
-        }
-        AgentPaneLaunchTimings.shared.mark("diag.warm.spin_end")
     }
 
     public static func finish() {
@@ -133,10 +132,10 @@ private enum WebKitProcessProbe {
             for (index, entry) in seen.values.sorted(by: { $0.start < $1.start }).enumerated() {
                 let label = "diag.wk.\(index).\(entry.name)"
                 rows.append("\(label).start@\(entry.start * 1000)")
-                // The first quiet stretch (no CPU for 15 ms): its process is up and waiting.
-                if let quiet = zip(entry.changes, entry.changes.dropFirst()).first(where: { $1 - $0 > 0.015 }) {
-                    rows.append("\(label).idle@\(quiet.0 * 1000)")
-                    rows.append("\(label).busy_again@\(quiet.1 * 1000)")
+                // Every quiet stretch (no CPU for 10 ms): the process waits.
+                for (n, quiet) in zip(entry.changes, entry.changes.dropFirst()).filter({ $1 - $0 > 0.010 }).prefix(12).enumerated() {
+                    rows.append("\(label).idle\(n)@\(quiet.0 * 1000)")
+                    rows.append("\(label).busy\(n)@\(quiet.1 * 1000)")
                 }
             }
             WebKitProcessProbe.post(rows)
