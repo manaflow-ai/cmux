@@ -15,9 +15,6 @@
 //! zsh and fish integrations print from their post-command hook, before the
 //! line editor starts: a killed Codex or Claude Code would otherwise leave
 //! keys typing kitty sequences (`[97;5u`) and pastes losing their brackets.
-//! Only the first 133;D after a 133;C counts; an integration that printed
-//! 133;D inside its prompt, after the line editor's own modes, would lose
-//! them, which none that cmux-next injects does.
 
 use std::borrow::Cow;
 
@@ -48,9 +45,8 @@ const CURSOR_VISIBLE: u16 = 25;
 
 /// What a pane's terminal drops when its child exits: nothing runs there
 /// any more to want mouse reports, keyboard modes, a hidden cursor or an
-/// alternate screen. The kitty flags are popped on both screens, since each
-/// keeps its own.
-pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l\x1b[<99u";
+/// alternate screen.
+pub(crate) const EXIT_RESET: &[u8] = b"\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1004l\x1b[?1l\x1b>\x1b[<99u\x1b[>4;0m\x1b[?25h\x1b[?47l\x1b[?1047l\x1b[?1049l";
 
 /// Where the shell is between its marks, carried across output chunks.
 #[derive(Debug, Default)]
@@ -90,12 +86,6 @@ pub(crate) fn write_output<'a>(
                 parsed.extend_from_slice(&term.vt_write_with_normalized(&data[written..at]));
                 written = at;
                 parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
-                // Each screen keeps its own kitty flags: a program that died on
-                // the alternate screen also left the primary screen's.
-                if matches!(term.active_screen(), Screen::Alternate) {
-                    parsed.extend_from_slice(&term.vt_write_with_normalized(ALT_SCREEN_RESET));
-                    parsed.extend_from_slice(&term.vt_write_with_normalized(KEYBOARD_RESET));
-                }
             }
             Some(b'D') => {}
             Some(b'A') if !marks.running => {
