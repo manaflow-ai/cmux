@@ -259,6 +259,23 @@ describe("active-limit response as the paywall moment", () => {
       { id: "freestyle-b", name: "happy-tan-warbler", status: "provisioning" },
     ]);
   });
+
+  test("the counted machines read in the request locale", async () => {
+    const response = await vmActiveLimitExceededResponse({
+      limit: 2,
+      planId: "pro",
+      retryAction: "Delete one first.",
+      locale: "ja",
+      activeMachines: [
+        { id: "freestyle-a", name: "solar-olive-bee", status: "running" },
+        { id: "freestyle-b", name: "happy-tan-warbler", status: "provisioning" },
+      ],
+    });
+    const payload = await body(response);
+    expect(String(payload.message)).toEndWith(
+      " 現在カウント中: solar-olive-bee、happy-tan-warbler（プロビジョニング中）。一時停止中のマシンはカウントされません。",
+    );
+  });
 });
 
 describe("free access window", () => {

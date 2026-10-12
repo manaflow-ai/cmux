@@ -72,6 +72,7 @@ import {
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmActiveLimitCountedCopy,
   vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
@@ -602,20 +603,6 @@ export async function vmMemoryRequiresPlanResponse(input: {
 }
 
 /**
- * " Counted now: a, b (provisioning). Paused machines do not count." for the
- * active-limit message, or "" when the refusal carries no names. Machine lists
- * show paused machines beside the counted ones, so the message names the
- * counted set rather than leaving a person to guess.
- */
-function countedMachinesSentence(machines: readonly VmActiveLimitMachine[] | undefined): string {
-  if (!machines?.length) return "";
-  const names = machines.map((machine) =>
-    machine.status === "provisioning" ? `${machine.name} (provisioning)` : machine.name
-  );
-  return ` Counted now: ${names.join(", ")}. Paused machines do not count.`;
-}
-
-/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
@@ -633,7 +620,9 @@ export async function vmActiveLimitExceededResponse(input: {
   const paid = isPaidVmPlan(input.planId);
   if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
-  const counted = countedMachinesSentence(input.activeMachines);
+  // Machine lists show paused machines beside the counted ones, so the
+  // message names the counted set rather than leaving a person to guess.
+  const counted = await vmActiveLimitCountedCopy(input.locale ?? "en", input.activeMachines ?? []);
   const countedDetails = input.activeMachines?.length ? { activeMachines: input.activeMachines } : {};
   if (paid) {
     return vmErrorResponse({
