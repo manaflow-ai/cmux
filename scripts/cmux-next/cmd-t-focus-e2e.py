@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Live check of Cmd-T by focus (cx-xt5k) on a running tagged cmux-next build.
 
-Cmd-T follows the focused pane. A pane with a tab strip (a terminal, a browser tab, the New Tab
-page, also with the keyboard in its field) gets a new tab in that pane (Leo 2026-10-10). An agent
-chat, or a pane without a strip (a lone chat), gets a new workspace in the current group instead.
-Both open the New Tab page. With `tabs.swapCmdTAndCmdN` on, Cmd-T is always New Workspace and
+Cmd-T opens a New Tab page in the current workspace from any focus: a terminal, a browser tab,
+the New Tab page, also with the keyboard in its field (Leo 2026-10-10), and a lone agent chat
+without a tab strip (Lawrence 2026-10-11, cx-04fy, replacing cx-xt5k's new workspace there). With `tabs.swapCmdTAndCmdN` on, Cmd-T is always New Workspace and
 Cmd-N is always New Tab.
 
 With the keyboard in the New Tab page's field (a web view), every bound app shortcut must reach
@@ -271,7 +270,7 @@ def main():
         # Cmd-I: a new workspace whose only tab is an agent chat, with no tab strip.
         print("Cmd-I:", opened(lambda: key("i")), flush=True)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmd-t-focus-chat.png")})
-        press("t", "Cmd-T on an agent chat opens a workspace", "workspace")
+        press("t", "Cmd-T on a lone agent chat opens a tab there", "tab")
 
         # The swap: Cmd-N is New Tab and Cmd-T New Workspace, on any focus.
         setting("tabs.swapCmdTAndCmdN", True)
