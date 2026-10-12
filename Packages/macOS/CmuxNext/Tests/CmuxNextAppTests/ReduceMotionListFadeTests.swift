@@ -57,4 +57,25 @@ import Testing
         #expect(strip.cells[TabID("tab2")] == nil)
         #expect(!Self.crossfades(strip.tabsClip.layer).isEmpty, "the closed tab vanished in one frame")
     }
+
+    /// Review of #19938: Cmd-T's tab syncs without the strip's springs (`animating: false`, full
+    /// width with its page at once), the commonest new tab; it crossfades in under Reduce Motion too.
+    @Test func aNewTabFromCmdTCrossfadesUnderReduceMotion() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let model = TabStripModel(tabs: [TabItem(id: TabID("tab0"), title: "Tab 0")], selectedID: TabID("tab0"))
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let strip = TabStripView(model: model)
+        strip.frame = NSRect(x: 0, y: 0, width: 600, height: TabStripView.preferredHeight)
+        window.contentView = strip
+        strip.layoutSubtreeIfNeeded()
+
+        model.tabs.append(TabItem(id: TabID("tab1"), title: "New Tab"))
+        model.selectedID = TabID("tab1")
+        strip.sync(fromModel: true, animating: false)
+        #expect(strip.cells[TabID("tab1")] != nil)
+        #expect(!Self.crossfades(strip.tabsClip.layer).isEmpty, "Cmd-T's tab popped in")
+    }
 }
