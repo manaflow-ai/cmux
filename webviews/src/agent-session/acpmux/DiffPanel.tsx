@@ -25,6 +25,8 @@ import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
+import { useDiffFind, type DiffFindHandle } from "./changes/diffFind";
+import { ChatFindBar } from "./conversation/ChatFindBar";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
@@ -88,6 +90,7 @@ export function DiffPanel({
   onGitIntentHandled,
   writeKeys,
   onAddressThread,
+  findHandle,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -112,6 +115,8 @@ export function DiffPanel({
   /// Address on a review thread (cx-ncc.77.3): sends the agent a prompt to address it; resolves
   /// once the chat took the prompt (not when the turn ends), rejects when it refused it.
   onAddressThread?: (prompt: string) => Promise<unknown>;
+  /// Where the page reaches this view's find (Cmd-F and the Edit menu's Find commands).
+  findHandle?: React.MutableRefObject<DiffFindHandle | undefined>;
 }) {
   const t = useT();
   registerAgentDiffTheme();
@@ -197,7 +202,10 @@ export function DiffPanel({
   const totals = useMemo(
     () =>
       files.reduce(
-        (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+        (sum, file) => ({
+          additions: sum.additions + file.additions,
+          deletions: sum.deletions + file.deletions,
+        }),
         { additions: 0, deletions: 0 },
       ),
     [files],
@@ -249,6 +257,27 @@ export function DiffPanel({
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
+  const find = useDiffFind(body);
+  useEffect(() => {
+    if (!findHandle) return undefined;
+    findHandle.current = {
+      find,
+      owns: () => {
+        const node = panel.current;
+        if (!node) return false;
+        if (node.contains(node.ownerDocument.activeElement)) return true;
+        // A narrow pane's view covers the transcript (hidden beneath it).
+        const transcript = node.ownerDocument.querySelector(".acpmux-scroll");
+        return !transcript || getComputedStyle(transcript).visibility === "hidden";
+      },
+    };
+  }, [findHandle, find]);
+  useEffect(
+    () => () => {
+      if (findHandle) findHandle.current = undefined;
+    },
+    [findHandle],
+  );
   // j/k move between files as picking them in the tree does; n/p between changes.
   const selectedFile = useStableCallback(() => selected);
   useEffect(() => {
@@ -359,7 +388,12 @@ export function DiffPanel({
       pressed: allCollapsed,
     },
     { id: "wrap", label: t("changes.wrapLines"), icon: <Wrap />, pressed: wrap },
-    { id: "split", label: t("changes.splitView"), icon: <SplitView />, pressed: layout === "split" },
+    {
+      id: "split",
+      label: t("changes.splitView"),
+      icon: <SplitView />,
+      pressed: layout === "split",
+    },
     { id: "tree", label: t("changes.fileTree"), icon: <Panels />, pressed: showTree },
   ];
   // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
@@ -376,7 +410,10 @@ export function DiffPanel({
   const options: OptionsRow[] = [
     { label: t("changes.refresh"), disabled: scope === "lastTurn", run: retry },
     { label: wrap ? t("changes.disableWrap") : t("changes.wordWrap"), run: () => press("wrap") },
-    { label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"), run: () => press("split") },
+    {
+      label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"),
+      run: () => press("split"),
+    },
     {
       label: allCollapsed ? t("changes.expandAllDiffs") : t("changes.collapseAllDiffs"),
       disabled: files.length === 0,
@@ -470,6 +507,7 @@ export function DiffPanel({
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
+          {find.open && <ChatFindBar find={find} label={t("changes.findPlaceholder")} />}
           {scopeState ? (
             <LoadState state={scopeState} onRetry={refresh} />
           ) : files.length === 0 ? (

@@ -137,13 +137,17 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
-  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null. */
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
   /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
    *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
   afterCall?: Record<string, AcpmuxSnapshot>;
+  /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
+   *  in progress (New Worktree's "Creating worktree…"). */
+  nativeDelayMs?: Record<string, number>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
