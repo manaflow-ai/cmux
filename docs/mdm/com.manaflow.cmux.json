@@ -374,6 +374,7 @@
       "description" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "daily",
         "david-death-of-marat",
         "goya-saturn",
         "velde-small-ship-storm",
