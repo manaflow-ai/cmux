@@ -52,7 +52,10 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
       });
       expect(fits.shown).toBeGreaterThanOrEqual(fits.pill - 0.5);
       for (const name of ["Commit", /^(Push|Publish)/]) {
-        const box = await page.getByRole("button", { name, exact: typeof name === "string" }).first().boundingBox();
+        const box = await page
+          .getByRole("button", { name, exact: typeof name === "string" })
+          .first()
+          .boundingBox();
         expect(box && box.width > 0 && box.x >= 0 && box.x + box.width <= width).toBe(true);
       }
       await page.close();

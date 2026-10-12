@@ -702,6 +702,13 @@ export function App({ config, initialStatus }: ConfigProps) {
         visibleItems={visibleItems}
       />
       <div className="diff-git diff-git-bar">
+        {/* Beside a chat the toolbar has no room for them (cx-ku7r1): styles.css shows this row
+            instead of the pill's Commit and Push below 600 px. */}
+        {git.available ? (
+          <span className="diff-git-tools diff-git-tools-row">
+            <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
+          </span>
+        ) : null}
         {filesChanged && (
           <output className="diff-files-changed">
             <span>{label("filesChangedSinceLoad")}</span>
