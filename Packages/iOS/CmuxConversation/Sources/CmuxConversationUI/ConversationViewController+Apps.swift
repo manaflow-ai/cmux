@@ -409,8 +409,27 @@ extension ConversationViewController {
                 self.presentActions(for: current, cell: cell, mode: .tapbacks)
             }
         }
+        if viewer.usesSystemZoom, #available(iOS 18.0, *) {
+            // iOS 27 Messages: UIKit's zoom transition, the whole viewer a
+            // rounded card that grows out of the bubble, drags down and
+            // shrinks back into it, the bubble's photo aligned to the photo.
+            let options = UIViewController.Transition.ZoomOptions()
+            options.interactiveDismissShouldBegin = { [weak viewer] _ in
+                MainActor.assumeIsolated { viewer?.allowsInteractiveDismiss ?? true }
+            }
+            options.alignmentRectProvider = { [weak viewer] _ in
+                MainActor.assumeIsolated { viewer?.photoAlignmentRect }
+            }
+            let sourceView = source.view
+            viewer.preferredTransition = .zoom(options: options) { [weak sourceView] _ in sourceView }
+            viewer.modalPresentationStyle = .fullScreen
+            photoTransition = nil
+            present(viewer, animated: true)
+            return
+        }
         let transition = ConversationPhotoZoomTransition(source: source)
         photoTransition = transition
+        viewer.hidesSource = { [weak sourceView = source.view] hidden in sourceView?.alpha = hidden ? 0 : 1 }
         viewer.modalPresentationStyle = .overFullScreen
         viewer.transitioningDelegate = transition
         present(viewer, animated: true)

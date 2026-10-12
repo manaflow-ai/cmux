@@ -2,13 +2,19 @@
 import CmuxConversationGeometry
 import UIKit
 
-/// Messages' full-screen photo viewer (measured on iOS 26.5): the photo
-/// aspect-fits on the system background under a "Photo" title with a glass
-/// close button at the trailing edge; the bottom bar holds Tapback and Reply
-/// (a glass capsule, leading) and Share (a glass circle, trailing). A tap
-/// hides the chrome and turns the background black; pinch and double-tap
-/// zoom; dragging down shrinks the photo and fades the background, and
-/// letting go flies it back into its bubble.
+/// Messages' full-screen photo viewer.
+///
+/// iOS 26 (Quick Look, measured in the 26.5 simulator): the photo opens
+/// aspect-fit on black with the chrome and status bar hidden; a tap shows a
+/// "Photo" title with a glass close button at the trailing edge, Tapback and
+/// Reply (a glass capsule, bottom leading) and Share (bottom trailing) on the
+/// system background. Dragging down shrinks the photo and fades the black
+/// veil; letting go flies it back into its bubble.
+///
+/// iOS 27 (a real iPhone): UIKit's zoom transition carries the whole viewer,
+/// a rounded card, out of the bubble and back, and drags it down to dismiss;
+/// the chrome is a close button and Share at the ends of the top bar.
+/// Pinch and double-tap zoom on both.
 final class ConversationPhotoViewerController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     private let image: UIImage
     private let scrollView = UIScrollView()
@@ -20,14 +26,24 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
     private let actionsBar = UIView()
     private let tapbackButton = UIButton(type: .system)
     private let replyButton = UIButton(type: .system)
-    private var chromeHidden = false
+    let style: ConversationPhotoViewerLayout.Style
+    private var chromeHidden: Bool
     private var dragStart: CGPoint?
+    /// Hides (true) or shows the photo's bubble while the photo is dragged
+    /// away from it, so the photo never shows twice.
+    var hidesSource: ((Bool) -> Void)?
     /// Tapback and Reply act on the photo's message once the viewer closes.
     var onTapback: (() -> Void)?
     var onReply: (() -> Void)?
 
     init(image: UIImage) {
         self.image = image
+        if #available(iOS 27.0, *) {
+            style = .zoom27
+        } else {
+            style = .quickLook26
+        }
+        chromeHidden = ConversationPhotoViewerLayout.opensWithChromeHidden(style)
         super.init(nibName: nil, bundle: nil)
         modalPresentationCapturesStatusBarAppearance = true
     }
@@ -36,6 +52,19 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
     required init?(coder: NSCoder) { fatalError() }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { chromeHidden ? .lightContent : .default }
+    override var prefersStatusBarHidden: Bool { style == .quickLook26 && chromeHidden }
+
+    /// UIKit's zoom transition drives the presentation (iOS 27).
+    var usesSystemZoom: Bool { style == .zoom27 }
+
+    /// Where the bubble's photo lands in the viewer, for the zoom transition.
+    var photoAlignmentRect: CGRect {
+        view.layoutIfNeeded()
+        return imageView.convert(imageView.bounds, to: view)
+    }
+
+    /// The system drag to dismiss waits while the photo is zoomed in.
+    var allowsInteractiveDismiss: Bool { !isZoomed }
 
     /// The photo's on-screen view, the zoom flight's end point.
     var photoView: UIImageView { imageView }
@@ -56,7 +85,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         super.viewDidLoad()
         view.backgroundColor = .clear
         view.accessibilityIdentifier = "conversation.photoViewer"
-        backdrop.backgroundColor = .systemBackground
+        backdrop.backgroundColor = chromeHidden ? .black : .systemBackground
         view.addSubview(backdrop)
         scrollView.delegate = self
         scrollView.minimumZoomScale = 1
@@ -114,10 +143,15 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tap.require(toFail: doubleTap)
         scrollView.addGestureRecognizer(tap)
-        let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
-        drag.delegate = self
-        drag.name = "conversation.photoViewer.dismissDrag"
-        view.addGestureRecognizer(drag)
+        if !usesSystemZoom {
+            let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+            drag.delegate = self
+            drag.name = "conversation.photoViewer.dismissDrag"
+            view.addGestureRecognizer(drag)
+        }
+        titleLabel.isHidden = !ConversationPhotoViewerLayout.showsTitle(style)
+        let chrome: CGFloat = chromeHidden ? 0 : 1
+        for view in chromeViews { view.alpha = chrome }
     }
 
     private func configure(_ button: UIButton, symbol: String, symbols: UIImage.SymbolConfiguration, label: String, id: String) {
@@ -145,29 +179,21 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         }
         let safe = view.safeAreaInsets
         let width = view.bounds.width
-        // Measured in Messages (402 x 874 pt): a 44 pt close button 16 pt in
-        // from the trailing edge at the safe-area top, the title centered on
-        // it, and 48 pt bottom controls whose centers sit 52 pt above the
-        // bottom edge (the Tapback/Reply capsule is 111 pt wide, 28 pt in).
+        // Measured in Messages (402 x 874 pt): on iOS 26 a 44 pt close button
+        // 16 pt in from the trailing edge at the safe-area top, the title
+        // centered on it, and 48 pt bottom controls whose centers sit 52 pt
+        // above the bottom edge (the Tapback/Reply capsule is 111 pt wide,
+        // 28 pt in). See ConversationPhotoViewerLayout for iOS 27.
         titleLabel.frame = CGRect(x: 76, y: safe.top, width: width - 152, height: 44)
         let barMidY = view.bounds.height - 52
-        if #available(iOS 27.0, *) {
-            // iOS 27 Quick Look (Messages' viewer): close at the leading
-            // edge and Share at the trailing edge of the top bar, 13 pt in.
-            // The Messages photo viewer itself would not open in the 27.0
-            // simulator, so this follows Quick Look's 27.0 chrome.
-            closeButton.frame = CGRect(x: 13, y: safe.top, width: 44, height: 44)
-            shareButton.frame = CGRect(x: width - 13 - 44, y: safe.top, width: 44, height: 44)
-        } else {
-            closeButton.frame = CGRect(x: width - 16 - 44, y: safe.top, width: 44, height: 44)
-            shareButton.frame = CGRect(x: width - 28 - 48, y: barMidY - 24, width: 48, height: 48)
-        }
+        closeButton.frame = ConversationPhotoViewerLayout.closeFrame(style, width: width, safeTop: safe.top)
+        shareButton.frame = ConversationPhotoViewerLayout.shareFrame(style, width: width, safeTop: safe.top, bottom: view.bounds.height)
         actionsBar.frame = CGRect(x: 28, y: barMidY - 24, width: 111, height: 48)
         actionsBar.layer.cornerRadius = 24
         actionsBar.subviews.first { $0 is UIVisualEffectView }?.frame = actionsBar.bounds
         tapbackButton.frame = CGRect(x: 6, y: 0, width: 48, height: 48)
         replyButton.frame = CGRect(x: 57, y: 0, width: 48, height: 48)
-        actionsBar.isHidden = onTapback == nil && onReply == nil
+        actionsBar.isHidden = !ConversationPhotoViewerLayout.showsActions(style) || (onTapback == nil && onReply == nil)
     }
 
     private func fittedFrame(in bounds: CGRect) -> CGRect {
@@ -224,15 +250,16 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         switch pan.state {
         case .began:
             dragStart = imageView.center
+            // Messages leaves the bubble empty while its photo is away.
+            hidesSource?(true)
         case .changed:
             guard let start = dragStart else { return }
-            // The photo follows the finger and shrinks toward 70% over a
-            // third of the screen; the background fades with it.
-            let progress = min(1, max(0, translation.y) / (view.bounds.height / 3))
-            let scale = 1 - 0.3 * progress
+            // The photo follows the finger and shrinks with the downward
+            // drag; the veil and chrome fade with it.
+            let scale = ConversationPhotoFlight.dragScale(translation: translation.y)
             imageView.center = CGPoint(x: start.x + translation.x, y: start.y + translation.y)
             imageView.transform = CGAffineTransform(scaleX: scale, y: scale)
-            presentationProgress = 1 - progress
+            presentationProgress = ConversationPhotoFlight.dragPresentation(translation: translation.y)
         case .ended, .cancelled, .failed:
             let velocity = pan.velocity(in: view).y
             if pan.state == .ended, translation.y > 80 || velocity > 600 {
@@ -245,6 +272,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
                     self.presentationProgress = 1
                 } completion: { _ in
                     self.dragStart = nil
+                    self.hidesSource?(false)
                 }
             }
         default:
@@ -295,8 +323,13 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
         return self
     }
 
+    /// The bubble's own alpha, restored when the photo lands back in it.
+    private var sourceRestingAlpha: CGFloat = 1
+
+    private var omega: Double { presenting ? ConversationPhotoFlight.openOmega : ConversationPhotoFlight.closeOmega }
+
     func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
-        ConversationPhotoFlight.settleTime
+        ConversationPhotoFlight.settleTime(omega: omega)
     }
 
     func animateTransition(using context: any UIViewControllerContextTransitioning) {
@@ -319,7 +352,8 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
         let startProgress = presenting ? 0 : viewer.presentationProgress
         // Alpha, not isHidden: a row reconfigured mid-flight (a new message
         // arriving) unhides its image views, which showed a second photo.
-        let sourceAlpha = sourceView.alpha
+        if presenting { sourceRestingAlpha = sourceView.alpha }
+        let sourceAlpha = sourceRestingAlpha
         sourceView.alpha = 0
         viewer.photoView.isHidden = true
         let presenting = presenting
@@ -335,7 +369,7 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
             sourceView?.alpha = 0
         }
         apply(0)
-        let driver = ConversationPhotoFlightDriver(step: apply) { [weak sourceView] in
+        let driver = ConversationPhotoFlightDriver(omega: omega, step: apply) { [weak sourceView] in
             sourceView?.alpha = sourceAlpha
             viewer.photoView.isHidden = false
             flight.removeFromSuperview()
@@ -382,13 +416,15 @@ final class ConversationPhotoFlightView: UIView {
 /// Steps the flight spring from 0 to 1 once per display frame.
 @MainActor
 final class ConversationPhotoFlightDriver: NSObject {
+    private let omega: Double
     private let step: (CGFloat) -> Void
     private let completion: () -> Void
     private var link: CADisplayLink?
     private var startTime: CFTimeInterval?
     private var retainSelf: ConversationPhotoFlightDriver?
 
-    init(step: @escaping (CGFloat) -> Void, completion: @escaping () -> Void) {
+    init(omega: Double, step: @escaping (CGFloat) -> Void, completion: @escaping () -> Void) {
+        self.omega = omega
         self.step = step
         self.completion = completion
     }
@@ -404,14 +440,14 @@ final class ConversationPhotoFlightDriver: NSObject {
     @objc private func tick(_ link: CADisplayLink) {
         if startTime == nil { startTime = link.timestamp }
         let t = link.targetTimestamp - (startTime ?? link.timestamp)
-        if t >= ConversationPhotoFlight.settleTime {
+        if t >= ConversationPhotoFlight.settleTime(omega: omega) {
             step(1)
             link.invalidate()
             self.link = nil
             completion()
             retainSelf = nil
         } else {
-            step(ConversationPhotoFlight.progress(at: t))
+            step(ConversationPhotoFlight.progress(at: t, omega: omega))
         }
     }
 }
