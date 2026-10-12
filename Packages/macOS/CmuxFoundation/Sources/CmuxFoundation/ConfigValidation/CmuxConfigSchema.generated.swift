@@ -189,6 +189,22 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "windowHints": {
+      "x-cmux-scopes": ["global"],
+      "title": "windowHints",
+      "description": "Click by Hint (hint mode) settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it." }
+          }
+        }
+      }
+    },
     "cloud": {
       "x-cmux-scopes": ["global"],
       "title": "cloud",

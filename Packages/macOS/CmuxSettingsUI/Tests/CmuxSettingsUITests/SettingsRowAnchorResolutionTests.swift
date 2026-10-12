@@ -149,6 +149,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.beta.conversations.enabled",
         "sidebar.beta.workspaceTodos.controls.enabled",
         "sidebar.beta.workspaceTodos.checklistStyle",
+        "windowHints.beta.enabled",
         "sidebarAppearance.matchTerminalBackground",
         "shortcuts.showModifierHoldHints",
         "terminal.agentHibernation.enabled",

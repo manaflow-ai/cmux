@@ -1606,7 +1606,7 @@ extension Workspace {
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
-            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // Running agents and validated normally completed Claude sessions can resume.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
             let remoteStartupCommand = remoteTerminalStartupCommand()
@@ -1652,7 +1652,19 @@ extension Workspace {
                 : nil
             let claudeBackgroundAttach = claudeBackgroundRestore?.attach
             let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
-            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit &&
+            let shouldAutoResumeNormallyEndedClaude =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true &&
+                SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                    restorableAgent: restorableAgent,
+                    resumeBinding: resumeBinding,
+                    wasAgentRunning: snapshot.terminal?.wasAgentRunning
+                )
+            // All local resumes enter cmux restore, which validates ownership
+            // immediately before launching the native agent resume command.
+            let shouldAutoResumeAgent = autoResumeAgentSessions &&
+                (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
