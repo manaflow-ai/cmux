@@ -160,7 +160,12 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
     const next = String(Number(show?.params.highlighted) + 1);
-    expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
+    // Every row, its separator and its disabled state as the page has them.
+    const items = show?.params.items as { separator?: boolean; disabled?: boolean }[];
+    expect(items.filter((item) => !item.separator).map((item) => item.disabled)).toEqual(
+      await page.$$eval(".ui-context-menu [role=menuitem]", (all) => all.map((row) => row.hasAttribute("disabled"))),
+    );
+    expect(items.some((item) => item.separator)).toBe(true);
     expect(rows).toBeGreaterThan(3);
     expect(await page.$eval(".ui-context-menu", (menu) => getComputedStyle(menu).opacity)).toBe("0");
     expect(await boxes(page, under)).toEqual(before);
@@ -172,11 +177,23 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
         ),
       next,
     );
+    // A hover in the host, then the arrows: the host follows the page's highlight, not the hovered row.
+    const lastId = String(items.length - 1);
+    await page.evaluate(
+      (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "highlight", id } })),
+      lastId,
+    );
+    await page.keyboard.press("ArrowUp");
+    await page.waitForFunction(
+      (above) =>
+        (window as unknown as { popupCalls: { method: string; params: { highlighted?: string } }[] }).popupCalls.at(-1)
+          ?.params.highlighted === above,
+      String(items.length - 2),
+    );
     // Insert Mention, the last row, picked in the host: its @ lands in the prompt, the panel ends.
-    const last = String(rows - 1);
     await page.evaluate(
       (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
-      last,
+      lastId,
     );
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
