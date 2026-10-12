@@ -30,12 +30,13 @@ import WebKit
 /// Screen Recording grant. `webviews: false` skips the page images (the
 /// window server's image alone).
 ///
-/// The refusal HUD (`RefusalHUD`) is a Liquid Glass pill that fades in and
-/// hides after 1.8 s, so its pixels are not a reliable assertion: a capture
-/// may land before the fade or after the hide. Every reply therefore carries
-/// `refusal_hud`: the message the HUD shows now (null when hidden) and
-/// `refusal_hud_count`, the messages shown so far. Check those instead of
-/// looking for the pill in the PNG.
+/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after
+/// 4 s (later while the pointer is on it), so its pixels are not a reliable
+/// assertion: a capture may land before the fade or after it ends. Every
+/// reply therefore carries `refusal_hud`: the message the refusal toast
+/// shows now (null when none) and `refusal_hud_count`, the messages shown so
+/// far. Check those (or `debug.toast`) instead of looking for the toast in
+/// the PNG.
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
