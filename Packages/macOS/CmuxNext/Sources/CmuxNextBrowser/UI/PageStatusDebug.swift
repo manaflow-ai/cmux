@@ -41,6 +41,7 @@ public struct PageStatusDebug {
     private static func webProcess(_ webView: WKWebView) -> Int32? {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_webProcessIdentifier")
+        // crash-allow: KVC read of the WebKit private key above, only after responds(to:) confirmed it.
         guard webView.responds(to: selector), let pid = (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return nil }
         return pid
     }
