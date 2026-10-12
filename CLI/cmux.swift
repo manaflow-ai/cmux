@@ -5458,6 +5458,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "vpn" {
+            _ = try Self.validatedVPNSubcommand(commandArgs)
+        }
         if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
             try validateNotificationCommandArguments(command: command, args: commandArgs)
         }
@@ -7226,8 +7229,8 @@ struct CMUXCLI {
                 commandName: "new-split"
             )
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             let direction = try validatedSplitDirection(rem5.first, commandName: "new-split")
             if let unknown = rem5.dropFirst().first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
@@ -7460,9 +7463,9 @@ struct CMUXCLI {
                     defaultValue: "Window handle is blank"
                 ))
             }
-            let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = csWsFlag ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7565,15 +7568,15 @@ struct CMUXCLI {
             let explicitWorkspaceArg = tfWsFlag
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let callerWorkspaceArg = preferTTYFallback
-                ? nil
-                : (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowRaw == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil
             let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
+            let callerWorkspaceArg = preferTTYFallback || explicitWorkspaceArg != nil
+                ? nil
+                : callerWorkspace(owningSurface: surfaceArg, windowRaw: windowRaw, client: client)
+            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -7634,10 +7637,14 @@ struct CMUXCLI {
             }
 
         case "focus-panel":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let panelRaw = optionValue(commandArgs, name: "--panel") else {
                 throw CLIError(message: "focus-panel requires --panel")
             }
+            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? callerWorkspace(
+                owningSurface: panelRaw,
+                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId),
+                client: client
+            )
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -8159,6 +8166,9 @@ struct CMUXCLI {
         case "jump-to-unread":
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+        case "jump-to-last-prompt":
+            let payload = try client.sendV2(method: "surface.jump_to_last_prompt")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2JumpToLastPromptSummary(payload, idFormat: idFormat))
         case "clear-notifications":
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
@@ -9826,6 +9836,56 @@ struct CMUXCLI {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
+    /// The workspace to pair with an explicit surface handle when the caller named no
+    /// workspace or window.
+    ///
+    /// A pane keeps the `CMUX_WORKSPACE_ID` it started with after it moves to another
+    /// workspace, so that value can name a workspace the surface has left. A UUID or
+    /// `surface:<n>` ref names one surface wherever it is, so when the caller's
+    /// workspace does not list it, this looks for the workspace that does. An index
+    /// only means something inside a workspace and keeps the caller's. Outside cmux
+    /// there is no caller workspace and nothing is looked up.
+    func callerWorkspace(
+        owningSurface raw: String?,
+        windowRaw: String?,
+        client: SocketClient
+    ) -> String? {
+        guard windowRaw == nil,
+              let callerWorkspace = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] else {
+            return nil
+        }
+        let handle = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !callerWorkspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              isUUID(handle) || (isHandleRef(handle) && handle.lowercased().hasPrefix("surface:")) else {
+            return callerWorkspace
+        }
+
+        func lists(_ params: [String: Any]) -> Bool {
+            guard let listed = try? client.sendV2(method: "surface.list", params: params) else {
+                return false
+            }
+            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+            return surfaces.contains { surfaceHandleMatches(handle, item: $0) }
+        }
+
+        if let callerWorkspaceId = try? resolveWorkspaceId(callerWorkspace, client: client),
+           lists(["workspace_id": callerWorkspaceId]) {
+            return callerWorkspace
+        }
+        // A relay that cannot enumerate windows keeps the caller's workspace.
+        let windows = (try? client.sendV2(method: "window.list"))?["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            guard let windowId = window["id"] as? String, !windowId.isEmpty else { continue }
+            let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+            for workspace in listed?["workspaces"] as? [[String: Any]] ?? [] {
+                guard let workspaceId = workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                if lists(["workspace_id": workspaceId, "window_id": windowId]) {
+                    return workspaceId
+                }
+            }
+        }
+        return callerWorkspace
+    }
     private func validateSurfaceHandleInWindow(
         _ surfaceHandle: String,
         client: SocketClient,
@@ -10828,12 +10888,17 @@ struct CMUXCLI {
 
         let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
         let windowRaw = windowOpt ?? windowOverride
-        let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let tabArg = tabOpt
             ?? surfaceOpt
             ?? (workspaceOpt == nil && windowRaw == nil
                 ? (ProcessInfo.processInfo.environment["CMUX_TAB_ID"] ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
                 : nil)
+        let workspaceArg = workspaceOpt
+            ?? callerWorkspace(
+                owningSurface: tabArg.map(canonicalSurfaceHandleFromTabInput),
+                windowRaw: windowRaw,
+                client: client
+            )
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceId = try normalizeWorkspaceHandle(
@@ -21418,6 +21483,16 @@ struct CMUXCLI {
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
             """)
+        case "jump-to-last-prompt":
+            return String(localized: "cli.help.jumpToLastPrompt", defaultValue: """
+            Usage: cmux jump-to-last-prompt
+
+            Focus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. With --json, opened is false when there is none.
+
+            Flags:
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
         case "clear-notifications":
             return String(localized: "cli.help.clearNotifications", defaultValue: """
             Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
@@ -22679,6 +22754,13 @@ struct CMUXCLI {
         case .uuids: return id ?? ref ?? "?"
         case .both:  return [ref, id].compactMap({ $0 }).joined(separator: " ")
         }
+    }
+
+    func v2JumpToLastPromptSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        guard (payload["opened"] as? Bool) != false else {
+            return String(localized: "cli.jumpToLastPrompt.noTarget", defaultValue: "No prompt target")
+        }
+        return v2OKSummary(payload, idFormat: idFormat)
     }
 
     func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
@@ -29217,7 +29299,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseClearHistory(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
@@ -29308,7 +29390,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parsePasteBuffer(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             let name = parsed.name ?? "default"
             let store = try loadTmuxCompatStore()
@@ -29335,7 +29417,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseRespawnPane(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let commandText = parsed.commandText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [

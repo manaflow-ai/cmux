@@ -49,6 +49,9 @@ extension AppDelegate {
         action != .showHideAllWindows
             && action != .globalSearch
             && action != .clearScreenKeepScrollback
+            // Not menu-backed: a remapped-away default must still reach the terminal.
+            && action != .previousAgentTurn
+            && action != .nextAgentTurn
             && action != .increaseWorkspaceTerminalFontSize
             && action != .decreaseWorkspaceTerminalFontSize
             && action != .resetWorkspaceTerminalFontSize

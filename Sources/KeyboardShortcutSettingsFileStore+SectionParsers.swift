@@ -27,13 +27,8 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
-        parseBetaToggle(
-            root["extensions"] as? [String: Any],
-            nestedPath: ["beta", "enabled"],
-            setting: beta.extensions,
-            sourcePath: sourcePath,
-            snapshot: &snapshot
-        )
+        parseBetaToggle(root["extensions"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: beta.extensions, sourcePath: sourcePath, snapshot: &snapshot)
+        parseBetaToggle(root["windowHints"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: beta.windowHints, sourcePath: sourcePath, snapshot: &snapshot)
         parseBetaToggle(
             root["customSidebars"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
@@ -59,6 +54,20 @@ extension CmuxSettingsFileStore {
             root["remoteTmux"] as? [String: Any],
             nestedPath: ["multiplexer", "beta", "enabled"],
             setting: beta.remoteTmuxMultiplexer,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originColors", "enabled"],
+            setting: beta.remoteTmuxOriginColors,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originHostTitles", "enabled"],
+            setting: beta.remoteTmuxOriginHostTitles,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )

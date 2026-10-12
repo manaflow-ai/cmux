@@ -169,6 +169,9 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit made the macOS arm64 cmux-tui about a quarter
+# smaller, but the release-path client build then lost its 6-vCPU macOS runner
+# (#19506), and every release waits for that client. Keep thin LTO.
 [profile.release]
 lto = "thin"
 
