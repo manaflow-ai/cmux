@@ -220,7 +220,11 @@ extension TerminalController {
                 ))
             }
 
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panelId, focus: focus) else {
+            guard let newPanel = workspace.duplicateBrowserToRight(
+                panelId: panelId,
+                focus: focus,
+                creationPolicy: .automationPreload
+            ) else {
                 return .duplicateFailed
             }
             return finish(.created(newPanel.id))
