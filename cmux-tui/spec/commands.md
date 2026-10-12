@@ -1844,7 +1844,7 @@ runs the session, or `chief:` and the 8 lowercase hex digit id of the Chief
 home whose own acpmux runs it on the app's machine (a Chief subagent; the app
 attaches the tab to that home's acpmux), or `registry:` and this store's
 `identify.session_id` (the session daemon's own machine runs it; the chat
-starts with `agent-session-start`), `session` the acpmux session id or absent for a new chat,
+starts with `agent-session-start`; see below for `session`), `session` the acpmux session id or absent for a new chat,
 `harness` the agent kind, optional; `host_name` the host machine's display
 name, 1 to 255 bytes without control characters, optional), or, with
 `page-tabs-v1`, one of the app's own pages (`page`: its id, 1 to 64
@@ -1872,6 +1872,25 @@ echoes it in the result and emits nothing. The key
 names the source and the target (`pane` or `workspace`); the same key with
 another one fails with `idempotency.conflict`. Concurrent requests with one
 key create one tab. The CLI has no verb for it.
+
+A session never leaves its machine: a `registry:` tab created with a
+`session` fails with `error_code:"conversation_tab.machine_mismatch"`, and
+`bind-conversation-tab-session` refuses every `registry:` tab the same way,
+since that machine's `agent-session-start` binds its chats. The one
+exception is a chat this daemon itself landed through `agent-transfer-finish`:
+a `registry:` tab whose `host` is this store's own and whose `session` is the
+session id acpmux's finish answered (never an id a client sent) is created,
+so Move to Cloud opens the moved chat on the machine it landed on. The
+daemon keeps the 16 most recent landed chats, each for 24 h, in the
+owner-only `agent-transfer-landed.json` next to its registry, rewritten
+atomically, so a retried open after a daemon restart still works (an
+in-memory session keeps them in memory only). The file counts only as a
+regular file owned by the daemon's user, opened without following a
+symlink, and a record dated more than a minute ahead is ignored. A chat this
+daemon begins (or commits) moving away again with `agent-transfer-begin` is
+forgotten, so it never opens here again unless it lands here again. Any
+other session, another store's `registry:` host, and every bind stay
+refused.
 
 Closing the tab deletes its frontend and source records in the close's
 commit (closing any frontend browser tab deletes its frontend record and
@@ -8192,7 +8211,9 @@ settled receive stay `agent_transfer.unknown_receive`.
 
 `{id, cmd:"agent-transfer-finish", receive_id, name?}` imports the chat in the
 receive's own folder (sent as `cwd`; the client cannot name another) and
-answers `{session}` (acpmux's session summary). Its queue then runs here. A
+answers `{session}` (acpmux's session summary). Its queue then runs here, and
+the summary's `sessionId` is remembered as landed here (see
+`new-conversation-tab`). A
 finish that fails for good (anything but a timeout, an unreachable or busy
 acpmux, or `transfer.incomplete`) also forgets the receive.
 

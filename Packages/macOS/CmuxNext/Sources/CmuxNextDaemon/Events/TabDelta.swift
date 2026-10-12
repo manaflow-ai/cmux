@@ -38,9 +38,12 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     /// Who posted it (`notification-source-v1`: `cli`, `terminal` for OSC
     /// 9/777/99 the daemon parsed, `agent`, `daemon`); nil from older daemons.
     public var source: String?
+    /// false: the poster asked for no desktop banner (`notify --desktop false`,
+    /// `notification-desktop-v1`); true from older daemons.
+    public var desktop: Bool
 
     enum CodingKeys: String, CodingKey {
-        case notification, title, body, level, surface, source
+        case notification, title, body, level, surface, source, desktop
         case createdAtMs = "created_at_ms"
     }
 
@@ -53,6 +56,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
+        desktop = (try? c.decodeIfPresent(Bool.self, forKey: .desktop)) ?? true
     }
 }
 
