@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -80,7 +81,7 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
             if !tab.hasUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
-                Task { if await !view.model.markUnread() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                Task { if await !AgentPaneMarkUnread.run(view.model) { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
                 return
             }
             guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported) }

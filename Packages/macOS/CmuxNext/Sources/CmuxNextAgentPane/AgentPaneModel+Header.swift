@@ -111,11 +111,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
-        case .archive(let archived):
-            return await archive(archived)
-        case .markUnread:
-            return await markUnread() ? AgentPaneReply.success()
-                : AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.markUnread")
+        case .archive(let archived): return await archive(archived)
+        case .markUnread: return await AgentPaneMarkUnread.reply(self)
         case .sideChat(let fork):
             return await openSideChat(fork)
         default:
@@ -137,14 +134,6 @@ extension AgentPaneModel {
         }
         if archived { header?.run("closeTab", nil) }
         return AgentPaneReply.success()
-    }
-
-    /// Mark as Unread (cx-ncc.78): acpmux keeps this pane's chat unread until it is hidden and shown
-    /// again. The chat menu's row and the tab's Mark Tab as Unread both land here. False when the
-    /// pane shows no chat or acpmux refuses.
-    public func markUnread() async -> Bool {
-        guard let sessionId, newTab == nil else { return false }
-        return (try? await transport.markUnread(sessionId)) != nil
     }
 
     /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
