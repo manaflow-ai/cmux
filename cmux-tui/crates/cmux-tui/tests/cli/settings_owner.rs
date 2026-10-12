@@ -8,6 +8,10 @@
 
 use super::*;
 
+// The keybindings.json owner beside the settings file (cx-9ce.17).
+#[path = "keybindings_owner.rs"]
+mod keybindings_owner;
+
 const COMMENTED: &str = "// my cmux settings\n{\n  // the tab bar stays on top\n  \"tabs\": {\n    \"barPosition\": \"top\" /* inline */\n  },\n  \"unknownKey\": 1,\n}\n";
 
 struct SettingsDaemon {
