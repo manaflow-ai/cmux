@@ -522,8 +522,13 @@ fn a_pull_never_brings_back_a_repository_folder_under_another_spelling() {
 
     let (_ok, answer) = pull(&socket, &repo, &remote);
 
+    // By name: on a case-insensitive disk `.GIT` exists wherever `.git` does.
+    let names: Vec<String> = std::fs::read_dir(&repo)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
     for planted in [".GIT", ".Git", "git~1", "vendor"] {
-        assert!(!repo.join(planted).exists(), "{planted} came back: {answer}");
+        assert!(!names.iter().any(|name| name == planted), "{planted} came back: {answer}");
     }
     assert_eq!(paths_below(&repo.join(".git")), before, "the repository changed: {answer}");
 }
