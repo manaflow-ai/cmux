@@ -64,11 +64,25 @@ extension CloudMachineLinkManager {
         }
         var connector = privateRouteConnector
         if let deadline { connector.timeout = Self.remaining(until: deadline) }
-        let connected = try await connector.connect(
-            endpoint: .unix(path: hub.socketPath),
-            target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
-            queue: DispatchQueue.global(qos: .userInitiated)
-        )
+        let connected: CloudHubConnection
+        do {
+            connected = try await connector.connect(
+                endpoint: .unix(path: hub.socketPath),
+                target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
+                queue: DispatchQueue.global(qos: .userInitiated)
+            )
+        } catch let error as CloudPortForwardRelay.RelayError where refreshIfNeeded {
+            // No routed address answered at all: the hub refuses or resets a
+            // host it cannot reach, so a silent hub means its tunnel's peer is
+            // gone. Re-enroll once; a new config restarts the hub and the probe
+            // runs again, and a revoked sign-in surfaces as that answer.
+            guard case .handshakeTimedOut = error,
+                  let refreshed = try await self.hub?.refreshAfterUnansweredRoute() else { throw error }
+            return try await resolvedPrivateRoute(
+                machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute, addresses: freshAddresses,
+                refreshIfNeeded: false, timeout: deadline.map { Self.remaining(until: $0) }
+            )
+        }
         connected.connection.cancel()
         let host = connected.host.contains(":") ? "[\(connected.host)]" : connected.host
         return "ws://\(host):1337/v1/link"

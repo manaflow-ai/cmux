@@ -71,27 +71,6 @@ public actor CloudWireGuardHub {
         }
     }
 
-    public enum HubError: Error, LocalizedError, Equatable {
-        case exitedDuringStart(status: Int32, output: String)
-        case notReady(String)
-        case spawnFailed(String)
-        case restartsExhausted(String)
-
-        public var errorDescription: String? {
-            switch self {
-            case .exitedDuringStart(let status, let output):
-                let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui wg hub exited with status \(status) before its socket was ready" + (tail.isEmpty ? "." : ": \(tail)")
-            case .notReady(let detail):
-                return "cmux-tui wg hub did not start listening: \(detail)"
-            case .spawnFailed(let detail):
-                return "cmux-tui wg hub could not be started: \(detail)"
-            case .restartsExhausted(let detail):
-                return "cmux-tui wg hub keeps exiting; giving up until the next link: \(detail)"
-            }
-        }
-    }
-
     /// The result of enrolling the app identity: where the config landed and what it routes.
     public struct Enrollment: Sendable, Equatable {
         public init(
@@ -143,6 +122,10 @@ public actor CloudWireGuardHub {
     /// publishes `.running`. Keep that signal until the state transition commits.
     private var pendingStartupExit: (processID: UUID, status: Int32)?
     private var startEnrolled = false // This attempt enrolled; recovery reads it.
+    /// The config the running hub was started with, to tell a re-enrollment
+    /// that changed it (a recreated peer) from one that did not.
+    private var runningConfig: String?
+    private var lastUnansweredRefresh: ContinuousClock.Instant?
     private var refreshTask: Task<Ready, Error>?
     private var lastRefresh: ContinuousClock.Instant?
 
@@ -150,30 +133,42 @@ public actor CloudWireGuardHub {
         self.configuration = configuration
     }
 
-    /// Whether `host` (a literal IP) is one the hub would route: inside the
-    /// enrolled `AllowedIPs` when known, else inside the private address ranges.
-    /// Public hosts never take the hub.
-    public static func routesHost(_ host: String, enrolledRoutes: [String]) -> Bool {
-        if !enrolledRoutes.isEmpty {
-            return IPNetworkPrefix.host(host, isWithinAnyOf: enrolledRoutes)
-        }
-        return IPNetworkPrefix.isPrivateAddress(host)
-    }
-
     public func readyRouting(anyOf hosts: [String]) async throws -> Ready {
         let ready = try await ensureRunning()
         scheduleIdleStopIfUnused()
-        guard configuration.refreshEnrollment != nil,
-              !hosts.contains(where: { Self.routesHost($0, enrolledRoutes: ready.routes) }) else { return ready }
-        if let refreshTask { return try await refreshTask.value }
+        guard !hosts.contains(where: { Self.routesHost($0, enrolledRoutes: ready.routes) }) else { return ready }
+        return try await refreshedEnrollment(since: lastRefresh, interval: .seconds(15)) ?? ready
+    }
+
+    /// A routed address gave no SOCKS answer at all: the server may have deleted this tunnel's peer
+    /// (another build's sign-out, a reinstall) while the config on disk still routes the address.
+    /// Re-enrolls at most once a minute; restarts only on a different config, so a working hub stays.
+    /// - Returns: The restarted hub, or nil when nothing changed or it was too soon.
+    /// - Throws: The enrollment's answer, e.g. `403 vm_access_revoked`.
+    public func refreshAfterUnansweredRoute() async throws -> Ready? {
+        _ = try await ensureRunning()
         let now = configuration.now()
-        if let lastRefresh, lastRefresh.duration(to: now) < .seconds(15) { return ready }
+        if let last = lastUnansweredRefresh, last.duration(to: now) < .seconds(60) { return nil }
+        lastUnansweredRefresh = now
+        let before = generation
+        let refreshed = try await refreshedEnrollment(since: nil, interval: .zero, restartOnNewConfig: true)
+        return generation == before ? nil : refreshed
+    }
+
+    private func refreshedEnrollment(
+        since last: ContinuousClock.Instant?, interval: Duration, restartOnNewConfig: Bool = false
+    ) async throws -> Ready? {
+        guard let refresh = configuration.refreshEnrollment else { return nil }
+        if let refreshTask { return try await refreshTask.value }
+        if let last, last.duration(to: configuration.now()) < interval { return nil }
         let refreshGeneration = generation
         let task = Task<Ready, Error> { [weak self] in
             guard let self else { throw HubError.notReady("hub deallocated") }
             await self.markRefreshStarted()
-            let enrollment = try await self.configuration.refreshEnrollment!()
-            return try await self.completeRefresh(enrollment, refreshGeneration: refreshGeneration)
+            let enrollment = try await refresh()
+            return try await self.completeRefresh(
+                enrollment, refreshGeneration: refreshGeneration, restartOnNewConfig: restartOnNewConfig
+            )
         }
         refreshTask = task
         do { let result = try await task.value; refreshTask = nil; return result }
@@ -184,8 +179,11 @@ public actor CloudWireGuardHub {
         lastRefresh = configuration.now()
     }
 
-    private func completeRefresh(_ enrollment: Enrollment, refreshGeneration: UInt64) async throws -> Ready {
-        let restarted = finishRefresh(enrollment, refreshGeneration: refreshGeneration)
+    private func completeRefresh(
+        _ enrollment: Enrollment, refreshGeneration: UInt64, restartOnNewConfig: Bool
+    ) async throws -> Ready {
+        let configChanged = restartOnNewConfig && Self.configContents(enrollment) != runningConfig
+        let restarted = finishRefresh(enrollment, refreshGeneration: refreshGeneration, configChanged: configChanged)
         // Sign-out during refresh intentionally cancels private-route callers instead of restarting the hub.
         if !restarted && generation != refreshGeneration { throw CancellationError() }
         let refreshed = try await ensureRunning()
@@ -193,10 +191,10 @@ public actor CloudWireGuardHub {
         return refreshed
     }
 
-    private func finishRefresh(_ enrollment: Enrollment, refreshGeneration: UInt64) -> Bool {
+    private func finishRefresh(_ enrollment: Enrollment, refreshGeneration: UInt64, configChanged: Bool) -> Bool {
         guard generation == refreshGeneration else { return false }
         lastRefresh = configuration.now()
-        guard case .running(let ready) = state, ready.routes != enrollment.routes else { return false }
+        guard case .running(let ready) = state, configChanged || ready.routes != enrollment.routes else { return false }
         generation &+= 1
         restartTask?.cancel(); restartTask = nil
         idleStopTask?.cancel(); idleStopTask = nil
@@ -521,6 +519,7 @@ public actor CloudWireGuardHub {
             enrollment = try await configuration.enroll()
         }
         if generation == startGeneration { startEnrolled = true } // A cancelled start's late enroll must not leak.
+        runningConfig = Self.configContents(enrollment)
         try Task.checkCancellation()
         guard generation == startGeneration else { throw CancellationError() }
         removeSocketFile()
