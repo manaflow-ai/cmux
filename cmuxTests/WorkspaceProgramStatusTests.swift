@@ -230,6 +230,80 @@ struct WorkspaceProgramStatusTests {
         #expect(destination.statusEntries[Workspace.programStatusKey]?.value == "deploy · Region?")
     }
 
+    @Test func closingTerminalsPublishesRemovedSnapshotOnlyForReportingPanes() throws {
+        let workspace = Workspace()
+        let reportingPanelId = try #require(workspace.focusedPanelId)
+        let quietPanel = try #require(
+            workspace.newTerminalSplit(from: reportingPanelId, orientation: .horizontal, focus: false)
+        )
+        workspace.applyProgramStatus(
+            ProgramStatusReport(state: .done, id: "lint", app: "cargo"),
+            panelId: reportingPanelId
+        )
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        workspace.teardownAllPanels()
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 1)
+        let removed = try #require(events.first)
+        #expect(removed["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(removed["surface_id"] as? String == reportingPanelId.uuidString)
+        #expect(removed["surface_id"] as? String != quietPanel.id.uuidString)
+        let payload = try #require(removed["payload"] as? [String: Any])
+        #expect(payload["event"] as? String == "removed")
+        #expect(payload["record"] is NSNull)
+        #expect(payload["records_total"] as? Int == 0)
+        let records = try #require(payload["records"] as? [[String: Any]])
+        #expect(records.isEmpty)
+    }
+
+    @Test func movedPanePublishesRemovalAndAdoptionUnderEachWorkspace() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let firstPanelId = try #require(source.focusedPanelId)
+        let movedPanel = try #require(
+            source.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: false)
+        )
+        source.applyProgramStatus(
+            ProgramStatusReport(state: .blocked, kind: .question, id: "deploy", app: "deploy"),
+            panelId: movedPanel.id
+        )
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let detached = try #require(source.detachSurface(panelId: movedPanel.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        _ = try #require(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false))
+        CmuxEventBus.shared.flushEventLogForTesting()
+
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            $0["name"] as? String == "program_status.changed"
+        }
+        #expect(events.count == 2)
+        let removed = try #require(events.first)
+        #expect(removed["workspace_id"] as? String == source.id.uuidString)
+        #expect(removed["surface_id"] as? String == movedPanel.id.uuidString)
+        let removedPayload = try #require(removed["payload"] as? [String: Any])
+        #expect(removedPayload["event"] as? String == "removed")
+        #expect((removedPayload["records"] as? [[String: Any]])?.isEmpty == true)
+
+        let adopted = try #require(events.last)
+        #expect(adopted["workspace_id"] as? String == destination.id.uuidString)
+        #expect(adopted["surface_id"] as? String == movedPanel.id.uuidString)
+        let adoptedPayload = try #require(adopted["payload"] as? [String: Any])
+        #expect(adoptedPayload["event"] as? String == "adopted")
+        #expect(adoptedPayload["record"] is NSNull)
+        let records = try #require(adoptedPayload["records"] as? [[String: Any]])
+        #expect(records.map { $0["id"] as? String } == ["deploy"])
+        #expect(records.first?["state"] as? String == "blocked")
+        #expect(records.first?["kind"] as? String == "question")
+    }
+
     @Test func sanitizesInvisibleFormattingAndCapsDisplay() {
         let workspace = Workspace()
         let value = workspace.sanitizedProgramStatusText("hello\u{202E}world")

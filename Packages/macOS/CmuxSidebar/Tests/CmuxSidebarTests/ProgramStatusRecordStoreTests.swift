@@ -99,4 +99,22 @@ struct ProgramStatusRecordStoreTests {
         #expect(cleanup.record == nil)
         #expect(cleanup.records.map(\.id) == ["lint"])
     }
+
+    @Test func changedPayloadMapsTerminalRemovalAndAdoption() {
+        var store = ProgramStatusRecordStore()
+        store.apply(ProgramStatusReport(state: .working, progress: 30, id: "build", app: "cargo"))
+
+        let removed = ProgramStatusChangedPayload(event: .removed, store: ProgramStatusRecordStore())
+        #expect(removed.event.rawValue == "removed")
+        #expect(removed.id == nil)
+        #expect(removed.record == nil)
+        #expect(removed.records.isEmpty)
+
+        let adopted = ProgramStatusChangedPayload(event: .adopted, store: store)
+        #expect(adopted.event.rawValue == "adopted")
+        #expect(adopted.id == nil)
+        #expect(adopted.record == nil)
+        #expect(adopted.records.map(\.id) == ["build"])
+        #expect(adopted.records.first?.progress == 30)
+    }
 }
