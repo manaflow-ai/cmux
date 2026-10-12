@@ -199,7 +199,8 @@ class TerminalController {
     nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
         maximumConcurrentJobs: TerminalController.socketClientMaximumConcurrentJobs,
         maximumPendingJobs: TerminalController.socketClientMaximumPendingJobs,
-        maximumPendingAgeNanoseconds: TerminalController.socketPendingConnectionMaximumAgeNanoseconds
+        maximumPendingAgeNanoseconds: TerminalController.socketPendingConnectionMaximumAgeNanoseconds,
+        maximumParkedJobs: TerminalController.socketClientMaximumParkedJobs
     )
     /// Answers connections the pool cannot serve with a real `overloaded`
     /// error instead of a closed descriptor (#13369).
@@ -1577,7 +1578,7 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-    private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
+    nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
         }
