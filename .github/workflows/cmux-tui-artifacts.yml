@@ -642,7 +642,7 @@ jobs:
   # fallback runs in the same run.
   darwin-fallback-plan:
     name: plan the macOS fallback build
-    if: ${{ always() && needs.build.result == 'failure' && needs.tree-preflight.outputs.darwin_builder == 'linux' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.build.result == 'failure' && needs.tree-preflight.outputs.darwin_builder == 'linux' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -650,6 +650,7 @@ jobs:
       actions: read # this run's artifacts
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
+      recovered: ${{ steps.plan.outputs.recovered }}
     steps:
       - name: Find the macOS targets the build left without artifacts
         id: plan
@@ -660,11 +661,13 @@ jobs:
         run: |
           set -euo pipefail
           names="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[].name')"
-          have() { grep -qx "cmux-tui-$1" <<<"$names"; }
+          # A target is built when all three of its artifacts are there.
+          have() { for kind in cmux-tui cmux-relay chatmux-relay; do grep -qx "$kind-$1" <<<"$names" || return 1; done; }
           for linux in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
             if ! have "$linux"; then
               echo "::error title=no macOS fallback::the $linux build failed too; only a macOS cross-link failure falls back to a Mac"
               echo "target_set=" >> "$GITHUB_OUTPUT"
+              echo "recovered=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
@@ -677,13 +680,17 @@ jobs:
             present/missing) set=macos-x86_64 ;;
             *) set= ;;
           esac
+          # Every target is there: an earlier attempt's fallback built the macOS
+          # ones, and "Re-run failed jobs" reran this plan with the build.
+          [[ -z "$set" ]] && recovered=true || recovered=false
+          echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
           if [[ -n "$set" ]]; then
             echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets failed (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. Regenerate the stubs: scripts/ci/macos_stubs.py"
           fi
           echo "target_set=$set" >> "$GITHUB_OUTPUT"
 
   build-darwin-fallback:
-    if: ${{ always() && needs.darwin-fallback-plan.outputs.target_set != '' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.darwin-fallback-plan.outputs.target_set != '' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: [tree-preflight, darwin-fallback-plan]
     concurrency:
       group: cmux-tui-build-fallback-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
@@ -707,7 +714,7 @@ jobs:
   build-ok:
     name: build (with any macOS fallback)
     if: ${{ always() && needs.build.result != 'skipped' && needs.build.result != 'cancelled' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    needs: [build, build-darwin-fallback]
+    needs: [build, darwin-fallback-plan, build-darwin-fallback]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     steps:
@@ -715,9 +722,10 @@ jobs:
         env:
           BUILD: ${{ needs.build.result }}
           FALLBACK: ${{ needs.build-darwin-fallback.result }}
+          RECOVERED: ${{ needs.darwin-fallback-plan.outputs.recovered }}
         run: |
-          echo "build: $BUILD, macOS fallback: $FALLBACK"
-          [[ "$BUILD" == success || "$FALLBACK" == success ]]
+          echo "build: $BUILD, macOS fallback: $FALLBACK, recovered by an earlier attempt: ${RECOVERED:-false}"
+          [[ "$BUILD" == success || "$FALLBACK" == success || "$RECOVERED" == true ]]
 
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
@@ -1559,7 +1567,8 @@ jobs:
     needs: [tree-preflight, publish]
     # Only while the Mac builds publish: with darwin_builder=linux the
     # references are this job's own output.
-    if: needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    # !cancelled(): publish's chain runs through the skipped macOS fallback jobs.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     # 8 vCPU: the shadow builds both macOS targets of every binary.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 60
