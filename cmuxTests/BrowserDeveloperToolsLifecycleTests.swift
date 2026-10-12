@@ -557,8 +557,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         // A Dock browser starts with detached DevTools; the pending-close race is the attached one.
         browserPanel.setPreferredDeveloperToolsPresentation(.attached)
         XCTAssertTrue(browserPanel.showDeveloperTools())
-        // Let the show transition settle (developerToolsTransitionSettleDelay) on the run loop.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        drainMainQueue()
         XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
         XCTAssertTrue(
             browserPanel.debugDeveloperToolsStateSummary().contains("presentation=attached"),
