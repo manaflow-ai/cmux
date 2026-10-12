@@ -85,3 +85,27 @@ fn close_reason_is_in_the_idempotency_fingerprint() {
     assert!(run(&mux, plain).is_err(), "the same key without the reason is another request");
     mux.shutdown();
 }
+
+/// A workspace whose first terminal never started (an import, a new
+/// workspace in a folder that is gone) is closed again by its creator. It
+/// held nothing, so nothing is recorded: Recently Closed never lists it
+/// (cx-avtwr). A workspace that held tabs still is.
+#[test]
+fn a_workspace_that_never_held_a_tab_closes_without_closed_history() {
+    let mux = Mux::new_for_test("close-empty-workspace", crate::SurfaceOptions::default());
+    let (pane, _) = browser_tabs(&mux, 1);
+    let empty = "6f1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7";
+    run(&mux, json!({"cmd":"create-workspace","name":"nightly-focus-20","key":empty})).unwrap();
+    run(&mux, json!({"cmd":"close-workspace","key":empty})).unwrap();
+    assert_eq!(closed_groups(&mux), 0, "a workspace that held no tab is not recorded");
+
+    let held = mux.with_state(|state| {
+        let (index, _) = state.screen_of(pane).unwrap();
+        state.workspaces[index].key.clone()
+    });
+    let spare = "0a1b2c3d-4e5f-4a60-9b71-c2d3e4f5a6b7";
+    run(&mux, json!({"cmd":"create-workspace","name":"spare","key":spare})).unwrap();
+    run(&mux, json!({"cmd":"close-workspace","key":held})).unwrap();
+    assert_eq!(closed_groups(&mux), 1, "a workspace with tabs is recorded");
+    mux.shutdown();
+}
