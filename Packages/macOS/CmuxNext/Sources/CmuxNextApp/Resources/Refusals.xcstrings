@@ -6027,264 +6027,264 @@
         }
       }
     },
-    "handlers.refusal.noWorkspace": {
+    "handlers.refusal.workspaceGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no workspace %@"
+            "value": "That workspace is no longer open."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース %@ はありません"
+            "value": "そのワークスペースはもう開いていません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مساحة عمل %@"
+            "state": "translated",
+            "value": "لم تعد مساحة العمل هذه مفتوحة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema radnog prostora %@"
+            "state": "translated",
+            "value": "Taj radni prostor više nije otvoren."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "intet arbejdsområde %@"
+            "state": "translated",
+            "value": "Det arbejdsområde er ikke længere åbent."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "kein Arbeitsbereich %@"
+            "state": "translated",
+            "value": "Dieser Arbeitsbereich ist nicht mehr geöffnet."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe el espacio de trabajo %@"
+            "state": "translated",
+            "value": "Ese espacio de trabajo ya no está abierto."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun espace de travail %@"
+            "state": "translated",
+            "value": "Cet espace de travail n’est plus ouvert."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna area di lavoro %@"
+            "state": "translated",
+            "value": "Quell’area di lavoro non è più aperta."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានកន្លែងធ្វើការ %@ ទេ"
+            "state": "translated",
+            "value": "កន្លែងធ្វើការនោះលែងបើកទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 작업 공간은 더 이상 열려 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ikke noe arbeidsområde %@"
+            "state": "translated",
+            "value": "Det arbeidsområdet er ikke lenger åpent."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak przestrzeni roboczej %@"
+            "state": "translated",
+            "value": "Ta przestrzeń robocza nie jest już otwarta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma área de trabalho %@"
+            "state": "translated",
+            "value": "Essa área de trabalho não está mais aberta."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет рабочего пространства %@"
+            "state": "translated",
+            "value": "Это рабочее пространство больше не открыто."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีเวิร์กสเปซ %@"
+            "state": "translated",
+            "value": "เวิร์กสเปซนั้นไม่ได้เปิดอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "çalışma alanı yok: %@"
+            "state": "translated",
+            "value": "Bu çalışma alanı artık açık değil."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає робочої області %@"
+            "state": "translated",
+            "value": "Цей робочий простір більше не відкритий."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có không gian làm việc %@"
+            "state": "translated",
+            "value": "Không gian làm việc đó không còn mở nữa."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有工作区 %@"
+            "state": "translated",
+            "value": "该工作区已不再打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有工作區 %@"
+            "state": "translated",
+            "value": "該工作區已不再開啟。"
           }
         }
       }
     },
-    "handlers.refusal.noWorkspaceGroup": {
+    "handlers.refusal.workspaceGroupGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no workspace group %@"
+            "value": "That workspace group no longer exists."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースグループ %@ はありません"
+            "value": "そのワークスペースグループはもう存在しません。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مجموعة مساحات عمل %@"
+            "state": "translated",
+            "value": "لم تعد مجموعة مساحات العمل هذه موجودة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema grupe radnih prostora %@"
+            "state": "translated",
+            "value": "Ta grupa radnih prostora više ne postoji."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen arbejdsområdegruppe %@"
+            "state": "translated",
+            "value": "Den arbejdsområdegruppe findes ikke længere."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "keine Arbeitsbereichsgruppe %@"
+            "state": "translated",
+            "value": "Diese Arbeitsbereichsgruppe gibt es nicht mehr."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no existe el grupo de espacios de trabajo %@"
+            "state": "translated",
+            "value": "Ese grupo de espacios de trabajo ya no existe."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun groupe d’espaces %@"
+            "state": "translated",
+            "value": "Ce groupe d’espaces de travail n’existe plus."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun gruppo di aree di lavoro %@"
+            "state": "translated",
+            "value": "Quel gruppo di aree di lavoro non esiste più."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានក្រុមកន្លែងធ្វើការ %@ ទេ"
+            "state": "translated",
+            "value": "ក្រុមកន្លែងធ្វើការនោះលែងមានទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 그룹 %@이(가) 없음"
+            "state": "translated",
+            "value": "해당 작업 공간 그룹은 더 이상 존재하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen arbeidsområdegruppe %@"
+            "state": "translated",
+            "value": "Den arbeidsområdegruppen finnes ikke lenger."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak grupy przestrzeni roboczych %@"
+            "state": "translated",
+            "value": "Ta grupa przestrzeni roboczych już nie istnieje."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum grupo de áreas de trabalho %@"
+            "state": "translated",
+            "value": "Esse grupo de áreas de trabalho não existe mais."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет группы рабочих пространств %@"
+            "state": "translated",
+            "value": "Этой группы рабочих пространств больше нет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกลุ่มเวิร์กสเปซ %@"
+            "state": "translated",
+            "value": "กลุ่มเวิร์กสเปซนั้นไม่มีอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "çalışma alanı grubu yok: %@"
+            "state": "translated",
+            "value": "Bu çalışma alanı grubu artık yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає групи робочих областей %@"
+            "state": "translated",
+            "value": "Цієї групи робочих просторів більше немає."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có nhóm không gian làm việc %@"
+            "state": "translated",
+            "value": "Nhóm không gian làm việc đó không còn tồn tại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有工作区组 %@"
+            "state": "translated",
+            "value": "该工作区组已不存在。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有工作區群組 %@"
+            "state": "translated",
+            "value": "該工作區群組已不存在。"
           }
         }
       }

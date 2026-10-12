@@ -132,7 +132,9 @@ nonisolated enum RefusalStrings {
     static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }
     static func noPaneID(_ id: String) -> String { format("handlers.refusal.noPaneID", "no pane %@", id) }
     static var workspaceArgumentRequired: String { text("handlers.refusal.workspaceArgumentRequired", "a workspace argument is required") }
-    static func noWorkspace(_ id: String) -> String { format("handlers.refusal.noWorkspace", "no workspace %@", id) }
+    /// A workspace that is not open (closed, or never was). `id` is for call
+    /// sites and logs only: a toast or the socket never shows a raw id.
+    static func noWorkspace(_ id: String) -> String { text("handlers.refusal.workspaceGone", "That workspace is no longer open.") }
     static func paneHasNoWorkspaceView(_ id: String) -> String { format("handlers.refusal.paneHasNoWorkspaceView", "pane %@ has no workspace view", id) }
     static var noWindowShowsWorkspace: String { text("handlers.refusal.noWindowShowsWorkspace", "no window shows a workspace") }
     static func tabHasNoLiveContent(_ id: String) -> String { format("handlers.refusal.tabHasNoLiveContent", "tab %@ has no live content", id) }

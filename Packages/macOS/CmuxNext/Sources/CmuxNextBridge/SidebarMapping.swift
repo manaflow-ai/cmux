@@ -110,7 +110,9 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                return SidebarTab(id: TabID(tab.id), title: isNewTabPage ? newTabTitle : tab.displayTitle,
+                let title = isNewTabPage ? newTabTitle : newTabTitle.isEmpty ? tab.displayTitle
+                    : TabItemMapping.shownTitle(tab, newTabTitle: newTabTitle)
+                return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
                                   brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
             },

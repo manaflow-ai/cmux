@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
-import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -121,25 +120,33 @@ final class CloseUndoToasts {
 
     /// The user is closing tabs `ids` of `pane` in one gesture.
     func expectGroup(_ ids: [StripTabID], in pane: PaneController) {
-        expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, daemon: pane.daemon, window: pane.view.window)
+        // One tab: the toast names it as its strip does (a chat, a page, "New Tab").
+        let shown = ids.count == 1 ? pane.stripModel.tab(ids[0])?.title : nil
+        expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, daemon: pane.daemon, window: pane.view.window,
+                    shownTitle: shown)
     }
 
     /// The user is closing `tabs` of `pane` in one gesture (a tab group
     /// that may not be shown; `window` is where the toast goes).
-    func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?) {
+    /// `shownTitle` is the one tab's name in its strip, when it is shown.
+    func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?,
+                     shownTitle: String? = nil) {
         let entries = tabs.compactMap { tab in
             pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) }
         }
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
+        let title = tabs.count == 1 ? (shownTitle.flatMap { $0.isEmpty || TabItemMapping.isBlankPageAddress($0) ? nil : $0 }
+            ?? services.map { Self.title(of: tabs[0], pages: $0.pages) } ?? Self.title(of: tabs[0])) : ""
         expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
-                                 title: tabs.count == 1 ? (services.map { Self.title(of: tabs[0], pages: $0.pages) } ?? Self.title(of: tabs[0])) : "", window: window))
+                                 title: title, window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
-    /// A tab's name in its toast, as its strip shows it: a browser tab on
-    /// the New Tab or blank page is "New Tab", never the page's address
-    /// (the toast said `Closed "chrome://newtab/"`).
+    /// A tab's name in its toast, as its strip shows it: a browser tab or
+    /// a New Tab page (a conversation tab) on the New Tab or blank page is
+    /// "New Tab", never the page's address (the toast said
+    /// `Closed "chrome://newtab/"`, then `Closed "about:blank"`).
     /// A page tab (a diff, Settings) is named as its strip names it, never by
     /// its `about:blank` address (cx-u1yn).
     static func title(of tab: TabModel, pages: InternalPageTabStore) -> String {
@@ -147,7 +154,7 @@ final class CloseUndoToasts {
     }
 
     static func title(of tab: TabModel) -> String {
-        tab.kind == .browser && BrowserNewTabPage.isNewTabPage(tab.displayTitle) ? Strings.untitledBrowser : tab.displayTitle
+        TabItemMapping.shownTitle(tab, newTabTitle: Strings.untitledBrowser)
     }
 
     private func daemonItemsChanged(_ ids: [String]) {

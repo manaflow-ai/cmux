@@ -73,10 +73,20 @@ public struct TabItemMapping {
         return host
     }
 
+    /// A tab's name wherever a list or a toast shows it (the sidebar's tab
+    /// rows, the closed-tab toast): a browser or conversation tab with no
+    /// title, or titled with the New Tab or blank page's address, is
+    /// `newTabTitle` ("New Tab", localized by the App), never `about:blank`.
+    public static func shownTitle(_ tab: TabModel, newTabTitle: String) -> String {
+        let title = tab.displayTitle
+        guard tab.kind == .browser || tab.kind == .conversation else { return title }
+        return title.isEmpty || isBlankPageAddress(title) ? newTabTitle : title
+    }
+
     /// The New Tab page's and the blank page's addresses
     /// (`BrowserNewTabPage` in CmuxNextBrowser), which a page that never
     /// names itself keeps as its title.
-    static func isBlankPageAddress(_ text: String) -> Bool {
+    public static func isBlankPageAddress(_ text: String) -> Bool {
         ["chrome://newtab/", "chrome://newtab", "about:blank"].contains(text.lowercased())
     }
 

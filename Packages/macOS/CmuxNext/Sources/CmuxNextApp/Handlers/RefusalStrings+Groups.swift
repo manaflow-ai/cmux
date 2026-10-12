@@ -34,7 +34,8 @@ nonisolated extension RefusalStrings {
     static var groupAlreadyInSection: String { text("handlers.refusal.groupAlreadyInSection", "every workspace in the group is already in that section") }
     static var workspaceNotInSidebar: String { text("handlers.refusal.workspaceNotInSidebar", "the workspace is not in the sidebar") }
     static var noWorkspaceToActOn: String { text("handlers.refusal.noWorkspaceToActOn", "no workspace to act on") }
-    static func noWorkspaceGroup(_ id: String) -> String { format("handlers.refusal.noWorkspaceGroup", "no workspace group %@", id) }
+    /// `id` is for call sites and logs only, never shown.
+    static func noWorkspaceGroup(_ id: String) -> String { text("handlers.refusal.workspaceGroupGone", "That workspace group no longer exists.") }
     static var workspaceNotInGroup: String { text("handlers.refusal.workspaceNotInGroup", "the workspace is not in a group") }
     static func noWindow(_ id: String) -> String { format("handlers.refusal.noWindow", "no window %@", id) }
     static func couldNotOpen(_ url: String) -> String { format("handlers.refusal.couldNotOpen", "could not open %@", url) }
