@@ -50,9 +50,10 @@ const USAGE: &str = "usage: cmux link access grant --socket PATH --machine ID --
        cmux link access sync --socket PATH --machine ID [--session ID]
        cmux link access revoke --machine ID --session ID [--socket PATH] (--all | FOLDER)
        cmux link access grants [--machine ID] [--session ID]
-       cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] PATH
+       cmux link access request [--socket PATH] [--session ID] [--reason TEXT] [--timeout SECONDS] (PATH | --secret NAME)
        cmux link access triage --socket PATH --machine ID --session ID [--session ID]...
-       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --deny [--reason TEXT])";
+       cmux link access answer --socket PATH --machine ID --session ID --request ID [--remote-root DIR] (--allow PATH --target PATH | --always PATH --target PATH --folder DIR | --share-secret NAME | --deny [--reason TEXT])
+         (--share-secret reads the value from stdin, byte for byte: no newline is removed)";
 
 /// File names that never go from a shared folder (ASCII case folded):
 /// env, credential and key files. Best effort: a secret under any other
@@ -163,6 +164,10 @@ struct Args {
     allow: bool,
     always: bool,
     deny: bool,
+    /// `request --secret NAME`: the secret asked for.
+    secret: Option<String>,
+    /// `answer --share-secret NAME`: the value comes on stdin.
+    share_secret: bool,
 }
 
 fn parse(args: &[String]) -> Option<Args> {
@@ -185,6 +190,8 @@ fn parse(args: &[String]) -> Option<Args> {
             "--allow" => parsed.allow = true,
             "--always" => parsed.always = true,
             "--deny" => parsed.deny = true,
+            "--secret" => parsed.secret = Some(rest.next()?.clone()),
+            "--share-secret" => parsed.share_secret = true,
             "--remote-root" => parsed.remote_root = Some(rest.next()?.clone()),
             "--mode" => parsed.mode = Some(rest.next()?.clone()),
             "--all" => parsed.all = true,
@@ -232,6 +239,11 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A secret flag means nothing to any other action: refuse it.
+    if (args.secret.is_some() && action != "request") || (args.share_secret && action != "answer") {
+        eprintln!("{USAGE}");
+        return 64;
+    }
     let answer = match (action.as_str(), &args) {
         (
             "grant",
@@ -269,13 +281,21 @@ pub(super) fn run(args: &[String]) -> i32 {
         ("grants", Args { positional, .. }) if positional.is_empty() => {
             list(args.machine.as_deref(), args.session.as_deref())
         }
-        ("request", Args { positional, .. }) if positional.len() == 1 => requests::request(
-            args.socket.as_deref(),
-            args.session.as_deref(),
-            args.reason.as_deref(),
-            std::time::Duration::from_secs(args.timeout.unwrap_or(300)),
-            &positional[0],
-        ),
+        ("request", Args { positional, secret, .. })
+            if positional.len() + usize::from(secret.is_some()) == 1 =>
+        {
+            let what = match secret {
+                Some(name) => requests::Asked::Secret(name),
+                None => requests::Asked::File(&positional[0]),
+            };
+            requests::request(
+                args.socket.as_deref(),
+                args.session.as_deref(),
+                args.reason.as_deref(),
+                std::time::Duration::from_secs(args.timeout.unwrap_or(300)),
+                what,
+            )
+        }
         (
             "triage",
             Args { socket: Some(socket), machine: Some(machine), positional, sessions, .. },
@@ -293,15 +313,18 @@ pub(super) fn run(args: &[String]) -> i32 {
                 allow,
                 always,
                 deny,
+                share_secret,
                 ..
             },
-        ) if [*allow, *always, *deny].iter().filter(|set| **set).count() == 1
+        ) if [*allow, *always, *deny, *share_secret].iter().filter(|set| **set).count() == 1
             && positional.len() == usize::from(!*deny) =>
         {
             let how = if *allow {
                 requests::How::Allow
             } else if *always {
                 requests::How::Always
+            } else if *share_secret {
+                requests::How::ShareSecret
             } else {
                 requests::How::Deny
             };

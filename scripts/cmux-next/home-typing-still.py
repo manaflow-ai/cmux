@@ -7,12 +7,17 @@ answers, MockHomeSource.scheduleReplies), sends a message through the field's se
 (debug.home.drive type + send) and takes window snapshots at 2.0 s and 2.6 s, while the Chief types: the typing bubble (RowCell.typingBody, Fixture.typingFill) in the app's own theme.
 Passes when the send goes and the bubble is in the image: its box (debug.home.drive typing) is
 read from the app and the mean colour inside it must differ from the background beside it; its flat
-edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6). Socket only, no system input. Runs on
+edges have no partial pixels, also after the transcript moves by half a device pixel in its pane (b6760b6); in that
+snapshot every text row's anchored side (incoming left, outgoing right) and top lie on whole device pixels and its straight edges have no partial pixels
+(c1457e5 row-snap; home_pixels.row_edges). Socket only, no system input. Runs on
 cmux-lawrence-2; ends with the DEBUG quit fixture and the tag's `acpmux daemon shutdown`.
 
 Usage: home-typing-still.py --tag <tag> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from home_pixels import check_rows, mean_rgb, read_png  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -65,39 +70,6 @@ def poll(predicate, timeout=20):
 
 
 
-def read_png(path):
-    """8-bit RGB or RGBA, non-interlaced PNG (window snapshots): (width, height, rows of bytes, 3 or 4 per pixel)."""
-    import struct, zlib
-    data = open(path, "rb").read()
-    pos, idat, w = 8, b"", 0
-    while pos < len(data):
-        n, kind = struct.unpack(">I4s", data[pos:pos + 8])
-        body = data[pos + 8:pos + 8 + n]
-        if kind == b"IHDR":
-            w, h, depth, ctype, _, _, interlace = struct.unpack(">IIBBBBB", body)
-            if depth != 8 or ctype not in (2, 6) or interlace:
-                raise ValueError(f"unsupported PNG depth {depth} colour type {ctype} interlace {interlace}")
-            bpp = 4 if ctype == 6 else 3
-        elif kind == b"IDAT":
-            idat += body
-        pos += 12 + n
-    raw, stride, rows, prev = zlib.decompress(idat), w * bpp, [], bytearray(w * bpp)
-    for y in range(h):
-        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
-        for i in range(stride):
-            a = line[i - bpp] if i >= bpp else 0
-            b = prev[i]
-            c = prev[i - bpp] if i >= bpp else 0
-            if f == 1: line[i] = (line[i] + a) & 255
-            elif f == 2: line[i] = (line[i] + b) & 255
-            elif f == 3: line[i] = (line[i] + (a + b) // 2) & 255
-            elif f == 4:
-                p = a + b - c; pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
-        rows.append(line); prev = line
-    return w, h, (rows, bpp)
-
-
 def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
     """Pixels on the bubble's flat top and bottom edges (the middle 40 % of its width) that are neither
     the fill nor the background (a partial pixel: the edge is not on a whole device pixel)."""
@@ -113,17 +85,6 @@ def edge_partials(px, w, h, box, scale, fill, bg, tol=12):
                 if not near(fill) and not near(bg):
                     count += 1
     return count
-
-
-def mean_rgb(px, w, h, x0, y0, x1, y1):
-    rows, bpp = px
-    xs = range(max(0, int(x0)), min(w, int(x1))); ys = range(max(0, int(y0)), min(h, int(y1)))
-    n = max(1, len(xs) * len(ys)); sums = [0, 0, 0]
-    for y in ys:
-        r = rows[y]
-        for x in xs:
-            for k in range(3): sums[k] += r[x * bpp + k]
-    return [round(v / n, 1) for v in sums]
 
 
 if os.path.exists(sock):
@@ -157,10 +118,13 @@ try:
     # MessagesLab b6760b6: the transcript moves by half a device pixel in its pane (no size change); the bubble
     # must still land on whole device pixels (RowCell.windowPlace, refreshed by Home's host). The backing
     # scale comes from the window (2x on the GUI host); 0.25 pt at 2x (0.5 pt would stay on the pixel grid).
+    # MessagesLab c1457e5 (row-snap): every message row rests on whole device pixels too, so the move is on both
+    # axes (a vertical move puts the rows' top and bottom edges on half a pixel without the snap).
     k0 = 2.0
-    rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0})
+    rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0, "dy": 0.5 / k0})
     time.sleep(0.2)  # test harness: one display frame for the move to show
     half = rpc("debug.home.drive", {"action": "typing"}) or {}
+    half_rows = rpc("debug.home.drive", {"action": "rows"}) or {}
     half_shot = os.path.join(opts.out, "typing-half-pixel.png")
     rpc("debug.window_snapshot", {"path": half_shot})
     check("snapshots of the typing indicator", os.path.exists(shot) and os.path.exists(half_shot), [shot, half_shot])
@@ -191,13 +155,19 @@ try:
         return abs(v - round(v)) < 0.01
     # snapTyping places the group's top-left on a device pixel (its size is whole pixels too): the left and
     # top edges (window y from the bottom: y + height).
-    check("the transcript sits on half a device pixel", bool(half.get("ok")) and abs(((half.get("hostX", 0) * k0) % 1) - 0.5) < 0.01, half)
+    check("the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
+          and all(abs(((half.get(k, 0) * k0) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")), half)
     if half.get("ok") and os.path.exists(half_shot):
         scale, _, inner, bg, diff, partial = measure(half, half_shot)
         px_edges = [half["x"] * scale, (half["y"] + half["height"]) * scale]
         print(f"     half pixel: host x {half['hostX']}, bubble left/top in device px {[round(e, 3) for e in px_edges]},"
               f" mean diff {diff:.1f}, partial pixels on the flat edges (information) {partial}", flush=True)
         check("moved by half a device pixel, the bubble's edges are on whole device pixels", all(whole(e) for e in px_edges), px_edges)
+    # The message rows (c1457e5 RowCell.snapRow), in the same half-pixel snapshot: every text bubble's
+    # top-left on whole device pixels, and no partial pixels along its straight edges.
+    check("the app reports the message rows", bool(half_rows.get("ok")), half_rows)
+    if half_rows.get("ok") and os.path.exists(half_shot):
+        check_rows(check, "half pixel", half_rows, half_shot)
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

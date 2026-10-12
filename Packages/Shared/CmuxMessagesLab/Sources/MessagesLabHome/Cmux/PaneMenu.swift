@@ -125,11 +125,15 @@ extension ChatController {
     func pickerLift(for hit: MessagesWindowView.Hit) -> NSView? {
         guard let demo, let window,
               let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
-        let f = cell.convert(cell.bounds, to: demo)
+        // The row's content rests on the window's device pixels (RowCell.snapRow, MessagesLab c1457e5): the bitmap
+        // starts at the content's place, so the lifted bubble keeps whole pixels and is not resampled.
+        let d = cell.rowSnap
+        let f = cell.convert(cell.bounds, to: demo).offsetBy(dx: d.x, dy: d.y)
         let scale = window.backingScaleFactor
         guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
                                   space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -d.x, y: -d.y)
         cell.layer.render(in: ctx)
         let lift = NSView(frame: f)
         lift.wantsLayer = true
