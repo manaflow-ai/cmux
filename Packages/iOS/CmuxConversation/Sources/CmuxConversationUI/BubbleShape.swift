@@ -150,8 +150,8 @@ final class BubbleBackgroundView: UIView {
         if let materialView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            materialView.frame = bounds
-            materialMask.frame = bounds
+            materialView.frame = gradientBounds
+            materialMask.frame = CGRect(origin: .zero, size: gradientBounds.size)
             CATransaction.commit()
             if let animation = shapeLayer.animation(forKey: "path")?.copy() as? CABasicAnimation {
                 materialMask.shape.add(animation, forKey: "path")
@@ -163,9 +163,7 @@ final class BubbleBackgroundView: UIView {
 
     /// The bounds plus the tail's drop below them.
     private var gradientBounds: CGRect {
-        var rect = bounds
-        rect.size.height += ConversationTheme.tailDrop
-        return rect
+        ConversationBubbleGeometry.drawingBounds(body: bounds, radius: ConversationTheme.bubbleCornerRadius)
     }
 
     override func didMoveToWindow() {
@@ -210,8 +208,9 @@ final class BubbleBackgroundView: UIView {
         if material, materialView == nil {
             let effect = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
             effect.isUserInteractionEnabled = false
-            effect.frame = bounds
-            materialMask.frame = bounds
+            // The tail drops below the bounds; the material covers it too.
+            effect.frame = gradientBounds
+            materialMask.frame = CGRect(origin: .zero, size: gradientBounds.size)
             materialMask.shape.path = shapeLayer.path
             effect.mask = materialMask
             insertSubview(effect, at: 0)

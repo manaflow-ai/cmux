@@ -44,7 +44,9 @@ public enum ConversationBubbleGeometry {
     /// tail's drop below it. Views that draw the outline (a fill, a material,
     /// a gradient) must cover this, or the tail is cut off flat.
     public static func drawingBounds(body: CGRect, radius: CGFloat) -> CGRect {
-        body
+        var rect = body
+        rect.size.height += iOSTailDrop(radius: radius)
+        return rect
     }
 
     /// How far an iOS tail drops below the body for a bubble with corner `radius`.
