@@ -169,6 +169,7 @@ describe("browser.* mirroring the Mac's tabs", () => {
         preferEndpoint: () => mac.endpoint,
         mirror: (e) => e === mac.endpoint,
         bringForward: async (tabId) => void broughtForward.push(tabId),
+        createInMirror: async (url) => ({ id: "CEF-NEW", url, title: url, loading: true, progress: 0, canGoBack: false, canGoForward: false, active: true, streamable: true, paneId: "p3", layoutTabId: "t12" }),
       },
     });
     cleanups.push(() => core.shutdown());
@@ -189,7 +190,10 @@ describe("browser.* mirroring the Mac's tabs", () => {
       expect(methods, forbidden).not.toContain(forbidden);
     }
     expect(methods).toContain("Page.startScreencast");
-    await expect(client.request("browser.create", { url: "https://x.example" })).rejects.toMatchObject({ code: "unsupported" });
+    // New Tab while mirroring opens a tab in the Mac app (not the host's Chrome).
+    const { tab: newTab } = await client.request("browser.create", { url: "x.example" });
+    expect(newTab).toMatchObject({ id: "CEF-NEW", url: "https://x.example", streamable: true, paneId: "p3", layoutTabId: "t12" });
+    expect(cef.calls.map((c) => c.method)).not.toContain("Target.createTarget");
     await expect(client.request("browser.activate", { tabId: "CEF2" })).rejects.toMatchObject({ code: "unsupported" });
     await expect(client.request("browser.close", { tabId: "CEF2" })).rejects.toMatchObject({ code: "unsupported" });
     await client.request("browser.detach", { streamId });

@@ -47,6 +47,7 @@ Daemon (`DAEMON_ALLOW`), with the only fields each may carry:
 | `select-workspace`, `select-screen` | `index` | `layout.focusTab`: bring the pane's workspace/screen forward |
 | `focus-pane` | `pane` (numeric) | `layout.focusTab` |
 | `select-tab` | `pane` (numeric), `index` | `layout.focusTab` |
+| `new-frontend-browser-tab` | `url` (http/https without credentials, or `about:blank`), `engine:"cef"` | `browser.create` while mirroring the Mac's browser: a new tab in the active pane |
 
 acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
 `_acpmux/watch`, `_acpmux/sessions`, `_acpmux/harnesses`, `_acpmux/models`,
@@ -125,7 +126,14 @@ acpmux (`ACPMUX_ALLOW`): `initialize` (empty client capabilities),
   bundled CLI with a fixed argv (`<app>/Contents/Resources/bin/cmux browser
   <tab_…> select`, no shell, tab id must match `tab_[0-9a-f]+`, app path from
   the pid that wrote `devtools.json` and passed the cmux-next check). It only
-  selects an existing tab. It sends no `--remote-allow-origins`-style
+  selects an existing tab.
+- **New Mac browser tab (`browser.create` while mirroring).** It calls
+  `new-frontend-browser-tab` with only `url` and `engine:"cef"`. The URL
+  must be http(s) without user info, or `about:blank`; `file:`,
+  `javascript:`, `chrome:` and every other scheme are refused, as are
+  `pane`, `profile_id`, `owner` and idempotency keys. Opening a web page is
+  what the phone's New Tab does in the host's own Chrome too; the tab lands
+  in the Mac user's active pane, where they can see it. It sends no `--remote-allow-origins`-style
   Origin and connects only to loopback. Through it, the phone can see and
   drive (input, navigate, reload) the Mac user's tabs, which is what the
   setting grants. It never creates, closes or activates a Mac tab, never

@@ -92,6 +92,13 @@ async function fakeDaemon() {
         ok();
         conn.send({ event: "output", surface: m.surface, data: Buffer.from(`echo:${Buffer.from(m.bytes, "base64").toString()}`).toString("base64") });
         return;
+      case "new-frontend-browser-tab": {
+        const surface = nextSurface++;
+        tabs.push({ surface, kind: "browser", title: m.url, url: m.url, size: { cols: 80, rows: 24 }, tab_resource_id: `tab_${String(surface).padStart(32, "0")}` });
+        ok({ surface, tab_resource_id: `tab_${String(surface).padStart(32, "0")}`, content_resource_id: "browser_x", replayed: false });
+        srv.broadcast({ event: "tab-added", surface });
+        return;
+      }
       case "new-tab": {
         const surface = nextSurface++;
         tabs.push({ surface, kind: "pty", name: null, title: "zsh", size: { cols: 104, rows: 40 }, cwd: "/Users/me", dead: false });
@@ -131,6 +138,21 @@ describe("bridge policy", () => {
       expect(() => checkDaemonCommand(cmd, params as Record<string, unknown>), `${cmd} ${JSON.stringify(params)}`).toThrow(PolicyError);
     }
     expect(() => checkDaemonCommand("new-tab", {})).not.toThrow();
+    expect(() => checkDaemonCommand("new-frontend-browser-tab", { url: "https://example.com/x?y=1", engine: "cef" })).not.toThrow();
+    expect(() => checkDaemonCommand("new-frontend-browser-tab", { url: "about:blank", engine: "cef" })).not.toThrow();
+    for (const p of [
+      { url: "file:///etc/passwd", engine: "cef" },
+      { url: "javascript:alert(1)", engine: "cef" },
+      { url: "chrome://settings", engine: "cef" },
+      { url: "https://user:pw@example.com/", engine: "cef" },
+      { url: "https://example.com/", engine: "webkit" },
+      { url: "https://example.com/", engine: "cef", pane: 3 },
+      { url: "https://example.com/", engine: "cef", owner: "x" },
+      { url: "https://example.com/\n", engine: "cef" },
+    ]) {
+      expect(() => checkDaemonCommand("new-frontend-browser-tab", p), JSON.stringify(p)).toThrow(PolicyError);
+    }
+    expect(() => checkDaemonCommand("new-browser-tab", { url: "https://example.com/" })).toThrow(PolicyError);
     expect(() => checkDaemonCommand("send", { surface: 2, bytes: "eA==" })).not.toThrow();
   });
 
@@ -189,6 +211,28 @@ describe("daemon layout bridge", () => {
     expect(shown).toHaveLength(1); // not for terminals
     await expect(client.request("layout.focusTab", { paneId: "p3", tabId: "t99" })).rejects.toMatchObject({ code: "not_found" });
     await expect(client.request("layout.focusTab", { paneId: "p77", tabId: "t2" })).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("Mac browser tab creation", () => {
+  it("creates a CEF tab in the Mac app and waits for its mapping", async () => {
+    const d = await fakeDaemon();
+    cleanups.push(() => d.srv.close());
+    const { DaemonLayout } = await import("../src/layout/index.ts");
+    let mapped = false;
+    const layout = new DaemonLayout(() => d.path, {
+      resolveBrowser: (t: any) => (mapped && t.surface >= 10 ? { refId: `CEF-${t.surface}` } : { reason: "not linked yet" }),
+    });
+    cleanups.push(() => layout.shutdown());
+    setTimeout(() => (mapped = true), 400);
+    const created = await layout.createBrowserTab("https://example.com/", 5_000);
+    expect(created).toMatchObject({ paneId: "p3", tab: { id: "t10", kind: "browser", refId: "CEF-10", streamable: true } });
+    expect(d.commands.find((c) => c.cmd === "new-frontend-browser-tab")).toEqual({ id: expect.any(Number), cmd: "new-frontend-browser-tab", url: "https://example.com/", engine: "cef" });
+    // Never mapped within the wait: returned unstreamable with the reason.
+    mapped = false;
+    const unmapped = await layout.createBrowserTab("about:blank", 300);
+    expect(unmapped.tab).toMatchObject({ id: "t11", streamable: false, reason: "not linked yet" });
+    await expect(layout.createBrowserTab("file:///etc/passwd", 300)).rejects.toThrow(/policy/);
   });
 });
 

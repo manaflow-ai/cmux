@@ -176,6 +176,28 @@ export class DaemonLayout extends EventEmitter<{ event: [topic: string, payload:
     if (this.conn) this.schedule();
   }
 
+  /**
+   * A new browser tab in the Mac app (active pane of the active workspace),
+   * rendered by CEF so it can be mirrored. Waits briefly for the app to map
+   * it to a DevTools target. Returns its layout entry.
+   */
+  async createBrowserTab(url: string, waitMs = 6_000): Promise<{ paneId: string; tab: LayoutTab }> {
+    const c = await this.open();
+    const res = await c.request<{ surface: number }>("new-frontend-browser-tab", { url, engine: "cef" });
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      const layout = await this.refresh(true);
+      for (const ws of layout.workspaces)
+        for (const p of ws.panes)
+          for (const t of p.tabs) {
+            if (t.id !== tabIdOf(res.surface)) continue;
+            if (t.streamable || Date.now() > deadline) return { paneId: p.id, tab: t };
+          }
+      if (Date.now() > deadline) throw new RpcError("internal", "the new tab did not appear on the Mac");
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
   /** Pane and tab of the Mac browser tab streamed as `targetId`, if any. */
   async locateBrowserTarget(targetId: string): Promise<{ paneId: string; tabId: string } | null> {
     const layout = await this.get();

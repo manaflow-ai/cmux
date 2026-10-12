@@ -115,6 +115,8 @@ export interface BrowserProviderOptions {
   preferEndpoint?: () => string | null;
   /** Makes a mirrored Mac tab visible on the Mac (browser.attach bringForward:true). */
   bringForward?: (tabId: string) => Promise<void>;
+  /** browser.create while mirroring: a new tab in the Mac app (bridge). */
+  createInMirror?: (url: string) => Promise<Tab>;
 }
 
 export interface BrowserProviderEvents {
@@ -436,6 +438,7 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
 
   async create(url?: string): Promise<Tab> {
     const cdp = await this.connect();
+    if (this.mirroring && this.opts.createInMirror) return this.opts.createInMirror(url ? normalizeUrl(url) : "about:blank");
     this.refuseInMirror();
     const { targetId } = await cdp.send<{ targetId: string }>("Target.createTarget", { url: url ? normalizeUrl(url) : "about:blank" });
     const deadline = Date.now() + 3_000;

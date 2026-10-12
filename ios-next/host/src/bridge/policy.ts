@@ -13,6 +13,16 @@ type FieldRule = (value: unknown) => boolean;
 
 const isSurface: FieldRule = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0;
 const isIndex: FieldRule = (v) => typeof v === "number" && Number.isInteger(v) && v >= 0 && v < 10_000;
+const isWebUrl: FieldRule = (v) => {
+  if (typeof v !== "string" || v.length > 8192 || /[\u0000-\u001f\u007f]/.test(v)) return false;
+  if (v === "about:blank") return true;
+  try {
+    const u = new URL(v);
+    return (u.protocol === "http:" || u.protocol === "https:") && !u.username && !u.password;
+  } catch {
+    return false;
+  }
+};
 const isString = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max;
 const isBase64 = (max: number): FieldRule => (v) => typeof v === "string" && v.length <= max && /^[A-Za-z0-9+/=]*$/.test(v);
 const isStringArray: FieldRule = (v) => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length <= 128);
@@ -48,6 +58,9 @@ export const DAEMON_ALLOW: Record<string, Record<string, FieldRule>> = {
   "select-screen": { index: isIndex },
   "focus-pane": { pane: isSurface },
   "select-tab": { pane: isSurface, index: isIndex },
+  // browser.create while mirroring the Mac's browser: a new CEF tab in the
+  // active pane. Only http(s) or about:blank, no pane/profile/owner/keys.
+  "new-frontend-browser-tab": { url: isWebUrl, engine: (v) => v === "cef" },
 };
 
 /** acpmux JSON-RPC methods the bridge may call, with their allowed params. */

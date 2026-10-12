@@ -124,6 +124,12 @@ export interface Tab {
   canGoForward: boolean;
   faviconUrl?: string;
   active: boolean;
+  /** Mac tabs only (browser.mac.v1): false until the Mac app maps the tab to a target. */
+  streamable?: boolean;
+  reason?: string;
+  /** Mac tabs only: the layout.v1 pane and tab of this browser tab. */
+  paneId?: string;
+  layoutTabId?: string;
 }
 
 // --- layout (PROTOCOL.md §4 layout) ---

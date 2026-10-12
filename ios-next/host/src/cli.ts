@@ -8,6 +8,7 @@ import { ApiClient, ApiError } from "./backend/api.ts";
 import { HostAgent } from "./backend/hostAgent.ts";
 import { HostClient } from "./client.ts";
 import { HostCore } from "./host.ts";
+import { RpcError } from "./rpc/index.ts";
 import { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { discoverTargets } from "./bridge/discover.ts";
@@ -239,6 +240,15 @@ async function run(opts: RunOptions): Promise<void> {
         ? {
             preferEndpoint: () => mac.endpoint,
             mirror: (e: string) => e === mac.endpoint,
+            // browser.create while mirroring: a new CEF tab in the Mac app.
+            createInMirror: async (url: string) => {
+              const layout = bridge?.layout;
+              if (!(layout instanceof DaemonLayout)) throw new RpcError("unavailable", "the cmux-next app is not bridged");
+              const { paneId, tab } = await layout.createBrowserTab(url);
+              const live = tab.refId ? core.browser.currentTabs().find((t) => t.id === tab.refId) : undefined;
+              const base = live ?? { id: tab.refId ?? tab.id, url: tab.url ?? url, title: tab.title, loading: true, progress: 0, canGoBack: false, canGoForward: false, active: true };
+              return { ...base, streamable: tab.streamable, ...(tab.reason ? { reason: tab.reason } : {}), paneId, layoutTabId: tab.id };
+            },
             // browser.attach bringForward:true (phone opt-in): show the tab on the Mac first.
             bringForward: async (tabId: string) => {
               const layout = bridge?.layout;

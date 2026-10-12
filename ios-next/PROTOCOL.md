@@ -191,7 +191,8 @@ Uploads stream on the bulk lane so a large file never blocks control replies.
   Capability: `fs.v1`.
 
 ### browser (tabs visible on the Mac)
-Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, active}`
+Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, active, streamable?, reason?, paneId?, layoutTabId?}`
+(the last four only for tabs created in the Mac app, see `browser.mac.v1`)
 - `browser.list {}` -> `{tabs:[Tab]}`
 - `browser.create {url?}` -> `{tab}`
 - `browser.attach {tabId, width, height, scale, mobile:true, frameMeta?:bool, reloadForMode?:bool}` -> `{streamId, tab}` (width/height in CSS px).
@@ -226,7 +227,12 @@ With `browser.mac.v1` (host bridged to the cmux-next app):
   (plus "then restart cmux" when `restartRequired`). `unsupported`: the Mac's cmux-next
   build has no such setting. `unavailable`: on, but the endpoint failed validation
   (`reason`). In every state but `on`, browser.* serves the host's own Chrome.
-- When `on`, the tabs are the Mac user's: `browser.create`, `browser.close` and
+- When `on`, `browser.create {url?}` opens a new tab in the Mac app (active pane of the
+  active workspace; `url` http(s) or default about:blank) and returns its `Tab` with
+  `paneId`/`layoutTabId` (its layout entry) and `streamable` (false with `reason` until
+  the Mac app maps it to a target; it then appears in `browser.list`). Otherwise
+  `browser.create` opens a tab in the host's own Chrome as before.
+- When `on`, the tabs are the Mac user's: `browser.close` and
   `browser.activate` fail with `unsupported`; attaching never switches, resizes or
   changes the user agent of the Mac's tab (frames have the Mac's viewport; the phone
   scales). A tab the Mac is not showing (`visibleOnMac:false`) sends no frames.
