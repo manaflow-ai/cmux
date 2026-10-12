@@ -15,10 +15,11 @@ extension SidebarItemRowView {
         return info.badge.map(UnreadState.count) ?? .none
     }
 
-    /// Where the title ends: before the indicator, which sits before `badgeX` while it draws.
+    /// Where the title ends: before the indicator, which sits before `badgeX` while it draws (a
+    /// chip without a badge keeps its padding after the indicator).
     func activityLeading(before badgeX: CGFloat) -> CGFloat {
         guard activity.showsGlyph else { return badgeX }
-        return badgeX - SidebarStyle.indicatorSize - (badge.isHidden ? 0 : Metrics.space2)
+        return badgeX - SidebarStyle.indicatorSize - (badge.isHidden && style != .chip ? 0 : Metrics.space2)
     }
 
     /// Places the indicator after a row or icon layout.

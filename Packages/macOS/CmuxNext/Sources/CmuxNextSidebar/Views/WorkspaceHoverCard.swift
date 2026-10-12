@@ -109,7 +109,7 @@ final class WorkspaceHoverCardView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let kindIcon = NSImageView()
     /// The workspace's status in the shared indicator, after its name.
-    private let activity = StatusIndicatorView()
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     private let ageLabel = NSTextField(labelWithString: "")
     private let factsStack = NSStackView()
     private let resourceLabel = NSTextField(labelWithString: "")

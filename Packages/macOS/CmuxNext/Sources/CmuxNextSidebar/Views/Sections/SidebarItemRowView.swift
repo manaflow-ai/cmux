@@ -47,7 +47,7 @@ class SidebarItemRowView: NSView {
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
-    let activity = StatusIndicatorView()
+    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
     /// now over the row's frame now. Leaving also ends a press.
     private(set) var isHovered = false {

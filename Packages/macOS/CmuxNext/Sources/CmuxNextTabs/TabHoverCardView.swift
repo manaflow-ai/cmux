@@ -25,7 +25,8 @@ final class TabHoverCardView: NSView {
     private var detailCollapsed: NSLayoutConstraint?
     private let thumbnail = NSView()
     /// The tab's status in the shared indicator, trailing the title's first line.
-    private let activity = StatusIndicatorView()
+    /// Follows its panel's occlusion: the panel orders front after the card moves into it.
+    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     private var titleTrailing: NSLayoutConstraint?
     private static var indicatorSize: CGFloat { 13 }
     /// CPU and memory of the hovered tab (tab cards only).

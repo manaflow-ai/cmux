@@ -81,7 +81,7 @@ final class HomeFirstRunView: NSView {
             // The status word is the row's trailing text and VoiceOver's value, not a shortcut.
             let word = HomeStrings.firstRunAgentStatus(glance.status)
             row.shortcut = word
-            row.activity.configure(glance.status.indicator)
+            row.activity.configure(glance.indicator, style: glance.indicatorStyle)
             row.setAccessibilityHelp(nil)
             row.setAccessibilityValue(word)
             row.applyScale(scale)
@@ -206,7 +206,7 @@ final class HomeFirstRunRow: NSView {
     let icon: IconName
     let shortcutLabel = NSTextField(labelWithString: "")
     /// An agent row's state in the shared indicator, before its status word.
-    let activity = StatusIndicatorView()
+    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
     /// The row's width (the panel's column).
