@@ -1,5 +1,7 @@
 import React, {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -84,7 +86,6 @@ import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
-import { DiffPanel } from "./DiffPanel";
 import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -105,6 +106,8 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
+import { loadHighlightedCode } from "./conversation/CodeBlock";
+import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
@@ -202,6 +205,13 @@ import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { experimentArm } from "../../experiments/experiment";
+
+/// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
+/// packages, which a New Tab page never shows, so the page's first script parses without them.
+/// It starts loading once the page has painted, with the transcript's highlighted code and edit
+/// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
+const loadDiffPanel = () => import("./DiffPanel");
+const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -2758,7 +2768,14 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() => setTimeout(() => void callNative("pane.painted").catch(() => undefined), 0));
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        void callNative("pane.painted").catch(() => undefined);
+        void loadDiffPanel();
+        void loadHighlightedCode();
+        void loadEditDiffHunks();
+      }, 0),
+    );
   }, [showsWhatItIs]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
@@ -4779,29 +4796,31 @@ function AcpmuxPane() {
                   />
                 )}
                 {diffView && diffFiles && (
-                  <DiffPanel
-                    files={diffDisplay?.files ?? diffFiles}
-                    turn={diffDisplay}
-                    initialPath={diffView.path}
-                    onClose={closeDiff}
-                    source={changesSource}
-                    onOpenFile={openChangedFile}
-                    checkpointAction={
-                      checkpoints.supported ? (
-                        <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
-                          {checkpointLabels.createCheckpoint}
-                        </button>
-                      ) : undefined
-                    }
-                    checkpointReview={checkpoints.review}
-                    review={hunkReview}
-                    reviewFiles={diffFiles}
-                    gitIntent={diffView.gitIntent}
-                    onGitIntentHandled={clearGitIntent}
-                    writeKeys={writeKeysFor(diffView.sessionId)}
-                    onAddressThread={addressThread}
-                    findHandle={diffFindRef}
-                  />
+                  <Suspense fallback={null}>
+                    <DiffPanel
+                      files={diffDisplay?.files ?? diffFiles}
+                      turn={diffDisplay}
+                      initialPath={diffView.path}
+                      onClose={closeDiff}
+                      source={changesSource}
+                      onOpenFile={openChangedFile}
+                      checkpointAction={
+                        checkpoints.supported ? (
+                          <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                            {checkpointLabels.createCheckpoint}
+                          </button>
+                        ) : undefined
+                      }
+                      checkpointReview={checkpoints.review}
+                      review={hunkReview}
+                      reviewFiles={diffFiles}
+                      gitIntent={diffView.gitIntent}
+                      onGitIntentHandled={clearGitIntent}
+                      writeKeys={writeKeysFor(diffView.sessionId)}
+                      onAddressThread={addressThread}
+                      findHandle={diffFindRef}
+                    />
+                  </Suspense>
                 )}
               </div>
               {asks}
