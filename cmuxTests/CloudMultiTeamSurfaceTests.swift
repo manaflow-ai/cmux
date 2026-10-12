@@ -77,6 +77,44 @@ struct CloudMultiTeamSurfaceTests {
         #expect(session.stopReason == .signedOut)
     }
 
+    @Test("Another team's pane that lost access survives the selected team's poll and recovers on its own team's read")
+    func foreignLostAccessRecoversOnOwnTeamRead() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        var activeTeam = "team-a"
+        var statusTeams: [String] = []
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: activeTeam == "team-a" ? [Self.machine("vm-a")] : [Self.machine("vm-b")], limits: nil) },
+            activeTeamID: { activeTeam },
+            loadMachineStatus: { machineID, teamID in
+                statusTeams.append(teamID)
+                return Self.machine(machineID)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+        #expect(await registry.refresh(force: true))
+        let providerA = try #require(registry.provider(machineID: "vm-a"))
+        catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: .cloud("vm-a"), kind: .terminal, key: "term_a"),
+            workspaceID: live.id(), panelID: UUID()
+        ))
+        providerA.noteAccessLost(.forbidden)
+
+        activeTeam = "team-b"
+        await registry.teamScopeDidChange()
+        // Team B's page does not list vm-a; that says nothing about team A.
+        #expect(registry.provider(machineID: "vm-a") === providerA)
+        #expect(await registry.refresh(force: true))
+
+        #expect(registry.provider(machineID: "vm-a") === providerA)
+        #expect(statusTeams.contains("team-a"))
+        #expect(!providerA.hasLostAccess)
+        await registry.accessDidEnd()
+    }
+
     @Test("A restored pane of a team that is not selected reconnects with its own team")
     func restoredForeignTeamPaneReconnectsWithOwnTeam() async throws {
         defer { live.tearDown() }

@@ -233,7 +233,7 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make(isDisabledByManagedPolicy: { true }, isCloudEnabled: { false })
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        try await fixture.client.revokeCloudAccess(deviceID: "fixture-device")
+        try await fixture.client.revokeTunnelRoles([CloudTunnelRole(deviceFingerprint: "fixture-device", purpose: .browser)])
         #expect(await CloudRefreshURLProtocol.requestCounts() == ["/api/vm/tunnel": 1])
     }
 

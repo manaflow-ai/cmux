@@ -8,6 +8,10 @@ struct CloudWireGuardHubRecoveryPlanTests {
         409,
         #"{"error":"vm_access_grant_busy","retryable":true,"retryAfterSeconds":5}"#
     )
+    private let unavailable = VMClientError.httpStatus(
+        503,
+        #"{"error":"vm_tunnel_enrollment_unavailable","retryable":true,"retryAfterSeconds":30}"#
+    )
     private let hubFailure = CloudWireGuardHub.HubError.notReady("stale WireGuard enrollment")
 
     @Test("The first attempt uses the written enrollment")
@@ -15,53 +19,84 @@ struct CloudWireGuardHubRecoveryPlanTests {
         #expect(!CloudWireGuardHubRecoveryPlan().refreshesNextEnrollment)
     }
 
-    @Test("A busy answer waits as long as the server asked")
-    func busyHonorsRetryAfter() {
+    @Test("A retryable answer waits as long as the server asked")
+    func honorsRetryAfter() {
         var plan = CloudWireGuardHubRecoveryPlan()
-        #expect(plan.recordFailure(busy, backoff: .seconds(1)) == .seconds(5))
-        #expect(plan.recordFailure(busy, backoff: .seconds(8)) == .seconds(8))
-        #expect(plan.recordFailure(hubFailure, backoff: .seconds(2)) == .seconds(2))
+        #expect(plan.recordFailure(unavailable, enrolled: false, backoff: .seconds(1)) == .seconds(30))
+        #expect(plan.recordFailure(unavailable, enrolled: false, backoff: .seconds(60)) == .seconds(60))
+        #expect(plan.recordFailure(hubFailure, enrolled: true, backoff: .seconds(2)) == .seconds(2))
     }
 
-    @Test("A rejected ordinary enrollment is not turned into a forced replacement")
-    func rejectedEnrollmentStaysOrdinary() {
+    @Test("A busy Mac lease waits without spending restart attempts, within a budget")
+    func busyLeaseWaits() {
         var plan = CloudWireGuardHubRecoveryPlan()
-        _ = plan.recordFailure(busy, backoff: .seconds(1))
+        var waited: Duration = .zero
+        while let wait = plan.busyWait(after: busy) {
+            #expect(wait == .seconds(5))
+            waited += wait
+        }
+        #expect(waited == CloudWireGuardHubRecoveryPlan.busyBudget)
+        #expect(plan.busyWait(after: unavailable) == nil)
+        #expect(CloudWireGuardHubRecoveryPlan().busyWait(after: hubFailure) == nil)
+    }
+
+    @Test("Restart attempts are bounded by the backoff table; busy waits are not attempts")
+    func restartsAreBoundedByBackoff() {
+        var plan = CloudWireGuardHubRecoveryPlan(backoff: [.seconds(1), .seconds(2)])
+        #expect(plan.wait(after: busy, enrolled: false) == .seconds(5))
+        #expect(plan.wait(after: hubFailure, enrolled: true) == .seconds(1))
+        #expect(plan.wait(after: busy, enrolled: false) == .seconds(5))
+        #expect(plan.wait(after: hubFailure, enrolled: true) == .seconds(2))
+        #expect(plan.wait(after: hubFailure, enrolled: true) == nil)
+    }
+
+    @Test("A refused ordinary enrollment is not turned into a forced replacement")
+    func refusedEnrollmentStaysOrdinary() {
+        var plan = CloudWireGuardHubRecoveryPlan()
+        _ = plan.busyWait(after: busy)
         #expect(!plan.refreshesNextEnrollment)
-        _ = plan.recordFailure(busy, backoff: .seconds(1))
+        _ = plan.recordFailure(unavailable, enrolled: false, backoff: .seconds(1))
         #expect(!plan.refreshesNextEnrollment)
     }
 
     @Test("A failed hub replaces its enrollment once, then reuses the replacement")
     func hubFailureReplacesOnce() {
         var plan = CloudWireGuardHubRecoveryPlan()
-        _ = plan.recordFailure(hubFailure, backoff: .seconds(1))
+        _ = plan.recordFailure(hubFailure, enrolled: true, backoff: .seconds(1))
         #expect(plan.refreshesNextEnrollment)
         // The replacement enrolled, then the hub failed again: a second
         // replacement would only contend for this Mac's access lease.
-        _ = plan.recordFailure(hubFailure, backoff: .seconds(2))
+        _ = plan.recordFailure(hubFailure, enrolled: true, backoff: .seconds(2))
         #expect(!plan.refreshesNextEnrollment)
-        _ = plan.recordFailure(hubFailure, backoff: .seconds(4))
+        _ = plan.recordFailure(hubFailure, enrolled: true, backoff: .seconds(4))
         #expect(!plan.refreshesNextEnrollment)
     }
 
-    @Test("A rejected replacement is asked for again")
-    func rejectedReplacementRetries() {
+    @Test("A replacement whose enrollment step failed, for any reason, is asked for again")
+    func failedReplacementRetries() {
         var plan = CloudWireGuardHubRecoveryPlan()
-        _ = plan.recordFailure(hubFailure, backoff: .seconds(1))
+        _ = plan.recordFailure(hubFailure, enrolled: true, backoff: .seconds(1))
+        #expect(plan.busyWait(after: busy) == .seconds(5))
         #expect(plan.refreshesNextEnrollment)
-        #expect(plan.recordFailure(busy, backoff: .seconds(2)) == .seconds(5))
+        // Not a client error (a key write or transport failure), but the
+        // enrollment step never finished, so nothing was replaced.
+        _ = plan.recordFailure(URLError(.cannotWriteToFile), enrolled: false, backoff: .seconds(2))
         #expect(plan.refreshesNextEnrollment)
     }
 
     @Test("Server waits are read only from retryable statuses and are bounded")
     func serverRetryAfter() {
         #expect(busy.serverRetryAfter == .seconds(5))
-        #expect(VMClientError.httpStatus(503, #"{"retryAfterSeconds":30}"#).serverRetryAfter == .seconds(30))
+        #expect(busy.serverErrorCode == "vm_access_grant_busy")
+        #expect(unavailable.serverRetryAfter == .seconds(30))
         #expect(VMClientError.httpStatus(429, #"{"retryAfterSeconds":9999}"#).serverRetryAfter == .seconds(60))
         #expect(VMClientError.httpStatus(403, #"{"retryAfterSeconds":5}"#).serverRetryAfter == nil)
         #expect(VMClientError.httpStatus(409, #"{"retryAfterSeconds":0}"#).serverRetryAfter == nil)
         #expect(VMClientError.httpStatus(409, "not json").serverRetryAfter == nil)
+        // An absurd delay is bounded instead of trapping on conversion.
+        #expect(VMClientError.httpStatus(503, #"{"retryAfterSeconds":1e100}"#).serverRetryAfter == .seconds(60))
+        #expect(VMClientError.httpStatus(503, #"{"retryAfterSeconds":2.5}"#).serverRetryAfter == .seconds(3))
         #expect(VMClientError.notSignedIn.serverRetryAfter == nil)
+        #expect(VMClientError.notSignedIn.serverErrorCode == nil)
     }
 }
