@@ -43,7 +43,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         sessionName: String,
         killExit: Int,
         argvLog: String,
-        emitCreatedName: Bool = true
+        emitCreatedName: Bool = true,
+        createExit: Int = 0
     ) throws -> String {
         let path = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-create-kill-stub-\(UUID().uuidString).sh").path
@@ -53,6 +54,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         echo "$@" >> "\(argvLog)"
         case "$*" in *kill-session*) exit \(killExit) ;; esac
         \(output)
+        exit \(createExit)
 
         """.write(toFile: path, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
@@ -88,7 +90,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
     private func runCreateThenFailedAttach(
         sessionName: String,
         killExit: Int,
-        emitCreatedName: Bool = true
+        emitCreatedName: Bool = true,
+        createExit: Int = 0
     ) async throws -> (failures: [RemoteTmuxController.NewSessionFailure], argv: String, tabs: Int) {
         _ = NSApplication.shared
         let appDelegate = try #require(AppDelegate.shared)
@@ -98,7 +101,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             sessionName: sessionName,
             killExit: killExit,
             argvLog: argvLog,
-            emitCreatedName: emitCreatedName
+            emitCreatedName: emitCreatedName,
+            createExit: createExit
         )
         let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(stub)
         defer {
@@ -191,6 +195,21 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 .attach(sessionName: "stuck", removed: false),
             ])
             #expect(run.argv.contains("'kill-session' '-t' '=stuck'"))
+            #expect(run.tabs == 0)
+        }
+    }
+
+    @Test func aNonzeroCreateWithSessionOutputReportsAnAttachFailure() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let run = try await runCreateThenFailedAttach(
+                sessionName: "transport-error-after-create",
+                killExit: 1,
+                createExit: 1
+            )
+            #expect(run.failures == [
+                .attach(sessionName: "transport-error-after-create", removed: false),
+            ])
+            #expect(run.argv.contains("'kill-session' '-t' '=transport-error-after-create'"))
             #expect(run.tabs == 0)
         }
     }
