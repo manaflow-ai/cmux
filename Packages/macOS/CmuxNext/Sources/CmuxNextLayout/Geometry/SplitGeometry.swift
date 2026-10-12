@@ -160,9 +160,9 @@ public nonisolated enum SplitGeometry {
         if available >= minA + minB {
             aExtent = min(max(aExtent, minA), available - minB)
         }
-        let snap = snaps.map { (ratio: $0, distance: abs(CGFloat($0) * available - aExtent)) }
-            .filter { $0.distance <= snapDistance && CGFloat($0.ratio) * available >= minA && available - CGFloat($0.ratio) * available >= minB }
-            .min { $0.distance < $1.distance }
+        let snap = snaps.map { (ratio: $0, at: CGFloat($0) * available) }
+            .filter { abs($0.at - aExtent) <= snapDistance && $0.at >= minA && available - $0.at >= minB }
+            .min { abs($0.at - aExtent) < abs($1.at - aExtent) }
         let ratio = snap?.ratio ?? Double(aExtent / available)
         return min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
     }

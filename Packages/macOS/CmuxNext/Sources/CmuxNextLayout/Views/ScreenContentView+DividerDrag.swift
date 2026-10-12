@@ -84,15 +84,7 @@ extension ScreenContentView {
         let style = context.style
         switch drag.kind {
         case let .split(id):
-            let pointer = drag.axis == .horizontal ? point.x : point.y
-            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis,
-                                            style: style, minimumA: drag.minimumA, minimumB: drag.minimumB,
-                                            snaps: drag.snaps, snapDistance: DividerDragState.snapDistance)
-            let snapped = drag.snaps.contains(ratio) ? ratio : nil
-            if let snapped, snapped != drag.snapped {
-                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-            }
-            activeDrag?.snapped = snapped
+            guard let ratio = activeDrag?.splitRatio(at: point, style: style, phase: phase) else { return }
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
             // Strip widths are shares of the strip's viewport; a side dock's
