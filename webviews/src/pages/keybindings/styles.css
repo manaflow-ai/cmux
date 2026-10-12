@@ -331,7 +331,7 @@
 }
 
 /* Text fields draw no ring: their caret and their box show focus (desktop.css, cx-ncc.57). */
-.keys-page :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], [role="listbox"], .ui-popup) {
+.keys-page :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
   outline: 2px solid var(--page-text-3);
   outline-offset: 1px;
 }

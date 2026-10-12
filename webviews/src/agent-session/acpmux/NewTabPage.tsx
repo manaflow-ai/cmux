@@ -219,7 +219,6 @@ type Props = {
   cwd?: string;
   /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
-  tools?: NewTabHost["tools"];
   inputToken?: string;
   onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
@@ -241,7 +240,6 @@ type Props = {
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
-  onRunAction?(id: string): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
   onBrowseProject?(): Promise<string | undefined>;
