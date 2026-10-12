@@ -3,8 +3,10 @@
 //! under the advisory lock before every edit (a hand edit the watcher has
 //! not reported yet is never lost), edits it in place ([`super::edit`]) and
 //! publishes atomically. A revision counts every change the owner saw, its
-//! own writes and the file's.
+//! own writes and the file's. An idempotency key replays its committed
+//! outcome (a retried append never writes twice) while this daemon runs.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -35,6 +37,11 @@ pub enum KeybindingsRefusal {
     /// The file is not a readable JSONC array: fix it by hand first.
     Unreadable(String),
     Io(String),
+    /// The idempotency key committed another op (`committed`, its wire name).
+    IdempotencyConflict {
+        key: String,
+        committed: &'static str,
+    },
 }
 
 impl KeybindingsRefusal {
@@ -43,6 +50,7 @@ impl KeybindingsRefusal {
             KeybindingsRefusal::Invalid(_) => "keybindings.invalid",
             KeybindingsRefusal::Unreadable(_) => "keybindings.unreadable",
             KeybindingsRefusal::Io(_) => "keybindings.io",
+            KeybindingsRefusal::IdempotencyConflict { .. } => "idempotency.conflict",
         }
     }
 
@@ -51,6 +59,9 @@ impl KeybindingsRefusal {
             KeybindingsRefusal::Invalid(message)
             | KeybindingsRefusal::Unreadable(message)
             | KeybindingsRefusal::Io(message) => message,
+            KeybindingsRefusal::IdempotencyConflict { .. } => {
+                "the idempotency key committed another keybindings op"
+            }
         }
     }
 }
@@ -76,19 +87,48 @@ pub struct KeybindingsChange {
 #[derive(Debug, Clone)]
 pub struct KeybindingsApplied {
     pub changes: Vec<KeybindingsChange>,
-    pub result: Result<u64, KeybindingsRefusal>,
+    pub result: Result<KeybindingsOutcome, KeybindingsRefusal>,
+}
+
+/// The revision after the op; `replayed` for a retry of a committed key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeybindingsOutcome {
+    pub revision: u64,
+    pub replayed: bool,
+}
+
+/// Replay records kept (oldest dropped first), as the settings owner keeps.
+const REPLAY_CAPACITY: usize = 4096;
+
+impl KeybindingsOp {
+    fn wire_name(&self) -> &'static str {
+        match self {
+            KeybindingsOp::Set { .. } => "keybindings.set",
+            KeybindingsOp::Remove { .. } => "keybindings.remove",
+            KeybindingsOp::Reset { .. } => "keybindings.reset",
+        }
+    }
 }
 
 pub struct KeybindingsStore {
     path: PathBuf,
     text: FileRead,
     revision: u64,
+    /// Idempotency key -> the op it committed and the revision after it.
+    replays: HashMap<String, (KeybindingsOp, u64)>,
+    replay_order: VecDeque<String>,
 }
 
 impl KeybindingsStore {
     pub fn open(path: PathBuf) -> KeybindingsStore {
         let text = read_source(&path);
-        KeybindingsStore { path, text, revision: 1 }
+        KeybindingsStore {
+            path,
+            text,
+            revision: 1,
+            replays: HashMap::new(),
+            replay_order: VecDeque::new(),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -107,7 +147,25 @@ impl KeybindingsStore {
         }
     }
 
-    pub fn apply(&mut self, op: KeybindingsOp, origin: Origin) -> KeybindingsApplied {
+    pub fn apply(
+        &mut self,
+        op: KeybindingsOp,
+        origin: Origin,
+        idempotency_key: Option<String>,
+    ) -> KeybindingsApplied {
+        if let Some(key) = &idempotency_key
+            && let Some((committed, revision)) = self.replays.get(key)
+        {
+            let result = if format!("{committed:?}") == format!("{op:?}") {
+                Ok(KeybindingsOutcome { revision: *revision, replayed: true })
+            } else {
+                Err(KeybindingsRefusal::IdempotencyConflict {
+                    key: key.clone(),
+                    committed: committed.wire_name(),
+                })
+            };
+            return KeybindingsApplied { changes: vec![], result };
+        }
         // Daemons of other sessions may own the same file: hold its lock
         // across refresh, edit and publish so no update is lost.
         let _lock = lock_config(&self.path);
@@ -117,7 +175,23 @@ impl KeybindingsStore {
         if let Ok(Some(change)) = &written {
             changes.push(*change);
         }
-        KeybindingsApplied { changes, result: written.map(|_| self.revision) }
+        let result =
+            written.map(|_| KeybindingsOutcome { revision: self.revision, replayed: false });
+        if let (Ok(outcome), Some(key)) = (&result, idempotency_key) {
+            self.remember(key, op, outcome.revision);
+        }
+        KeybindingsApplied { changes, result }
+    }
+
+    fn remember(&mut self, key: String, op: KeybindingsOp, revision: u64) {
+        if self.replays.insert(key.clone(), (op, revision)).is_none() {
+            self.replay_order.push_back(key);
+        }
+        while self.replay_order.len() > REPLAY_CAPACITY {
+            if let Some(oldest) = self.replay_order.pop_front() {
+                self.replays.remove(&oldest);
+            }
+        }
     }
 
     /// Publishes `next`; no change when the edit left the text as it was.

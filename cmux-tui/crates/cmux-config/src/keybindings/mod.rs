@@ -73,7 +73,11 @@ pub fn parse(source: &str) -> Parsed {
         Err(error) => Err(error.to_string()),
     };
     let items = match value {
-        Ok(Value::Array(items)) => items,
+        // The editor's own reading too: `[,]` strips to `[]` but cannot be edited.
+        Ok(Value::Array(items)) => match jsonc::array_spans(source) {
+            Ok(_) => items,
+            Err(error) => return unreadable(error.to_string()),
+        },
         Ok(_) => return unreadable("the file must be a JSON array of bindings".into()),
         Err(message) => return unreadable(message),
     };
@@ -111,7 +115,8 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
     };
     let keys = match object.get("key") {
         None | Some(Value::Null) if removal => vec![],
-        Some(Value::String(text)) => keys(text)?,
+        // A removal names a default as it is, palette keys (escape, return) too.
+        Some(Value::String(text)) => keys(text, !removal)?,
         _ => {
             return Err((
                 Problem::MissingKey,
@@ -135,8 +140,10 @@ fn entry(index: usize, item: &Value) -> Result<Entry, (Problem, String)> {
     Ok(Entry { index, keys, command, when, args, removal })
 }
 
-/// `"ctrl+k s"` -> normalized strokes, checked.
-pub(super) fn keys(text: &str) -> Result<Vec<String>, (Problem, String)> {
+/// `"ctrl+k s"` -> normalized strokes, checked. `binds`: the strokes bind
+/// a new entry, whose first stroke needs cmd or ctrl (only those reach the
+/// key dispatcher); a removal or an edit's target names any existing key.
+pub(super) fn keys(text: &str, binds: bool) -> Result<Vec<String>, (Problem, String)> {
     let strokes = text
         .split_whitespace()
         .map(|part| {
@@ -147,7 +154,8 @@ pub(super) fn keys(text: &str) -> Result<Vec<String>, (Problem, String)> {
     if strokes.len() > MAX_STROKES {
         return Err((Problem::TooManyKeys, format!("at most {MAX_STROKES} strokes")));
     }
-    if let Some(first) = strokes.first()
+    if binds
+        && let Some(first) = strokes.first()
         && !stroke::has_command_or_control(first)
     {
         return Err((

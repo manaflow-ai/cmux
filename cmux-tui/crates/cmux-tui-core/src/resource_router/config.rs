@@ -68,8 +68,8 @@ pub(super) fn dispatch(
         | ResourceOperation::KeybindingsReset => {
             let op = keybindings_op(operation, fields)?;
             let origin = meta(fields, None, &request.actor)?.origin;
-            match mux.keybindings_apply(op, origin) {
-                Ok(revision) => mutation_result(mux, json!({}), revision, false),
+            match mux.keybindings_apply(op, origin, request.envelope.idempotency_key.clone()) {
+                Ok(outcome) => mutation_result(mux, json!({}), outcome.revision, outcome.replayed),
                 Err(refusal) => Err(keybindings_error(operation, &refusal)),
             }
         }
@@ -223,6 +223,9 @@ fn keybindings_error(operation: ResourceOperation, refusal: &KeybindingsRefusal)
     match refusal {
         KeybindingsRefusal::Invalid(message) | KeybindingsRefusal::Unreadable(message) => {
             ResourceError::new(refusal.code(), message, json!({}), false)
+        }
+        KeybindingsRefusal::IdempotencyConflict { key, committed } => {
+            ResourceError::idempotency_conflict(key, committed)
         }
         KeybindingsRefusal::Io(message) => ResourceError::operation_failed(
             operation.wire_name().to_owned(),

@@ -32,10 +32,10 @@ impl From<JsoncError> for EditError {
 }
 
 /// The same checks `parse` applies (stroke syntax, at most four strokes, a
-/// first stroke with cmd or ctrl), so an edit never writes an entry the
-/// reader then drops.
-fn strokes(key: &str) -> Result<Vec<String>, EditError> {
-    super::keys(key).map_err(|(_, message)| EditError::InvalidKey(message))
+/// new binding's first stroke with cmd or ctrl), so an edit never writes an
+/// entry the reader then drops.
+fn strokes(key: &str, binds: bool) -> Result<Vec<String>, EditError> {
+    super::keys(key, binds).map_err(|(_, message)| EditError::InvalidKey(message))
 }
 
 fn readable(source: &str) -> Result<Vec<Entry>, EditError> {
@@ -48,7 +48,7 @@ fn readable(source: &str) -> Result<Vec<Entry>, EditError> {
 
 /// The file's own (non-removal) entry for `target`, if any.
 fn user_entry(entries: &[Entry], target: &Target) -> Result<Option<usize>, EditError> {
-    let keys = strokes(&target.key)?;
+    let keys = strokes(&target.key, false)?;
     Ok(entries
         .iter()
         .find(|entry| {
@@ -82,7 +82,7 @@ pub fn set(
     replaces: Option<&Target>,
 ) -> Result<String, EditError> {
     let entries = readable(source)?;
-    let key = strokes(&binding.key)?.join(" ");
+    let key = strokes(&binding.key, true)?.join(" ");
     if key.is_empty() {
         return Err(EditError::InvalidKey("a binding needs at least one stroke".to_string()));
     }
@@ -107,7 +107,7 @@ pub fn remove(source: &str, target: &Target) -> Result<String, EditError> {
 }
 
 fn removal(source: &str, target: &Target) -> Result<String, EditError> {
-    let key = strokes(&target.key)?.join(" ");
+    let key = strokes(&target.key, false)?.join(" ");
     Ok(jsonc::array_append(
         source,
         &json(&key, &format!("-{}", target.command), target.when.as_deref(), None),

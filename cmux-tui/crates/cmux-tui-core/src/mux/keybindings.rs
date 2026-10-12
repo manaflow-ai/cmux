@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{
-    KeybindingsChange, KeybindingsOp, KeybindingsRefusal, KeybindingsStore, Origin, Watcher,
+    KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal, KeybindingsStore,
+    Origin, Watcher,
 };
 
 use super::{Mux, MuxEvent};
@@ -46,10 +47,11 @@ impl Mux {
         self: &Arc<Self>,
         op: KeybindingsOp,
         origin: Origin,
-    ) -> Result<u64, KeybindingsRefusal> {
+        idempotency_key: Option<String>,
+    ) -> Result<KeybindingsOutcome, KeybindingsRefusal> {
         let mut store =
             self.keybindings_store().lock().unwrap_or_else(|poison| poison.into_inner());
-        let applied = store.apply(op, origin);
+        let applied = store.apply(op, origin, idempotency_key);
         emit_changes(self, applied.changes);
         applied.result
     }
