@@ -53,7 +53,7 @@ struct CloudBringBackTests {
             #expect(CloudMoveTests.actionIDs(card) == ["allow", "always", "deny"])
             #expect(CloudMoveTests.text(card, "text")?.contains(trip.project.path + "/plan.md") == true, "\(card)")
             let id = try #require(CloudMoveTests.text(card, "id"))
-            func answers() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "answer"] } }
+            @MainActor func answers() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "answer"] } }
             #expect(await trip.answer(id, "always", gesture: false)["ok"] as? Bool != true)
             #expect(answers().isEmpty, "a click without a gesture answered: \(answers())")
             #expect(await trip.answer(id, "always", gesture: true)["ok"] as? Bool == true)
