@@ -5,12 +5,15 @@ import Foundation
 /// uploads, references). `{"id","method","params"}` →
 /// `{"id","ok","result"|"error":{code,message}}`.
 actor ServiceClient {
-    private let channel: any LinkChannel
+    private var channel: any LinkChannel
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var reader: Task<Void, Never>?
-    /// True once the channel ended (the link reconnected or the host went away);
-    /// the connection opens a fresh `svc` channel then.
+    /// Which channel the reader serves; an old reader ending after a rebind
+    /// must not close the new one.
+    private var generation = 0
+    /// True once the channel ended (the link reconnected or the host went away)
+    /// until `rebind` gives it a fresh `svc` channel.
     private(set) var isClosed = false
 
     init(channel: any LinkChannel) { self.channel = channel }
@@ -18,10 +21,23 @@ actor ServiceClient {
     func start() {
         guard reader == nil else { return }
         let incoming = channel.incoming
+        let generation = generation
         reader = Task { [weak self] in
             for await line in incoming { await self?.handle(line) }
-            await self?.finish()
+            await self?.finish(generation: generation)
         }
+    }
+
+    /// After a reconnect: the same client (screens keep their reference)
+    /// continues on a new channel. Calls in flight on the old one fail.
+    func rebind(_ newChannel: any LinkChannel) {
+        finish(generation: generation)
+        channel.close()
+        generation += 1
+        channel = newChannel
+        reader = nil
+        isClosed = false
+        start()
     }
 
     func call(_ method: String, _ params: [String: JSONValue] = [:]) async throws -> JSONValue {
@@ -41,7 +57,8 @@ actor ServiceClient {
 
     private func fail(_ id: Int, _ error: any Error) { pending.removeValue(forKey: id)?.resume(throwing: error) }
 
-    private func finish() {
+    private func finish(generation: Int) {
+        guard generation == self.generation else { return }
         isClosed = true
         for continuation in pending.values { continuation.resume(throwing: DaemonClient.Failure(message: "The connection to your Mac closed.")) }
         pending.removeAll()
