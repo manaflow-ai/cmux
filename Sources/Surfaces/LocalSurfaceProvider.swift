@@ -256,11 +256,19 @@ final class LocalSurfaceProvider: SurfaceProvider {
             // workspace. Preserve the old destination-nil behavior by making
             // a local workspace before staging the requested terminal there.
             let preferredManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
-            guard AppDelegate.shared?.performNewLocalWorkspaceAction(
-                tabManager: preferredManager,
+            let created = preferredManager?.addWorkspaceIfActive(
+                inheritWorkingDirectory: false,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false
+            ) ?? AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
+                titleSource: .auto,
+                inheritWorkingDirectory: false,
+                select: false,
+                shouldBringToFront: false,
                 debugSource: "surface.localTerminalFallback"
-            ) == true,
-            let created = workspaces().first(where: { !$0.usesRemoteDirectoryProvenance }) else {
+            )
+            guard let created, !created.usesRemoteDirectoryProvenance else {
                 throw SurfaceCatalogError.destinationNotFound("a local workspace")
             }
             workspace = created
