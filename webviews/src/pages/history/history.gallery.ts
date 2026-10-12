@@ -95,20 +95,14 @@ export default historyPageEntry({
   checks: {
     longFrameFailMs: {
       value: 33,
-      reason:
-        "History menu actions should settle without a long frame on the gallery host.",
+      reason: "History menu actions should settle without a long frame on the gallery host.",
     },
     settleMaxMs: {
       value: 250,
-      reason:
-        "A history mutation refusal should announce its result within a quarter second.",
+      reason: "A history mutation refusal should announce its result within a quarter second.",
     },
   },
-  covers: [
-    "page:cmux.history",
-    "pages/history/HistoryPage.tsx#HistoryPage",
-    "pages/history/KindIcon.tsx#KindIcon",
-  ],
+  covers: ["page:cmux.history", "pages/history/HistoryPage.tsx#HistoryPage", "pages/history/KindIcon.tsx#KindIcon"],
   variants: {
     empty: { note: "No history entries have been recorded.", entries: [] },
     loading: {
@@ -145,19 +139,15 @@ export default historyPageEntry({
       error: "permission",
       query: { menuIndex: 1 },
       play: async (ctx) => {
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".page-menu-item.destructive"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
         await ctx.waitFor(
           () =>
-            ctx.document.querySelector<HTMLElement>(
-              '[role="alert"].history-error',
-            )?.textContent === "history cannot be changed",
+            ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
+            "history cannot be changed",
         );
-        if (!ctx.document.querySelector(".history-row"))
-          throw new Error("history rows disappeared after refusal");
+        if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
       },
     },
     "not-found-error": {
