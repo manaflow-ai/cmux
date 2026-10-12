@@ -27,6 +27,10 @@ extension ConversationMenuGlassTint {
 }
 
 extension ConversationMenuGlassTint {
-    /// The long-press menu in light mode on iOS 27.
-    public static let longPressLightIOS27 = ConversationMenuGlassTint.none
+    /// The long-press menu in light mode on iOS 27. Messages' platter reads
+    /// 230,230,230 over its neutral 204 veil (iOS 27.0), where a plain
+    /// regular glass of our menu's size reads 237; a 9 % mid-gray tint
+    /// lands on 230 (glass probe at 250 x 241 pt). Dark mode already matches
+    /// (32 on both).
+    public static let longPressLightIOS27 = ConversationMenuGlassTint(red: 0.5, green: 0.5, blue: 0.5, alpha: 0.09)
 }
