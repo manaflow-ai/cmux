@@ -160,6 +160,36 @@ final class FlowTests: XCTestCase {
         pause(1.5)
     }
 
+    /// An agent edit that needs approval: permission card, allow, diff row.
+    func testAgentPermission() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.new"].tap()
+        let field = app.textFields["agent.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20))
+        pause(2)
+        XCTAssertEqual(app.buttons["new.project"].label, "demo-app")
+        snap(app, "50-new-demo")
+        field.tap()
+        field.typeText("Add a function farewell(name) to greet.py that returns 'bye ' + name. Edit the file directly.")
+        app.buttons["agent.send"].tap()
+        let allow = app.buttons["permission.allow_once"]
+        if allow.waitForExistence(timeout: 120) {
+            pause(1)
+            snap(app, "51-permission")
+            allow.tap()
+            pause(2)
+            snap(app, "52-allowed")
+        } else {
+            snap(app, "51-no-permission")
+        }
+        pause(30)
+        app.swipeDown()
+        snap(app, "53-done")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

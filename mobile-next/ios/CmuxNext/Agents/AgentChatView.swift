@@ -416,30 +416,36 @@ struct PermissionCard: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
             } else {
+                let primary = request.options.filter { $0.kind == "reject_once" || $0.kind == "allow_once" }
+                let secondary = request.options.filter { !primary.contains($0) }
                 HStack(spacing: 8) {
-                    ForEach(request.options.sorted { order($0) < order($1) }) { option in
-                        Button {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            answer(option.id)
-                        } label: {
-                            Text(option.name)
-                                .font(.system(size: 15, weight: .semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 40)
-                                .foregroundStyle(option.kind.hasPrefix("allow") ? Color(.systemBackground) : .primary)
-                                .background(option.kind.hasPrefix("allow") ? Color.primary : Color(.secondarySystemFill), in: .rect(cornerRadius: 12, style: .continuous))
-                        }
-                        .buttonStyle(PressableButtonStyle())
-                        .accessibilityIdentifier("permission.\(option.kind)")
-                    }
+                    ForEach(primary.sorted { order($0) < order($1) }) { option in optionButton(option, filled: option.kind == "allow_once") }
                 }
+                ForEach(secondary.sorted { order($0) < order($1) }) { option in optionButton(option, filled: false) }
             }
         }
         .padding(14)
         .background(Color.orange.opacity(0.08), in: .rect(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.orange.opacity(request.resolved == nil ? 0.45 : 0.15), lineWidth: 1))
+    }
+
+    private func optionButton(_ option: PermissionRequest.Option, filled: Bool) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            answer(option.id)
+        } label: {
+            Text(option.name)
+                .font(.system(size: 15, weight: .semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 42)
+                .padding(.horizontal, 8)
+                .foregroundStyle(filled ? Color(.systemBackground) : .primary)
+                .background(filled ? Color.primary : Color(.secondarySystemFill), in: .rect(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityIdentifier("permission.\(option.kind)")
     }
 
     private func order(_ option: PermissionRequest.Option) -> Int {
