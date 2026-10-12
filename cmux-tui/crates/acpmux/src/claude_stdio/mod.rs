@@ -111,6 +111,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
     &MODELS
 }
 
+#[cfg(test)]
+mod edit_diff_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
