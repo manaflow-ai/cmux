@@ -40,7 +40,7 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { openHarnessesPage, registerHarnessesPage } from "./harnesses/harnessesPage";
+import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { TemplateDots } from "./newtab/TemplateDots";
 import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -89,6 +89,7 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
+import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
@@ -394,6 +395,8 @@ const trustSource: TrustSource = {
 /// folder and asks the native host (or, in mock mode, the in-page daemon).
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
+  wholeFile: (scope, path) =>
+    callNative("git.diff", { scope, include_patch: true, paths: [path], context_lines: WHOLE_FILE_CONTEXT }),
   status: () => callNative("git.status", {}),
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
@@ -1686,6 +1689,7 @@ function DefaultComposerChips({
   startsChat?: boolean;
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
+  const addAgent = useHarnessesPage();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -1729,7 +1733,7 @@ function DefaultComposerChips({
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
       // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
-      onAddAgent={openHarnessesPage}
+      {...(addAgent ? { onAddAgent: addAgent } : {})}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       onShowContextUsage={(show) => void callNative("pane.showContextUsage", { show }).catch(() => undefined)}
@@ -2286,7 +2290,6 @@ function AcpmuxPane() {
   const pickerCatalog = usePickerCatalog(snapshot.catalog, pickerSession).catalog;
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
-  useEffect(() => registerHarnessesPage(() => setHarnessesOpen(true)), []);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
@@ -2530,6 +2533,8 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
+  useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
   const asksAside = !quick && experimentArm(sideQuestion) === "on";
   // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
@@ -3333,7 +3338,11 @@ function AcpmuxPane() {
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
-          "git.diff": ({ scope }) => client.gitDiff(String(scope)),
+          "git.diff": ({ scope, paths, context_lines }) =>
+            client.gitDiff(String(scope), {
+              ...(Array.isArray(paths) ? { paths: paths.map(String) } : {}),
+              ...(typeof context_lines === "number" ? { context_lines } : {}),
+            }),
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),

@@ -3,12 +3,15 @@ public nonisolated struct SettingTextKeys: Sendable, Hashable {
     public var group: String?
     public var title: String?
     public var help: String?
+    public var summary: String?
     public var defaultLabel: String?
 
-    public init(group: String? = nil, title: String? = nil, help: String? = nil, defaultLabel: String? = nil) {
+    public init(group: String? = nil, title: String? = nil, help: String? = nil, summary: String? = nil,
+                defaultLabel: String? = nil) {
         self.group = group
         self.title = title
         self.help = help
+        self.summary = summary
         self.defaultLabel = defaultLabel
     }
 }

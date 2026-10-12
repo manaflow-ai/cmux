@@ -90,6 +90,7 @@ public struct SettingsSchemaExport {
             "group": text(descriptor.group, keys.group),
             "title": text(descriptor.title, keys.title),
             "help": descriptor.help.map { text($0, keys.help) as Any } ?? NSNull(),
+            "summary": descriptor.summary.map { text($0, keys.summary) as Any } ?? NSNull(),
             "default": descriptor.defaultValue.map(foundation) ?? NSNull(),
             "default_label": descriptor.defaultLabel.map { text($0, keys.defaultLabel) as Any } ?? NSNull(),
             "keywords": descriptor.keywords,

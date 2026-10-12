@@ -437,6 +437,26 @@ test("a typed combo for another provider starts it on that model, then sets its 
   ]);
 });
 
+test("the rail's + shows only where the Harnesses page can open (never in the Quick Composer)", async () => {
+  const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
+  await mountNewTab({ harness: "claude" });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  // No pane that can show the page is mounted (the Quick Composer registers none).
+  expect(host.querySelector(".acpmux-mp-add-agent")).toBeNull();
+  const opened: string[] = [];
+  let unregister = () => {};
+  await act(async () => {
+    unregister = registerHarnessesPage(() => opened.push("harnesses"));
+  });
+  const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-agent");
+  expect(add).not.toBeNull();
+  await act(async () => add!.click());
+  expect(opened).toEqual(["harnesses"]);
+  act(() => unregister());
+});
+
 async function pickOnNewTab(from: string, provider: string, id: string, folder?: string) {
   await mountNewTab({ harness: from, ...(folder ? { folder } : {}) });
   await openOn(provider);

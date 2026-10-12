@@ -1,4 +1,4 @@
-// Search across every category by title, help, keywords, key and current value, in the page's
+// Search across every category by title, summary, help, keywords, key and current value, in the page's
 // language and in English. Every whitespace-separated term must match somewhere. "Show only
 // changed" (P4) uses the same listing: the rows whose value differs from the default.
 import { categories, type Category, type CategoryGroup } from "./categories";
@@ -15,6 +15,9 @@ export function rowMatches(row: SchemaRow, value: unknown, terms: string[]): boo
   const haystack = [
     text(row.title),
     row.title.text,
+    text(row.summary),
+    row.summary?.text ?? "",
+    // The long help is never shown on the page, but a search still finds a row by its words.
     text(row.help),
     row.help?.text ?? "",
     row.key,

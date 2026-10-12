@@ -56,23 +56,40 @@ select {
   cursor: pointer;
 }
 
-/* The shared title tooltip replaces WebKit's native title bubble on every first-party page. */
+/* One tooltip, the native one's (CmuxNextDesign/Tooltip/TooltipPanel.swift): Base UI's tooltip
+   (ui/Tooltip.tsx) and the title tooltip that replaces WebKit's bubble on every first-party page
+   (ui/titleTooltips.ts) both sit on the solid popup surface in the primary ink, with a separator
+   hairline, the caption font and a subtle shadow. A truncated row's title tooltip is as wide as
+   the row (tooltipWidth sets its min and max width). */
+.ui-tooltip,
 .ui-title-tooltip {
-  position: fixed;
-  z-index: var(--layer-tooltip);
+  box-sizing: border-box;
   max-width: min(320px, calc(100vw - 12px));
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cmux-elevated-background, Canvas) 96%, var(--cmux-text, CanvasText));
-  box-shadow: 0 4px 14px color-mix(in srgb, black 30%, transparent);
+  border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
+  border-radius: 5px;
+  background: var(--surface-popup);
+  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  white-space: pre-line;
   overflow-wrap: anywhere;
   pointer-events: none;
+}
+
+.ui-title-tooltip {
+  position: fixed;
+  z-index: var(--layer-tooltip);
+  white-space: pre-line;
+}
+
+/* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-hint {
+  float: inline-end;
+  margin-inline-start: 8px;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+  white-space: nowrap;
 }
 
 img,
@@ -240,6 +257,14 @@ input[type="submit"] {
      tooltips stay opaque. Reduce Transparency makes every translucent surface opaque. */
   --surface-text-min: 92%;
   --surface-blur: blur(20px) saturate(1.4);
+  /* The one solid surface of every menu, popover, picker and tooltip, never translucent and never
+     blurred, so text under a popup never shows through (Leo, 2026-10-12): the host's popup fill
+     (WebTheme.swift, the same color as native overlays' Palette.popupSurface), else the page
+     color lifted toward the text. */
+  --surface-popup: var(
+    --cmux-popup-surface,
+    color-mix(in srgb, var(--cmux-text, CanvasText) 14%, var(--cmux-surface-solid, Canvas))
+  );
 }
 
 @media (prefers-reduced-transparency: reduce) {

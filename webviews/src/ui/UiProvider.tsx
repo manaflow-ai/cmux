@@ -7,12 +7,20 @@ import { DirectionProvider } from "@base-ui/react/direction-provider";
 
 export type UiDirection = "ltr" | "rtl";
 
+/** How menus and popovers are placed: "absolute" (Base UI's default) or "fixed". */
+export type UiOverlayPosition = "absolute" | "fixed";
+
 interface UiContextValue {
   container: HTMLElement | null;
   dir: UiDirection;
+  overlayPosition: UiOverlayPosition;
 }
 
-const UiContext = createContext<UiContextValue>({ container: null, dir: "ltr" });
+const UiContext = createContext<UiContextValue>({
+  container: null,
+  dir: "ltr",
+  overlayPosition: "absolute",
+});
 
 /** Right-to-left languages among the pages' locales (Apple localization codes or BCP 47 tags). */
 const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur"]);
@@ -26,12 +34,15 @@ export interface UiProviderProps {
   /** Where overlays render: the page's root element (or an island's own container). */
   container: HTMLElement | null;
   dir?: UiDirection;
+  /** "fixed" on a page whose document never scrolls: an open menu follows its anchor in the
+   * page's scroller without growing the document (Settings, cx-jh7kq). */
+  overlayPosition?: UiOverlayPosition;
   children: ReactNode;
 }
 
-export function UiProvider({ container, dir = "ltr", children }: UiProviderProps) {
+export function UiProvider({ container, dir = "ltr", overlayPosition = "absolute", children }: UiProviderProps) {
   return (
-    <UiContext value={{ container, dir }}>
+    <UiContext value={{ container, dir, overlayPosition }}>
       <DirectionProvider direction={dir}>{children}</DirectionProvider>
     </UiContext>
   );
@@ -40,6 +51,11 @@ export function UiProvider({ container, dir = "ltr", children }: UiProviderProps
 /** The page container overlays portal into (undefined outside a provider: Base UI's default). */
 export function usePortalContainer(): HTMLElement | undefined {
   return use(UiContext).container ?? undefined;
+}
+
+/** How this page's menus and popovers are placed (UiProviderProps.overlayPosition). */
+export function useOverlayPosition(): UiOverlayPosition {
+  return use(UiContext).overlayPosition;
 }
 
 export function useUiDirection(): UiDirection {

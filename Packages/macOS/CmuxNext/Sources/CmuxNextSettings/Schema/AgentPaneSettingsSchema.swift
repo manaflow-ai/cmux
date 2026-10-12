@@ -10,6 +10,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.outsideRoots", "Files Outside the Project"),
                 help: SettingsText.keyed("settings.agentPane.outsideRoots.help",
                                          "What a file link in a reply does when the file is outside the chat's folders. Keys and .env files never open."),
+                summary: SettingsText.keyed("settings.agentPane.outsideRoots.summary", "File links outside the chat's folders"),
                 kind: .choice([
                     SettingChoice("confirm", SettingsText.keyed("settings.choice.agentPaneConfirm", "Ask First")),
                     SettingChoice("text", SettingsText.keyed("settings.choice.agentPaneText", "Show as Text")),
@@ -23,6 +24,7 @@ nonisolated enum AgentPaneSettingsSchema {
                 title: SettingsText.keyed("settings.agentPane.remoteImages", "Web Images in Replies"),
                 help: SettingsText.keyed("settings.agentPane.remoteImages.help",
                                          "A web image loads from its site, which then sees that you read the reply."),
+                summary: SettingsText.keyed("settings.agentPane.remoteImages.summary", "Sites can see that you read the reply"),
                 kind: .choice([
                     SettingChoice("click", SettingsText.keyed("settings.choice.agentPaneClick", "Load on Click")),
                     SettingChoice("never", SettingsText.keyed("settings.choice.never", "Never")),

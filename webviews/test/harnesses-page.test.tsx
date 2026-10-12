@@ -118,7 +118,8 @@ test("Sign In runs the CLI's login in a terminal tab in the chat's folder", asyn
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([
     {
       method: "tab.open",
-      params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true },
+      // `keep`: the page stays beside the terminal (a page with no chat yet is otherwise replaced).
+      params: { kind: "terminal", text: "codex login", cwd: "/Users/you/src/cmux", run: true, keep: true },
     },
   ]);
 });
@@ -139,7 +140,7 @@ test("Install… opens the harness's setup page in a browser tab", async () => {
   const container = await renderPage(calls);
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([
-    { method: "tab.open", params: { kind: "browser", text: "https://opencode.ai/docs" } },
+    { method: "tab.open", params: { kind: "browser", text: "https://opencode.ai/docs", keep: true } },
   ]);
 });
 

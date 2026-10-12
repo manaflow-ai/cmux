@@ -5263,6 +5263,9 @@ mod host_orphan;
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
+#[path = "terminal_host_recovery/host_link_failed.rs"]
+mod host_link_failed;
+
 #[path = "terminal_host_recovery/host_death.rs"]
 mod host_death;
 

@@ -162,6 +162,11 @@ export function HistoryPage({
           ))}
         </div>
       </header>
+      {snap.error ? (
+        <p className="history-error" role="alert">
+          {snap.error}
+        </p>
+      ) : null}
       {snap.connection === "disconnected" ? (
         <div className="history-empty">{t("page.disconnected")}</div>
       ) : snap.groups.length === 0 ? (

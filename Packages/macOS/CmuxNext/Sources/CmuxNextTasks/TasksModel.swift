@@ -102,6 +102,11 @@ public final class TasksModel {
 
     // MARK: - Intents
 
+    /// The refusal toast ended: the next refusal shows again.
+    public func clearReject() {
+        lastReject = nil
+    }
+
     /// Send an intent. Refused while the owner is unreachable.
     @discardableResult
     public func send(_ kind: TasksIntentKind) -> Bool {
