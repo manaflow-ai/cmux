@@ -24,7 +24,13 @@ Loop log for the agent building this. Updated in place.
 - Test account: aziz-native@test.cmux.dev, code in ~/.secrets/cmux-next-mobile-native-test-login.
 
 ## Blocked on the user
-- Real iPhone install: phone not connected; device signing needs a team + bundle id registration.
+- Real iPhone install: phone not connected (build is ready in ~/cnm-builds/latest).
+
+## Demo builds
+- 2026-10-12 13:18 (commit in ~/cnm-builds/latest/COMMIT): ~/cnm-builds/latest/CmuxNext.ipa (signed,
+  dev.cmux.next.native, profile "cmux next native dev" incl. Aziz's iPhone) and ~/Applications/cmux Host.app
+  (installed, not started). Phone was not connected (devicectl: unavailable), so not installed.
+- Regression before the build: 8/8 UI flows passed (r27).
 
 ## Next
 - iMessage parity pass from docs/IMESSAGE-SPEC.md (capture agent running).
