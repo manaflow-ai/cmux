@@ -8,6 +8,7 @@ import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import { currentCloudDbQuerySignal } from "./queryScope";
 import { tagCloudDbQuery } from "./queryTags";
+import { observePostgresJsQueryTiming } from "./queryTiming";
 import * as schema from "./schema";
 
 function createPostgresJsDb(sql: Sql) {
@@ -54,6 +55,7 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
     const [statement, ...rest] = args;
     const tagged = [tagCloudDbQuery(statement), ...rest] as Parameters<typeof originalUnsafe>;
     const query = currentUnsafe(...tagged) as unknown as CancellablePostgresQuery;
+    observePostgresJsQueryTiming(query);
     const signal = currentCloudDbQuerySignal();
     if (signal) watchPostgresJsQuery(query, signal);
     return query;

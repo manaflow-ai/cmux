@@ -58,6 +58,7 @@ import {
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
   type VmRequestContext,
+  type VmRequestDbStats,
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
@@ -98,6 +99,18 @@ export type AuthedVmRouteContext = {
   routeStartedAtMs: number;
   setResponseFinalizer: (finalizer: ((response: Response) => void) | null) => void;
 };
+
+/** Route span attributes for a request's database pool timing (db/queryTiming.ts). */
+export function vmDbSpanAttributes(stats: VmRequestDbStats | undefined): Record<string, number> {
+  if (!stats) return { "cmux.db.query_count": 0, "cmux.db.acquire_wait_ms": 0 };
+  return {
+    "cmux.db.query_count": stats.queries,
+    "cmux.db.acquire_wait_ms": Math.round(stats.acquireWaitMsMax),
+    "cmux.db.acquire_wait_ms_total": Math.round(stats.acquireWaitMsTotal),
+    "cmux.db.query_ms_total": Math.round(stats.queryMsTotal),
+    "cmux.db.query_failed": stats.failed,
+  };
+}
 
 export async function withAuthedVmApiRoute(
   request: Request,
@@ -144,6 +157,9 @@ export async function withAuthedVmApiRoute(
         // Every VM response, every route: outcome + latency to the span and
         // PostHog, then a bounded span flush so an error-heavy instance cannot
         // lose the trace the PostHog row points at.
+        // Pool timing of this request's queries: a stall that waited for a
+        // connection shows a large acquire wait here.
+        setSpanAttributes(span, vmDbSpanAttributes(requestContext.dbStats));
         try {
           captureVmRequestOutcome({
             context: requestContext,
