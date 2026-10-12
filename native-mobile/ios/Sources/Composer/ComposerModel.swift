@@ -143,6 +143,13 @@ final class ComposerModel {
             .replacingOccurrences(of: "\u{2018}", with: "'").replacingOccurrences(of: "\u{2019}", with: "'")
     }
 
+    /// JPEG for image formats agents don't read (HEIC/HEIF, TIFF); nil keeps
+    /// the original (PNG, JPEG, GIF, WebP).
+    static func agentReadableImage(_ data: Data, ext: String) -> Data? {
+        guard ["heic", "heif", "tif", "tiff"].contains(ext.lowercased()), let image = UIImage(data: data) else { return nil }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+
     static func thumbnail(for data: Data, maxPixel: CGFloat = 240) -> Data? {
         guard let image = UIImage(data: data) else { return nil }
         let scale = min(1, maxPixel / max(image.size.width, image.size.height))

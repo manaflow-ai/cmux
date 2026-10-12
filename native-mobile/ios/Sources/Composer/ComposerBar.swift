@@ -245,10 +245,15 @@ struct ComposerBar: View {
 
     private func importPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            guard var data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first
             let isVideo = type?.conforms(to: .movie) ?? false
-            let ext = type?.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
+            var ext = type?.preferredFilenameExtension ?? (isVideo ? "mov" : "jpg")
+            // iPhone photos are HEIC, which coding agents can't read; send JPEG.
+            if !isVideo, let jpeg = ComposerModel.agentReadableImage(data, ext: ext) {
+                data = jpeg
+                ext = "jpg"
+            }
             model.add(ComposerAttachment(
                 name: "\(isVideo ? "video" : "photo")-\(Self.stamp()).\(ext)",
                 data: data,
