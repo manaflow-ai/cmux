@@ -6,7 +6,7 @@ import Testing
 /// public-domain works with an image on that collection's own hosts (answers recorded from the
 /// live APIs on 2026-10-12, trimmed).
 @Suite struct MuseumArtSearchTests {
-    static let artInstitute = """
+    nonisolated static let artInstitute = """
     {"config": {"iiif_url": "https://www.artic.edu/iiif/2"}, "data": [
       {"id": 154235, "title": "The Girl by the Window", "artist_title": "Edvard Munch", "date_display": "1893",
        "image_id": "d7df2633-3b40-f570-c906-211503a37cde", "is_public_domain": true},
@@ -15,7 +15,7 @@ import Testing
       {"id": 1000, "title": "No Image", "artist_title": "Someone", "date_display": "1800", "image_id": null, "is_public_domain": true}
     ]}
     """
-    static let cleveland = """
+    nonisolated static let cleveland = """
     {"data": [
       {"id": 149108, "title": "Scenes of Witchcraft: Night", "creation_date": "c. 1645–49", "share_license_status": "CC0",
        "creators": [{"description": "Salvator Rosa (Italian, 1615–1673)"}], "url": "https://clevelandart.org/art/1977.37.4",
@@ -27,7 +27,7 @@ import Testing
        "images": {"web": {"url": "https://example.com/3.jpg"}}}
     ]}
     """
-    static let commons = """
+    nonisolated static let commons = """
     {"query": {"pages": {
       "1": {"pageid": 1, "index": 1, "title": "File:Van Gogh - Starry Night - Google Art Project.jpg", "imageinfo": [{
         "mime": "image/jpeg",
@@ -45,7 +45,7 @@ import Testing
     }}}
     """
 
-    static func answers(failing: Set<String> = []) -> @Sendable (URL) async throws -> Data {
+    nonisolated static func answers(failing: Set<String> = []) -> @Sendable (URL) async throws -> Data {
         { url in
             let host = url.host ?? ""
             if failing.contains(host) { throw URLError(.timedOut) }
