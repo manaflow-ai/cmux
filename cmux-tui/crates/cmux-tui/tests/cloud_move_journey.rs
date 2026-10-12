@@ -274,13 +274,13 @@ fn chat_with_history_draft_and_queue(acpmux: &mut Acpmux, cwd: &Path) -> String 
     session
 }
 
-/// An agent tab of `machine`'s store bound to acpmux chat `session`.
+/// A Mac chat tab of `machine`'s store bound to acpmux chat `session`, as the
+/// app files a chat of its own acpmux (`install:` host). A `registry:` tab is
+/// a machine's own chat and binds only through agent-session-start (cx-k21v).
 fn bound_agent_tab(machine: &Machine, session: &str) -> u64 {
-    let identity = machine.rpc(json!({"id": 1, "cmd": "identify"}));
-    let store = identity["data"]["session_id"].as_str().unwrap().to_owned();
     assert_eq!(machine.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
     let tab = machine.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
-        "agent_session": {"host": format!("registry:{store}"), "session": session}}));
+        "agent_session": {"host": "install:cloud-move-journey", "session": session}}));
     assert_eq!(tab["ok"], true, "{tab}");
     let surface = tab["data"]["surface"].as_u64().unwrap();
     let source = machine.rpc(json!({"id": 4, "cmd": "agent-transfer-source", "surface": surface}));
