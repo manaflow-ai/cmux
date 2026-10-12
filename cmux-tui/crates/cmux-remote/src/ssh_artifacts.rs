@@ -23,6 +23,15 @@ use tokio::sync::watch;
 
 use crate::ssh_bootstrap::BootstrapError;
 
+/// `remote-probe` capability: a remote platform's build that the app does not
+/// bundle is downloaded once, checked against the bundled manifest and cached,
+/// so the app's packager may ship only its checksum.
+pub const SSH_PAYLOAD_DOWNLOAD_CAPABILITY: &str = "ssh-payload-download";
+
+/// `remote-probe` capability: a Mac host gets this client's own build or its
+/// slice of a universal binary, so the packager may ship no macOS payload.
+pub const SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY: &str = "ssh-payload-macos-from-client";
+
 #[derive(Deserialize)]
 struct ArtifactManifest {
     commit: String,

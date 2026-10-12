@@ -1957,19 +1957,14 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see
 /// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
 /// that needs one refuses a remote without it (cx-z3zh).
-/// `ssh-payload-download`: a remote platform's build that the app does not
-/// bundle is downloaded once, checked against the bundled manifest and cached,
-/// so the app's packager may ship only its checksum.
-/// `ssh-payload-macos-from-client`: a Mac host gets this client's own build or
-/// its slice of a universal binary, so the packager may ship no macOS payload.
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
     "browser-proxy",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
     cmux_remote::provider::REMOTE_LINK_STRICT_FLAGS_CAPABILITY,
-    "ssh-payload-download",
-    "ssh-payload-macos-from-client",
+    cmux_remote::SSH_PAYLOAD_DOWNLOAD_CAPABILITY,
+    cmux_remote::SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
 ];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
@@ -1983,8 +1978,6 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         // Client-side transport capabilities a control plane can key routing on.
-        // `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
-        // hosted ingress on branded machine domains requires.
         "capabilities": PROBE_CAPABILITIES,
     });
     if args.iter().any(|argument| argument == "--json") {
