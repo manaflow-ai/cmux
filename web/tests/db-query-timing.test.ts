@@ -113,11 +113,21 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
     const timings: CloudDbQueryTiming[] = [];
     setCloudDbQueryObserver(() => (timing) => timings.push(timing));
     const controller = new AbortController();
+    const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!;
+    const probe = (await import("postgres")).default(url, { max: 1, prepare: false });
     try {
-      const running = runWithCloudDbQuerySignal(controller.signal, () => cloudDb().execute(sql`select pg_sleep(5)`));
-      setTimeout(() => controller.abort(), 100);
-      await expect(running).rejects.toThrow();
+      const running = runWithCloudDbQuerySignal(controller.signal, () => cloudDb().execute(sql`select pg_sleep(5) as cancellation_probe`));
+      const settled = running.then(() => "resolved", () => "rejected");
+      // Abort once the server is actually running the statement: a bounded
+      // poll of pg_stat_activity, not a fixed wait.
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const [row] = await probe`select count(*)::int as active from pg_stat_activity where state = 'active' and query like '%cancellation_probe%' and pid <> pg_backend_pid()`;
+        if ((row?.active ?? 0) > 0) break;
+      }
+      controller.abort();
+      expect(await settled).toBe("rejected");
     } finally {
+      await probe.end();
       await closeCloudDbForTests();
     }
     expect(timings.at(-1)?.failed).toBe(true);
