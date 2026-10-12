@@ -140,7 +140,7 @@ final class DaemonService {
         // commit is read while the first connect runs, off its path.
         let logger = logger
         // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = Task { try? await launcher.bundledBuildCommit() }
+        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
             guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
             let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)

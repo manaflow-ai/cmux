@@ -13,6 +13,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from ".
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
+import type { MergeResult } from "./PullRequestMerge";
 import {
   QUICK_ACTION_DEFAULTS,
   QUICK_ACTION_IDS,
@@ -92,6 +93,7 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  onMergePullRequest,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -124,6 +126,8 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
+  onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -234,7 +238,7 @@ export function ChatHeaderTools({
   );
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} />}
+      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
       {onCustomize && buttons ? (
         // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
         // inside them reaches this host through React.

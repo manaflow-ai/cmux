@@ -140,6 +140,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -1845,6 +1846,16 @@ function AcpmuxPane() {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = movedTo ?? snapshot.summary?.cwd;
+  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
+  // screencapture's own pick and answers the PNG; a cancelled pick answers no data.
+  const captureScreen = useCallback(async (mode: "screen" | "window") => {
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
+      mode,
+    }).catch(() => null);
+    if (!shot?.data) return undefined;
+    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
+    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+  }, []);
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -3065,7 +3076,15 @@ function AcpmuxPane() {
               Array.isArray(hunk) ? hunk.map(String) : [],
               unstage === true,
             ),
-          "git.pullRequest": ({ action }) => client.gitPullRequest(action === "threads"),
+          "git.pullRequest": ({ action, number, url }) =>
+            action === "threads"
+              ? client.gitPullRequest({ action })
+              : action === "merge"
+                ? // A merge names the pull request it means; one that does not is refused, never an Open.
+                  Number.isInteger(number) && typeof url === "string"
+                  ? client.gitPullRequest({ action, number: number as number, url })
+                  : Promise.reject(new Error(translate("header.prMergeFailed")))
+                : client.gitPullRequest(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -3682,6 +3701,7 @@ function AcpmuxPane() {
   );
   const composer = !reviewing && !handoffLoading && (
     <>
+      <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       <DictationNotice dictation={dictation} />
       {importError && (
         <p className="acpmux-composer-remote-note" role="alert">
@@ -3933,6 +3953,7 @@ function AcpmuxPane() {
           onMode={(modeId) => void callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
+          capture={captureScreen}
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
@@ -4163,6 +4184,21 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      // A merge asks the header again, so the chip shows the pull request merged.
+                      onMergePullRequest={
+                        localCwd
+                          ? ({ number, url }) =>
+                              callNative("git.pullRequest", { action: "merge", number, url }).then((value) => {
+                                const result = value as { merged?: unknown; queued?: unknown } | null;
+                                if (result?.merged !== true && result?.queued !== true)
+                                  throw new Error(translate("header.prMergeFailed"));
+                                void callNative("pane.tabState", { refresh: true })
+                                  .then(setHeaderState)
+                                  .catch(() => undefined);
+                                return { queued: result.queued === true };
+                              })
+                          : undefined
+                      }
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
