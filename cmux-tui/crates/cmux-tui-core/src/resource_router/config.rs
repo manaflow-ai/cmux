@@ -1,10 +1,11 @@
-//! `settings.*`: the config owner (plans/cmux-next/settings-react.md
+//! `settings.*` and `keybindings.*`: the config owners (plans/cmux-next/settings-react.md
 //! section 3). Requests become `cmux_config` ops; refusals become catalog
 //! errors with the owner's data in `details`.
 
 use std::sync::Arc;
 
-use cmux_config::{Op, Origin, Refusal, Target, WriteMeta};
+use cmux_config::keybindings::edit::Target as KeybindingTarget;
+use cmux_config::{KeybindingsOp, KeybindingsRefusal, Op, Origin, Refusal, Target, WriteMeta};
 use serde_json::{Map, Value, json};
 
 use super::{ParsedResourceRequest, mutation_result, validation_error};
@@ -51,6 +52,25 @@ pub(super) fn dispatch(
                     outcome.replayed,
                 ),
                 Err(refusal) => Err(refusal_error(operation, &refusal)),
+            }
+        }
+        ResourceOperation::KeybindingsGet => Ok(mux.with_keybindings(|store| {
+            let parsed = store.parsed();
+            json!({
+                "path": store.path().to_string_lossy(),
+                "revision": WireDecimal::new(store.revision()),
+                "entries": parsed.entries,
+                "diagnostics": parsed.diagnostics,
+            })
+        })),
+        ResourceOperation::KeybindingsSet
+        | ResourceOperation::KeybindingsRemove
+        | ResourceOperation::KeybindingsReset => {
+            let op = keybindings_op(operation, fields)?;
+            let origin = meta(fields, None, &request.actor)?.origin;
+            match mux.keybindings_apply(op, origin, request.envelope.idempotency_key.clone()) {
+                Ok(outcome) => mutation_result(mux, json!({}), outcome.revision, outcome.replayed),
+                Err(refusal) => Err(keybindings_error(operation, &refusal)),
             }
         }
         other => Err(ResourceError::operation_failed(
@@ -144,6 +164,75 @@ fn write_op(
         }
         _ => Op::ResetAll { meta: meta(fields, key, actor)? },
     })
+}
+
+/// `{command, key, when?}`; `default_command` fills a `replaces` that names
+/// only keys (the binding's own command).
+fn binding(
+    fields: &Map<String, Value>,
+    default_command: Option<&str>,
+) -> Result<KeybindingTarget, ResourceError> {
+    let text = |name: &str| fields.get(name).and_then(Value::as_str).map(str::to_owned);
+    let command = text("command")
+        .or_else(|| default_command.map(str::to_owned))
+        .ok_or_else(|| validation_error("a binding needs command", json!({"field":"command"})))?;
+    let key = text("key")
+        .ok_or_else(|| validation_error("a binding needs key", json!({"field":"key"})))?;
+    Ok(KeybindingTarget { command, key, when: text("when") })
+}
+
+fn keybindings_op(
+    operation: ResourceOperation,
+    fields: &Map<String, Value>,
+) -> Result<KeybindingsOp, ResourceError> {
+    Ok(match operation {
+        ResourceOperation::KeybindingsSet => {
+            let target = binding(fields, None)?;
+            let replaces = match fields.get("replaces") {
+                None | Some(Value::Null) => None,
+                Some(Value::Object(old)) => Some(binding(old, Some(&target.command))?),
+                Some(_) => {
+                    return Err(validation_error(
+                        "replaces is {key, when?, command?}",
+                        json!({"field":"replaces"}),
+                    ));
+                }
+            };
+            let args = match fields.get("args") {
+                None | Some(Value::Null) => None,
+                Some(args @ Value::Object(members)) if !members.is_empty() => Some(args.clone()),
+                Some(Value::Object(_)) => None,
+                Some(_) => {
+                    return Err(validation_error("args is an object", json!({"field":"args"})));
+                }
+            };
+            KeybindingsOp::Set { binding: target, args, replaces }
+        }
+        ResourceOperation::KeybindingsRemove => {
+            KeybindingsOp::Remove { target: binding(fields, None)? }
+        }
+        _ => KeybindingsOp::Reset {
+            command: fields.get("command").and_then(Value::as_str).map(str::to_owned).ok_or_else(
+                || validation_error("reset needs command", json!({"field":"command"})),
+            )?,
+        },
+    })
+}
+
+fn keybindings_error(operation: ResourceOperation, refusal: &KeybindingsRefusal) -> ResourceError {
+    match refusal {
+        KeybindingsRefusal::Invalid(message) | KeybindingsRefusal::Unreadable(message) => {
+            ResourceError::new(refusal.code(), message, json!({}), false)
+        }
+        KeybindingsRefusal::IdempotencyConflict { key, committed } => {
+            ResourceError::idempotency_conflict(key, committed)
+        }
+        KeybindingsRefusal::Io(message) => ResourceError::operation_failed(
+            operation.wire_name().to_owned(),
+            message,
+            json!({"code": refusal.code()}),
+        ),
+    }
 }
 
 /// The catalog error for an owner refusal.
