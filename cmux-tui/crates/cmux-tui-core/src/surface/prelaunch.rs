@@ -92,6 +92,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: false,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: true,

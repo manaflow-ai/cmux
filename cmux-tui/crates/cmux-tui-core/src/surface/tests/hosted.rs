@@ -30,6 +30,7 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
         SurfaceOptions::default(),
         Arc::downgrade(&mux),
         HostedSurfaceLaunch {
+            adopted: false,
             attachment,
             kitty_reservation: None,
             terminate_on_error: false,
