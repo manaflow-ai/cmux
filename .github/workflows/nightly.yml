@@ -2736,6 +2736,9 @@ jobs:
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
           (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
+        env:
+          # The state file records the signing channel (cmux NEXT signs as `next`).
+          SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
         run: |
           set -euo pipefail
           for required in \
@@ -2769,7 +2772,7 @@ jobs:
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}" \
             "${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}" \
-            "${{ needs.decide.outputs.sign_channel }}" <<'PY'
+            "$SIGN_CHANNEL" <<'PY'
           import json
           import pathlib
           import sys
@@ -2794,8 +2797,7 @@ jobs:
           for key in ("immutable_path", "release_tag", "dmg_prefix", "variant", "channel"):
               if not state.get(key):
                   raise SystemExit(f"notarization state is missing {key}")
-          # The state file records the signing channel (cmux NEXT signs as `next`);
-          # the manifest keeps the release channel for check-manifest.
+          # The manifest keeps the release channel for check-manifest.
           if state["channel"] != sign_channel or state["variant"] != variant or state["release_tag"] != release_tag:
               raise SystemExit("notarization state metadata does not match the build")
           if state.get("dmg_path", "").split("/")[-1] != pathlib.Path(dmg_path).name:

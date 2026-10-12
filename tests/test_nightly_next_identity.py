@@ -89,7 +89,8 @@ def test_a_pending_notarization_keeps_its_recovery_artifact():
     # release channel, or a submission past the wait is stranded.
     step = WORKFLOW[WORKFLOW.index("- name: Prepare pending notarization recovery artifact"):]
     step = step[:step.index("\n      - name:", 10)]
-    assert '"${{ needs.decide.outputs.sign_channel }}"' in step
+    assert "SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}" in step
+    assert '"$SIGN_CHANNEL" <<' in step
     assert 'state["channel"] != sign_channel' in step
 
 
