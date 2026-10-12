@@ -24,6 +24,8 @@
 
 mod git_back;
 mod local;
+#[allow(dead_code)]
+mod names;
 mod pull;
 mod remote;
 

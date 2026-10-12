@@ -9,16 +9,33 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
-use serde_json::Value;
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 /// Serves `fs.*` lines on `socket` with the real owner over `home`, one
 /// thread per connection, until the test process ends.
-fn serve_fs(socket: &Path, home: &Path) {
+fn serve_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
+    serve_hostile_fs(socket, home)
+}
+
+/// A file a malicious machine plants in a listing: the folder's path as the
+/// client asks for it, the name it lists (any text) and the bytes it serves
+/// for `folder/name`.
+type Planted = (String, String, Vec<u8>);
+
+/// [`serve_fs`] that can turn malicious: the listings of the folders in the
+/// returned list also name its files, and `fs.stat` and `fs.read` of their
+/// paths answer with their bytes.
+fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> {
     let listener = UnixListener::bind(socket).unwrap();
     let service: &'static FsService =
         Box::leak(Box::new(FsService::new(Roots::new([home.to_path_buf()]))));
+    let planted: &'static Mutex<Vec<Planted>> = Box::leak(Box::default());
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
@@ -29,7 +46,19 @@ fn serve_fs(socket: &Path, home: &Path) {
                     let request: Value = serde_json::from_str(&line).unwrap();
                     let id = request["id"].clone();
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
-                    let reply = stream::answer(&id, service.call("local", &cmd, request));
+                    let path = request["path"].as_str().unwrap_or_default().to_string();
+                    let planted = planted.lock().unwrap().clone();
+                    let reply = match hostile_answer(&planted, &cmd, &path) {
+                        Some(data) => json!({"id": id, "ok": true, "data": data}),
+                        None => {
+                            let mut reply =
+                                stream::answer(&id, service.call("local", &cmd, request));
+                            if cmd == "fs.list" {
+                                plant_entries(&planted, &path, &mut reply);
+                            }
+                            reply
+                        }
+                    };
                     let mut text = reply.to_string();
                     text.push('\n');
                     if writer.write_all(text.as_bytes()).is_err() {
@@ -39,6 +68,29 @@ fn serve_fs(socket: &Path, home: &Path) {
             });
         }
     });
+    planted
+}
+
+/// The answer for a planted file's `fs.stat` or `fs.read`.
+fn hostile_answer(planted: &[Planted], cmd: &str, path: &str) -> Option<Value> {
+    let (_, _, bytes) =
+        planted.iter().find(|(folder, name, _)| format!("{folder}/{name}") == path)?;
+    let revision = cmux_tui_core::fs_ops::revision(bytes.len() as u64, Some(1));
+    match cmd {
+        "fs.stat" => Some(json!({"kind": "file", "size": bytes.len(), "revision": revision,
+                                 "mode_display": "rwxr-xr-x"})),
+        "fs.read" => Some(json!({"bytes_base64": STANDARD.encode(bytes), "truncated": false,
+                                 "revision": revision})),
+        _ => None,
+    }
+}
+
+/// Adds the planted files of the folder at `path` to its listing.
+fn plant_entries(planted: &[Planted], path: &str, reply: &mut Value) {
+    let Some(entries) = reply["data"]["entries"].as_array_mut() else { return };
+    for (_, name, bytes) in planted.iter().filter(|(folder, _, _)| folder == path) {
+        entries.push(json!({"name": name, "kind": "file", "size": bytes.len(), "mtime": 1}));
+    }
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -56,8 +108,14 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// This Mac's state folder for a test: next to its socket.
+fn state_of(socket: &Path) -> PathBuf {
+    socket.parent().unwrap().join("state")
+}
+
 fn push(socket: &Path, local: &Path, remote: &Path) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", state_of(socket))
         .args(["link", "sync", "push", "--socket"])
         .arg(socket)
         .arg(local)
@@ -285,7 +343,12 @@ fn hooks_and_credentials_never_go_and_the_folder_can_change_shape() {
 
 /// `cmux link sync pull`: whether it exited 0, and its JSON line.
 fn pull(socket: &Path, local: &Path, remote: &Path) -> (bool, Value) {
+    pull_with_state(socket, local, remote, &state_of(socket))
+}
+
+fn pull_with_state(socket: &Path, local: &Path, remote: &Path, state: &Path) -> (bool, Value) {
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", state)
         .args(["link", "sync", "pull", "--socket"])
         .arg(socket)
         .arg(local)
@@ -305,6 +368,20 @@ fn pull(socket: &Path, local: &Path, remote: &Path) -> (bool, Value) {
 /// A clean repo pushed to a fake machine: the repo, the machine's folder
 /// and the socket (its folder kept alive by the returned guards).
 fn pushed_repo() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf, PathBuf) {
+    let (root, sockets, repo, remote, socket, _) = hostile_pushed_repo();
+    (root, sockets, repo, remote, socket)
+}
+
+/// [`pushed_repo`] whose machine can turn malicious after the push.
+#[allow(clippy::type_complexity)]
+fn hostile_pushed_repo() -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    PathBuf,
+    PathBuf,
+    PathBuf,
+    &'static Mutex<Vec<Planted>>,
+) {
     let root = tempfile::tempdir().unwrap();
     let base = std::fs::canonicalize(root.path()).unwrap();
     let repo = base.join("app");
@@ -321,10 +398,10 @@ fn pushed_repo() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, PathBuf, Pat
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("fs.sock");
-    serve_fs(&socket, &home);
+    let planted = serve_hostile_fs(&socket, &home);
     let remote = home.join("work/app");
     push(&socket, &repo, &remote);
-    (root, sockets, repo, remote, socket)
+    (root, sockets, repo, remote, socket, planted)
 }
 
 #[test]
@@ -407,4 +484,157 @@ fn a_pull_with_changes_on_both_sides_changes_nothing_and_names_them() {
     assert!(conflicts.contains(&serde_json::json!("notes.txt")), "{answer}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), here, "the branch moved");
     assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+}
+
+/// Every path below `dir`, relative to it, folders included.
+fn paths_below(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        for entry in std::fs::read_dir(&at).unwrap() {
+            let path = entry.unwrap().path();
+            found.push(path.strip_prefix(dir).unwrap().to_string_lossy().into_owned());
+            if path.is_dir() && !path.is_symlink() {
+                stack.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// A malicious machine (the VM is not trusted): a repository folder under
+/// another spelling (`.GIT` reaches the real `.git` on a Mac's
+/// case-insensitive disk) and a nested repository never come back.
+#[test]
+fn a_pull_never_brings_back_a_repository_folder_under_another_spelling() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    for folder in [".GIT/hooks", "git~1/hooks", ".Git/info"] {
+        std::fs::create_dir_all(remote.join(folder)).unwrap();
+    }
+    std::fs::write(remote.join(".GIT/hooks/pre-commit"), "#!/bin/sh\necho planted\n").unwrap();
+    std::fs::set_permissions(
+        remote.join(".GIT/hooks/pre-commit"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    std::fs::write(remote.join("git~1/hooks/post-checkout"), "#!/bin/sh\n").unwrap();
+    std::fs::write(remote.join(".Git/info/attributes"), "* filter=evil\n").unwrap();
+    // A nested repository: its marker and its files stay on the machine.
+    std::fs::create_dir_all(remote.join("vendor/lib/.git")).unwrap();
+    std::fs::write(remote.join("vendor/lib/.git/config"), "[core]\n\tfsmonitor = evil\n").unwrap();
+    std::fs::write(remote.join("vendor/lib/code.txt"), "nested\n").unwrap();
+    let before = paths_below(&repo.join(".git"));
+
+    let (_ok, answer) = pull(&socket, &repo, &remote);
+
+    for planted in [".GIT", ".Git", "git~1", "vendor"] {
+        assert!(!repo.join(planted).exists(), "{planted} came back: {answer}");
+    }
+    assert_eq!(paths_below(&repo.join(".git")), before, "the repository changed: {answer}");
+}
+
+/// A malicious machine lists names that climb: nothing is written outside
+/// the folder or into its repository.
+#[test]
+fn a_pull_refuses_listed_names_that_climb_out_of_the_folder() {
+    let (root, _sockets, repo, remote, socket, planted) = hostile_pushed_repo();
+    let top = remote.to_string_lossy().into_owned();
+    planted.lock().unwrap().extend([
+        (top.clone(), "x/../.git/hooks/pre-commit".into(), b"#!/bin/sh\necho planted\n".to_vec()),
+        (top.clone(), "../escaped.txt".into(), b"outside\n".to_vec()),
+    ]);
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "a climbing name was taken: {answer}");
+    assert!(!repo.join(".git/hooks/pre-commit").exists(), "a hook was planted: {answer}");
+    assert!(!root.path().join("escaped.txt").exists(), "a file landed outside: {answer}");
+
+    // Outside git nothing else stands in the way.
+    let plain = std::fs::canonicalize(root.path()).unwrap().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("a.txt"), "a\n").unwrap();
+    let plain_remote = remote.parent().unwrap().join("plain");
+    push(&socket, &plain, &plain_remote);
+    let plain_top = plain_remote.to_string_lossy().into_owned();
+    planted.lock().unwrap().push((plain_top, "../escaped.txt".into(), b"outside\n".to_vec()));
+    let (ok, answer) = pull(&socket, &plain, &plain_remote);
+    assert!(!ok, "a climbing name was taken: {answer}");
+    let outside = plain.parent().unwrap().join("escaped.txt");
+    assert!(!outside.exists(), "a file landed outside the folder: {answer}");
+}
+
+/// The staged entries of the index at `repo`, as text.
+fn staged(repo: &Path) -> String {
+    git(repo, &["ls-files", "--stage"])
+}
+
+/// A pull that fails partway leaves this Mac as it was: its files, its
+/// branch and its index.
+#[test]
+fn a_pull_that_fails_partway_changes_nothing_here() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipped: root writes into a read-only folder");
+        return;
+    }
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    std::fs::write(remote.join("notes.txt"), "notes\nfrom the machine\n").unwrap();
+    std::fs::remove_file(remote.join("other.txt")).unwrap();
+    std::fs::write(remote.join("src/new.txt"), "new there\n").unwrap();
+    git(&remote, &["add", "-A"]);
+    git(&remote, &["commit", "-q", "-m", "on the machine"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let index = staged(&repo);
+    // The machine's new file can't land in this folder here.
+    std::fs::set_permissions(repo.join("src"), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    std::fs::set_permissions(repo.join("src"), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(!ok, "{answer}");
+    assert_eq!(std::fs::read_to_string(repo.join("notes.txt")).unwrap(), "notes\n", "half applied");
+    assert_eq!(std::fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n", "half applied");
+    assert!(!repo.join("src/new.txt").exists(), "{answer}");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "the branch moved: {answer}");
+    assert_eq!(staged(&repo), index, "the index changed: {answer}");
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The base of a pull is the copy of the push's record this Mac kept, never
+/// the machine's: a machine that claims it was sent files the push never
+/// sent can't overwrite or delete them here.
+#[test]
+fn a_pull_trusts_only_the_base_this_mac_kept() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    // Never pushed: an untracked .env and an ignored build output.
+    std::fs::write(repo.join(".env"), "SECRET=mac\n").unwrap();
+    std::fs::create_dir_all(repo.join("build")).unwrap();
+    std::fs::write(repo.join("build/keep.o"), "mine\n").unwrap();
+
+    // No copy of the record here: nothing is brought back.
+    let elsewhere = socket.parent().unwrap().join("other-state");
+    let (ok, answer) = pull_with_state(&socket, &repo, &remote, &elsewhere);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_no_base", "{answer}");
+
+    // The machine claims the push sent both, unchanged, then deleted .env
+    // and changed build/keep.o.
+    let record = remote.join(".git/cmux-sync.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    for (path, bytes) in [(".env", &b"SECRET=mac\n"[..]), ("build/keep.o", &b"mine\n"[..])] {
+        manifest["files"][path] =
+            json!({"sha256": sha256_hex(bytes), "permissions": 0o644, "revision": "s1-m1"});
+    }
+    std::fs::write(&record, manifest.to_string()).unwrap();
+    std::fs::create_dir_all(remote.join("build")).unwrap();
+    std::fs::write(remote.join("build/keep.o"), "planted\n").unwrap();
+
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_base_mismatch", "{answer}");
+    assert_eq!(std::fs::read_to_string(repo.join(".env")).unwrap(), "SECRET=mac\n", "{answer}");
+    assert_eq!(std::fs::read_to_string(repo.join("build/keep.o")).unwrap(), "mine\n", "{answer}");
 }
