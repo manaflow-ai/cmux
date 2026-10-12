@@ -157,7 +157,7 @@ struct TabStepShortcutsStayInPaneTests {
                 _ = try Self.addBackgroundWorkspaces(to: harness)
                 let workspace = harness.mainWorkspace
                 let app = harness.appDelegate
-                func menu(_ forward: Bool) {
+                @MainActor func menu(_ forward: Bool) {
                     app.stepFocusedSurface(
                         forward: forward, tabManager: harness.tabManager, preferredWindow: harness.window
                     )
