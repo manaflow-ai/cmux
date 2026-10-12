@@ -135,6 +135,14 @@ pub(super) fn pull_back(
     remote_root: &str,
     keep_new: &dyn Fn(&str) -> bool,
 ) -> Back {
+    // A copy pushed files only: in git its pull would take the machine's
+    // staged paths into this Mac's index.
+    if in_git(local) {
+        return Back::Failed {
+            code: "grant_folder_changed".into(),
+            error: format!("{} is in a git working copy now", local.display()),
+        };
+    }
     match pull::pull_kept(socket, local, remote_root, keep_new) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
         Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
@@ -211,7 +219,7 @@ fn parse(args: &[String]) -> Option<(Action, PathBuf, PathBuf, String)> {
 }
 
 fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Summary> {
-    push_kept(socket, local, remote_root, &|_, _| true)
+    push_inner(socket, local, remote_root, &|_, _| true, false)
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
@@ -224,31 +232,43 @@ pub(super) fn is_dotgit(name: &str) -> bool {
     names::is_dotgit(name)
 }
 
-/// A push that leaves out (and counts as skipped) every file `keep` refuses,
-/// by its path relative to the folder and whether the folder is a git
-/// working copy: `cmux link access` keeps secret files and repositories of
-/// a shared folder here ([`super::access_cli`]).
+/// A push of a folder's files only, for `cmux link access`
+/// ([`super::access_cli`]): every file `keep` refuses (by its path relative
+/// to the folder, and whether the folder is a git working copy) is left out
+/// and counted as skipped, the record is `REMOTE/.cmux-sync.json` even in
+/// git, and it records no git state (such a copy is never pulled in git).
 pub(super) fn push_kept(
     socket: &Path,
     local: &Path,
     remote_root: &str,
     keep: &dyn Fn(&str, bool) -> bool,
 ) -> anyhow::Result<Summary> {
+    push_inner(socket, local, remote_root, keep, true)
+}
+
+fn push_inner(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep: &dyn Fn(&str, bool) -> bool,
+    files_only: bool,
+) -> anyhow::Result<Summary> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     let mut set = local::collect(&local)?;
     let before = set.files.len();
-    let git = set.git;
-    set.files.retain(|relative, _| keep(relative, git));
+    let in_git = set.git;
+    set.files.retain(|relative, _| keep(relative, in_git));
     set.skipped += (before - set.files.len()) as u64;
-    let manifest_name = if set.git { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
+    let git_record = set.git && !files_only;
+    let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     // The manifest's own name is never pushed over it.
     if set.files.remove(manifest_name).is_some() {
         set.skipped += 1;
     }
     let mut summary = Summary { skipped: set.skipped, ..Summary::default() };
     // What a pull compares the machine's branch and staged changes with.
-    let git = if set.git { Some(git_back::base_of(&local)?) } else { None };
+    let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
