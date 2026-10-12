@@ -25,6 +25,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent actual-size", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "agentChat.toggleNotificationMute",
+                title: String(localized: "action.agentChat.toggleNotificationMute", defaultValue: "Mute or Unmute Chat Notifications", bundle: .module),
+                keywords: ["mute", "silence", "quiet", "notifications", "agent", "chat"], category: .agents, symbol: "bell.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab]
+            ),
+            ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
                 keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
