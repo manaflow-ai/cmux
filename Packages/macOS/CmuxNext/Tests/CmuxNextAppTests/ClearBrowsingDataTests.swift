@@ -20,24 +20,32 @@ struct ClearBrowsingDataTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let store = services.cache.webKit.profileStore.dataStore(for: .default)
+        // A profile of its own: its WebKit store is no other suite's.
+        let name = "Clear Browsing Data \(UUID().uuidString.prefix(8))"
+        try services.browserProfiles.createProfileNow(name: name, color: nil, icon: nil)
+        let record = try #require(services.browserProfiles.ordered.first { $0.name == name })
+        defer { try? services.browserProfiles.delete(record.id) }
+        let profile = record.engineProfile
+        let store = services.cache.webKit.profileStore.dataStore(for: profile)
         let cookie = try #require(HTTPCookie(properties: [.domain: Self.site, .path: "/", .name: "cbd", .value: "1",
                                                           .expires: Date().addingTimeInterval(3600)]))
         await store.httpCookieStore.setCookie(cookie)
         let page = try #require(URL(string: "https://\(Self.site)/visited"))
-        services.cache.history.recordVisit(url: page, title: "Visited", at: Date())
-        let target = ActionTargetRef(kind: .browserProfile, id: BrowserProfileRecord.defaultID)
+        let history = services.cache.history(for: profile)
+        history.recordVisit(url: page, title: "Visited", at: Date())
+        let target = ActionTargetRef(kind: .browserProfile, id: record.id)
         #expect(services.registry.descriptor(for: "browserProfile.clearBrowsingData") != nil, "Clear Browsing Data is not an action")
 
-        // History only: the visit goes, the cookie stays.
-        let historyOnly = ActionInvocation(target: target, arguments: [
-            "range": .string("hour"), "history": .bool(true), "cookies": .bool(false), "cache": .bool(false),
+        // History and cache, not cookies: the visit goes; the store's clear runs and keeps the cookie.
+        let keepCookies = ActionInvocation(target: target, arguments: [
+            "range": .string("hour"), "history": .bool(true), "cookies": .bool(false), "cache": .bool(true),
         ]).confirmed()
-        #expect(services.registry.perform("browserProfile.clearBrowsingData", invocation: historyOnly))
-        try await Self.until { !services.cache.history.entries.contains { $0.url == page } }
-        #expect(await Self.hasCookie(store))
+        #expect(services.registry.perform("browserProfile.clearBrowsingData", invocation: keepCookies))
+        try await Self.until { !history.entries.contains { $0.url == page } }
+        try await Task.sleep(for: .seconds(1))
+        #expect(await Self.hasCookie(store), "clearing without cookies removed the profile's cookie")
 
-        // Every kind (the defaults): the cookie goes too.
+        // Every kind (the default): the cookie goes too.
         let everything = ActionInvocation(target: target, arguments: ["range": .string("hour")]).confirmed()
         #expect(services.registry.perform("browserProfile.clearBrowsingData", invocation: everything))
         let deadline = ContinuousClock.now + .seconds(20)

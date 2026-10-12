@@ -248,10 +248,15 @@ function ClearBrowsingData({ target }: { target: string }) {
   });
   const [cleared, setCleared] = useState(false);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
+  // "Cleared" once the app took the run; a refused run shows nothing.
   const clear = async () => {
     setCleared(false);
-    await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
-    setCleared(true);
+    try {
+      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+      setCleared(true);
+    } catch {
+      setCleared(false);
+    }
   };
   return (
     <div className="host-field" data-clear-browsing-data="">

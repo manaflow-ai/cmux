@@ -8,8 +8,9 @@ import os
 /// history, cookies and site data, and cached images and files changed in a
 /// time range, in both engines. One action (`browserProfile.clearBrowsingData`)
 /// serves the palette, the profile's context menu, Settings > Browser >
-/// Profiles, `cmux browser-profile clear-browsing-data` and MCP. Every kind
-/// and the last hour unless the invocation says otherwise.
+/// Profiles, `cmux browser-profile clear-browsing-data` and MCP. The range
+/// is asked for (the palette's inline prompt); every kind unless the
+/// invocation turns one off.
 @MainActor
 enum BrowsingDataClear {
     struct Kinds: OptionSet {
@@ -36,6 +37,11 @@ enum BrowsingDataClear {
 
     static func bind(_ bind: BrowserProfileOpenHandlers.Bind, context: AppActionContext) {
         bind("browserProfile.clearBrowsingData") { invocation in
+            // An incognito window's tab names no profile (its data goes with the window): never the default's.
+            let named = invocation.target?.kind == .browserProfile || invocation["browserProfile"] != nil
+            if !named, let (tab, _) = context.focusedBrowserTab(), context.services.cache.browserTabs.isIncognitoTab(tab.id) {
+                throw ActionFailure.invalidTarget(BrowserProfileAppStrings.incognitoTab)
+            }
             let profile = try context.browserProfile(invocation).engineProfile
             let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? .hour
             clear(Kinds(invocation), of: profile, in: range, context.services)

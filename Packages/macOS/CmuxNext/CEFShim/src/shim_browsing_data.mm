@@ -13,7 +13,8 @@ using namespace cmux_shim;
 namespace {
 
 // Deletes each visited cookie created at or after `since_`; CEF releases the
-// visitor after the last cookie (or at once for none), which replies.
+// visitor on the UI thread after the last cookie (or at once for none),
+// which replies.
 class ClearSince : public CefCookieVisitor {
  public:
   ClearSince(int64_t since, int reply) : since_(since), reply_(reply) {}

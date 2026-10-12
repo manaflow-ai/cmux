@@ -61,10 +61,10 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             descriptor("browserProfile.duplicateTab", text("action.browserProfile.duplicateTab", "Duplicate Tab into Browser Profile…"),
                        "plus.square.on.square", "duplicate-tab", extra: ["tab", "copy", "duplicate"], arguments: [profile], targets: [.tab]),
             // cx-d0d.23, Chrome's Clear Browsing Data: the profile's history, cookies and site data,
-            // and cache over a time range (every kind, the last hour by default).
+            // and cache over a time range the run names (every kind by default).
             descriptor("browserProfile.clearBrowsingData", text("action.browserProfile.clearBrowsingData", "Clear Browsing Data…"),
                        "eraser", "clear-browsing-data", extra: ["history", "cache", "privacy", "delete", "clear", "data"],
-                       arguments: [HistoryActionCatalog.historyRange.optional,
+                       arguments: [HistoryActionCatalog.historyRange,
                                    CatalogArgument.clearKind("history", text("argument.browsingData.history", "Browsing History")),
                                    CatalogArgument.clearKind("cookies", text("argument.browsingData.cookies", "Cookies and Site Data")),
                                    CatalogArgument.clearKind("cache", text("argument.browsingData.cache", "Cached Images and Files"))],
