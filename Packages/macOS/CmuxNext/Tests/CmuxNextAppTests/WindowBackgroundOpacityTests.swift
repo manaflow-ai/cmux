@@ -163,9 +163,10 @@ import Testing
     /// In Ghostty mode the Opacity row reads Ghostty's own value, and a write keeps Ghostty's
     /// blur as the explicit material (a blur radius is Frosted).
     @Test func ghosttyModeReadsGhosttysOpacityAndKeepsItsBlur() async throws {
+        // First: the app's services may load the machine's own Ghostty config, which records its values.
+        let services = AppServices(environment: AppEnvironment.current([:]))
         let harness = try await make(ghostty: Self.ghostty(opacity: 0.9, blur: 20))
         defer { harness.tearDown() }
-        let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.settingsWindow.pageDerivedNumbers()[Self.opacityKey] == .number(0.9))
 
         _ = try await harness.page.call("cmux.settings.set", params: ["key": .string(Self.opacityKey), "value": 0.5],
