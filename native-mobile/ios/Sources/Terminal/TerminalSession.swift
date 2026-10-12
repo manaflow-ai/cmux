@@ -89,12 +89,21 @@ final class TerminalSession {
         reader = Task { [weak self] in
             do {
                 let client = try await connection.openTerminalClient()
-                guard let self else { return }
+                // Detached (or reattached) while the channel opened: this
+                // attach is stale and must not replace the newer client.
+                guard let self, !Task.isCancelled else {
+                    await client.close()
+                    return
+                }
                 self.client = client
                 let events = client.events
                 let consumer = Task { [weak self] in
-                    for await event in events { self?.handle(event) }
-                    self?.streamEnded()
+                    for await event in events {
+                        // Events still queued from a replaced client are stale.
+                        guard let self, self.client === client else { continue }
+                        self.handle(event)
+                    }
+                    if self?.client === client { self?.streamEnded() }
                 }
                 _ = try await client.request("attach-surface", [
                     "surface": .number(Double(self.surfaceID)), "mode": "bytes",
@@ -108,6 +117,8 @@ final class TerminalSession {
                 ])
                 await consumer.value
             } catch {
+                // A detach cancels this attach; its failure isn't the session's.
+                if Task.isCancelled { return }
                 debugLog("cmux-native: attach FAILED \(error)")
                 self?.stats.attachError = error.localizedDescription
                 self?.phase = .failed(error.localizedDescription)
