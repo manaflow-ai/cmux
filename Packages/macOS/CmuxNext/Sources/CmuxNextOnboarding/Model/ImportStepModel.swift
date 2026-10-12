@@ -180,6 +180,9 @@ public final class ImportStepModel {
         mergeTarget = nil
     }
 
+    /// Import from Another Browser…: the exported files, into this step's target profile.
+    public func importFromFiles() { services.importFromFiles(into: mergeTarget) }
+
     public func toggle(_ kind: ImportDataKind) {
         guard canEditSelection, kindChoices.contains(kind) else { return }
         if kinds.remove(kind) == nil { kinds.insert(kind) }

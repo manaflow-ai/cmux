@@ -33,13 +33,13 @@ struct BookmarkEditorSheet: View {
             Grid(alignment: .leading, horizontalSpacing: Metrics.space4, verticalSpacing: Metrics.space3) {
                 GridRow {
                     Text(BookmarkStrings.name)
-                    TextField("", text: $state.title).textFieldStyle(.roundedBorder)
+                    TextField("", text: $state.title).textFieldStyle(.roundedBorder).focusEffectDisabled()
                         .accessibilityIdentifier("cmux.bookmarks.editor.name")
                 }
                 if !state.isFolder {
                     GridRow {
                         Text(BookmarkStrings.url)
-                        TextField("", text: $state.url).textFieldStyle(.roundedBorder)
+                        TextField("", text: $state.url).textFieldStyle(.roundedBorder).focusEffectDisabled()
                             .accessibilityIdentifier("cmux.bookmarks.editor.url")
                     }
                 }

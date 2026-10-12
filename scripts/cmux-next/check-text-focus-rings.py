@@ -17,8 +17,14 @@ the box, or the field's own border) show focus. This check refuses a new ring on
   tsx  a Tailwind `focus:` / `focus-visible:` outline or ring utility on an <input> or <textarea>
        (`outline-none` / `ring-0` are fine).
 
+  swift CmuxNext sources: a SwiftUI TextField / SecureField whose modifier chain (the next 8
+       lines) has no `.focusEffectDisabled()`, and an AppKit NSTextField / NSSearchField /
+       NSSecureTextField / NSTokenField / NSComboBox built in a file that never sets
+       `focusRingType = .none` (labels excluded). AppKit's and SwiftUI's ring is a system-blue
+       rectangle around the field.
+
 A deliberate exception carries `text-focus-allow: <reason>` in a comment on the rule (CSS) or on
-the element's line (TSX). Exits 1 with one line per hit; 0 when clean.
+the element's line (TSX, Swift). Exits 1 with one line per hit; 0 when clean.
 
   python3 scripts/cmux-next/check-text-focus-rings.py [--root DIR]
 """
@@ -161,6 +167,41 @@ def tsx_hits(text: str):
         yield text.count("\n", 0, match.start()) + 1, ring.group(0)
 
 
+SWIFT_TREE = "Packages/macOS/CmuxNext/Sources"
+SWIFTUI_FIELD = re.compile(r"(?<![\w.])(?:TextField|SecureField)\s*\(")
+APPKIT_FIELD = re.compile(
+    r"(?<![\w.])(?:NSTextField|NSSearchField|NSSecureTextField|NSTokenField|NSComboBox)\s*\("
+    r"(?!\s*(?:labelWithString|wrappingLabelWithString|labelWithAttributedString)\b)"
+)
+
+
+def swift_hits(text: str):
+    """SwiftUI fields without .focusEffectDisabled() in their own modifier chain (up to 8 lines, never
+    past the next field), and AppKit editable fields whose bound name never gets
+    `<name>.focusRingType = .none` in the file."""
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        code = re.sub(r'"(?:[^"\\]|\\.)*"', '""', line.split("//", 1)[0])
+        if ALLOW in line:
+            continue
+        if SWIFTUI_FIELD.search(code) and not re.search(r"\b(?:struct|class|enum|extension)\s+\w*(?:TextField|SecureField)", code):
+            chain = [code[SWIFTUI_FIELD.search(code).end() :]]
+            for following in lines[index + 1 : index + 9]:
+                if SWIFTUI_FIELD.search(following.split("//", 1)[0]):
+                    break
+                chain.append(following)
+            if not re.search(r"\.focusEffectDisabled\(\s*\)", "\n".join(chain)):
+                yield index + 1, "a SwiftUI text field without .focusEffectDisabled()"
+        match = APPKIT_FIELD.search(code)
+        if match:
+            bound = re.search(r"(?:let|var)?\s*(\w+)\s*(?::\s*[\w.]+)?\s*=\s*(?:\w+\s*\?\s*)?[\w.]*$", code[: match.start()])
+            name = bound.group(1) if bound else None
+            if name and re.search(rf"\b{re.escape(name)}\.focusRingType\s*=\s*\.none", text):
+                continue
+            if name is None and re.search(r"focusRingType\s*=\s*\.none", text):
+                continue  # an unbound field (an argument): the file-level setting is the best signal
+            yield index + 1, f"an AppKit text field ({name or 'unbound'}) without focusRingType = .none"
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default=REPO)
@@ -189,6 +230,20 @@ def main() -> int:
                     text = handle.read()
                 for line, utility in tsx_hits(text):
                     hits.append(f"{rel}:{line}: `{utility}` on a text field")
+    swift_tree = os.path.join(args.root, SWIFT_TREE)
+    if not os.path.isdir(swift_tree):
+        print(f"check-text-focus-rings: no {SWIFT_TREE} under {args.root}", file=sys.stderr)
+        return 2
+    for directory, dirs, files in os.walk(swift_tree):
+        dirs[:] = [d for d in dirs if d not in (".build", "generated")]
+        for name in sorted(files):
+            path = os.path.join(directory, name)
+            if not name.endswith(".swift") or not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+            for line, what in swift_hits(text):
+                hits.append(f"{os.path.relpath(path, args.root)}:{line}: {what}")
     for hit in hits:
         print(hit)
     if hits:
