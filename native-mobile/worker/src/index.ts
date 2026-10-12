@@ -2,11 +2,13 @@
 // Contract: native-mobile/ARCHITECTURE.md, "Signaling (Worker)".
 import { connect, type Connection } from "@planetscale/database";
 import { HostSignal } from "./signal";
+import { handleHostEvent, liveActivityRegister, pushAction, pushStatus, userPush, UserPush } from "./push";
 
-export { HostSignal };
+export { HostSignal, UserPush };
 
 export interface Env {
   HOST_SIGNAL: DurableObjectNamespace;
+  USER_PUSH: DurableObjectNamespace<UserPush>;
   APPLE_AUDIENCES: string;
   DB_HOST: string;
   DB_USERNAME: string;
@@ -14,6 +16,11 @@ export interface Env {
   TURN_KEY_ID: string;
   TURN_KEY_API_TOKEN: string;
   DEV_LOGIN_SECRET: string;
+  /// APNs auth key (.p8 PEM), its key id, and the Apple team id. Without the
+  /// key, push sending is a logged no-op.
+  APNS_KEY_P8?: string;
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
 }
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -23,13 +30,13 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 // ---------- helpers ----------
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(public status: number, public code: string, message?: string) {
     super(message ?? code);
   }
 }
 
-function json(body: unknown, status = 200): Response {
+export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
@@ -44,7 +51,7 @@ function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function randomId(): string {
+export function randomId(): string {
   return hex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
@@ -64,7 +71,7 @@ async function safeEqual(a: string, b: string): Promise<boolean> {
   return diff === 0 && a.length === b.length;
 }
 
-async function readJson(req: Request): Promise<Record<string, unknown>> {
+export async function readJson(req: Request): Promise<Record<string, unknown>> {
   try {
     const v = await req.json();
     if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
@@ -72,7 +79,7 @@ async function readJson(req: Request): Promise<Record<string, unknown>> {
   throw new HttpError(400, "bad_json", "request body must be a JSON object");
 }
 
-function str(body: Record<string, unknown>, key: string, max = 255, required = true): string | undefined {
+export function str(body: Record<string, unknown>, key: string, max = 255, required = true): string | undefined {
   const v = body[key];
   if (v === undefined || v === null || v === "") {
     if (required) throw new HttpError(400, "missing_field", `${key} is required`);
@@ -108,14 +115,14 @@ function normalizeCode(input: string): string {
 
 // ---------- auth ----------
 
-interface User {
+export interface User {
   id: string;
   email: string | null;
   display_name: string | null;
   created_at: number;
 }
 
-interface HostRow {
+export interface HostRow {
   id: string;
   user_id: string | null;
   name: string;
@@ -149,13 +156,13 @@ async function hostFromSecret(env: Env, secret: string | null): Promise<HostRow 
   return (r.rows[0] as HostRow | undefined) ?? null;
 }
 
-async function requireUser(env: Env, req: Request): Promise<User> {
+export async function requireUser(env: Env, req: Request): Promise<User> {
   const u = await userFromToken(env, bearer(req));
   if (!u) throw new HttpError(401, "unauthorized", "valid session token required");
   return u;
 }
 
-async function requireHost(env: Env, req: Request): Promise<HostRow> {
+export async function requireHost(env: Env, req: Request): Promise<HostRow> {
   const h = await hostFromSecret(env, bearer(req));
   if (!h) throw new HttpError(401, "unauthorized", "valid host secret required");
   return h;
@@ -465,17 +472,30 @@ interface RTCIceServerLike {
 async function pushRegister(env: Env, req: Request): Promise<Response> {
   const user = await requireUser(env, req);
   const body = await readJson(req);
-  const token = str(body, "apns_token", 255)!;
+  const token = str(body, "apns_token", 255)!.toLowerCase();
+  if (!/^[0-9a-f]{32,200}$/.test(token)) throw new HttpError(400, "bad_field", "apns_token must be hex");
   const environment = str(body, "environment", 16, false) ?? "production";
   if (environment !== "production" && environment !== "sandbox") throw new HttpError(400, "bad_field", "environment");
   const bundleId = str(body, "bundle_id", 255, false) ?? null;
+  const pushToStart = str(body, "push_to_start_token", 255, false)?.toLowerCase() ?? null;
+  if (pushToStart && !/^[0-9a-f]{32,255}$/.test(pushToStart)) throw new HttpError(400, "bad_field", "push_to_start_token must be hex");
+  const flag = (k: string): boolean | undefined => (typeof body[k] === "boolean" ? (body[k] as boolean) : undefined);
   const now = Date.now();
-  await db(env).execute(
+  const conn = db(env);
+  await conn.execute(
     "INSERT INTO devices (id, user_id, apns_token, environment, bundle_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
       "ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), environment = VALUES(environment), bundle_id = VALUES(bundle_id), updated_at = VALUES(updated_at)",
     [randomId(), user.id, token, environment, bundleId, now, now],
   );
-  return json({ ok: true });
+  const row = (await conn.execute("SELECT id FROM devices WHERE apns_token = ?", [token])).rows[0] as { id: string } | undefined;
+  if (!row) throw new HttpError(500, "device_not_saved");
+  // Live Activity tokens and switches live in the user's push Durable Object.
+  await userPush(env, user.id).setDevice(row.id, {
+    pushToStartToken: pushToStart ?? undefined,
+    liveActivities: flag("live_activities"),
+    notifications: flag("notifications"),
+  });
+  return json({ ok: true, device_id: row.id });
 }
 
 async function signal(env: Env, req: Request, hostId: string): Promise<Response> {
@@ -522,6 +542,11 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (p === "/v1/pair" && m === "POST") return pair(env, req);
   if (p === "/v1/ice" && m === "GET") return ice(env, req);
   if (p === "/v1/push/register" && m === "POST") return pushRegister(env, req);
+  if (p === "/v1/push/status" && m === "GET") return pushStatus(env, req);
+  if (p === "/v1/push/action" && m === "POST") return pushAction(env, req);
+  if (p === "/v1/push/live-activity" && m === "POST") return liveActivityRegister(env, req);
+  const eventsMatch = p.match(/^\/v1\/hosts\/([0-9a-f]{32})\/events$/);
+  if (eventsMatch && m === "POST") return handleHostEvent(env, req, eventsMatch[1]);
   const sig = p.match(/^\/v1\/signal\/([^/]+)$/);
   if (sig && m === "GET") return signal(env, req, sig[1]);
   throw new HttpError(404, "not_found");

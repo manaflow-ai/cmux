@@ -8,12 +8,20 @@
   "workers_dev": true,
   "observability": { "enabled": true },
   "vars": {
-    "APPLE_AUDIENCES": "dev.cmux.next.native,dev.cmux.next.native.dev"
+    "APPLE_AUDIENCES": "dev.cmux.next.native,dev.cmux.next.native.dev",
+    "APNS_TEAM_ID": "7WLXT3NR37"
   },
   "durable_objects": {
-    "bindings": [{ "name": "HOST_SIGNAL", "class_name": "HostSignal" }]
+    "bindings": [
+      { "name": "HOST_SIGNAL", "class_name": "HostSignal" },
+      { "name": "USER_PUSH", "class_name": "UserPush" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostSignal"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["HostSignal"] },
+    { "tag": "v2", "new_sqlite_classes": ["UserPush"] }
+  ]
   // Secrets (wrangler secret put): DB_HOST, DB_USERNAME, DB_PASSWORD,
-  // TURN_KEY_ID, TURN_KEY_API_TOKEN, DEV_LOGIN_SECRET
+  // TURN_KEY_ID, TURN_KEY_API_TOKEN, DEV_LOGIN_SECRET, and for push
+  // APNS_KEY_P8 + APNS_KEY_ID (sending is a logged no-op without them)
 }

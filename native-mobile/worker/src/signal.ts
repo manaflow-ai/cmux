@@ -36,6 +36,15 @@ export class HostSignal extends DurableObject<Env> {
       }
       return Response.json({ ok: true });
     }
+    if (url.pathname === "/action" && req.method === "POST") {
+      // A notification response, already authorized by the Worker (the user
+      // owns this host). The host validates the event and surface itself.
+      const host = this.hostSockets()[0];
+      if (!host) return Response.json({ error: "host_offline" }, { status: 409 });
+      const body = (await req.json()) as { user_id: string; action: unknown };
+      send(host, { t: "action", from: "phone", user_id: body.user_id, action: body.action });
+      return Response.json({ ok: true });
+    }
     if (url.pathname === "/connect") return this.acceptConnection(req);
     return new Response("not found", { status: 404 });
   }

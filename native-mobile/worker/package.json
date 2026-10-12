@@ -5,7 +5,8 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "node test/e2e.mjs"
+    "test:e2e": "node test/e2e.mjs",
+    "test": "node --test test/apns.test.mjs"
   },
   "dependencies": {
     "@planetscale/database": "^1.20.2"
