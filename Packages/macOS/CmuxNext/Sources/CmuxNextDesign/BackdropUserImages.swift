@@ -19,7 +19,8 @@ public nonisolated struct BackdropUserImages: Sendable {
     public let folder: URL
 
     public init(folder: URL) {
-        self.folder = folder.standardizedFileURL
+        // Resolved, so `/var/…` and `/private/var/…` name the same folder.
+        self.folder = folder.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// Whether `url` names an image file the backdrop can show.
@@ -30,9 +31,10 @@ public nonisolated struct BackdropUserImages: Sendable {
     /// The folder's images, newest first, without downloaded art (`<art id>.avif`).
     public func list(fileManager: FileManager = .default) -> [BackdropSelection] {
         let files = (try? fileManager.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]
+            at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
         )) ?? []
-        let images: [(url: URL, modified: Date)] = files.filter { Self.isImage($0) && !isDownloadedArt($0) }.map { url in
+        let images: [(url: URL, modified: Date)] = files.filter { Self.isImage($0) && !isDownloadedArt($0) && Self.isPlainFile($0) }.map { url in
             let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             return (url, modified ?? .distantPast)
         }
@@ -43,20 +45,35 @@ public nonisolated struct BackdropUserImages: Sendable {
         return newestFirst.map { BackdropSelection.file(path: $0.url.path) }
     }
 
-    /// Whether `selection` is one of this folder's own images.
+    /// Whether `selection` is one of this folder's own images: a plain file directly in the folder,
+    /// named without `..` or a symbolic link, so its id cannot reach a file elsewhere.
     public func contains(_ selection: BackdropSelection) -> Bool {
         guard case .file(let path) = selection else { return false }
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        return url.deletingLastPathComponent().path == folder.path && Self.isImage(url) && !isDownloadedArt(url)
+        let url = URL(fileURLWithPath: path)
+        guard url.resolvingSymlinksInPath().path == path, url.deletingLastPathComponent().path == folder.path else { return false }
+        return Self.isImage(url) && !isDownloadedArt(url) && Self.isPlainFile(url)
     }
 
-    /// Copies `source` into the folder (a free name beside any file already there) and returns
-    /// it as a selection; an image already in the folder is returned as is.
+    /// A regular file, not a symbolic link or a folder named like an image.
+    private static func isPlainFile(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        return values?.isRegularFile == true && values?.isSymbolicLink != true
+    }
+
+    /// Copies `source` (the file a link points at) into the folder under a free name and returns
+    /// it as a selection. An image already in the folder, or one whose copy is already there, is
+    /// returned as is, so choosing the same image again adds nothing.
     public func adopt(_ source: URL, fileManager: FileManager = .default) throws -> BackdropSelection {
-        let source = source.standardizedFileURL
-        guard Self.isImage(source) else { throw CocoaError(.fileReadUnsupportedScheme) }
+        let source = source.standardizedFileURL.resolvingSymlinksInPath()
+        guard Self.isImage(source), Self.isPlainFile(source) else { throw CocoaError(.fileReadUnsupportedScheme) }
         if source.deletingLastPathComponent().path == folder.path, !isDownloadedArt(source) {
             return .file(path: source.path)
+        }
+        if let copy = list(fileManager: fileManager).first(where: { selection in
+            guard case .file(let path) = selection else { return false }
+            return fileManager.contentsEqual(atPath: path, andPath: source.path)
+        }) {
+            return copy
         }
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = source.deletingPathExtension().lastPathComponent

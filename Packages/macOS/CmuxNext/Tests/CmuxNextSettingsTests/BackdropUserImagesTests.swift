@@ -12,9 +12,9 @@ import Testing
         FileManager.default.temporaryDirectory.appendingPathComponent("backdrop-own-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private static func png(named name: String, in folder: URL) throws -> URL {
+    private static func png(named name: String, in folder: URL, side: Int = 4) throws -> URL {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8,
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                                 bytesPerRow: 0, bitsPerPixel: 0))
         let url = folder.appendingPathComponent(name)
@@ -33,13 +33,17 @@ import Testing
         let images = BackdropUserImages(folder: backgrounds)
 
         let chosen = try images.adopt(original)
-        let again = try images.adopt(original)
+        // The same image again adds nothing; another image of the same name gets a free name.
+        #expect(try images.adopt(original) == chosen)
+        let other = try Self.png(named: "Harbor at dusk.png", in: elsewhere.appendingPathComponent("other"), side: 8)
+        let again = try images.adopt(other)
         guard case .file(let path) = chosen, case .file(let secondPath) = again else {
             Issue.record("a chosen image is not a file background: \(chosen)")
             return
         }
-        #expect(URL(fileURLWithPath: path).deletingLastPathComponent().standardizedFileURL == backgrounds.standardizedFileURL)
+        #expect(URL(fileURLWithPath: path).deletingLastPathComponent().path == backgrounds.resolvingSymlinksInPath().path)
         #expect(FileManager.default.contentsEqual(atPath: path, andPath: original.path))
+        #expect(FileManager.default.contentsEqual(atPath: secondPath, andPath: other.path))
         #expect(URL(fileURLWithPath: secondPath).lastPathComponent == "Harbor at dusk 2.png")
         #expect(chosen.title == "Harbor at dusk")
         // Downloaded art in the same folder is art, not one of the person's images.
@@ -52,6 +56,13 @@ import Testing
         #expect(catalog.choices.firstIndex(of: chosen)! > catalog.choices.lastIndex { if case .art = $0 { true } else { false } }!)
         #expect(images.contains(chosen))
         #expect(!images.contains(.file(path: original.path)))
+        // An id cannot reach outside the folder through `..` or a link inside it.
+        let folderPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        #expect(!images.contains(.file(path: folderPath + "/../" + original.lastPathComponent)))
+        let link = URL(fileURLWithPath: folderPath).appendingPathComponent("link.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: original)
+        #expect(!images.contains(.file(path: link.path)))
+        #expect(!images.list().contains(.file(path: link.path)))
 
         let root = JSONValue.object(["appearance": .object(["background": .string(chosen.id)])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])

@@ -164,8 +164,10 @@ struct PageFactory {
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                            dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
-        // An image dropped on Settings becomes the background (cx-t2x.8).
-        page?.fileDrop = PageFileDrop(accepts: BackdropUserImages.isImage) { [weak provider] url in
+        // An image dropped on Settings becomes the background (cx-t2x.8), while the picker shows.
+        page?.fileDrop = PageFileDrop(accepts: { [weak services] url in
+            services?.settings?.snapshot.experimentalAppearance == true && BackdropUserImages.isImage(url)
+        }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }
