@@ -36,7 +36,7 @@ extension PageWebView {
         return value
     }
 
-    /// SCROLLBARS-FOLLOW-MACOS audit: the page's `data-scrollers` and every element that would show
+    /// SCROLLBARS-THIN audit: the page's `data-scrollers` and every element that would show
     /// a scroller at rest under "Always" (its overflow is auto or scroll on an axis whose content is
     /// larger than its box), with the overflow in CSS pixels. An overflow of a few pixels is a
     /// layout bug that "Always" makes visible.

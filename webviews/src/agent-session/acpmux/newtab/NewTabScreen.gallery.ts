@@ -19,18 +19,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    tools: [
-      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌃⇧⌘G", menu: [] },
-      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight", "splitDown"] },
-      { id: "file.open", title: "Files", symbol: "folder", shortcut: "⇧⌘O", menu: [] },
-      {
-        id: "agentPane.searchChats",
-        title: "Side chat",
-        symbol: "bubble.left.and.text.bubble.right",
-        shortcut: "⌘K",
-        menu: [],
-      },
-    ],
     ...fields,
   },
   newSession: true,
