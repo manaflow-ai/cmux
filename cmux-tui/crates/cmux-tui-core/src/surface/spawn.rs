@@ -307,7 +307,7 @@ impl Surface {
                             let normalized = crate::prompt_mode_reset::write_output(
                                 &mut term,
                                 &buf[..n],
-                                || pid.is_some_and(crate::platform::is_foreground),
+                                || pid.is_some_and(platform::is_foreground),
                             );
                             terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
