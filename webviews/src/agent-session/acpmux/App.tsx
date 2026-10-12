@@ -24,6 +24,7 @@ import {
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
+  type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
@@ -76,6 +77,7 @@ import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
@@ -1760,6 +1762,10 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
   });
 
+/// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
+const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
+  void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
+
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
   return permission.question ? (
@@ -3294,6 +3300,8 @@ function AcpmuxPane() {
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
+          "chat.secret": ({ secretId, value }) =>
+            client.secret(String(secretId), typeof value === "string" ? value : undefined),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -4104,7 +4112,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask || toolCards.length > 0) && (
+      {(individualPermission || trustAsk.ask || snapshot.secret || toolCards.length > 0) && (
         <div className="acpmux-permission">
           <ToolCards
             cards={toolCards}
@@ -4120,6 +4128,14 @@ function AcpmuxPane() {
             />
           )}
           {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {snapshot.secret && (
+            <SecretCard
+              key={snapshot.secret.secretId}
+              ask={snapshot.secret}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              onAnswer={answerSecret(snapshot.secret)}
+            />
+          )}
         </div>
       )}
     </>
