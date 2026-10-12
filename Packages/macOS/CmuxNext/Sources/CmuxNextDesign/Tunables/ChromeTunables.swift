@@ -38,7 +38,7 @@ public nonisolated enum ChromeTunables {
     // MARK: Glass and overlays
 
     public static let opaqueOverlayLift = Tunable<Double>.number(
-        "glass.opaqueOverlayLift", .glass, "Opaque overlay lift", help: "Reduce Transparency overlays: how far the fill moves from the background toward the text color.",
+        "glass.opaqueOverlayLift", .glass, "Opaque overlay lift", help: "Popup surface (overlays, popovers, tooltips): how far its solid fill moves from the background toward the text color.",
         default: 0.14, range: 0...0.6, step: 0.01, unit: .fraction, code: "ChromeTunables.opaqueOverlayLift")
     public static let glassOverlayTintStrength = Tunable<Double>.number(
         "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",

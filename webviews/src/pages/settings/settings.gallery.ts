@@ -631,6 +631,24 @@ for (const [kind, key] of Object.entries(RESET_SAMPLES))
       await ctx.waitFor(() => !ctx.document.querySelector(`${row(key)} [data-reset]`));
     },
   });
+// One scroller (cx-jh7kq): a select opened near the bottom edge, then the content scrolled under
+// it. The pop-up stays at its row (or waits hidden while the row is out of view); the document
+// never scrolls, so the column never slides up under the window.
+variants["play-select-scroll"] = variant("appearance", {
+  note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
+  play: async (ctx) => {
+    const content = ctx.find({ selector: ".content" });
+    const control = `${row("sidebar.sectionLook")} .ui-select-button`;
+    const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
+    await ctx.scroll(
+      { selector: ".content" },
+      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
+    );
+    await ctx.click({ selector: control });
+    await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
+    await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);
+  },
+});
 variants["play-section-change"] = variant("accounts", {
   note: "Changing category: the column fades in; the sidebar never moves.",
   play: async (ctx) => {

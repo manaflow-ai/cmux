@@ -23,6 +23,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
                 help: SettingsText.keyed("settings.appearance.theme.help",
                                         "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
+                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for cmux and its terminals"),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
@@ -31,6 +32,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
                 help: SettingsText.keyed("settings.appearance.appTheme.help",
                                         "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
+                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for cmux's own pages"),
                 kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
                 defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
@@ -48,6 +50,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.accent", "Accent"),
                 help: SettingsText.keyed("settings.appearance.accent.help",
                                         "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris."),
+                summary: SettingsText.keyed("settings.appearance.accent.summary", "Color of selection and focus"),
                 kind: .choice([
                     SettingChoice(ThemeAccent.neutral.rawValue, SettingsText.keyed("settings.choice.accent.neutral", "Neutral")),
                     SettingChoice(ThemeAccent.theme.rawValue, SettingsText.keyed("settings.choice.accent.theme", "Theme Color")),
@@ -66,6 +69,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",
                                         "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."),
+                summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
                 default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "attribution", "legacy"]
             ),
@@ -74,6 +78,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
                 help: SettingsText.keyed("settings.appearance.background.help",
                                         "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material."),
+                summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
@@ -91,6 +96,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
                 help: SettingsText.keyed("settings.appearance.backgroundOpacity.help",
                                         "How much of the theme color covers the material behind the window."),
+                summary: SettingsText.keyed("settings.appearance.backgroundOpacity.summary", "Theme color over the backdrop"),
                 kind: .number(SettingNumber(WindowBackgroundSetting.opacityRange, step: 0.05, unit: .fraction, placeholder: 1)),
                 default: nil, defaultLabel: ghostty,
                 keywords: ["transparency", "translucent", "background-opacity", "blur", "glass"]
@@ -155,6 +161,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.keyed("settings.appearance.interfaceSize.help",
                                         "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                summary: SettingsText.keyed("settings.appearance.interfaceSize.summary", "Text size of tabs, sidebar and controls"),
                 kind: .number(SettingNumber(InterfaceSizeSetting().range, step: 1, unit: .points, placeholder: 12)),
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
@@ -180,6 +187,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.focusIndicator", "Focused Pane"),
                 help: SettingsText.keyed("settings.appearance.focusIndicator.help",
                                         "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                summary: SettingsText.keyed("settings.appearance.focusIndicator.summary", "How the focused pane stands out"),
                 kind: .choice([
                     SettingChoice(FocusIndicator.border.rawValue, SettingsText.keyed("settings.choice.border", "Border")),
                     SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.keyed("settings.choice.tabs", "Tabs")),
@@ -193,6 +201,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
                                         "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
                     SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.keyed("settings.choice.tonal", "Tonal")),
@@ -215,6 +224,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
                 help: SettingsText.keyed("settings.layout.paneSeparation.help",
                                         "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."),
+                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
                 kind: .choice([
                     SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
                     SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),

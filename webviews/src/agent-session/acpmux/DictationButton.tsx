@@ -4,7 +4,7 @@ import { MicIcon } from "./ComposerPickers";
 import { DictationLevelMeter } from "./DictationLevelMeter";
 import { isActive, type Dictation } from "./dictation";
 import { useT } from "./i18n";
-import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
+import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 
 export function DictationButton({ dictation }: { dictation: Dictation }) {
   const t = useT();
@@ -19,7 +19,7 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
       data-state={state}
       aria-label={label}
       aria-pressed={isActive(state)}
-      title={withShortcut(label, shortcut)}
+      {...tooltipProps(label, shortcut)}
       // Keep focus and the selection in the prompt: that is where the words go.
       onMouseDown={(event) => event.preventDefault()}
       onClick={dictation.toggle}

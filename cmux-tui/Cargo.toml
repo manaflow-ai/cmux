@@ -294,8 +294,11 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit, as on main (#19666): the nightly-next client is
+# 79 MB stripped on thin LTO. Each release link takes about 2 minutes longer.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

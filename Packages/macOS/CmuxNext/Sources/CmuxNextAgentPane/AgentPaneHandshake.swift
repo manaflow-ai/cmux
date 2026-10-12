@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses
     }
 
     public var protocolVersion: Int
@@ -93,6 +93,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public nonisolated struct FolderNeeded: Codable, Sendable, Equatable {
         public var reason: String
     }
+    /// True for a page opened by Integrate a Harness… (cx-uj5g8): it shows its Harnesses page.
+    /// Handed out once. Pages that predate it ignore it.
+    public var harnesses: Bool?
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?

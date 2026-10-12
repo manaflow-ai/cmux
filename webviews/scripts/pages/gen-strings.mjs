@@ -43,7 +43,7 @@ export const LOCALES = [
 
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
-/** Every key a settings schema export names (titles, help, groups, default labels, choices, page layout). */
+/** Every key a settings schema export names (titles, help, summaries, groups, default labels, choices, page layout). */
 export function schemaKeys(schemaFile) {
   const schema = readJSON(schemaFile);
   const keys = new Set();
@@ -53,7 +53,8 @@ export function schemaKeys(schemaFile) {
     for (const group of category.groups ?? []) if (group.title?.key) keys.add(group.title.key);
   }
   for (const row of schema.rows ?? []) {
-    for (const field of ["title", "help", "group", "default_label"]) if (row[field]?.key) keys.add(row[field].key);
+    for (const field of ["title", "help", "summary", "group", "default_label"])
+      if (row[field]?.key) keys.add(row[field].key);
     for (const choice of row.choices ?? []) if (choice.title?.key) keys.add(choice.title.key);
   }
   return keys;

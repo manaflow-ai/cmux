@@ -62,6 +62,7 @@ nonisolated enum ColumnLayoutSettingsSchema {
                 title: SettingsText.keyed("settings.layout.rows", "Rows"),
                 help: SettingsText.keyed("settings.layout.rows.help",
                                         "Off hides New Row and fits a column's existing rows into it without scrolling."),
+                summary: SettingsText.keyed("settings.layout.rows.summary", "Rows of panes inside a column"),
                 kind: .toggle, default: .bool(ColumnLayoutSettings.rowsFallback), keywords: ["row", "column", "scroll", "vertical"]
             ),
             SettingDescriptor(

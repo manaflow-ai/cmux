@@ -116,6 +116,11 @@ extension WorkspaceRowSetting {
         }
     }
 
+    /// The Settings page line; only Log needs one beside its title.
+    static func summary(_ element: WorkspaceRowElement) -> SettingText? {
+        element == .log ? SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log") : nil
+    }
+
     static func kindName(_ kind: WorkspaceRowKind) -> SettingText {
         switch kind {
         case .terminal: SettingsText.keyed("settings.workspaceRow.kind.terminal", "Terminal Workspaces")
@@ -140,7 +145,7 @@ extension WorkspaceRowSetting {
         let defaults = WorkspaceRowElements.standard
         var rows = WorkspaceRowElement.allCases.map { element in
             SettingDescriptor(path(element), section: .appearance, group: group, title: title(element), help: help(element),
-                              kind: .toggle, default: .bool(defaults.shows(element)),
+                              summary: summary(element), kind: .toggle, default: .bool(defaults.shows(element)),
                               keywords: ["sidebar", "workspace", "row", element.rawValue])
         }
         rows.append(SettingDescriptor(

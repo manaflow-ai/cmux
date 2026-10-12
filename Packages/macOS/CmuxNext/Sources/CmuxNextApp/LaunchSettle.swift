@@ -28,9 +28,10 @@ final class LaunchSettle {
         self.reveal = reveal
     }
 
-    /// Runs `work` once the launch settled (at once when it has).
+    /// Runs `work` once the launch settled and no agent page waits behind
+    /// its last frame (at once when both hold).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
-        if isSettled { work() } else { waiters.append(work) }
+        if isSettled { LaunchImageHold.shared.whenClear(work) } else { waiters.append(work) }
     }
 
     /// Settles (first call only) and runs the waiters in order.
@@ -43,7 +44,8 @@ final class LaunchSettle {
         AgentPaneWarmup.finish()
         let waiting = waiters
         waiters.removeAll()
-        for work in waiting { work() }
+        // An agent page still loading behind its last frame paints first (LaunchImageHold).
+        LaunchImageHold.shared.whenClear { for work in waiting { work() } }
     }
 
     /// Listens for the first terminal content (`TerminalTimings`), for the

@@ -783,5 +783,6 @@
 
   .content {
     padding: 14px 16px 40px;
+    --content-fade-top: 12px;
   }
 }

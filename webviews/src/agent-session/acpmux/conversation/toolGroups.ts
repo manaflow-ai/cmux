@@ -16,7 +16,8 @@ export type ToolGroup =
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 /// The group a call joins, or nil for a call drawn on its own. Only calls with a command line
-/// are commands; an MCP call can also say "execute".
+/// are commands; an MCP call can also say "execute". An edit still waiting for its permission
+/// ("pending") is drawn as the call, not as "Edited" (cx-p5fgx).
 export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   switch (tool.kind) {
     case "execute":
@@ -27,7 +28,7 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
     case "delete":
     case "move":
     case "fileChange":
-      return "edits";
+      return tool.status === "pending" ? undefined : "edits";
     case "search":
       return "searches";
     default:
