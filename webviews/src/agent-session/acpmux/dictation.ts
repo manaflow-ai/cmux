@@ -82,9 +82,20 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
     let composing = false;
     /// The last update spliced; a repeat (a level-only tick) leaves the prompt and caret alone.
     let applied: DictationUpdate | null = null;
+    /// The field element the session writes into.
+    let owner: Element | null = null;
     const apply = (update: DictationUpdate) => {
       const field = prompt.current;
       if (!field) return;
+      // The session's field went away (New Tab became the chat): its words and offsets belong to
+      // that field, so the session ends rather than splicing into, or sending, another one.
+      if (anchor.current && owner && owner !== field.element()) {
+        anchor.current = null;
+        applied = null;
+        owner = null;
+        if (isActive(update.state)) void call("dictation.cancel").catch(() => {});
+        return;
+      }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
       // A session the shortcut started writes where the user will type, as undoable edits.
@@ -92,6 +103,7 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
       const splice = applyDictation(field.text(), anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
+      owner = splice.anchor ? field.element() : null;
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
       // Submit on the next task, once the composer's state holds the dictated text.
       if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
@@ -135,7 +147,7 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
       document.removeEventListener("compositionstart", compositionStart, true);
       document.removeEventListener("compositionend", compositionEnd, true);
     };
-  }, [prompt]);
+  }, [prompt, call]);
 
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);

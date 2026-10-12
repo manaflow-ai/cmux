@@ -1,4 +1,5 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
@@ -240,13 +241,6 @@ export function NewTabScreen(props: Props) {
     const command = text.trim();
     if (command) props.onShell(command);
   };
-  // Dictation splices its words into the field as typing would, then puts the caret after them.
-  const caret = useRef<[number, number] | undefined>(undefined);
-  useLayoutEffect(() => {
-    const at = caret.current;
-    caret.current = undefined;
-    if (at) field.current?.setSelectionRange(at[0], at[1]);
-  });
   const sendRef = useRef(send);
   sendRef.current = send;
   const editRef = useRef(edit);
@@ -267,9 +261,11 @@ export function NewTabScreen(props: Props) {
           selectionEnd: input?.selectionEnd ?? value.length,
         };
       },
+      // Dictation splices its words in as typing would, committed at once: its next update reads
+      // the field back, and auto-send sends what it holds.
       writeText: (value, selectionStart, selectionEnd) => {
-        caret.current = [selectionStart, selectionEnd];
-        editRef.current(value);
+        flushSync(() => editRef.current(value));
+        field.current?.setSelectionRange(selectionStart, selectionEnd);
       },
       submit: () => sendRef.current(),
     };
