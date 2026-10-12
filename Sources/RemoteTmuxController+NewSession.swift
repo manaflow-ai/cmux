@@ -133,8 +133,16 @@ extension RemoteTmuxController {
                 // makes this best-effort kill safe even when nothing was created.
                 _ = await removeCreatedSession(
                     host: host,
-                    name: created.isEmpty ? requestedName : created
+                    name: result.succeeded && !created.isEmpty ? created : requestedName
                 )
+                return
+            }
+            if !result.succeeded, !created.isEmpty, created != requestedName {
+                #if DEBUG
+                cmuxDebugLog("remote-tmux: failed new-session returned unexpected output")
+                #endif
+                _ = await removeCreatedSession(host: host, name: requestedName)
+                newSessionEnvironment.reportFailure(host, .create, manager)
                 return
             }
             guard !created.isEmpty else {
@@ -155,9 +163,9 @@ extension RemoteTmuxController {
                 }
                 return
             }
-            // A nonzero SSH status can still carry the session name when the remote
-            // tmux command was accepted before the transport failed. Treat that as an
-            // attach-stage failure so cleanup status is reported accurately.
+            // A nonzero SSH status can still carry the explicitly requested session name
+            // when the remote tmux command was accepted before the transport failed. Treat
+            // that as an attach-stage failure so cleanup status is reported accurately.
             name = created
         } catch is CancellationError {
             // The remote command may have created the session before local
