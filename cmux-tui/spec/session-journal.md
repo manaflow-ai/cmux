@@ -88,6 +88,39 @@ may be used in delivery receipts. A resource mutation also carries its resource
 revision so existing `session.events` consumers retain their atomic delta
 cursor while migration is in progress.
 
+`terminal.program_status` is the resource operation emitted when a terminal's
+OSC 7501 records change. Its `payload.changes` entry remains the ordinary
+terminal upsert, including `value.extra.program_status` for the current
+records. The same event's `payload.result.program_status_change` is an
+additive hook view of the change:
+
+```json
+{
+  "event": "report",
+  "id": "agent/plan",
+  "record": {
+    "id": "agent/plan",
+    "state": "blocked",
+    "progress": null,
+    "kind": "permission",
+    "app": "terraform",
+    "title": "Plan",
+    "msg": "Apply?",
+    "updated_seq": "4",
+    "updated_at_ms": "1790000000000"
+  },
+  "records": []
+}
+```
+
+`event` is `report`, `clear`, or `prompt_start`. A `clear` has the removed
+record ID in `id` and `record: null`; `prompt_start` has `id: null` and
+`record: null`. `records` is the complete current set, including transient
+records while the terminal is running. Existing socket consumers continue to
+read the current set from the terminal resource and its `session.events`
+upsert; journal hooks can filter `terminal.program_status` to receive the
+explicit change envelope without parsing a snapshot diff.
+
 `kind` is a versioned dotted semantic name. Provider-native names belong in
 the adapter payload, not in `kind`. The initial agent vocabulary is:
 

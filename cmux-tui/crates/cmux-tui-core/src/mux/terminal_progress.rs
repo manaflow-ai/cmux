@@ -8,23 +8,28 @@ use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonica
 impl Mux {
     /// Publish `source`'s current terminal snapshot (with its progress and
     /// program status) as one resource revision named `mutation`. A replaced
-    /// runtime or a terminal that is not running publishes nothing.
+    /// runtime or a terminal that is still launching publishes nothing. An
+    /// exited terminal can still publish its final status snapshot so a
+    /// report emitted just before process exit reaches hooks.
     pub(crate) fn publish_terminal_progress(
         &self,
         source: &Surface,
         mutation: &'static str,
-    ) -> anyhow::Result<()> {
-        let Some(id) = source.terminal_public_id() else { return Ok(()) };
+        program_status_change: Option<Value>,
+    ) -> anyhow::Result<bool> {
+        let Some(id) = source.terminal_public_id() else { return Ok(false) };
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
-        let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(()) };
+        let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
-            return Ok(());
+            return Ok(false);
         }
-        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(()) };
-        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(()) };
-        if durable.lifecycle != TerminalLifecycle::Running {
-            return Ok(());
+        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
+        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
+        match durable.lifecycle {
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
+            TerminalLifecycle::Tombstoned => return Ok(true),
+            TerminalLifecycle::Running | TerminalLifecycle::Exited => {}
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());
@@ -37,6 +42,17 @@ impl Mux {
             .remove(id)
             .unwrap_or_default();
         let value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
+        let mut result = value.clone();
+        if let Some(mut change) = program_status_change {
+            // The status claim can race the durable exit latch. Use the exact
+            // record list already committed in this terminal snapshot so a
+            // hook envelope cannot retain transient records after exit.
+            change["records"] = value
+                .pointer("/extra/program_status")
+                .cloned()
+                .unwrap_or_else(|| Value::Array(Vec::new()));
+            result["program_status_change"] = change;
+        }
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
@@ -47,13 +63,13 @@ impl Mux {
             None,
             None,
             &ResourcePatch { changes: Vec::new() },
-            &value,
+            &result,
             &deltas,
         )?;
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
         self.publish_resource_event();
-        Ok(())
+        Ok(true)
     }
 }
