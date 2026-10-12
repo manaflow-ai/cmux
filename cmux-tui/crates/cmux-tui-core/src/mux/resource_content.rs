@@ -370,9 +370,8 @@ impl Mux {
                     .map(|host| host.terminal_id)
                     .or_else(|| source_tab.terminal_id.clone())
                     .context("terminal omitted its durable host identity")?;
-                let durable_terminal = registry
-                    .terminal_record(&host_id)?
-                    .context("terminal has no durable host")?;
+                let durable_terminal =
+                    registry.terminal_record(&host_id)?.context("terminal has no durable host")?;
                 let terminal_snapshot = |tabs: &[RegistryTab]| {
                     public_terminal_snapshot(
                         &terminal_id,
