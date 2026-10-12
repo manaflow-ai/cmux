@@ -127,3 +127,60 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     act(() => root.unmount());
   }
 });
+
+test("New chat sends what the field holds, and a second click opens nothing more", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => void calls.push({ method, params }),
+    cwd: "/Users/you/src/app",
+    chatCwd: "/Users/you/src/app",
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  const render = async (root: Root) =>
+    act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+        </QueryClientProvider>,
+      ),
+    );
+  const button = (kind: string) => host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`)!;
+  let root: Root = createRoot(host);
+  try {
+    await render(root);
+    // A prompt typed before the click goes with the chat, as Return would send it.
+    const field = host.querySelector<HTMLInputElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "fix the flaky upload test");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => button("chat").click());
+    expect(calls.filter((call) => call.method === "chat.send")).toEqual([
+      { method: "chat.send", params: { text: "fix the flaky upload test" } },
+    ]);
+  } finally {
+    act(() => root.unmount());
+  }
+  calls.length = 0;
+  root = createRoot(host);
+  try {
+    await render(root);
+    // A double click (or a click during the terminal's spawn) opens one tab.
+    await act(async () => {
+      button("terminal").click();
+      button("terminal").click();
+      button("browser").click();
+    });
+    expect(calls.filter((call) => call.method === "tab.open").length).toBe(1);
+  } finally {
+    act(() => root.unmount());
+  }
+});
