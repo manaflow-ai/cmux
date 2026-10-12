@@ -17,7 +17,8 @@ const changes = (lines: readonly DiffLine[]) =>
 
 /// Both versions of the file `path` (repository-relative) from a whole-file `git.diff` answer, or
 /// undefined when the answer cannot stand for the shown diff: no such file, a cut patch, more than
-/// one hunk, or changes other than `edit`'s (the file changed since the scope loaded).
+/// one hunk, a hunk not from the first line, or changes other than `edit`'s (the file changed since
+/// the scope loaded).
 export function readWholeFile(value: unknown, path: string, edit: DiffEdit): WholeFile | undefined {
   const files = (value as { files?: unknown } | null)?.files;
   if (!Array.isArray(files)) return undefined;
@@ -29,6 +30,9 @@ export function readWholeFile(value: unknown, path: string, edit: DiffEdit): Who
   const hunks = patchHunks(file.patch);
   const whole = hunks[0];
   if (hunks.length !== 1 || !whole) return undefined;
+  // A host that ignored or capped `context_lines` answers with the hunk's own context: not the file.
+  const first = (side: "oldLine" | "newLine") => whole.lines.find((line) => line[side] !== undefined)?.[side];
+  if (first("oldLine") !== 1 || first("newLine") !== 1) return undefined;
   const shown = changes(edit.hunks.flatMap((hunk) => hunk.lines));
   const read = changes(whole.lines);
   if (shown.length !== read.length || shown.some((line, index) => line !== read[index])) return undefined;
