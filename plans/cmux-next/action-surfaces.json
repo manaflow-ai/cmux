@@ -15858,6 +15858,33 @@
       "title_table" : "BrowserProfileActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "browser-profile clear-browsing-data",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserProfile"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.clearBrowsingData",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Browsing Data…",
+      "title_key" : "action.browserProfile.clearBrowsingData",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser-profile manage-extensions",
       "context_menu" : "offered",
@@ -28204,9 +28231,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.delete",
+          "id" : "browserProfile.clearBrowsingData",
           "kind" : "action",
           "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 15
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.delete",
+          "kind" : "action",
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

@@ -425,6 +425,7 @@ export const settingsPageActions = [
   "browserProfile.clearIcon",
   "browserProfile.manageExtensions",
   "browserProfile.delete",
+  "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
   "palette.computerUse.accessibility",

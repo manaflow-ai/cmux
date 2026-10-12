@@ -75,6 +75,7 @@ enum BrowserProfileHandlers {
             try profiles.delete(record.id)
         }
         BrowserProfileOpenHandlers.bind(bind, context: context)
+        BrowsingDataClear.bind(bind, context: context)
     }
 
     /// A new profile: the given name, color and icon, else "Profile N" and
