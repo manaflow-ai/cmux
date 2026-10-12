@@ -17,6 +17,14 @@ public enum ConversationHeaderGeometry {
         max(16, layoutMargin)
     }
 
+    // MARK: Name
+
+    /// The name capsule's bold type for the headline size Dynamic Type asks
+    /// for (17 pt at Large), held at 21 pt from XXL up.
+    public static func namePointSize(scaled: CGFloat) -> CGFloat {
+        min(scaled, 21)
+    }
+
     // MARK: Unread count in the back capsule
 
     /// The count is SF 12 medium (its "379" ink is 20.3 x 9 pt in Messages).

@@ -12,6 +12,14 @@ import Testing
         #expect(ConversationHeaderGeometry.sideMargin(layoutMargin: 8) == 16)
     }
 
+    @Test func nameHoldsBetweenLargeAndXXL() {
+        // MobileSMS's title label, iOS 27.0 (402 pt): SF Bold 17 at XS (the
+        // headline asks for 14.67), 17 at Large, 21 at AX3 (it asks for 40).
+        #expect(ConversationHeaderGeometry.namePointSize(scaled: 14.67) == 17)
+        #expect(ConversationHeaderGeometry.namePointSize(scaled: 17) == 17)
+        #expect(ConversationHeaderGeometry.namePointSize(scaled: 40) == 21)
+    }
+
     @Test func backCapsuleWithoutCountIsACircle() {
         #expect(ConversationHeaderGeometry.backWidth(unreadTextWidth: nil) == 44)
     }

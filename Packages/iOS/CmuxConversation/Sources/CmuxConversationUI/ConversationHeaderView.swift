@@ -174,9 +174,13 @@ final class ConversationHeaderView: UIView {
         }
     }
 
-    /// The name grows with Dynamic Type up to XXL, then holds (Messages caps it there).
-    /// Bold, as measured in Messages' name capsule.
-    static var nameFont: UIFont { ConversationTheme.font(17, .bold, style: .headline, maximum: 21) }
+    /// The name follows Dynamic Type between Large and XXL and holds outside
+    /// that range (`ConversationHeaderGeometry.namePointSize`). Bold, as
+    /// measured in Messages' name capsule.
+    static var nameFont: UIFont {
+        let headline = ConversationTheme.scaled(17, .headline)
+        return .systemFont(ofSize: ConversationHeaderGeometry.namePointSize(scaled: headline), weight: .bold)
+    }
     static let largeNameFont = UIFont.systemFont(ofSize: 17, weight: .bold)
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
