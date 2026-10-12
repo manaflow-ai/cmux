@@ -130,6 +130,7 @@
     "useUnsupported": "This machine's image predates the Claude Code sign-in switch. To use your own Claude account in a terminal here, run unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL, then start claude and sign in with /login.",
     "useModeOwn": "Claude Code: your own login (%s)",
     "useModeTeam": "Claude Code: the team's CodeRouter accounts (%s)",
+    "useReasonEnv": "CMUX_CLAUDE_AUTH is set in this environment",
     "useReasonChosen": "chosen with cr use",
     "useReasonLogin": "you signed in with /login on this machine",
     "useReasonTeamAccount": "default: the team has a usable Claude account",

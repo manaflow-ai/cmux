@@ -8,8 +8,10 @@
 #   own   the user's own sign-in to the agent (Claude Code: /login); the
 #         launcher adds no CodeRouter env, so nothing outranks that login
 #
-# The choice lives in ~/.config/cmux/agent-auth/<agent> ("team" or "own"),
-# written by `cr use`. Without one, an own sign-in on the machine counts as
+# CMUX_<AGENT>_AUTH=team|own in the environment pins one launch (automation,
+# image verification). Otherwise the choice lives in
+# ~/.config/cmux/agent-auth/<agent> ("team" or "own"), written by `cr use`.
+# Without one, an own sign-in on the machine counts as
 # choosing own; otherwise team when the team has a usable account, else own,
 # so Claude Code shows its normal sign-in instead of a CodeRouter refusal.
 #
@@ -63,6 +65,7 @@ sys.exit(0 if any(isinstance(a, dict) and a.get("state") == "active" for a in ac
 }
 
 # Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason:
+#   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
 #   login           no choice; the agent has its own sign-in here
 #   team-account    no choice or sign-in; the team has a usable account
@@ -70,6 +73,10 @@ sys.exit(0 if any(isinstance(a, dict) and a.get("state") == "active" for a in ac
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
+  eval "cmux_agent_auth_mode=\${CMUX_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')_AUTH-}"
+  case "$cmux_agent_auth_mode" in
+    team|own) cmux_agent_auth_reason=env; return 0 ;;
+  esac
   cmux_agent_auth_mode=$(cmux_agent_auth_choice "$1")
   if [ -n "$cmux_agent_auth_mode" ]; then
     cmux_agent_auth_reason=chosen

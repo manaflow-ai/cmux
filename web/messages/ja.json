@@ -130,6 +130,7 @@
     "useUnsupported": "このマシンのイメージは Claude Code のサインイン切り替えに対応していません。ここで自分の Claude アカウントを使うには、unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL を実行してから claude を起動し、/login でサインインしてください。",
     "useModeOwn": "Claude Code: 自分のログイン（%s）",
     "useModeTeam": "Claude Code: チームの CodeRouter アカウント（%s）",
+    "useReasonEnv": "この環境で CMUX_CLAUDE_AUTH が設定されています",
     "useReasonChosen": "cr use で選択",
     "useReasonLogin": "このマシンで /login によりサインイン済み",
     "useReasonTeamAccount": "既定: チームに使える Claude アカウントがあります",

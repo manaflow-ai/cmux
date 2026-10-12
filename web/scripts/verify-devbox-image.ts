@@ -242,7 +242,7 @@ const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style tha
 const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
 const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
 const AGENT_LAUNCH_CHECKS: readonly string[] = [
-  agentLaunchCheck("root", "/root", "claude-root-launch", "claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "claude-root-launch", "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
   agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
   agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
   // Nothing a launch wrote in the work user's home may be root-owned (the
@@ -271,11 +271,14 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // the interactive path shows the five first-run dialogs, so the probe is a
   // real PTY with an interactive shell (what the daemon spawns), types the
   // command, and reads the screen.
-  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
+  `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L claude new-session -d -s c -x 110 -y 34 && sleep 1 && tmux -L claude send-keys -t c "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions" Enter; pane=""; for i in $(seq 1 120); do pane="$(tmux -L claude capture-pane -pt c)"; printf "%s\\n" "$pane" | grep -qE "bypass permissions on|root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && break; sleep 0.5; done; tmux -L claude kill-server 2>/dev/null; printf "%s\\n" "$pane"; printf "%s\\n" "$pane" | grep -qiE "root/sudo|Lets get started|Select login method|use this API key|trust this folder|Do you want to proceed" && exit 1; printf "%s\\n" "$pane" | grep -q "bypass permissions on"' && echo claude-reaches-the-prompt`,
   `[ "$(id -u ${DEVBOX_WORK_USER})" = 1000 ] && sudo -n -u ${DEVBOX_WORK_USER} sudo -n true && echo work-user-sudo-ok`,
   `sudo -n -u ${DEVBOX_WORK_USER} bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo work-user-shell-ok`,
   "test ! -e /opt/mise && test ! -e /usr/local/bin/mise && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-toolchain-in-use",
   "for b in node claude codex opencode pi agent-browser bun; do test -L /usr/local/bin/$b || exit 1; done && echo agent-symlinks-ok",
+  // Claude Code sign-in mode: the entry is the launcher, which adds the
+  // CodeRouter env per launch in team mode only (agent-auth.sh).
+  'test "$(readlink /usr/local/bin/claude)" = /etc/cmux/claude && test -x /usr/local/libexec/cmux-claude-real && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}"\' && echo claude-launcher-ok',
   ...pins.map((pin) => `env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm sudo -n -u ${DEVBOX_WORK_USER} bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
   // Non-login probe, as the work user: probing as root with the work user's
   // HOME would itself leave root-owned state dirs behind.

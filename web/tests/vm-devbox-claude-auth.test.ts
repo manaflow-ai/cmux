@@ -210,6 +210,17 @@ describe("Cloud machine Claude Code sign-in precedence", () => {
     }
   });
 
+  test("CMUX_CLAUDE_AUTH pins one launch over the recorded choice and the default", async () => {
+    const m = machine();
+    choose(m, "own");
+    expect((await launch(m, { CMUX_CLAUDE_AUTH: "team" })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    const fresh = machine();
+    expect((await launch(fresh, { CMUX_CLAUDE_AUTH: "own", FAKE_CURL_BODY: ACTIVE })).ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(existsSync(fresh.calls)).toBe(false);
+    // Anything else is ignored rather than trusted.
+    expect((await launch(m, { CMUX_CLAUDE_AUTH: "bogus" })).ANTHROPIC_API_KEY).toBe("<unset>");
+  });
+
   test("--version and --help skip the mode resolution", async () => {
     const m = machine();
     const result = await runChild(m.launcher, ["--version"], { env: bootEnv(m, { FAKE_CURL_BODY: ACTIVE }) });

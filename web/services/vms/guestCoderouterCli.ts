@@ -83,6 +83,7 @@ export const GUEST_CODEROUTER_USE_SHELL = `guest_coderouter_use() {
     return 0
   fi
   case "\$cmux_agent_auth_reason" in
+    env) cmux_use_reason="\$(cmux_message useReasonEnv)" ;;
     chosen) cmux_use_reason="\$(cmux_message useReasonChosen)" ;;
     login) cmux_use_reason="\$(cmux_message useReasonLogin)" ;;
     team-account) cmux_use_reason="\$(cmux_message useReasonTeamAccount)" ;;
