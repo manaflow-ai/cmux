@@ -105,7 +105,8 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(posts, [], run)
 
     def test_a_failed_run_is_dispatched_again(self):
-        result, posts = self.publish(runs=[{"status": "completed", "conclusion": "failure"}])
+        # Its pin exists from the first attempt, so only a dispatch restarts it.
+        result, posts = self.publish(existing_pin=MERGE, runs=[{"status": "completed", "conclusion": "failure"}])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([post[1] for post in posts][-1], "/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches")
 
