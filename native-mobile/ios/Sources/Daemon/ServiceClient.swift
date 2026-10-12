@@ -169,8 +169,19 @@ extension ServiceClient {
 
     func refs(cwd: String?, text: String) async throws -> [HostFileRef] {
         struct Refs: Decodable { var refs: [HostFileRef] }
-        var params: [String: JSONValue] = ["text": .string(text)]
+        var params: [String: JSONValue] = ["text": .string(Self.recentText(text))]
         if let cwd { params["cwd"] = .string(cwd) }
         return try await call("session.refs", params).decode(Refs.self).refs
+    }
+
+    /// The host refuses `session.refs` text above 2 MiB, and a long agent
+    /// session's scrollback is bigger: send the most recent 1 MiB, starting
+    /// at a line boundary (recent mentions are the ones listed first).
+    nonisolated static func recentText(_ text: String, maxBytes: Int = 1 << 20) -> String {
+        let utf8 = text.utf8
+        guard utf8.count > maxBytes else { return text }
+        var start = utf8.index(utf8.endIndex, offsetBy: -maxBytes)
+        if let newline = utf8[start...].firstIndex(of: 0x0A) { start = utf8.index(after: newline) }
+        return String(text.utf8[start...]) ?? String(decoding: text.utf8[start...], as: UTF8.self)
     }
 }
