@@ -23,6 +23,9 @@ final class CloudService {
     @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
+    /// This Mac's `cmux link` for the app server path (cx-rtipa S3); nil on
+    /// the legacy path.
+    @ObservationIgnored private let linkLauncher: CloudLinkLauncher?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -98,6 +101,7 @@ final class CloudService {
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
+        linkLauncher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp() : nil
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
@@ -170,6 +174,7 @@ final class CloudService {
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
+                    await self.ensureLink()
                     await self.refresh()
                 } else {
                     self.dropAllMachines()
@@ -299,7 +304,9 @@ final class CloudService {
         let session: CloudMachineSession
         switch configuration.linkSource {
         case .appServer:
-            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local))
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local) { [weak self] in
+                await self?.ensureLink()
+            })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                           localIdentity: { [weak local] in local?.identity })
@@ -368,6 +375,7 @@ final class CloudService {
 
     func signOut() async {
         dropAllMachines()
+        await stopLink()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
@@ -375,6 +383,36 @@ final class CloudService {
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
         }
         await auth.signOut()
+    }
+
+    /// Starts this Mac's `cmux link` unless one of this build runs, as the
+    /// signed-in install, and tells the daemon when it started, so the Cloud
+    /// server sees it before the connect (cx-rtipa S3). A failure is logged;
+    /// the connect then answers that the helper is not running.
+    func ensureLink() async {
+        guard let linkLauncher, let install = await installIdentity.installID() else { return }
+        do {
+            let ensured = try await linkLauncher.ensure(install: install)
+            if ensured.status != "running" { await notifyLinkChanged() }
+        } catch {
+            logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Stops this Mac's `cmux link` (sign-out) and tells the daemon.
+    private func stopLink() async {
+        guard let linkLauncher else { return }
+        await linkLauncher.stop()
+        await notifyLinkChanged()
+    }
+
+    private func notifyLinkChanged() async {
+        guard let connection = machines.local.connection else { return }
+        do {
+            _ = try await connection.request(AppsLinkChangedRequest())
+        } catch {
+            logger.error("apps-link-changed failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
