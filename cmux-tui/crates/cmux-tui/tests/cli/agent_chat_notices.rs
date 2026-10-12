@@ -158,3 +158,23 @@ fn a_failed_turn_notifies_its_tab() {
     assert_eq!(failed["level"], "error", "{failed}");
     assert!(failed["title"].as_str().unwrap().ends_with("failed"), "{failed}");
 }
+
+#[test]
+fn a_turn_that_ends_while_a_pane_shows_the_chat_posts_nothing() {
+    let daemon = machine("notice-shown");
+    let (surface, session) = chat(&daemon);
+    let (other_surface, other_session) = chat(&daemon);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+    acpmux.call("_acpmux/view", json!({"sessionId": session, "visible": true}));
+    acpmux.prompt(&session, "hello while shown");
+
+    // acpmux tells the daemon of every chat in order on one watch, so once
+    // the other chat's later turn notified, the shown chat's turn was passed over.
+    Acpmux::connect(&daemon, &other_session).prompt(&other_session, "hello there");
+    notice(&daemon, other_surface, |row| row["acknowledged"] == false);
+    assert_eq!(
+        notices(&daemon, surface),
+        Vec::<Value>::new(),
+        "a turn the person watched notified"
+    );
+}
