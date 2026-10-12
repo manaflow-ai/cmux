@@ -949,6 +949,16 @@ _cmux_reset_terminal_keyboard_protocols() {
     printf '\033[>m\033[<8u'
 }
 
+_cmux_reset_terminal_leftover_modes() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}" ]] || return 0
+    # A TUI killed mid-run (SIGKILL, a crash) leaves its modes on: mouse
+    # reporting types reports like 35;1;13M at the prompt. The shell is the
+    # foreground job here, before its line editor turns bracketed paste back
+    # on. ESC 7 first: leaving the alternate screen restores a saved cursor,
+    # which on the primary screen must be where the prompt already is.
+    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033\067\033[?1049l'
+}
+
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
@@ -1283,6 +1293,7 @@ _cmux_prompt_command() {
     fi
 
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_leftover_modes
         _cmux_reset_terminal_keyboard_protocols
     fi
     if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
