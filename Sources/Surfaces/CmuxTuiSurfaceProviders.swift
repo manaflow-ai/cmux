@@ -18,9 +18,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// machines and legacy callers, which follow the selected team.
     let ownerTeamID: String?
     /// Set once the control plane answered that this user can no longer reach
-    /// the machine (404 `vm_not_found`, 403, `vm_owner_mismatch`). Refreshes
-    /// stop dialing and every attached pane shows the access-lost card.
-    var hasLostAccess = false
+    /// the machine (404 `vm_not_found`, 403, `vm_owner_mismatch`) or that this
+    /// Mac's Cloud sign-in was revoked. Refreshes stop dialing and every
+    /// attached pane shows the matching card. An authorized read that lists
+    /// the machine again clears a machine-scoped loss.
+    private(set) var accessLoss: CloudMachineAccessLoss?
+    var hasLostAccess: Bool { accessLoss != nil }
+    /// Panes whose attachment the access loss ended, rebuilt when access returns.
+    private var accessLostPanelIDs: Set<UUID> = []
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -321,16 +326,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The control plane answered that this user can no longer reach the
     /// machine. Automatic reconnects stop, and every attached pane shows the
     /// access-lost card; the pane itself stays open so the user decides.
-    func noteAccessLost() {
-        guard !hasLostAccess else { return }
-        hasLostAccess = true
+    func noteAccessLost(_ loss: CloudMachineAccessLoss = .forbidden) {
+        guard accessLoss == nil else { return }
+        accessLoss = loss
+        let stopReason: CloudTuiManualMirrorStopReason = loss.isMachineScoped ? .accessLost : .signInRevoked
         for task in restoredAttachTasks.values { task.cancel() }
         restoredAttachTasks.removeAll()
         attachmentRetry.cancel()
-        for session in manualMirrorSessions.values { session.stop(reason: .accessLost) }
+        for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
+        accessLostPanelIDs.formUnion(manualMirrorSessions.keys)
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
-        let detail = CloudTuiManualMirrorStopReason.accessLost.endedPresentation?.detail ?? ""
+        let detail = stopReason.endedPresentation?.detail ?? ""
         // Cloud browser and display panes of this machine keep the same state,
         // in the browser's own unavailable card.
         for task in browserPaneTasks.values { task.cancel() }
@@ -341,6 +348,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isRegisteredInCatalog() else { return }
         info.linkState = .error
         info.linkError = detail
+        catalog.updateMachine(info, from: self)
+    }
+    /// An authorized read listed the machine for its owning team, so a
+    /// machine-scoped loss was wrong or is over. Refreshes resume, and the
+    /// panes the loss ended are rebuilt by the next refresh's reprojection.
+    /// A revoked sign-in stays: listing machines does not need the Mac's
+    /// network enrollment, so it cannot prove that the sign-in works again.
+    func noteAccessConfirmed() {
+        guard let accessLoss, accessLoss.isMachineScoped else { return }
+        self.accessLoss = nil
+        materializedPanels.subtract(accessLostPanelIDs)
+        accessLostPanelIDs.removeAll()
+        guard isRegisteredInCatalog() else { return }
+        info.linkState = .connecting
+        info.linkError = nil
         catalog.updateMachine(info, from: self)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
@@ -506,9 +528,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            if CloudMachineAccessLoss(error: error) != nil {
+            if let loss = CloudMachineAccessLoss(error: error) {
                 // Retrying cannot succeed; a retry loop would only keep a frozen pane.
-                noteAccessLost()
+                noteAccessLost(loss)
                 return false
             }
             portDiscovery.linkFailed()
@@ -613,8 +635,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // A carrier link can outlive a revoked membership; the owning
                 // team's authorized read is the first to learn it.
                 guard self.isCurrentLifecycleGeneration(lifecycle),
-                      CloudMachineAccessLoss(error: error) != nil else { return }
-                self.noteAccessLost()
+                      let loss = CloudMachineAccessLoss(error: error) else { return }
+                self.noteAccessLost(loss)
             }
         }
         return snapshotEstablishedCurrentGraph

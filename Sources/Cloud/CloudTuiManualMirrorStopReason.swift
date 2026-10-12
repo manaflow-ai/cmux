@@ -14,6 +14,9 @@ enum CloudTuiManualMirrorStopReason: Equatable, Sendable {
     case accessLost
     /// The account signed out; Cloud access ends for every team.
     case signedOut
+    /// This Mac's Cloud sign-in was revoked (`403 vm_access_revoked`) while
+    /// the app still holds the older session; only a new sign-in restores it.
+    case signInRevoked
     /// Cloud Machines were disabled or suspended while the pane stayed open.
     case cloudUnavailable
 
@@ -38,6 +41,16 @@ enum CloudTuiManualMirrorStopReason: Equatable, Sendable {
                 detail: String(
                     localized: "cloud.overlay.signedOut.detail",
                     defaultValue: "Sign in to cmux to reconnect this terminal."
+                ),
+                showsProgress: false,
+                showsReconnectButton: false
+            )
+        case .signInRevoked:
+            return .init(
+                title: String(localized: "cloud.overlay.signInRevoked.title", defaultValue: "Sign in again to reconnect"),
+                detail: String(
+                    localized: "cloud.overlay.signInRevoked.detail",
+                    defaultValue: "Cloud access for this Mac sign-in was revoked. Sign out of cmux, then sign in again to reconnect this machine."
                 ),
                 showsProgress: false,
                 showsReconnectButton: false

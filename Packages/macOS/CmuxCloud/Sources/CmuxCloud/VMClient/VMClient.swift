@@ -1757,10 +1757,13 @@ public actor VMClient {
         }
     }
 
-    public func destroy(id: String) async throws {
+    /// Deletes one machine. `teamID` names the owning team (nil: the selected
+    /// team). The server finds the machine only under the team it is asked
+    /// for, so a machine of another team answers 404 to the selected team.
+    public func destroy(id: String, teamID: String? = nil) async throws {
         return try await withOperation(.delete, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
+            let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)", teamID: teamID)
             try ensureOK(http, data: data)
             // Whether any machine remains is only known after the next list; a tunnel start
             // meanwhile asks the control plane, not a marker that may describe this machine.

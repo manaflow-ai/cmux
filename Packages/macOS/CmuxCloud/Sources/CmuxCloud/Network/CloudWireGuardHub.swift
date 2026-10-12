@@ -470,6 +470,7 @@ public actor CloudWireGuardHub {
         expectedTeamScope: AuthenticatedTeamScope?
     ) async throws -> Ready {
         let delays = Array(configuration.restartBackoff.prefix(3))
+        var plan = CloudWireGuardHubRecoveryPlan()
         for attempt in 0...delays.count {
             try Task.checkCancellation()
             guard generation == startGeneration else { throw CancellationError() }
@@ -482,14 +483,14 @@ public actor CloudWireGuardHub {
                     generation: startGeneration,
                     allowWhenCloudDisabled: allowWhenCloudDisabled,
                     expectedTeamScope: expectedTeamScope,
-                    refreshEnrollment: attempt > 0
+                    refreshEnrollment: plan.refreshesNextEnrollment
                 )
             } catch {
                 try Task.checkCancellation()
                 guard generation == startGeneration else { throw CancellationError() }
                 lastError = CloudMachineLink.errorText(error)
                 guard attempt < delays.count else { throw error }
-                try await configuration.sleep(delays[attempt])
+                try await configuration.sleep(plan.recordFailure(error, backoff: delays[attempt]))
             }
         }
         throw HubError.notReady("hub startup failed without a reported error")

@@ -76,3 +76,30 @@ public enum VMClientError: Error, CustomStringConvertible {
         }
     }
 }
+
+extension VMClientError {
+    /// The wait the control plane asked for before the same request is sent
+    /// again, from a retryable answer's `retryAfterSeconds`; nil when the
+    /// answer named none. Bounded so a malformed answer cannot park a retry.
+    ///
+    /// A `409 vm_access_grant_busy` names one second while another request
+    /// holds this Mac's access lease; asking sooner only meets the same lease.
+    public var serverRetryAfter: Duration? {
+        guard case let .httpStatus(status, body) = self,
+              status == 409 || status == 429 || status == 503,
+              let data = body.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let seconds: Int?
+        if let value = object["retryAfterSeconds"] as? Int {
+            seconds = value
+        } else if let value = object["retryAfterSeconds"] as? Double {
+            seconds = Int(value.rounded(.up))
+        } else {
+            seconds = nil
+        }
+        guard let seconds, seconds > 0 else { return nil }
+        return .seconds(min(seconds, Self.maximumServerRetryAfterSeconds))
+    }
+
+    static let maximumServerRetryAfterSeconds = 60
+}

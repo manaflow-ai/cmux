@@ -515,7 +515,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         let needed = Set(catalog.projectedMachines.compactMap(\.cloudMachineID)).union(catalog.pendingRestoredMachineIDs)
         let targets: [(id: String, team: String)] = needed.sorted().compactMap { id in
             if let provider = providers[id] {
-                guard let owner = provider.ownerTeamID, owner != active, !provider.hasLostAccess else { return nil }
+                // A machine-scoped loss keeps its status read, so an
+                // authorized answer can clear a loss that was wrong.
+                guard let owner = provider.ownerTeamID, owner != active,
+                      provider.accessLoss?.isMachineScoped != false else { return nil }
                 return (id, owner)
             }
             guard let team = adoptedOwnerTeams[id], team != active else { return nil }
@@ -530,9 +533,9 @@ final class CmuxTuiSurfaceProviderRegistry {
                 summary = try await loadMachineStatus(target.id, target.team)
             } catch {
                 guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
-                guard CloudMachineAccessLoss(error: error) != nil else { continue }
+                guard let loss = CloudMachineAccessLoss(error: error) else { continue }
                 if let provider = providers[target.id] {
-                    provider.noteAccessLost()
+                    provider.noteAccessLost(loss)
                 } else {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
@@ -543,6 +546,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             }
             guard !isRetired, epoch == accessEpoch, generation == refreshGeneration else { return }
             if let provider = providers[target.id] {
+                provider.noteAccessConfirmed()
                 provider.update(summary: summary)
                 continue
             }
@@ -775,6 +779,9 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard generation == refreshGeneration else { return nil }
             if let provider = providers[summary.id] {
                 if statusAccepted {
+                    // The owning team's list names the machine: the user can
+                    // reach it, whatever an earlier answer said.
+                    provider.noteAccessConfirmed()
                     provider.update(summary: summary)
                     if CloudMachineLinkManager.isAsleepStatus(summary.status) {
                         scheduleTransportTeardown(summary.id, provider: provider)
