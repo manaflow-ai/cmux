@@ -1,5 +1,5 @@
 import Foundation
-import CmuxNativeWire
+public import CmuxNativeWire
 
 /// How the active link reaches the host.
 public enum LinkPath: Sendable, Equatable, CustomStringConvertible {
@@ -65,7 +65,7 @@ public enum LinkState: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-public struct LinkError: Error, Equatable, Sendable, CustomStringConvertible {
+public struct LinkError: LocalizedError, Equatable, Sendable, CustomStringConvertible {
     public var code: String
     public var message: String
 
@@ -75,6 +75,15 @@ public struct LinkError: Error, Equatable, Sendable, CustomStringConvertible {
     }
 
     public var description: String { "\(code): \(message)" }
+
+    /// User-facing copy (shown in error states; never the type name).
+    public var errorDescription: String? {
+        switch code {
+        case "closed", "channel_closed": "The connection to your Mac closed."
+        case "timeout": "Your Mac took too long to answer (\(message))."
+        default: message.prefix(1).uppercased() + message.dropFirst()
+        }
+    }
 
     public static let closed = LinkError(code: "closed", message: "link is closed")
     public static let channelClosed = LinkError(code: "channel_closed", message: "channel is closed")
@@ -138,6 +147,8 @@ public protocol HostAcceptorDelegate: AnyObject, Sendable {
     /// `peerDidDisconnect` follows.
     func hostAcceptor(_ acceptor: any HostAcceptor, peerDidTimeOut peer: LinkPeer, idle: Duration)
     func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState)
+    /// The Worker relayed a notification response from `userID`'s phone.
+    func hostAcceptor(_ acceptor: any HostAcceptor, didReceiveAction action: JSONValue, from userID: String?)
 }
 
 extension HostAcceptorDelegate {
@@ -145,6 +156,7 @@ extension HostAcceptorDelegate {
     public func hostAcceptor(_ acceptor: any HostAcceptor, peerDidDisconnect peer: LinkPeer) {}
     public func hostAcceptor(_ acceptor: any HostAcceptor, peerDidTimeOut peer: LinkPeer, idle: Duration) {}
     public func hostAcceptor(_ acceptor: any HostAcceptor, didChange state: HostAcceptorState) {}
+    public func hostAcceptor(_ acceptor: any HostAcceptor, didReceiveAction action: JSONValue, from userID: String?) {}
 }
 
 /// Host side: accepts links from phones and hands over their channels.

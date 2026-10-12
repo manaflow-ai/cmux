@@ -92,6 +92,12 @@ final class HostConnection {
             if phase != .connected { phase = .connecting }
         case .connected(let linkPath):
             path = linkPath.description
+            // A path change (direct <-> relay) or an ICE restart keeps the
+            // channels; only a new peer connection needs them reopened.
+            if let control, await !control.closed, let services, await !services.isClosed {
+                phase = .connected
+                return
+            }
             await openControl()
         case .reconnecting:
             phase = .reconnecting
@@ -107,6 +113,7 @@ final class HostConnection {
             let channel = try await link.openChannel(label: "daemon:\(UUID().uuidString)")
             let client = DaemonClient(channel: channel)
             await client.start()
+            await control?.close()
             _ = try await client.identify()
             try? await client.setClientInfo(deviceID: Self.deviceID, name: UIDevice.current.name)
             try await client.subscribe()
@@ -118,7 +125,7 @@ final class HostConnection {
             tasks.append(Task { [weak self] in
                 for await event in events { self?.handle(event) }
             })
-            if services == nil {
+            if await services?.isClosed ?? true {
                 let svc = ServiceClient(channel: try await link.openChannel(label: "svc"))
                 await svc.start()
                 services = svc

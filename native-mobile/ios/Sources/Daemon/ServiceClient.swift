@@ -9,6 +9,9 @@ actor ServiceClient {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var reader: Task<Void, Never>?
+    /// True once the channel ended (the link reconnected or the host went away);
+    /// the connection opens a fresh `svc` channel then.
+    private(set) var isClosed = false
 
     init(channel: any LinkChannel) { self.channel = channel }
 
@@ -22,6 +25,7 @@ actor ServiceClient {
     }
 
     func call(_ method: String, _ params: [String: JSONValue] = [:]) async throws -> JSONValue {
+        if isClosed { throw DaemonClient.Failure(message: "The connection to your Mac closed.") }
         let id = nextID
         nextID += 1
         var line = try JSONEncoder().encode(JSONValue.object(["id": .number(Double(id)), "method": .string(method), "params": .object(params)]))
@@ -38,6 +42,7 @@ actor ServiceClient {
     private func fail(_ id: Int, _ error: any Error) { pending.removeValue(forKey: id)?.resume(throwing: error) }
 
     private func finish() {
+        isClosed = true
         for continuation in pending.values { continuation.resume(throwing: DaemonClient.Failure(message: "The connection to your Mac closed.")) }
         pending.removeAll()
     }
