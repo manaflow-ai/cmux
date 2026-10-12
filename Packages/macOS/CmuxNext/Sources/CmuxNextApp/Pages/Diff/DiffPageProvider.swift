@@ -36,6 +36,8 @@ final class DiffPageProvider: PageProvider {
     private weak var host: (any DiffTabHosting)?
     /// Prefs and viewed marks (``DiffPageStores``); nil serves no store op.
     let stores: DiffPageStores?
+    /// Stage, Commit and Push in the tab's repository (``DiffGitRunning``); nil serves no git op.
+    let git: (any DiffGitRunning)?
     /// Sessions of the current grant this tab named or was given, not closed yet.
     private(set) var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
@@ -44,9 +46,10 @@ final class DiffPageProvider: PageProvider {
     private(set) var isClosed = false
 
     init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
-         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil) {
+         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
         self.ready = ready
         self.stores = stores
+        self.git = git
         self.sidecar = sidecar
         self.languages = languages
         self.host = host
