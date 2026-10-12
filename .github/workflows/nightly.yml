@@ -1832,6 +1832,24 @@ jobs:
             --require-acpmux
           ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
+      # The Computer Use helper that onboarding grants (cx-urd.6, D19). Only a
+      # com.cmuxterm.cua app at Contents/Library with the team's Developer ID
+      # signature is used, so it is assembled here for Codesign apps to sign and
+      # notarize-nightly-dmg.sh to notarize. It builds with the reviewed rustc
+      # that cmux-tui pins: the notices check (rust-std) needs a reviewed rustc.
+      - name: Assemble the Computer Use helper
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' cmux-tui/rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs="arm64 x86_64"; fi
+          RUSTUP_TOOLCHAIN="$toolchain" ./scripts/build-cmux-cua.sh \
+            --output "$app/Contents/Resources/bin/cmux-cua" --helper-app --archs "$archs"
+          # The helper app is what ships; build-cmux-cua.sh's bin copy is scratch.
+          rm -f "$app/Contents/Resources/bin/cmux-cua" "$app/Contents/Resources/bin/cmux-cua-LICENSE.md"
+          ./scripts/ci/verify-computer-use-helper.sh layout "$app"
+
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
         id: remote_daemon
@@ -2368,7 +2386,8 @@ jobs:
             "$APP/Contents/MacOS/cmux" \
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
-            "$APP/Contents/Resources/bin/cmux-diff-sidecar"
+            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
+            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
           do
             archs="$(lipo -archs "$binary")"
             echo "$binary: $archs"
@@ -2637,6 +2656,11 @@ jobs:
             "$CHANNEL_APP_PATH" \
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
+
+      # Onboarding grants Accessibility and Screen Recording only to a helper
+      # that passes the Developer ID requirement (cx-urd.6).
+      - name: Verify the Computer Use helper signature
+        run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
 
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
