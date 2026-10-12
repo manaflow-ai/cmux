@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// shows the new page (its `contentHost`), and that in one step: every frame
 /// outside it equals the frame before the key or the last frame
 /// (`intermediate` counts the ones that equal neither), and no frame shows
-/// the content area blank, one flat color (`blank`). PNGs of every frame and
+/// the content area blank, one flat color that was not there before the key (`blank`). PNGs of every frame and
 /// one strip (`strip.png`, the frames side by side) go to `dir`.
 @MainActor
 enum DebugFrameStrip {
@@ -56,7 +56,8 @@ enum DebugFrameStrip {
             let outsideBefore = difference(frame, before, excluding: content)
             let outsideFinal = difference(frame, last, excluding: content)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
-            let isBlank = content.map { flatness(frame, in: $0) > 0.995 } ?? false
+            // Flat, and not still the content from before the key (an empty terminal is flat too).
+            let isBlank = content.map { flatness(frame, in: $0) > 0.995 && difference(frame, before, within: $0) > tolerance } ?? false
             if isIntermediate { intermediate += 1 }
             if isBlank { blank += 1 }
             let name = String(format: "frame-%03d.png", index)
@@ -116,14 +117,16 @@ enum DebugFrameStrip {
         return drawn ? Frame(milliseconds: milliseconds, width: width, height: height, pixels: pixels) : nil
     }
 
-    /// The share of pixels outside `excluded` whose color differs by more than a small step.
-    nonisolated static func difference(_ a: Frame, _ b: Frame, excluding excluded: CGRect?) -> Double {
+    /// The share of pixels outside `excluded` (or only those `within` it) whose color differs by more than a small step.
+    nonisolated static func difference(_ a: Frame, _ b: Frame, excluding excluded: CGRect? = nil, within: CGRect? = nil) -> Double {
         guard a.width == b.width, a.height == b.height else { return 1 }
         var differing = 0, counted = 0
         for y in 0..<a.height {
             for x in 0..<a.width {
-                // Rows run bottom-up in the bitmap; `excluded` is top-left based.
-                if let excluded, excluded.contains(CGPoint(x: Double(x) + 0.5, y: Double(a.height - 1 - y) + 0.5)) { continue }
+                // Rows run bottom-up in the bitmap; the rects are top-left based.
+                let point = CGPoint(x: Double(x) + 0.5, y: Double(a.height - 1 - y) + 0.5)
+                if let excluded, excluded.contains(point) { continue }
+                if let within, !within.contains(point) { continue }
                 let i = (y * a.width + x) * 4
                 counted += 1
                 if max(abs(Int(a.pixels[i]) - Int(b.pixels[i])), abs(Int(a.pixels[i + 1]) - Int(b.pixels[i + 1])),
