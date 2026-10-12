@@ -36,35 +36,9 @@ enum SessionPersistencePolicy {
     static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
-    static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
-
-    /// Computes the bounded restorable workspace set and its selected index.
-    nonisolated static func boundedWorkspaceRetention(
-        restorableWorkspaceCount: Int,
-        selectedRestorableWorkspaceIndex: Int?,
-        maximum: Int = maxWorkspacesPerWindow
-    ) -> SessionWorkspaceRetention {
-        let retainedCount = min(max(0, maximum), max(0, restorableWorkspaceCount))
-        var retainedIndices = Array(0..<retainedCount)
-        if let selectedRestorableWorkspaceIndex,
-           selectedRestorableWorkspaceIndex >= retainedCount,
-           selectedRestorableWorkspaceIndex < restorableWorkspaceCount,
-           !retainedIndices.isEmpty {
-            retainedIndices[retainedIndices.count - 1] = selectedRestorableWorkspaceIndex
-        }
-        return SessionWorkspaceRetention(
-            retainedIndices: retainedIndices,
-            selectedWorkspaceIndex: selectedRestorableWorkspaceIndex.flatMap {
-                retainedIndices.firstIndex(of: $0)
-            },
-            omittedWorkspaceCount: restorableWorkspaceCount > retainedCount
-                ? restorableWorkspaceCount - retainedCount
-                : nil
-        )
-    }
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
@@ -231,13 +205,6 @@ enum SessionPersistencePolicy {
         }
         return nil
     }
-}
-
-/// Describes the restorable workspaces retained in a bounded session snapshot.
-struct SessionWorkspaceRetention: Equatable, Sendable {
-    let retainedIndices: [Int]
-    let selectedWorkspaceIndex: Int?
-    let omittedWorkspaceCount: Int?
 }
 
 enum SessionRestorePolicy {
@@ -1992,8 +1959,9 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
-    /// Number of restorable workspaces omitted by the bounded snapshot.
-    /// Optional so snapshots written before the bound was reported decode unchanged.
+    /// Legacy omission metadata from an intermediate snapshot format.
+    /// New snapshots do not omit workspaces, but keeping this optional field
+    /// allows those files to decode and makes the format additive.
     var omittedWorkspaceCount: Int? = nil
 }
 

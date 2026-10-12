@@ -4204,11 +4204,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func completeSessionRestoreOperation(
-        isManualReopen: Bool,
-        restoredSnapshot: AppSessionSnapshot? = nil,
-        afterRestore: (() -> Void)? = nil
+        isManualReopen: Bool
     ) {
-        let restoredSessionSnapshot = restoredSnapshot ?? startupSessionSnapshot
         // Every restored workspace has enqueued its identity aliases by now;
         // the journal consumer is FIFO, so the replay fold sees all of them.
         AgentJournalLifecycleCenter.shared.noteStartupReplayReady()
@@ -4242,32 +4239,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
-        afterRestore?()
-        presentSessionRestoreOmissionNoticeIfNeeded(for: restoredSessionSnapshot)
-    }
-
-    private func presentSessionRestoreOmissionNoticeIfNeeded(for snapshot: AppSessionSnapshot?) {
-        guard !SessionRestorePolicy.isRunningUnderAutomatedTests(),
-              let omittedWorkspaceCount = snapshot?.windows.reduce(
-                  0,
-                  { $0 + ($1.tabManager.omittedWorkspaceCount ?? 0) }
-              ),
-              omittedWorkspaceCount > 0 else {
-            return
-        }
-
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(
-            localized: "dialog.sessionRestoreOmitted.title",
-            defaultValue: "Some workspaces were not restored"
-        )
-        alert.informativeText = String(
-            localized: "dialog.sessionRestoreOmitted.message",
-            defaultValue: "This session reached cmux’s workspace limit, so some workspaces were not saved and will not be restored automatically."
-        )
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = alert.runCmuxModal()
     }
 
     private func consumeWindowlessRecoverableRouteForSessionReopen(windowId: UUID) {
@@ -4329,22 +4300,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        completeSessionRestoreOperation(
-            isManualReopen: true,
-            restoredSnapshot: snapshot,
-            afterRestore: { [self] in
-                guard shouldActivate,
-                      let primaryWindowId = createdWindowIds.first,
-                      let primaryWindow = mainWindow(for: primaryWindowId) else {
-                    return
-                }
-                primaryWindow.makeKeyAndOrderFront(nil)
-                setActiveMainWindow(primaryWindow)
-                NSRunningApplication.current.activate(
-                    options: [.activateAllWindows, .activateIgnoringOtherApps]
-                )
-            }
-        )
+        completeSessionRestoreOperation(isManualReopen: true)
+
+        if shouldActivate,
+           let primaryWindowId = createdWindowIds.first,
+           let primaryWindow = mainWindow(for: primaryWindowId) {
+            primaryWindow.makeKeyAndOrderFront(nil)
+            setActiveMainWindow(primaryWindow)
+            NSRunningApplication.current.activate(
+                options: [.activateAllWindows, .activateIgnoringOtherApps]
+            )
+        }
 
         return true
     }
