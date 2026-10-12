@@ -173,6 +173,11 @@ the seven-character commit when `git_detached` is true. Browser tabs report
 null. A changed `cwd` emits `tab-changed`; a branch switch without a directory
 change appears at the next snapshot (HEAD lookups are cached for two seconds).
 
+Every tab also reports `pinned_url:string|null`: for a pinned browser tab, the
+page it showed when it was pinned (pinning an already pinned tab keeps it, and
+unpinning forgets it); null for an unpinned tab, a terminal, or a pin an older
+server stored.
+
 Servers advertising `frontend-browser-tabs-v1` add `browser_renderer` to
 every tab: `"daemon"` for a CDP browser, `"frontend"` for a browser whose page
 the frontend renders, and null for a PTY. Frontend browsers also report
