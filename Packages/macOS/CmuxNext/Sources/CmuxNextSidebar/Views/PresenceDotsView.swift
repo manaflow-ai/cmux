@@ -37,7 +37,7 @@ final class PresenceDotsView: NSView {
         for (index, dot) in dots.enumerated() { dot.isHidden = index >= shown }
         overflow.stringValue = presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : ""
         overflow.isHidden = overflow.stringValue.isEmpty
-        toolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
+        themedToolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
         needsLayout = true
         needsDisplay = true
     }

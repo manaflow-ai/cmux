@@ -15,7 +15,7 @@ final class FolderHeaderRowView: SidebarRowView {
     func configure(folder: String) {
         name.stringValue = SidebarFolderTitle.title(folder)
         name.font = SidebarStyle.headerFont
-        toolTip = folder.isEmpty ? nil : folder
+        themedToolTip = folder.isEmpty ? nil : folder
         setAccessibilityLabel(name.stringValue)
         needsLayout = true
     }

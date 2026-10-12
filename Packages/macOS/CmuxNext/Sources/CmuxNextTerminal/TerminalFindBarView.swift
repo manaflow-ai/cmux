@@ -172,7 +172,7 @@ final class TerminalFindBarView: NSView {
         let button = NSButton(image: Self.icon(icon), target: self, action: action)
         button.isBordered = false
         button.bezelStyle = .accessoryBarAction
-        button.toolTip = label
+        button.themedToolTip = label
         button.setAccessibilityLabel(label)
         return button
     }
