@@ -89,7 +89,8 @@ public final class ThemeScope {
     /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...0.95 so
     /// the art always shows; nil follows the work's own tint.
     public func pinBackdropTint(_ tint: Double?) {
-        let tint = tint.map { min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) }
+        // A non-finite tint (a hand-edited "nan") follows the work's.
+        let tint = tint.flatMap { $0.isFinite ? min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) : nil }
         guard pinnedTint != tint else { return }
         pinnedTint = tint
         repaintBackdropArt()

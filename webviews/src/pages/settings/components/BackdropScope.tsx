@@ -65,6 +65,8 @@ export function BackdropScopePicker({
 
 /** Where the slider rests while the workspace follows the work's own tint. */
 const FOLLOW_OPACITY = 0.5;
+/** How long keyboard steps pause before the tint is saved. */
+const KEY_SAVE_MS = 400;
 /** At 1 the glass hides the art (the host caps a workspace's tint the same way). */
 const MAX_OPACITY = 0.95;
 
@@ -83,20 +85,31 @@ export function WorkspaceOpacity({
   const store = useStore();
   const [drag, setDrag] = useState<number | null>(null);
   const pending = useRef<number | null>(null);
-  // A drag saves on release; a keyboard step saves at once.
+  // A drag saves on release; keyboard steps save once they pause.
   const dragging = useRef(false);
+  const keySave = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stored = background.opacity ?? null;
   const save = async (opacity: number | null) => {
     if (await store.setWorkspaceOpacity(background.workspace, opacity)) onSaved(opacity);
+    // The slider keeps the chosen value until the save answered, so it never snaps back.
+    setDrag(null);
     store.previewWorkspaceBackground(background.workspace, undefined);
   };
   const release = () => {
+    if (keySave.current !== null) clearTimeout(keySave.current);
+    keySave.current = null;
     const next = pending.current;
     if (next === null) return;
     pending.current = null;
-    setDrag(null);
     void save(next);
   };
+  // Closing Settings mid-change saves nothing and drops the preview.
+  const endOnLeave = useRef(() => {});
+  endOnLeave.current = () => {
+    if (keySave.current !== null) clearTimeout(keySave.current);
+    if (pending.current !== null) store.previewWorkspaceBackground(background.workspace, undefined);
+  };
+  useEffect(() => () => endOnLeave.current(), []);
   return (
     <div className="rows">
       <div className="row" data-workspace-opacity="">
@@ -126,7 +139,9 @@ export function WorkspaceOpacity({
                   pending.current = next;
                   setDrag(next);
                   store.previewWorkspaceOpacity(background.workspace, next);
-                  if (!dragging.current) release();
+                  if (dragging.current) return;
+                  if (keySave.current !== null) clearTimeout(keySave.current);
+                  keySave.current = setTimeout(release, KEY_SAVE_MS);
                 }}
                 onPointerDown={() => {
                   dragging.current = true;

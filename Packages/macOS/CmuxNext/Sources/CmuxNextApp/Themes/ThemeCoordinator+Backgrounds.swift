@@ -15,7 +15,8 @@ extension ThemeCoordinator {
     /// A workspace's own tint over art: the slider's preview, else the saved one.
     func workspaceOpacity(_ workspaceID: String) -> Double? {
         if let opacityPreview, opacityPreview.workspace == workspaceID { return opacityPreview.value }
-        return workspaceBackgroundKey(workspaceID).flatMap(workspaceOpacities.background(for:)).flatMap(Double.init)
+        return workspaceBackgroundKey(workspaceID).flatMap(workspaceOpacities.background(for:))
+            .flatMap { Double($0) }.flatMap { $0.isFinite ? $0 : nil }
     }
 
     /// Saves a workspace's own tint over art (nil follows the work's) and ends its preview.
