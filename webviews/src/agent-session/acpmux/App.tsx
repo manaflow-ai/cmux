@@ -1120,6 +1120,7 @@ export function VirtualTranscript({
   }, [rows]);
   useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
+  const previousSession = useRef(sessionId);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -1239,12 +1240,21 @@ export function VirtualTranscript({
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
-  const lead = Math.min(Math.abs(scroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
-  const range = visibleLayoutRange(layout, scroll.delta < 0 ? scroll.top - lead : scroll.top, height + lead);
+  const sessionSwitched = previousSession.current !== sessionId;
+  // The old scroll state remains in React until the transition layout effect runs. Render the
+  // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
+  const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
+  const renderFollowing = sessionSwitched || following;
+  const lead = Math.min(Math.abs(renderScroll.delta) * SCROLL_LEAD_STEPS, height * MAX_SCROLL_LEAD_VIEWPORTS);
+  const range = visibleLayoutRange(
+    layout,
+    renderScroll.delta < 0 ? renderScroll.top - lead : renderScroll.top,
+    height + lead,
+  );
   // The rows a viewport either side of where the reader was also mount, in a deferred render
   // between frames: a scroll then finds the rows it brings in already drawn and measured instead
   // of building them in its own frame. A jump past them mounts only what it shows.
-  const warmTop = useDeferredValue(scroll.top);
+  const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mounted =
     warm.last < range.first || warm.first > range.last
@@ -1374,7 +1384,22 @@ export function VirtualTranscript({
     }
   });
   useLayoutEffect(() => {
-    const old = previousLayout.current;
+    const switched = previousSession.current !== sessionId;
+    if (switched) {
+      // A single VirtualTranscript is reused while the selected chat changes. Discard every
+      // scroll anchor from the old session before the placement pass chooses the new session's
+      // openAt position or latest row.
+      previousSession.current = sessionId;
+      didOpenAtLatest.current = false;
+      previousLayout.current = null;
+      previousRows.current = rows;
+      scrolledTo.current = { top: 0, atLatest: false };
+      clearTimeout(settle.current);
+      settle.current = undefined;
+      setScroll({ top: 0, delta: 0 });
+      setFollowing(true);
+    }
+    const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
     if (old && node) {
@@ -1429,7 +1454,7 @@ export function VirtualTranscript({
     previousViewport.current = { height, width };
     if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width]);
+  }, [layout, rows, range.first, height, width, sessionId]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -1525,6 +1550,12 @@ export function VirtualTranscript({
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
   // A report that came due while the pane was hidden, sent once it has a viewport again.
   const anchorDeferred = useRef(false);
+  useEffect(() => {
+    clearTimeout(anchorTimer.current);
+    anchorTimer.current = undefined;
+    anchorDeferred.current = false;
+    reportedAnchor.current = undefined;
+  }, [sessionId]);
   const reportAnchor = () => {
     const node = ref.current;
     if (!node || !onAnchor) return;
@@ -1593,7 +1624,7 @@ export function VirtualTranscript({
       for (const name of inputs) node?.removeEventListener(name, reader);
     };
   }, []);
-  const behind = !following && layout.totalHeight - height - scroll.top > JUMP_LATEST_DISTANCE;
+  const behind = !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
@@ -1603,7 +1634,7 @@ export function VirtualTranscript({
           sessionId={sessionId}
           layout={layout}
           scroller={ref}
-          scrollTop={scroll.top}
+          scrollTop={renderScroll.top}
           viewportHeight={height}
           width={width}
         />
