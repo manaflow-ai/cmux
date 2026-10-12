@@ -24,20 +24,24 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         public var pinned: Bool
         /// The page a closed page tab showed (`page-tabs-v1`); its `url` is then `about:blank`.
         public var page: String?
+        /// True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no
+        /// session yet) or a browser on `about:blank`. False from a daemon that does not say.
+        public var empty: Bool
 
         enum CodingKeys: String, CodingKey {
-            case kind, name, cwd, url, pinned, page
+            case kind, name, cwd, url, pinned, page, empty
             case browserProfileID = "browser_profile_id"
         }
 
         public init(kind: String, name: String? = nil, cwd: String? = nil, url: String? = nil,
-                    browserProfileID: String? = nil, pinned: Bool = false) {
+                    browserProfileID: String? = nil, pinned: Bool = false, empty: Bool = false) {
             self.kind = kind
             self.name = name
             self.cwd = cwd
             self.url = url
             self.browserProfileID = browserProfileID
             self.pinned = pinned
+            self.empty = empty
         }
 
         public init(from decoder: any Decoder) throws {
@@ -49,6 +53,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
             browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
             page = try c.decodeIfPresent(String.self, forKey: .page)
+            empty = try c.decodeIfPresent(Bool.self, forKey: .empty) ?? false
         }
     }
 
