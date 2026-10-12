@@ -10,6 +10,7 @@ struct CmuxNativeApp: App {
             RootView(app: app)
                 // Sign-in is always dark (like Claude/ChatGPT/Grok launch screens).
                 .preferredColorScheme(app.phase != .ready ? .dark : appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
+                .appLock()
                 .task { await app.launch() }
         }
     }
@@ -39,8 +40,9 @@ struct RootView: View {
 struct LaunchView: View {
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground).ignoresSafeArea()
+            Theme.background.ignoresSafeArea()
             CmuxMark().frame(width: 72, height: 72)
+                .accessibilityLabel(String(localized: "cmux"))
         }
     }
 }
