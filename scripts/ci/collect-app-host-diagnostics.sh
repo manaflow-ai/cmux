@@ -71,4 +71,15 @@ if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
   fi
 fi
 
+# ReportCrash files a crashed app host's report under the runner account's
+# real home, not the isolated XCTest HOME above, and symbolicates the system
+# frames on this host's OS build. Keep the recent cmux DEV reports.
+account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || true)"
+account_reports="${account_home:-/nonexistent}/Library/Logs/DiagnosticReports"
+if [ -n "${account_home:-}" ] && [ -d "$account_reports" ]; then
+  mkdir -p "$diagnostics/account-diagnostic-reports"
+  find "$account_reports" -maxdepth 1 -type f -name 'cmux DEV*.ips' -mmin -240 \
+    -exec cp {} "$diagnostics/account-diagnostic-reports/" \; || true
+fi
+
 find "$diagnostics" -type f -print | sort || true
