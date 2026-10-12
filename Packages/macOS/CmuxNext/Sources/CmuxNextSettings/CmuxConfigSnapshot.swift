@@ -42,6 +42,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
+    public var terminalLinkRouting: TerminalLinkRouting = .fallback
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
@@ -210,15 +212,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
-        snapshot.browserHibernation = hibernation
-        snapshot.diagnostics += hibernationDiagnostics
-        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
-        snapshot.browserLinkClicks = linkClicks
-        snapshot.diagnostics += linkClickDiagnostics
-        let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
-        snapshot.remoteLocalhost = remoteLocalhost
-        snapshot.diagnostics += remoteLocalhostDiagnostics
+        snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
+        snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
+        snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
+        snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics

@@ -15,11 +15,13 @@ enum AgentPaneProjectFiles {
     static let directory = ".cmux/context"
     static let copyFailedMessage = "The files could not be added to the project."
 
-    /// The chat menu's project requests: Edit CLAUDE.md and Add Files to Project.
+    /// The requests that open a system picker after a click: the chat menu's Edit CLAUDE.md and Add
+    /// Files to Project, and the composer's Attach Screenshot… and Attach Window….
     @MainActor static func respond(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
         switch request {
         case .projectInstructions(let instructions): return await AgentPaneProjectInstructions.reply(to: instructions, in: model)
         case .projectAddFiles(let files): return await reply(to: files, in: model)
+        case .composerCapture(let mode): return await AgentPaneCapture.reply(to: mode, in: model)
         default: return AgentPaneModel.unsupported(String(describing: request))
         }
     }

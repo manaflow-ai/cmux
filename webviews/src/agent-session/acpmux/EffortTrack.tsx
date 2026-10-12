@@ -4,7 +4,8 @@ import { useT } from "./i18n";
 
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
-/// nearest stop). The effort popover and the model picker both draw it.
+/// nearest stop), over its ends (Faster, Smarter) and the level the model recommends. The model
+/// picker's reasoning panel draws it.
 export function EffortTrack({
   efforts,
   current,
@@ -29,43 +30,54 @@ export function EffortTrack({
     efforts.findIndex((choice) => choice.id === current),
   );
   const name = efforts[level]?.name ?? t("effort.title");
+  const recommended = efforts.find((choice) => choice.recommended);
   const pick = (index: number) => {
     const choice = efforts[index];
     if (choice && choice.id !== current) onPick(choice.id);
   };
   const share = efforts.length > 1 ? level / (efforts.length - 1) : 0;
   return (
-    <div className="acpmux-effort-track" style={{ "--acpmux-effort": share } as React.CSSProperties}>
-      <span className="acpmux-effort-fill" />
-      {efforts.map((choice, index) =>
-        index === level ? null : (
-          <span
-            key={choice.id}
-            className="acpmux-effort-stop"
-            aria-hidden="true"
-            style={{ "--acpmux-stop": efforts.length > 1 ? index / (efforts.length - 1) : 0 } as React.CSSProperties}
-          />
-        ),
-      )}
-      <span className="acpmux-effort-thumb" />
-      <input
-        ref={range}
-        className="acpmux-effort-range"
-        type="range"
-        min={0}
-        max={Math.max(efforts.length - 1, 0)}
-        step={1}
-        value={level}
-        aria-label={t("effort.title")}
-        aria-valuetext={name}
-        onChange={(event) => pick(Number(event.target.value))}
-        onKeyDown={(event) => {
-          if (event.key !== "Escape" || !onEscape) return;
-          event.preventDefault();
-          event.stopPropagation();
-          onEscape();
-        }}
-      />
-    </div>
+    <>
+      <div className="acpmux-effort-track" style={{ "--acpmux-effort": share } as React.CSSProperties}>
+        <span className="acpmux-effort-fill" />
+        {efforts.map((choice, index) =>
+          index === level ? null : (
+            <span
+              key={choice.id}
+              className="acpmux-effort-stop"
+              aria-hidden="true"
+              style={{ "--acpmux-stop": efforts.length > 1 ? index / (efforts.length - 1) : 0 } as React.CSSProperties}
+            />
+          ),
+        )}
+        <span className="acpmux-effort-thumb" />
+        <input
+          ref={range}
+          className="acpmux-effort-range"
+          type="range"
+          min={0}
+          max={Math.max(efforts.length - 1, 0)}
+          step={1}
+          value={level}
+          aria-label={t("effort.title")}
+          aria-valuetext={efforts[level]?.recommended ? t("effort.valueRecommended", { level: name }) : name}
+          onChange={(event) => pick(Number(event.target.value))}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !onEscape) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onEscape();
+          }}
+        />
+      </div>
+      {/* Claude's slider reads from Faster to Smarter, with the model's own pick named. */}
+      <div className="acpmux-effort-ends" aria-hidden="true">
+        <span className="acpmux-effort-faster">{t("effort.faster")}</span>
+        {recommended && (
+          <span className="acpmux-effort-recommended">{t("effort.recommendedLevel", { level: recommended.name })}</span>
+        )}
+        <span className="acpmux-effort-smarter">{t("effort.smarter")}</span>
+      </div>
+    </>
   );
 }

@@ -642,6 +642,18 @@ jobs:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
 
+      # The exact binary's key names the whole cmux-tui tree, so a PR that changes
+      # cmux-tui never hits it. Restore feat-cmux-next's target dir
+      # (cmux-tui-headless-debug.yml saves it) and rebuild only what changed. Read-only here.
+      - name: Cache the cmux-tui target dir
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug
+          cache-workspace-crates: "true"
+          save-if: false
+
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui

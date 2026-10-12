@@ -88,19 +88,27 @@ pub fn parse_ps(text: &str) -> Vec<Proc> {
         .collect()
 }
 
+/// A process outside acpmux that names session `id` on its command line.
+/// The only liveness signal for a store every session writes (OpenCode's
+/// database), where a recent write says nothing about this session.
+pub fn named_use(id: &str, procs: &[Proc]) -> Option<LiveUse> {
+    let ours = acpmux_tree(procs);
+    let p = procs.iter().find(|p| {
+        !ours.contains(&p.pid)
+            && p.command.split_whitespace().any(|t| t == id || t.ends_with(&format!("={id}")))
+    })?;
+    let command: String = p.command.chars().take(120).collect();
+    Some(LiveUse::Process { pid: p.pid, command })
+}
+
 /// How session `id` is live outside acpmux, if it is. Processes under an
 /// `acpmux` process (the daemon, its agent hosts and their harnesses) are
 /// acpmux's own and never count.
 pub fn live_use(id: &str, transcript: &Path, procs: &[Proc], now: SystemTime) -> Option<LiveUse> {
-    let ours = acpmux_tree(procs);
-    let named = procs.iter().find(|p| {
-        !ours.contains(&p.pid)
-            && p.command.split_whitespace().any(|t| t == id || t.ends_with(&format!("={id}")))
-    });
-    if let Some(p) = named {
-        let command: String = p.command.chars().take(120).collect();
-        return Some(LiveUse::Process { pid: p.pid, command });
+    if let Some(named) = named_use(id, procs) {
+        return Some(named);
     }
+    let ours = acpmux_tree(procs);
     // A recent write means live only while a harness process (outside acpmux) runs at all: a
     // transcript touched minutes ago by a process that has ended is not open anywhere (the
     // freshly written chat showed "still open in another process", Lawrence P0 2026-10-11).

@@ -5542,18 +5542,10 @@
       "max_length": 64
     },
     "GroupColor": {
-      "kind": "enum",
-      "values": [
-        "grey",
-        "blue",
-        "red",
-        "yellow",
-        "green",
-        "pink",
-        "purple",
-        "cyan",
-        "orange"
-      ]
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 7
     },
     "TabGroupSnapshot": {
       "kind": "object",

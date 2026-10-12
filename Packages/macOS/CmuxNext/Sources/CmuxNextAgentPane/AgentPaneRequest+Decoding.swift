@@ -196,7 +196,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -246,6 +246,7 @@ extension AgentPaneRequest {
         case "git.pullRequest": self = .gitPullRequest(AgentPaneGitPullRequest(params: params))
         case "project.instructions": self = .projectInstructions(AgentPaneProjectInstructions(params: params))
         case "project.addFiles": self = .projectAddFiles(AgentPaneProjectInstructions(params: params))
+        case "composer.capture": self = .composerCapture(mode: params?["mode"] as? String)
         case "git.githubRepository":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\0") {
                 self = .githubRepository(cwd: cwd)
