@@ -28,6 +28,11 @@ export interface ContextMenuProps {
   onOpen?(): void;
   /** Targets (a CSS selector) that keep the host's own menu, such as a text field's Cut, Copy and Paste. */
   ignore?: string;
+  /**
+   * "own": only a right-click on this host's own DOM opens the menu. React passes events up from a
+   * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
+   */
+  targets?: "own";
 }
 
 /** Inline, as the placement is: the agent pane does not load ui.css. */
@@ -51,7 +56,7 @@ const MENU_ICON = {
  * own any later focus changes. Like a native menu, it opens down and right of the pointer and
  * flips up or left where that would leave the window.
  */
-export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -118,6 +123,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         // A menu inside this host already took the right-click (its own item's Hide, inside a
         // row's Show); a host with no items keeps the default.
         if (event.defaultPrevented || items.length === 0) return;
+        if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();

@@ -59,8 +59,11 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
+  // The settings store outlives this file under `bun test`: leave every control shown.
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  settings.setComposerSettings({ showDictation: true, showContextUsage: true });
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

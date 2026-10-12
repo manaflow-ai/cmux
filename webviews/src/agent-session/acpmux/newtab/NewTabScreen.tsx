@@ -382,8 +382,9 @@ export function NewTabScreen(props: Props) {
             }}
           />
         </div>
-        {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
-        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
+        {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+            this page draws no context ring. */}
+        <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
           <div className="nt-pickers" onPointerDownCapture={touch}>
             <ProjectChooser
               projects={props.projects ?? []}

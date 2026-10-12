@@ -71,6 +71,8 @@ export function ChromeArea({
   return (
     <ContextMenu
       className={className}
+      // A popup a piece in the row opened (a picker and its search field) keeps its own menu.
+      targets="own"
       items={hidden.map((item) => ({
         id: `show-${item.id}`,
         label: item.showLabel,
