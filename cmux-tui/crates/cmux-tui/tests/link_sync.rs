@@ -746,3 +746,47 @@ fn a_pull_of_many_files_finishes_under_a_low_open_file_limit() {
         assert_eq!(std::fs::read_to_string(path).unwrap(), format!("{index}\n"), "{answer}");
     }
 }
+
+/// `core.hooksPath` spelled in another case still names the hooks folder
+/// on a Mac's disk: what the machine put there stays out.
+#[test]
+fn a_pull_fences_the_hooks_folder_under_any_case() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    git(&repo, &["config", "core.hooksPath", ".GitHooks"]);
+    std::fs::create_dir_all(remote.join(".githooks")).unwrap();
+    std::fs::write(remote.join(".githooks/pre-commit"), "#!/bin/sh\necho planted\n").unwrap();
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(ok, "{answer}");
+    assert!(!repo.join(".githooks").exists(), "a hook came back: {answer}");
+}
+
+/// The machine's commits and staged changes go into this Mac's branch and
+/// index: one that adds a hook or a repository's shape is a conflict, so a
+/// later `git checkout -- .` can't write it out here.
+#[test]
+fn a_pull_refuses_commits_and_staging_that_carry_a_hook_or_a_repository() {
+    let (_root, _sockets, repo, remote, socket) = pushed_repo();
+    git(&repo, &["config", "core.hooksPath", ".githooks"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    std::fs::create_dir_all(remote.join(".githooks")).unwrap();
+    std::fs::write(remote.join(".githooks/pre-commit"), "#!/bin/sh\necho planted\n").unwrap();
+    git(&remote, &["add", "-f", ".githooks/pre-commit"]);
+    git(&remote, &["commit", "-q", "-m", "a hook"]);
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert!(answer["conflicts"].to_string().contains(".git/HEAD"), "{answer}");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "the branch moved: {answer}");
+
+    // Staged instead: a bare repository's shape in a subfolder.
+    git(&remote, &["reset", "-q", "--hard", head.trim()]);
+    std::fs::remove_dir_all(remote.join(".githooks")).ok();
+    std::fs::create_dir_all(remote.join("sub")).unwrap();
+    std::fs::write(remote.join("sub/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(remote.join("sub/config"), "[core]\n\tfsmonitor = evil\n").unwrap();
+    git(&remote, &["add", "sub"]);
+    let index = staged(&repo);
+    let (ok, answer) = pull(&socket, &repo, &remote);
+    assert!(!ok, "{answer}");
+    assert!(answer["conflicts"].to_string().contains(".git/index"), "{answer}");
+    assert_eq!(staged(&repo), index, "the index changed: {answer}");
+}
