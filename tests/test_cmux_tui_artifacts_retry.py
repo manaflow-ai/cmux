@@ -24,7 +24,8 @@ spec.loader.exec_module(retry)
 
 
 def run(**overrides):
-    value = {"id": 1, "status": "completed", "conclusion": "failure", "run_attempt": 1}
+    value = {"id": 1, "status": "completed", "conclusion": "failure", "run_attempt": 1,
+             "event": "push", "head_branch": "feat-cmux-next"}
     value.update(overrides)
     return value
 
@@ -75,6 +76,17 @@ class RetryPolicyTests(unittest.TestCase):
                 decision = retry.decide(run(), tree_jobs(job(2, "failure"), published), {2: []})
                 self.assertEqual(decision.action, "skip")
                 self.assertIn("published", decision.reason)
+
+    def test_only_feat_and_pin_pushes_are_retried(self):
+        # The runs nightly-next promotes from; a lane branch or PR red is usually a real failure.
+        for overrides, action in (
+            ({"head_branch": "cmux-tui-pin-0123456789ab"}, "rerun-failed-jobs"),
+            ({"head_branch": "op-next-theme/accent"}, "skip"),
+            ({"event": "pull_request_target", "head_branch": "op-next-theme/accent"}, "skip"),
+            ({"event": "workflow_dispatch"}, "skip"),
+        ):
+            with self.subTest(overrides=overrides):
+                self.assertEqual(retry.decide(run(**overrides), tree_jobs(job(2, "failure")), {2: []}).action, action)
 
     def test_failure_without_a_failed_job_is_not_retried(self):
         self.assertEqual(retry.decide(run(), tree_jobs(job(1, "success")), {}).action, "skip")
