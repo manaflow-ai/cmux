@@ -233,8 +233,12 @@ final class MessageActionOverlay: UIView {
         // against a blue-tinted 206 for long-press).
         let detail = mode == .reactionDetail
         let light = mode == .tapbacks
+        let neutralVeil: Bool
+        if #available(iOS 27, *) { neutralVeil = mode == .menu } else { neutralVeil = false }
         dim.backgroundColor = UIColor {
-            $0.userInterfaceStyle == .dark
+            // iOS 27 Messages: a neutral veil, white -> 204 and black stays 0.
+            if neutralVeil { return UIColor.black.withAlphaComponent(0.2) }
+            return $0.userInterfaceStyle == .dark
                 ? (detail ? UIColor.black.withAlphaComponent(0.5)
                     : light ? UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.08)
                     : UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.21))

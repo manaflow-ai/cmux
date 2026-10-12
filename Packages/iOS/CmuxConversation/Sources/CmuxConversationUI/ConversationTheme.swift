@@ -222,8 +222,10 @@ enum ConversationTheme {
     /// than a plain regular glass: 30,30,30 over black where ours read 16,
     /// and 31,30,33 over the long-press dim where ours read 17,19,22 (iOS
     /// 26.5). A faint white tint matches both (fitted); light mode needs none.
+    /// iOS 27's plain glass already reads as Messages' 32,32,32 there.
     static let systemMenuGlassTint = UIColor { traits in
-        traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
+        if #available(iOS 27, *) { return .clear }
+        return traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.06) : .clear
     }
 
     /// How the composer's placeholder and microphone blend into the field:
