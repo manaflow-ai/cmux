@@ -30,7 +30,7 @@ Loop log for the agent building this. Updated in place.
 - Real iPhone install: phone not connected (build is ready in ~/cnm-builds/latest).
 
 ## Demo builds
-- 2026-10-12 13:18 (commit in ~/cnm-builds/latest/COMMIT): ~/cnm-builds/latest/CmuxNext.ipa (signed,
+- 2026-10-12 15:55: refreshed demo (Settings crash fix); 12/12 regression (r56). Same paths.
   dev.cmux.next.native, profile "cmux next native dev" incl. Aziz's iPhone) and ~/Applications/cmux Host.app
   (installed, not started). Phone was not connected (devicectl: unavailable), so not installed.
 - Regression before the build: 8/8 UI flows passed (r27).
