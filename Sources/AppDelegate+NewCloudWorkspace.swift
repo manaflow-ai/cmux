@@ -68,7 +68,7 @@ extension AppDelegate {
             let token = manager.map { reveals.begin(in: $0) }
             var accessBecameUnavailable = false
             do {
-                try await reveals.revealing(token) {
+                try await reveals.revealing(token) { [weak self, weak manager] in
                     guard let workspaceID = try await coordinator.createOnResolvedMachine(
                         selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
                     ) else {
@@ -127,7 +127,7 @@ extension AppDelegate {
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = tabManager.map { reveals.begin(in: $0) }
-            try await reveals.revealing(token) {
+            try await reveals.revealing(token) { [weak self, weak tabManager] in
                 guard let workspaceID = try await coordinator.createOnMachine(request),
                       !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
                 resolvedDestination?.apply(workspaceID: workspaceID)
