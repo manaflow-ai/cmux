@@ -79,6 +79,20 @@ import Testing
         #expect(counter.sender === menu.items[0])
     }
 
+    /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
+    @Test func returnOnASubmenuRowIsNotSwallowed() throws {
+        let counter = Counter()
+        let menu = NSMenu()
+        let more = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+        more.submenu = Self.menu(counter)
+        menu.addItem(more)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        row.highlightOverride = true
+        #expect(row.performKeyEquivalent(with: try Self.returnKey()) == false)
+        #expect(counter.count == 0)
+    }
+
     @Test func keepsTitlesSubmenusAndValidation() throws {
         let counter = Counter()
         let menu = Self.menu(counter)
@@ -110,6 +124,11 @@ import Testing
             menu.addItem(item)
         }
         return menu
+    }
+
+    private static func returnKey() throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                      characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
     }
 
     private static func sample(_ view: NSView, x: CGFloat) -> NSColor? {
