@@ -31,7 +31,8 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 targetTabManager: activeManager,
                 keyWindow: targetWindow,
                 mainWindow: targetWindow,
-                targetWindow: targetWindow
+                targetWindow: targetWindow,
+                applicationIsActive: true
             )
         )
         #expect(!shouldAllowEnsureFocusWindowActivation(
@@ -39,7 +40,8 @@ struct GhosttyEnsureFocusWindowActivationTests {
             targetTabManager: otherManager,
             keyWindow: otherWindow,
             mainWindow: otherWindow,
-            targetWindow: targetWindow
+            targetWindow: targetWindow,
+            applicationIsActive: true
         ))
     }
 
@@ -69,7 +71,8 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 targetTabManager: targetManager,
                 keyWindow: nil,
                 mainWindow: nil,
-                targetWindow: targetWindow
+                targetWindow: targetWindow,
+                applicationIsActive: true
             )
         )
         #expect(!shouldAllowEnsureFocusWindowActivation(
@@ -77,14 +80,16 @@ struct GhosttyEnsureFocusWindowActivationTests {
             targetTabManager: targetManager,
             keyWindow: NSWindow(),
             mainWindow: nil,
-            targetWindow: targetWindow
+            targetWindow: targetWindow,
+            applicationIsActive: true
         ))
         #expect(!shouldAllowEnsureFocusWindowActivation(
             activeTabManager: nil,
             targetTabManager: targetManager,
             keyWindow: nil,
             mainWindow: NSWindow(),
-            targetWindow: targetWindow
+            targetWindow: targetWindow,
+            applicationIsActive: true
         ))
     }
 

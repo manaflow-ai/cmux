@@ -284,7 +284,7 @@ func shouldAllowEnsureFocusWindowActivation(
     keyWindow: NSWindow?,
     mainWindow: NSWindow?,
     targetWindow: NSWindow,
-    applicationIsActive: Bool = true
+    applicationIsActive: Bool
 ) -> Bool {
     guard applicationIsActive else {
         return false
