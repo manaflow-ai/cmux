@@ -136741,127 +136741,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't open {file}: it links outside the chat folder."
+            "value": "Couldn't open {file}: it's outside the folders this chat can open."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر فتح {file}: يشير إلى موقع خارج مجلد الدردشة."
+            "value": "تعذّر فتح {file}: إنه خارج المجلدات التي يمكن لهذه الدردشة فتحها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije moguće otvoriti {file}: vodi izvan foldera razgovora."
+            "value": "Nije moguće otvoriti {file}: izvan je foldera koje ovaj razgovor može otvoriti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke åbne {file}: den linker uden for chatmappen."
+            "value": "Kunne ikke åbne {file}: den ligger uden for de mapper, denne chat kan åbne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} konnte nicht geöffnet werden: Die Datei verweist aus dem Chat-Ordner heraus."
+            "value": "{file} konnte nicht geöffnet werden: Die Datei liegt außerhalb der Ordner, die dieser Chat öffnen kann."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se pudo abrir {file}: enlaza fuera de la carpeta del chat."
+            "value": "No se pudo abrir {file}: está fuera de las carpetas que este chat puede abrir."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossible d'ouvrir {file} : il pointe hors du dossier de la discussion."
+            "value": "Impossible d'ouvrir {file} : il se trouve hors des dossiers que cette discussion peut ouvrir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossibile aprire {file}: punta fuori dalla cartella della chat."
+            "value": "Impossibile aprire {file}: si trova fuori dalle cartelle che questa chat può aprire."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} を開けませんでした: チャットフォルダの外にリンクしています。"
+            "value": "{file} を開けませんでした: このチャットが開けるフォルダの外にあります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចបើក {file} បានទេ៖ វាភ្ជាប់ទៅក្រៅថតជជែក។"
+            "value": "មិនអាចបើក {file} បានទេ៖ វានៅក្រៅថតដែលការជជែកនេះអាចបើកបាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file}을(를) 열 수 없습니다: 채팅 폴더 밖을 가리킵니다."
+            "value": "{file}을(를) 열 수 없습니다: 이 채팅이 열 수 있는 폴더 밖에 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke åpne {file}: den lenker utenfor chatmappen."
+            "value": "Kunne ikke åpne {file}: den ligger utenfor mappene denne chatten kan åpne."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie można otworzyć {file}: prowadzi poza folder czatu."
+            "value": "Nie można otworzyć {file}: znajduje się poza folderami, które ten czat może otworzyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível abrir {file}: ele aponta para fora da pasta do chat."
+            "value": "Não foi possível abrir {file}: ele está fora das pastas que este chat pode abrir."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось открыть {file}: ссылка ведёт за пределы папки чата."
+            "value": "Не удалось открыть {file}: он находится за пределами папок, доступных этому чату."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด {file} ไม่ได้: ลิงก์ไปนอกโฟลเดอร์แชต"
+            "value": "เปิด {file} ไม่ได้: อยู่นอกโฟลเดอร์ที่แชตนี้เปิดได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} açılamadı: sohbet klasörünün dışına bağlantı veriyor."
+            "value": "{file} açılamadı: bu sohbetin açabildiği klasörlerin dışında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося відкрити {file}: посилання веде за межі теки чату."
+            "value": "Не вдалося відкрити {file}: він поза теками, які може відкрити цей чат."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể mở {file}: tệp liên kết ra ngoài thư mục trò chuyện."
+            "value": "Không thể mở {file}: tệp nằm ngoài các thư mục mà cuộc trò chuyện này có thể mở."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "无法打开 {file}：它链接到聊天文件夹之外。"
+            "value": "无法打开 {file}：它不在此聊天可打开的文件夹中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "無法打開 {file}：它連結到聊天資料夾之外。"
+            "value": "無法打開 {file}：它不在此聊天可打開的資料夾中。"
           }
         }
       }
@@ -136873,127 +136873,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't open {file}: it isn't a regular file."
+            "value": "Couldn't open {file}: it isn't a file in the chat folder."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعذّر فتح {file}: ليس ملفًا عاديًا."
+            "value": "تعذّر فتح {file}: ليس ملفًا في مجلد الدردشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije moguće otvoriti {file}: nije obična datoteka."
+            "value": "Nije moguće otvoriti {file}: nije datoteka u folderu razgovora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke åbne {file}: det er ikke en almindelig fil."
+            "value": "Kunne ikke åbne {file}: det er ikke en fil i chatmappen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} konnte nicht geöffnet werden: Es ist keine normale Datei."
+            "value": "{file} konnte nicht geöffnet werden: Es ist keine Datei im Chat-Ordner."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No se pudo abrir {file}: no es un archivo normal."
+            "value": "No se pudo abrir {file}: no es un archivo de la carpeta del chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossible d'ouvrir {file} : ce n'est pas un fichier ordinaire."
+            "value": "Impossible d'ouvrir {file} : ce n'est pas un fichier du dossier de la discussion."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Impossibile aprire {file}: non è un file normale."
+            "value": "Impossibile aprire {file}: non è un file nella cartella della chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} を開けませんでした: 通常のファイルではありません。"
+            "value": "{file} を開けませんでした: チャットフォルダ内のファイルではありません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនអាចបើក {file} បានទេ៖ វាមិនមែនជាឯកសារធម្មតាទេ។"
+            "value": "មិនអាចបើក {file} បានទេ៖ វាមិនមែនជាឯកសារក្នុងថតជជែកទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file}을(를) 열 수 없습니다: 일반 파일이 아닙니다."
+            "value": "{file}을(를) 열 수 없습니다: 채팅 폴더에 있는 파일이 아닙니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kunne ikke åpne {file}: det er ikke en vanlig fil."
+            "value": "Kunne ikke åpne {file}: det er ikke en fil i chatmappen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie można otworzyć {file}: to nie jest zwykły plik."
+            "value": "Nie można otworzyć {file}: to nie jest plik w folderze czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não foi possível abrir {file}: não é um arquivo comum."
+            "value": "Não foi possível abrir {file}: não é um arquivo da pasta do chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не удалось открыть {file}: это не обычный файл."
+            "value": "Не удалось открыть {file}: это не файл в папке чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด {file} ไม่ได้: ไม่ใช่ไฟล์ปกติ"
+            "value": "เปิด {file} ไม่ได้: ไม่ใช่ไฟล์ในโฟลเดอร์แชต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} açılamadı: normal bir dosya değil."
+            "value": "{file} açılamadı: sohbet klasöründe bir dosya değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вдалося відкрити {file}: це не звичайний файл."
+            "value": "Не вдалося відкрити {file}: це не файл у теці чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể mở {file}: đây không phải là tệp thông thường."
+            "value": "Không thể mở {file}: đây không phải là tệp trong thư mục trò chuyện."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "无法打开 {file}：它不是普通文件。"
+            "value": "无法打开 {file}：它不是聊天文件夹中的文件。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "無法打開 {file}：它不是一般檔案。"
+            "value": "無法打開 {file}：它不是聊天資料夾中的檔案。"
           }
         }
       }

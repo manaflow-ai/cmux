@@ -1656,14 +1656,20 @@ function AcpmuxPane() {
   const [instructionsFailure, setInstructionsFailure] = useState<
     { cwd: string; failure: InstructionsFailure } | undefined
   >();
+  // The shown chat's folder: an answer for a folder the pane has left changes nothing.
+  const instructionsFolder = useRef<string | undefined>(undefined);
   const openInstructions = useCallback((cwd: string, name: string) => {
     void callNative("project.instructions", { cwd, name }).then(
-      () => setInstructionsFailure(undefined),
-      (error: unknown) =>
+      () => {
+        if (instructionsFolder.current === cwd) setInstructionsFailure(undefined);
+      },
+      (error: unknown) => {
+        if (instructionsFolder.current !== cwd) return;
         setInstructionsFailure({
           cwd,
           failure: { file: name, code: error instanceof NativeError ? error.code : undefined },
-        }),
+        });
+      },
     );
   }, []);
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
@@ -3318,6 +3324,9 @@ function AcpmuxPane() {
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
+  instructionsFolder.current = localCwd;
+  // Another chat or folder: an instructions notice was about the one before.
+  useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.

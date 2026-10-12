@@ -24,14 +24,14 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/header/InstructionsNotice.tsx#InstructionsNotice"],
   variants: {
     "outside-folder": {
-      note: "Play: Edit CLAUDE.md when CLAUDE.md links out of the chat folder: a notice says so, Retry asks again, Dismiss clears it.",
+      note: "Play: Edit CLAUDE.md when CLAUDE.md links out of the chat folder: a notice says it is outside the chat's folders, Retry asks again, Dismiss clears it.",
       snapshot,
       native: { "project.instructions": { nativeError: { code: "transport.path_outside_roots" } } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Chat actions" });
         await ctx.click({ role: "menuitem", name: "Edit CLAUDE.md" });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[role="alert"]')?.textContent?.includes("links outside the chat folder"),
+          ctx.document.querySelector('[role="alert"]')?.textContent?.includes("outside the folders this chat can open"),
         );
         // The notice's own Retry (the transcript's turn has a Retry too).
         await ctx.click({ selector: ".acpmux-instructions-notice button:not([data-notice-action])" });

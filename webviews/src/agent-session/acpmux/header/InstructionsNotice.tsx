@@ -3,9 +3,10 @@ import { useT } from "../i18n";
 /// Why the chat menu's Edit CLAUDE.md (or AGENTS.md) did not open: `file`, and the app's refusal code.
 export type InstructionsFailure = { file: string; code?: string };
 
-/// The line above the composer when the app refused to open the instructions file (cx-bopcl): a
-/// link out of the chat folder, a path that is not a regular file, or anything else, with Retry
-/// (a click in the pane, so the app may open it) and Dismiss.
+/// The line above the composer when the app refused to open the instructions file (cx-bopcl): it (or
+/// the chat folder) is outside the folders the chat can open, it is not a file in the chat folder
+/// (or the folder is gone), or anything else, with Retry (a click in the pane, so the app may open
+/// it) and Dismiss.
 export function InstructionsNotice({
   failure,
   onRetry,
