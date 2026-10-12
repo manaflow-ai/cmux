@@ -42,6 +42,11 @@ public final class HoverCardCoordinator {
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
+    /// This app's visible windows, front first: a no-activate run (a
+    /// capture slot) hit-tests against these (tests inject them).
+    public var ownWindows: () -> [NSWindow] = {
+        (NSWindow.windowNumbers(options: []) ?? []).compactMap { NSApp?.window(withWindowNumber: $0.intValue) }
+    }
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
     public var appIsActive: () -> Bool = { NSApp.isActive || WindowPlacement.noActivate }
