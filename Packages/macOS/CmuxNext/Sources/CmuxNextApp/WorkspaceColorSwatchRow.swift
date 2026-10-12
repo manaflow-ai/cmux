@@ -33,8 +33,9 @@ final class WorkspaceColorSwatchView: NSView {
     private var swatches: [NSRect] = []
     private var hovered: Int?
     private static let diameter: CGFloat = 14, gap: CGFloat = 6, height: CGFloat = 28
-    /// Where the menu's own item titles start, measured from captures of the shipped menu.
-    private static let titleInset: CGFloat = 22
+    /// Where the menu's own item titles start and its shortcuts end, measured from captures of
+    /// the shipped menu.
+    private static let titleInset: CGFloat = 22, trailingInset: CGFloat = 13
 
     init(title: String, choices: [NSMenuItem]) {
         self.choices = choices
@@ -46,7 +47,7 @@ final class WorkspaceColorSwatchView: NSView {
         ])
         self.title = text
         // The title, a gap, then the swatches; the menu widens the row to its own width.
-        let width = Self.titleInset + text.size().width + 16 + CGFloat(choices.count) * (Self.diameter + Self.gap) + Metrics.space3
+        let width = Self.titleInset + text.size().width + 16 + CGFloat(choices.count) * (Self.diameter + Self.gap) - Self.gap + Self.trailingInset
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
         autoresizingMask = .width
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
@@ -67,7 +68,7 @@ final class WorkspaceColorSwatchView: NSView {
 
     override func layout() {
         super.layout()
-        var x = bounds.width - Metrics.space3 - CGFloat(choices.count) * (Self.diameter + Self.gap) + Self.gap
+        var x = bounds.width - Self.trailingInset - CGFloat(choices.count) * (Self.diameter + Self.gap) + Self.gap
         swatches = choices.map { _ in
             defer { x += Self.diameter + Self.gap }
             return NSRect(x: x, y: (bounds.height - Self.diameter) / 2, width: Self.diameter, height: Self.diameter)
