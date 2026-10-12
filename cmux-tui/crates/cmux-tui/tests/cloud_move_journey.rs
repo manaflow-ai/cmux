@@ -98,10 +98,11 @@ impl Machine {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
         fs::set_permissions(dir.join("acpmux"), fs::Permissions::from_mode(0o700)).unwrap();
-        let config = json!({
-            "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
-            "defaultHarness": "fake",
-        });
+        // Agent session ids as long as a real agent's: a guarded receive
+        // refuses a short one.
+        let fake = json!({"argv": ["python3", FAKE_AGENT], "family": "fake",
+                          "env": {"FAKE_SESSION_PREFIX": "fake-session-"}});
+        let config = json!({"harnesses": {"fake": fake}, "defaultHarness": "fake"});
         fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         let machine = Self {
             socket: dir.join("mux.sock"),
