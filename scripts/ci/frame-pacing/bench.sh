@@ -23,7 +23,6 @@ out="$work/out"
 mkdir -p "$out"
 app="$(ls -d "$work"/app/*.app 2>/dev/null | head -1)"
 [ -n "$app" ] || { echo "no app under $work/app" >&2; exit 1; }
-cli="$app/Contents/Resources/bin/cmux"
 # The debug socket follows the tag's path slug (scripts/cmux-debug-cli.sh).
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' -e 's/^-+//' -e 's/-+$//')"
 socket="/tmp/cmux-debug-$slug.sock"
@@ -55,7 +54,10 @@ cp "$out/vdisplay.out" "$out/display.txt" 2>/dev/null || echo "error: the virtua
 cat "$out/display.txt"
 grep -q '^ready' "$out/display.txt" || exit 0
 
-rpc() { CMUX_SOCKET_PATH="$socket" "$cli" rpc debug.agent_pane "$1" 2>&1; }
+# bin/cmux is the cmux-tui binary, which has no command for the app's debug
+# methods, so requests go to the app socket directly.
+app_rpc="$(dirname "${BASH_SOURCE[0]}")/app-rpc.py"
+rpc() { python3 "$app_rpc" "$socket" debug.agent_pane "$1" 2>&1; }
 
 for mode in 0 1; do
   rm -f "$socket"
@@ -69,7 +71,7 @@ for mode in 0 1; do
     continue
   fi
   sleep 3
-  CMUX_SOCKET_PATH="$socket" "$cli" agent new-chat >/dev/null 2>&1
+  python3 "$app_rpc" "$socket" action.run '{"action":"palette.newAgentChat"}' >/dev/null 2>&1
   sleep 4
   rpc '{"action":"seed_rows","count":5000}' >/dev/null
   sleep 3
