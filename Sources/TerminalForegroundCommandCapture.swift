@@ -139,7 +139,7 @@ enum TerminalForegroundCommandCapture {
         if name.hasPrefix("grok-") {
             return "grok"
         }
-        if MuseExecutableName.isVersionedBinary(name) {
+        if MuseExecutableName(name).isVersionedBinary {
             return "muse"
         }
         return nil

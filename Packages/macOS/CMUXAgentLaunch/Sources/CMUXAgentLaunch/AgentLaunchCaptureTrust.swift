@@ -169,7 +169,7 @@ public enum AgentLaunchCaptureTrust {
         }
         // The `muse` launcher execs a versioned sibling (`muse-bin-1.4.6-R6000.1`),
         // which macOS may truncate in the process name.
-        if MuseExecutableName.isVersionedBinary(nameBase) || MuseExecutableName.isVersionedBinary(executableBase) {
+        if [nameBase, executableBase].contains(where: { $0.map { MuseExecutableName($0).isVersionedBinary } == true }) {
             descriptors.insert("muse")
         }
         return descriptors

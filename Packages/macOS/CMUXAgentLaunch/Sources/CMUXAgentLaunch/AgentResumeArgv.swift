@@ -538,7 +538,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "muse":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: MuseExecutableName.launcher)
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "muse", args: parts.tail) else { return nil }
-            return [MuseExecutableName.resumeExecutable(forCaptured: parts.executable), "resume", sessionId] + preserved
+            return [MuseExecutableName(parts.executable).resumeExecutable, "resume", sessionId] + preserved
         default:
             return nil
         }

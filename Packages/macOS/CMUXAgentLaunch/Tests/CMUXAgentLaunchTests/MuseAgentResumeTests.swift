@@ -28,11 +28,11 @@ struct MuseAgentResumeTests {
                 arguments: ["/Users/example/.local/bin/muse-bin-1.4.6-R6000.1", "--model", "muse-spark"]
             ) == ["/Users/example/.local/bin/muse", "resume", sessionId, "--model", "muse-spark"]
         )
-        #expect(MuseExecutableName.resumeExecutable(forCaptured: "muse-bin-1.4.6-R6000.1") == "muse")
-        #expect(MuseExecutableName.resumeExecutable(forCaptured: "/opt/muse/bin/muse") == "/opt/muse/bin/muse")
-        #expect(MuseExecutableName.isVersionedBinary("muse-bin-1.0.3-R"))
-        #expect(!MuseExecutableName.isVersionedBinary("muse-bin-"))
-        #expect(!MuseExecutableName.isVersionedBinary("muse"))
+        #expect(MuseExecutableName("muse-bin-1.4.6-R6000.1").resumeExecutable == "muse")
+        #expect(MuseExecutableName("/opt/muse/bin/muse").resumeExecutable == "/opt/muse/bin/muse")
+        #expect(MuseExecutableName("muse-bin-1.0.3-R").isVersionedBinary)
+        #expect(!MuseExecutableName("muse-bin-").isVersionedBinary)
+        #expect(!MuseExecutableName("muse").isVersionedBinary)
     }
 
     @Test("Replaces a prior session reference and drops one-shot launch state")

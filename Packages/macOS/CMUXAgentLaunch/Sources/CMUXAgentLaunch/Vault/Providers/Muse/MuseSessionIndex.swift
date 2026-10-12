@@ -34,7 +34,25 @@ public struct MuseSessionIndexResult: Equatable, Sendable {
 /// (default `~/.local/share/muse`). Child sessions (subagents and reminder
 /// workers) carry a parent id or a non-root kind and are never resumable on
 /// their own, and a session with no submitted prompt has nothing to resume.
-public enum MuseSessionIndex {
+public struct MuseSessionIndex: Sendable {
+    /// The `session-index.db` this reader opens.
+    public let indexDatabasePath: String
+
+    /// Reads the index at an explicit path.
+    public init(indexDatabasePath: String) {
+        self.indexDatabasePath = indexDatabasePath
+    }
+
+    /// Reads the index in Muse's data directory for `env`.
+    public init(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory()
+    ) {
+        self.init(indexDatabasePath: Self.indexDatabasePath(
+            dataDirectory: Self.defaultDataDirectory(env: env, homeDirectory: homeDirectory)
+        ))
+    }
+
     /// Muse's data directory, honoring `XDG_DATA_HOME` like the Muse CLI does.
     public static func defaultDataDirectory(
         env: [String: String] = ProcessInfo.processInfo.environment,
@@ -51,13 +69,13 @@ public enum MuseSessionIndex {
     }
 
     /// Loads resumable top-level sessions, newest first.
-    public static func loadSessions(
+    public func loadSessions(
         needle: String,
         cwdFilter: String?,
         offset: Int,
-        limit: Int,
-        indexDBPath: String
+        limit: Int
     ) -> MuseSessionIndexResult {
+        let indexDBPath = indexDatabasePath
         guard limit > 0, offset >= 0, !offset.addingReportingOverflow(limit).overflow else {
             return MuseSessionIndexResult(sessions: [], errors: [])
         }
@@ -80,7 +98,7 @@ public enum MuseSessionIndex {
 
         do {
             return try HermesAgentIndex.withDatabase(snapshot.databaseURL.path) { db in
-                try loadSessions(db: db, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+                try Self.loadSessions(db: db, needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
             }
         } catch {
             let message: String

@@ -10,16 +10,13 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int,
         errorBag: ErrorBag,
-        indexDBPath: String = MuseSessionIndex.indexDatabasePath(
-            dataDirectory: MuseSessionIndex.defaultDataDirectory()
-        )
+        index: MuseSessionIndex = MuseSessionIndex()
     ) -> [SessionEntry] {
-        let result = MuseSessionIndex.loadSessions(
+        let result = index.loadSessions(
             needle: needle,
             cwdFilter: cwdFilter,
             offset: offset,
-            limit: limit,
-            indexDBPath: indexDBPath
+            limit: limit
         )
         for error in result.errors {
             errorBag.addSafe(diagnostic: "Muse index failure: \(error)")
@@ -56,7 +53,7 @@ extension SessionIndexStore {
             offset: offset,
             limit: limit,
             errorBag: bag,
-            indexDBPath: indexDBPath
+            index: MuseSessionIndex(indexDatabasePath: indexDBPath)
         )
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }

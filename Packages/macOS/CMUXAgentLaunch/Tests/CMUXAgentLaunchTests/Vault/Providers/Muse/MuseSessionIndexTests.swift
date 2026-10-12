@@ -11,12 +11,8 @@ struct MuseSessionIndexTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = try makeIndex(in: root)
 
-        let result = MuseSessionIndex.loadSessions(
-            needle: "",
-            cwdFilter: nil,
-            offset: 0,
-            limit: 10,
-            indexDBPath: dbURL.path
+        let result = MuseSessionIndex(indexDatabasePath: dbURL.path).loadSessions(
+            needle: "", cwdFilter: nil, offset: 0, limit: 10
         )
 
         #expect(result.errors.isEmpty)
@@ -34,18 +30,18 @@ struct MuseSessionIndexTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = try makeIndex(in: root)
 
-        let byNeedle = MuseSessionIndex.loadSessions(
-            needle: "FLAKY", cwdFilter: nil, offset: 0, limit: 10, indexDBPath: dbURL.path
+        let byNeedle = MuseSessionIndex(indexDatabasePath: dbURL.path).loadSessions(
+            needle: "FLAKY", cwdFilter: nil, offset: 0, limit: 10
         )
         #expect(byNeedle.sessions.map(\.sessionId) == ["exec-old"])
 
-        let byCwd = MuseSessionIndex.loadSessions(
-            needle: "", cwdFilter: "/work/other", offset: 0, limit: 10, indexDBPath: dbURL.path
+        let byCwd = MuseSessionIndex(indexDatabasePath: dbURL.path).loadSessions(
+            needle: "", cwdFilter: "/work/other", offset: 0, limit: 10
         )
         #expect(byCwd.sessions.map(\.sessionId) == ["exec-old"])
 
-        let secondPage = MuseSessionIndex.loadSessions(
-            needle: "", cwdFilter: nil, offset: 1, limit: 1, indexDBPath: dbURL.path
+        let secondPage = MuseSessionIndex(indexDatabasePath: dbURL.path).loadSessions(
+            needle: "", cwdFilter: nil, offset: 1, limit: 1
         )
         #expect(secondPage.sessions.map(\.sessionId) == ["exec-old"])
     }
@@ -54,12 +50,8 @@ struct MuseSessionIndexTests {
     func missingIndexIsEmpty() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let result = MuseSessionIndex.loadSessions(
-            needle: "",
-            cwdFilter: nil,
-            offset: 0,
-            limit: 10,
-            indexDBPath: root.appendingPathComponent("session-index.db").path
+        let result = MuseSessionIndex(indexDatabasePath: root.appendingPathComponent("session-index.db").path).loadSessions(
+            needle: "", cwdFilter: nil, offset: 0, limit: 10
         )
         #expect(result == MuseSessionIndexResult(sessions: [], errors: []))
     }

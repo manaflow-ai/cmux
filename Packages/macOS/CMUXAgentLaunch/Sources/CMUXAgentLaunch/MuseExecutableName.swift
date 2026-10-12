@@ -1,34 +1,40 @@
 import Foundation
 
-/// Names the Muse Code executables cmux observes.
+/// A Muse Code executable cmux observed.
 ///
 /// The user-facing `muse` launcher execs a versioned sibling binary such as
 /// `muse-bin-1.4.6-R6000.1`. That binary is replaced on every update, so a
 /// resume command must run the launcher, not the versioned binary it observed.
-public enum MuseExecutableName {
+public struct MuseExecutableName: Sendable, Equatable {
     /// The launcher's executable name.
     public static let launcher = "muse"
 
     private static let versionedBinaryPrefix = "muse-bin-"
 
-    /// Whether `name` is a versioned Muse binary basename, including the
-    /// truncated form macOS reports as a process name.
-    public static func isVersionedBinary(_ name: String?) -> Bool {
-        guard let name else { return false }
-        let base = URL(fileURLWithPath: name).lastPathComponent.lowercased()
-        return base.hasPrefix(versionedBinaryPrefix) && base.count > versionedBinaryPrefix.count
+    /// The executable path or name as observed.
+    public let value: String
+
+    public init(_ value: String) {
+        self.value = value
     }
 
-    /// The launcher to resume with for a captured executable.
+    /// Whether this is a versioned Muse binary, including the truncated form
+    /// macOS reports as a process name.
+    public var isVersionedBinary: Bool {
+        let base = URL(fileURLWithPath: value).lastPathComponent.lowercased()
+        return base.hasPrefix(Self.versionedBinaryPrefix) && base.count > Self.versionedBinaryPrefix.count
+    }
+
+    /// The launcher to resume with.
     ///
     /// A versioned binary maps to the `muse` launcher in the same directory,
     /// where the launcher installs it; any other executable is kept.
-    public static func resumeExecutable(forCaptured executable: String) -> String {
-        guard isVersionedBinary(executable) else { return executable }
-        guard executable.contains("/") else { return launcher }
-        return URL(fileURLWithPath: executable)
+    public var resumeExecutable: String {
+        guard isVersionedBinary else { return value }
+        guard value.contains("/") else { return Self.launcher }
+        return URL(fileURLWithPath: value)
             .deletingLastPathComponent()
-            .appendingPathComponent(launcher, isDirectory: false)
+            .appendingPathComponent(Self.launcher, isDirectory: false)
             .path
     }
 }
