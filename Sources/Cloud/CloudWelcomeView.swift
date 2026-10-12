@@ -51,9 +51,7 @@ struct CloudWelcomeView: View {
     @State private var isHoveringNotNow = false
 
     static let windowWidth: CGFloat = 580
-    static var headline: String {
-        String(localized: "cloud.welcome.headline", defaultValue: "Cloud machines for your agents")
-    }
+    nonisolated static let headline = String(localized: "cloud.welcome.headline", defaultValue: "Cloud machines for your agents")
     /// The launch layout: the clip poster on top, the features under it.
     static let listWindowWidth: CGFloat = CloudWelcomeMediaCarousel.posterWidth
 
