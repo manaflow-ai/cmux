@@ -101,7 +101,10 @@ enum NewTabPage {
             let workspaceTabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             for tab in workspaceTabs {
                 if let folder = tab.cwd, !folders.contains(folder) { folders.append(folder) }
-                guard tab.id != selectedID else { continue }
+                // Terminals and pages only: a conversation tab (every New
+                // Tab page) or a page tab would list as "about:blank"
+                // terminals (cx-7cit9).
+                guard tab.id != selectedID, [.pty, .remoteTerminal, .browser].contains(tab.kind) else { continue }
                 let browser = tab.kind == .browser
                 tabs.append(AgentPaneOmnibar.Tab(
                     id: tab.id, kind: browser ? .browser : .terminal, title: tab.displayTitle,
