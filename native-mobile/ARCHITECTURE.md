@@ -42,7 +42,8 @@ iPhone app ──HostLink(WebRTC DC)──> host bridge (Mac) ──unix socket�
     `upload.put {name, data_b64, dir?}` (returns host path; chunked with
     `upload.begin/chunk/end` above 512 KiB), `session.refs {surface_id}`,
     `feed.list {limit}`, `feed.subscribe`, `feed.reply {item_id, text}`,
-    `feed.answer {item_id, choice}`.
+    `feed.answer {item_id, choice}`, `presence.set {visible}` (cmux is on
+    screen; the host holds push alerts).
 
 Data channels carry at most 16 KiB per message. The sender splits a line
 into `{"frag":k,"of":n,"d":"..."}` envelopes only above that size.
@@ -60,7 +61,13 @@ into `{"frag":k,"of":n,"d":"..."}` envelopes only above that size.
   Host connects with `host_secret`; phones with `session_token`.
   Messages: `{"t":"offer"|"answer"|"ice"|"bye","sid","sdp"?,"candidate"?}`.
   The DO stamps `from` and routes phone→host and host→phone by `sid`.
-- `POST /v1/push/register` `{apns_token}` (later).
+- Push (details in `worker/README.md`): `POST /v1/push/register`,
+  `POST /v1/hosts/:id/events` (host posts attention events and Live
+  Activity updates), `POST /v1/push/live-activity`, `POST /v1/push/action`
+  (a notification answer, relayed to the host socket as `{"t":"action"}`).
+  The host holds alerts while a phone reports `presence.set {visible:true}`
+  on `svc`, and acts on an answer only for an event it posted, on that
+  event's surface.
 
 ## iOS app shape
 

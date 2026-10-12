@@ -33,6 +33,8 @@ targets:
         product: CmuxNativeWire
       - package: CmuxNativeShared
         product: CmuxNativeLink
+      - target: CmuxNativeNotificationService
+      - target: CmuxNativeLiveActivity
     entitlements:
       path: App/CmuxNative.entitlements
       properties:
@@ -55,6 +57,10 @@ targets:
         NSFaceIDUsageDescription: Unlock cmux.
         CmuxNativeAPIBase: $(CMUX_NATIVE_API_BASE)
         ITSAppUsesNonExemptEncryption: false
+        NSSupportsLiveActivities: true
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.cmux.next.native
+            CFBundleURLSchemes: [cmux-next]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native$(CMUX_NATIVE_BUNDLE_SUFFIX)
@@ -66,6 +72,50 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ENABLE_PREVIEWS: YES
         OTHER_LDFLAGS: -lc++
+  # Push: renders attention notifications (agent, workspace, prompt quote,
+  # per-menu choice buttons).
+  CmuxNativeNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService
+      - Sources/Notifications/PushContent.swift
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: cmux next Notifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native$(CMUX_NATIVE_BUNDLE_SUFFIX).NotificationService
+        CMUX_NATIVE_BUNDLE_SUFFIX: .dev
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+  # Live Activities for running agents (lock screen and Dynamic Island).
+  CmuxNativeLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - LiveActivity
+      - Sources/Notifications/AgentActivityAttributes.swift
+    info:
+      path: LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: cmux next Live Activity
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native$(CMUX_NATIVE_BUNDLE_SUFFIX).LiveActivity
+        CMUX_NATIVE_BUNDLE_SUFFIX: .dev
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
   CmuxNativeTests:
     type: bundle.unit-test
     platform: iOS

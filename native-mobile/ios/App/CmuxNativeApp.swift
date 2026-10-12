@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct CmuxNativeApp: App {
     @State private var app = AppModel()
+    @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
@@ -11,6 +12,7 @@ struct CmuxNativeApp: App {
                 // Sign-in is always dark (like Claude/ChatGPT/Grok launch screens).
                 .preferredColorScheme(app.phase != .ready ? .dark : appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .appLock()
+                .pushNotifications(app: app)
                 .task { await app.launch() }
         }
     }

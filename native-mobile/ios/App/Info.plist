@@ -18,6 +18,17 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.cmux.next.native</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cmux-next</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>CmuxNativeAPIBase</key>
@@ -32,6 +43,8 @@
 	<string>cmux connects directly to your Mac on the same network.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach photos and videos to a terminal session.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
