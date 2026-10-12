@@ -464,6 +464,7 @@ git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
+git worktree apply [TARGET]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -679,6 +680,19 @@ uncommitted changes are untouched. The result is the worktree's `root`,
 `no_home` or `git_failed`; a retry after a lost reply or a timeout finds the
 worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
+
+`git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
+run in such a worktree, brings its work back to the main checkout, in the
+user's environment and only on this machine. Everything the worktree changed
+since the merge base with its recorded base (its commits, its uncommitted edits
+and the new files it never added) lands in the main checkout's files as
+uncommitted changes; HEAD and the index of both checkouts stay as they are.
+The result is `main_root` and the `files` it changed. It refuses, changing
+nothing, with `not_a_worktree`, `no_base`, `no_merge_base`, `nothing_to_apply`,
+`main_checkout_changed` (the main checkout has changes of its own at those
+paths, listed in `extra.files`), `does_not_apply` or `git_failed`; a retry
+after a lost reply or a timeout finds the work applied instead of applying it
+twice.
 
 ## Local sidebar plugins
 
