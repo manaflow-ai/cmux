@@ -165,7 +165,7 @@ struct PageFactory {
                            dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
         // An image dropped on Settings becomes the background (cx-t2x.8).
-        page.fileDrop = PageFileDrop(accepts: BackdropUserImages.isImage) { [weak provider] url in
+        page?.fileDrop = PageFileDrop(accepts: BackdropUserImages.isImage) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }
