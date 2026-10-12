@@ -20,6 +20,7 @@ which only grows; Sparkle compares it, never the marketing version.
 import argparse
 import re
 import sys
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -44,6 +45,10 @@ def marketing(track, project_version, build, next_base):
     return f"{base}-{TRACK_CHANNEL[track]}.{build}"
 
 
+class Missing(Refused):
+    pass
+
+
 def read_feed(source):
     try:
         if source.startswith("https://"):
@@ -55,6 +60,12 @@ def read_feed(source):
             with open(source, "rb") as handle:
                 data = handle.read()
         return ET.fromstring(data)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise Missing(f"cannot read feed {source}: it does not exist") from error
+        raise Refused(f"cannot read feed {source}: {error}") from error
+    except FileNotFoundError as error:
+        raise Missing(f"cannot read feed {source}: it does not exist") from error
     except (OSError, ET.ParseError) as error:
         raise Refused(f"cannot read feed {source}: {error}") from error
 
@@ -75,11 +86,20 @@ def feed_builds(root):
     return numeric
 
 
-def check_build(build, feeds):
+def check_build(build, feeds, optional_feeds=()):
+    """`optional_feeds` may not exist yet (a track's new feed before its first
+    publication); any other read failure still refuses."""
     if not BUILD.match(build):
         raise Refused(f"build {build!r} is not a number")
-    for source in feeds:
-        builds = feed_builds(read_feed(source))
+    for source in [*feeds, *optional_feeds]:
+        try:
+            root = read_feed(source)
+        except Missing:
+            if source not in optional_feeds:
+                raise
+            print(f"build {build}: {source} does not exist yet")
+            continue
+        builds = feed_builds(root)
         highest = max(builds, default=None)
         if highest is not None and int(build) <= highest:
             raise Refused(f"build {build} is not above {highest} in {source}")
@@ -97,12 +117,13 @@ def main(argv):
     c = commands.add_parser("check-build")
     c.add_argument("--build", required=True)
     c.add_argument("--feed", action="append", required=True)
+    c.add_argument("--feed-if-present", action="append", default=[], help="a feed that may not exist yet")
     args = parser.parse_args(argv)
     try:
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
         else:
-            check_build(args.build, args.feed)
+            check_build(args.build, args.feed, args.feed_if_present)
     except Refused as error:
         print(f"nightly_version: {error}", file=sys.stderr)
         return 1
