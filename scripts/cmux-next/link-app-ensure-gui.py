@@ -22,7 +22,7 @@ Checks (each a PASS/FAIL line, all in $NX_ARTIFACTS/link.json):
 The app is started by its executable from this job and ended by exact pid; it never touches
 the user's cmux. The tag's daemons end through TagTeardown.
 """
-import json, os, plistlib, shutil, socket, stat, subprocess, sys, threading, time
+import json, os, plistlib, socket, stat, subprocess, sys, threading, time
 
 APP = os.environ["NX_APP"]
 TAG = os.environ["NX_APP_TAG"]
@@ -96,10 +96,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown
 
 TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-MOVED_ASIDE = None
-if os.path.isdir(TAG_ROOT) and not os.path.islink(TAG_ROOT):
-    MOVED_ASIDE = TAG_ROOT + ".old-" + str(int(time.time()))
-    os.rename(TAG_ROOT, MOVED_ASIDE)
+# A fresh tag only: this script never moves or deletes a tag folder it did
+# not make.
+if os.path.lexists(TAG_ROOT):
+    sys.exit(f"refusing: {TAG_ROOT} already exists; use a new tag")
 TUI = os.path.join(TAG_ROOT, "tui")
 LINK_STATE = os.path.join(TUI, "link")
 REGISTRATION = os.path.join(TUI, "link.json")
@@ -256,8 +256,7 @@ finally:
     for step in (quit_app,
                  lambda: record("link stop at the end leaves no link.json",
                                 link("stop") is not None and not os.path.exists(REGISTRATION), ""),
-                 TEARDOWN.end,
-                 lambda: shutil.rmtree(MOVED_ASIDE) if MOVED_ASIDE and os.path.isdir(MOVED_ASIDE) else None):
+                 TEARDOWN.end):
         try:
             step()
         except Exception as error:  # each cleanup step runs, whatever the one before did
