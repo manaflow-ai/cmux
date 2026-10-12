@@ -18,6 +18,14 @@
 //!
 //! No argv flag is added, so an upgraded daemon starts with the guest's
 //! existing command line.
+//!
+//! Test seam, debug builds only: `CMUX_TEST_CLOUD_ETC=<absolute dir>`
+//! (`agent_start_host::cloud_etc`, read once at daemon start) stands in for
+//! `/etc/cmux`, and the stamp there must be owned by the daemon's own uid,
+//! with the walk stopping at that folder instead of `/`. Everything else
+//! above (Linux, the stamp's prefix, no group/other write, no symlink, the
+//! model plane identity) is checked as on a real Cloud host. Release builds
+//! and a daemon without the variable read the root-owned `/etc/cmux` only.
 
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
@@ -25,8 +33,6 @@ use std::path::{Path, PathBuf};
 use cmux_tui_core::fs_ops::{FsService, Roots};
 use cmux_tui_core::server::agent_transfer::AgentTransferHost;
 
-/// The root-owned stamp of a Cloud image.
-const IMAGE_STAMP: &str = "/etc/cmux/image-stamp";
 /// What a Cloud image stamp starts with (the devbox and cmux-vm bakes).
 const STAMP_PREFIXES: [&str; 2] = ["cmux-devbox ", "cmux-vm "];
 /// Longest stamp read.
@@ -74,11 +80,10 @@ fn this_is_a_cloud_host() -> bool {
         crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
             .is_some();
     let linux = cfg!(target_os = "linux");
-    is_cloud_host(
-        linux,
-        linux && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0),
-        identity,
-    )
+    // The root-owned stamp of a Cloud image (`/etc/cmux/image-stamp`).
+    let etc = crate::agent_start_host::cloud_etc();
+    let stamp = etc.file(crate::agent_start_host::IMAGE_STAMP_FILE);
+    is_cloud_host(linux, linux && trusted_stamp(&stamp, &etc.top, etc.owner), identity)
 }
 
 /// What `agent-transfer-v1` guards moved chats with: on a Cloud host they
