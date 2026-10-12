@@ -506,90 +506,6 @@
           "aliases": []
         },
         {
-          "id": "home.previousConversation",
-          "title": {
-            "en": "Previous Conversation",
-            "ar": "المحادثة السابقة",
-            "bs": "Prethodni razgovor",
-            "da": "Forrige samtale",
-            "de": "Vorherige Unterhaltung",
-            "es": "Conversación anterior",
-            "fr": "Conversation précédente",
-            "it": "Conversazione precedente",
-            "ja": "前の会話",
-            "km": "ការសន្ទនាមុន",
-            "ko": "이전 대화",
-            "no": "Forrige samtale",
-            "pl": "Poprzednia rozmowa",
-            "pt-BR": "Conversa anterior",
-            "ru": "Предыдущий разговор",
-            "th": "การสนทนาก่อนหน้า",
-            "tr": "Önceki Sohbet",
-            "uk": "Попередня розмова",
-            "vi": "Cuộc trò chuyện trước",
-            "zh-CN": "上一个对话",
-            "zh-TW": "上一個對話"
-          },
-          "shortcut": null,
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "topPage == home"
-            }
-          ]
-        },
-        {
-          "id": "home.nextConversation",
-          "title": {
-            "en": "Next Conversation",
-            "ar": "المحادثة التالية",
-            "bs": "Sljedeći razgovor",
-            "da": "Næste samtale",
-            "de": "Nächste Unterhaltung",
-            "es": "Conversación siguiente",
-            "fr": "Conversation suivante",
-            "it": "Conversazione successiva",
-            "ja": "次の会話",
-            "km": "ការសន្ទនាបន្ទាប់",
-            "ko": "다음 대화",
-            "no": "Neste samtale",
-            "pl": "Następna rozmowa",
-            "pt-BR": "Próxima conversa",
-            "ru": "Следующий разговор",
-            "th": "การสนทนาถัดไป",
-            "tr": "Sonraki Sohbet",
-            "uk": "Наступна розмова",
-            "vi": "Cuộc trò chuyện tiếp theo",
-            "zh-CN": "下一个对话",
-            "zh-TW": "下一個對話"
-          },
-          "shortcut": null,
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "topPage == home"
-            }
-          ]
-        },
-        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -1609,12 +1525,71 @@
           "shortcut": {
             "key": "]",
             "modifiers": [
-              "ctrl",
+              "shift",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "prevSidebarTab",
@@ -1644,12 +1619,72 @@
           "shortcut": {
             "key": "[",
             "modifiers": [
-              "ctrl",
+              "shift",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "moveWorkspaceUp",
@@ -1756,7 +1791,107 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "renameWorkspace",
@@ -2814,27 +2949,14 @@
             "zh-TW": "聚焦左側窗格"
           },
           "shortcut": {
-            "key": "",
+            "key": "h",
             "modifiers": [
-              "opt",
+              "ctrl",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "h",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "focusRight",
@@ -2862,27 +2984,14 @@
             "zh-TW": "聚焦右側窗格"
           },
           "shortcut": {
-            "key": "",
+            "key": "l",
             "modifiers": [
-              "opt",
+              "ctrl",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "l",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "focusUp",
@@ -3873,171 +3982,6 @@
           },
           "chord": null,
           "aliases": []
-        },
-        {
-          "id": "navigate.next",
-          "title": {
-            "en": "Next Tab or Workspace",
-            "ar": "علامة التبويب أو مساحة العمل التالية",
-            "bs": "Sljedeći tab ili radni prostor",
-            "da": "Næste fane eller arbejdsområde",
-            "de": "Nächster Tab oder Arbeitsbereich",
-            "es": "Pestaña o espacio de trabajo siguiente",
-            "fr": "Onglet ou espace de travail suivant",
-            "it": "Scheda o area di lavoro successiva",
-            "ja": "次のタブまたはワークスペース",
-            "km": "ថេប ឬកន្លែងធ្វើការបន្ទាប់",
-            "ko": "다음 탭 또는 작업 공간",
-            "no": "Neste fane eller arbeidsområde",
-            "pl": "Następna karta lub przestrzeń",
-            "pt-BR": "Próxima Aba ou Área de Trabalho",
-            "ru": "Следующая вкладка или пространство",
-            "th": "แท็บหรือเวิร์กสเปซถัดไป",
-            "tr": "Sonraki Sekme veya Çalışma Alanı",
-            "uk": "Наступна вкладка або робоча область",
-            "vi": "Tab hoặc không gian làm việc tiếp theo",
-            "zh-CN": "下一个标签页或工作区",
-            "zh-TW": "下一個標籤頁或工作區"
-          },
-          "shortcut": {
-            "key": "]",
-            "modifiers": [
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != terminal"
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != terminal"
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind == page"
-            },
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind == page"
-            }
-          ]
-        },
-        {
-          "id": "navigate.previous",
-          "title": {
-            "en": "Previous Tab or Workspace",
-            "ar": "علامة التبويب أو مساحة العمل السابقة",
-            "bs": "Prethodni tab ili radni prostor",
-            "da": "Forrige fane eller arbejdsområde",
-            "de": "Vorheriger Tab oder Arbeitsbereich",
-            "es": "Pestaña o espacio de trabajo anterior",
-            "fr": "Onglet ou espace de travail précédent",
-            "it": "Scheda o area di lavoro precedente",
-            "ja": "前のタブまたはワークスペース",
-            "km": "ថេប ឬកន្លែងធ្វើការមុន",
-            "ko": "이전 탭 또는 작업 공간",
-            "no": "Forrige fane eller arbeidsområde",
-            "pl": "Poprzednia karta lub przestrzeń",
-            "pt-BR": "Aba ou Área de Trabalho Anterior",
-            "ru": "Предыдущая вкладка или пространство",
-            "th": "แท็บหรือเวิร์กสเปซก่อนหน้า",
-            "tr": "Önceki Sekme veya Çalışma Alanı",
-            "uk": "Попередня вкладка або робоча область",
-            "vi": "Tab hoặc không gian làm việc trước",
-            "zh-CN": "上一个标签页或工作区",
-            "zh-TW": "上一個標籤頁或工作區"
-          },
-          "shortcut": {
-            "key": "[",
-            "modifiers": [
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != terminal"
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": "surfaceKind != terminal"
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind == page"
-            },
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "shift",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": "surfaceKind == page"
-            }
-          ]
         },
         {
           "id": "moveSurfaceLeft",

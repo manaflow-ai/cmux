@@ -6,16 +6,18 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { type Project, ProjectChooser } from "../ProjectChooser";
 import { isAgentHome, projectLabel } from "../sessionList";
-import { tooltipProps } from "../shortcuts";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
+import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart } from "./chipDefaults";
+import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
-  initialSelection,
+  defaultSelection,
+  isAddress,
   recentChatCards,
   screenRows,
   shellEntry,
@@ -23,10 +25,12 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
-import { useNt } from "./strings";
+import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { ChromeArea } from "../../../ui/HideableChrome";
+import { Popover } from "../../../ui/Popover";
+import { useComposerChrome } from "../composerChrome";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -46,7 +50,6 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
-  onRunAction?(id: string): void;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -65,7 +68,6 @@ type Props = NewTabScreenActions & {
   location?: string;
   lastAgent?: string;
   home?: string;
-  tools?: NewTabHost["tools"];
   /// The workspace's tabs to move here (a split's page, cx-jfo7).
   openTabs?: NewTabHost["openTabs"];
   inputToken?: string;
@@ -99,14 +101,14 @@ type Props = NewTabScreenActions & {
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
-  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, tools = [], inputToken } = props;
+  const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
   // The highlighted row; -1 is none (Enter is the prompt's).
-  const [selected, setSelected] = useState(-1);
+  const [selected, setSelected] = useState<number | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
   /// Return asked with no agent to ask: the note under the field says so until the next edit.
@@ -117,7 +119,9 @@ export function NewTabScreen(props: Props) {
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
-  const { onInputReady } = props;
+  // The App hands a new callback on each render; the field must not take the keyboard again for it.
+  const onInputReady = useRef(props.onInputReady);
+  onInputReady.current = props.onInputReady;
   const focusOnShow = props.focusField !== false;
   const touch = () => {
     if (inputReported.current) return;
@@ -131,23 +135,35 @@ export function NewTabScreen(props: Props) {
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = project && project !== props.cwd ? project : (props.startCwd ?? project ?? props.cwd);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
+  const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, agents, lastAgent, chatFolder),
-    [snapshot, agents, lastAgent, chatFolder],
+    () => newTabStart(snapshot, agents, lastAgent, chatFolder, remembered),
+    [snapshot, agents, lastAgent, chatFolder, remembered],
   );
+  // The Ask row names the agent Return asks and the model on its chip.
+  const ask = useMemo(() => {
+    const entry = snapshot.catalog.find((agent) => agent.id === harness);
+    if (!harness || !entry) return undefined;
+    const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
+    return { harness, agent: entry.name, ...(model ? { model } : {}) };
+  }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
   const rows = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home }) : []),
-    [touched, shell, text, omnibar, home],
+    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask],
   );
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current = selected < rows.length ? selected : -1;
+  const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
+  const chrome = useComposerChrome();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
-  const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t, device), [snapshot.sessions, now, t, device]);
+  const cards = useMemo(
+    () => recentChatCards(snapshot.sessions, now, t, device, sections.recent),
+    [snapshot.sessions, now, t, device, sections.recent],
+  );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
-  const allChats = sections.chats !== "none" && !!props.loadChatsPage && !!props.onOpenChat;
+  const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
@@ -160,6 +176,9 @@ export function NewTabScreen(props: Props) {
     if (key) props.onOpenChatInTerminal?.(key);
   };
   const list = useRef<HTMLDivElement>(null);
+  // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
+  // it floats over every section, never covered and never moving the page.
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
   // selected one.
@@ -173,7 +192,8 @@ export function NewTabScreen(props: Props) {
   }, []);
 
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
-  // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
+  // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
+  // update or a click into the field never moves its caret or restarts its blink.
   useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
@@ -182,12 +202,12 @@ export function NewTabScreen(props: Props) {
     if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {
       inputReadyReported.current = inputToken;
-      onInputReady?.(inputToken);
+      onInputReady.current?.(inputToken);
     }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken, onInputReady, focusOnShow]);
+  }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
     switch (row.type) {
@@ -199,6 +219,10 @@ export function NewTabScreen(props: Props) {
         return props.onOpen(row.url);
       case "tab":
         return props.onJump("tab", row.id);
+      case "workspace":
+        return props.onJump("workspace", row.id);
+      case "ask":
+        return props.onAsk(row.harness, row.text, project);
     }
   };
   const edit = (next: string) => {
@@ -212,14 +236,14 @@ export function NewTabScreen(props: Props) {
       return;
     }
     setText(next);
-    setSelected(initialSelection(next, home));
+    setSelected(undefined);
     setNoAgent(false);
   };
   const submit = () => {
     const row = rows[current];
     if (row) return activate(row);
     const prompt = text.trim();
-    if (!prompt || initialSelection(prompt, home) === 0) return;
+    if (!prompt || isAddress(prompt, home)) return;
     if (!harness) return setNoAgent(true);
     props.onAsk(harness, prompt, project);
   };
@@ -317,7 +341,7 @@ export function NewTabScreen(props: Props) {
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");
-      setSelected(-1);
+      setSelected(undefined);
       setTouched(true);
     }
   };
@@ -343,8 +367,8 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
     >
       {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
-          row, the Return glyph at the end. */}
-      <div className="nt-box">
+          row, the Send button at the end. */}
+      <div ref={setBox} className="nt-box">
         <div className="nt-input">
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">
@@ -379,33 +403,83 @@ export function NewTabScreen(props: Props) {
             }}
           />
         </div>
-        <div className="nt-pickers" onPointerDownCapture={touch}>
-          <ProjectChooser
-            projects={props.projects ?? []}
-            current={project}
-            {...(project ? { currentLabel: projectLabel(project) } : {})}
-            icon={<FolderIcon />}
-            onPick={pickProject}
-            {...(browseProject ? { onBrowse: browseProject } : {})}
-            side="bottom"
-          />
-          {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+        {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+            this page draws no context ring. */}
+        <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+          <div className="nt-pickers" onPointerDownCapture={touch}>
+            <ProjectChooser
+              projects={props.projects ?? []}
+              current={project}
+              {...(project ? { currentLabel: projectLabel(project) } : {})}
+              icon={<FolderIcon />}
+              onPick={pickProject}
+              {...(browseProject ? { onBrowse: browseProject } : {})}
+              side="bottom"
+            />
+            {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
-          {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-          {props.accessory}
-          {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-          <button
-            type="button"
-            className="nt-enter"
-            aria-label={t("composer.send")}
-            title={t("composer.send")}
-            disabled={!text.trim()}
-            onClick={send}
-          >
-            ↵
-          </button>
-        </div>
+            {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+            {props.accessory}
+            {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+            <button
+              type="button"
+              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              aria-label={t("composer.send")}
+              title={t("composer.sendTooltip")}
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <ArrowUpIcon />
+            </button>
+          </div>
+        </ChromeArea>
       </div>
+      {rows.length > 0 && box && (
+        <Popover
+          open
+          // The rows follow the field (Escape there clears it): the popover never closes itself.
+          onOpenChange={() => undefined}
+          anchor={box}
+          label={nt("suggestions")}
+          className="nt-popover"
+          initialFocus={false}
+          finalFocus={false}
+        >
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+            {rows.map((row, index) => (
+              <div
+                key={rowKey(row)}
+                id={`nt-row-${index}`}
+                ref={index === current ? keepInView : undefined}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === current}
+                data-type={row.type}
+                className={index === current ? "nt-row is-selected" : "nt-row"}
+                onMouseMove={() => index !== current && setSelected(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  activate(row);
+                }}
+              >
+                {rowFavicon(row) ? (
+                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                ) : (
+                  <RowGlyph kind={row.type} />
+                )}
+                <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                <span className="nt-row-action">
+                  {rowAction(t, nt, row)}
+                  {index === current && <kbd>↵</kbd>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Popover>
+      )}
       {props.notice}
       {noAgent && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -414,50 +488,14 @@ export function NewTabScreen(props: Props) {
           {props.onAddHarness && (
             <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => props.onAddHarness?.()}>
               <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                {toolIcon("plus")}
+                <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>
             </button>
           )}
         </div>
       )}
-      {rows.length > 0 && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div ref={list} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
-          {rows.map((row, index) => (
-            <div
-              key={rowKey(row)}
-              id={`nt-row-${index}`}
-              ref={index === current ? keepInView : undefined}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === current}
-              data-type={row.type}
-              className={index === current ? "nt-row is-selected" : "nt-row"}
-              onMouseMove={() => index !== current && setSelected(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                activate(row);
-              }}
-            >
-              {rowFavicon(row) ? (
-                <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-              ) : (
-                <RowGlyph kind={row.type} />
-              )}
-              <span className="nt-row-title">{rowTitle(row)}</span>
-              {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-              <span className="nt-row-action">
-                {rowAction(t, row)}
-                {index === current && <kbd>↵</kbd>}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.tools && tools.length > 0 && <ToolsRow tools={tools} onRunAction={props.onRunAction} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
@@ -505,83 +543,8 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
-/// The host actions as one quiet row under the field (board principle 5: calm at rest): an icon and
-/// a name, the shortcut in its tooltip. A tool's extra commands (Terminal: split right, split
-/// down) are in its trailing disclosure menu. Integrate a harness lives on the Harnesses page
-/// (the model picker's +, the palette), not here (cx-uj5g8).
-function ToolsRow({
-  tools,
-  onRunAction,
-}: {
-  tools: NonNullable<NewTabHost["tools"]>;
-  onRunAction?: (id: string) => void;
-}) {
-  const t = useT();
-  return (
-    <nav className="nt-tools ui-ghost-row" aria-label={t("newTabPage.tools")}>
-      {tools.map((tool) => {
-        const button = (
-          <button
-            type="button"
-            className="nt-tool ui-ghost"
-            // The shortcut in the tooltip (its hint): shown inline on hover it moved every later tool.
-            {...(tool.shortcut ? tooltipProps(toolTitle(t, tool), tool.shortcut) : {})}
-            onClick={() => onRunAction?.(tool.id)}
-          >
-            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-              {toolIcon(tool.symbol)}
-            </span>
-            <span>{toolTitle(t, tool)}</span>
-          </button>
-        );
-        return tool.menu.length > 0 ? (
-          <div className="nt-tool-host nt-tool-host-with-menu" key={tool.id}>
-            {button}
-            <span className="nt-tool-menu">
-              <Menu>
-                <MenuButton className="nt-tool-menu-button" label={t("newTabPage.moreOptions")} aria-haspopup="menu">
-                  …
-                </MenuButton>
-                <MenuPopup
-                  className="nt-tool-menu-popover"
-                  label={`${toolTitle(t, tool)} ${t("newTabPage.moreOptions")}`}
-                  align="end"
-                >
-                  {tool.menu.map((id) => (
-                    <MenuItem className="nt-tool-menu-item" key={id} onSelect={() => onRunAction?.(id)}>
-                      {toolMenuTitle(t, id)}
-                    </MenuItem>
-                  ))}
-                </MenuPopup>
-              </Menu>
-            </span>
-          </div>
-        ) : (
-          <React.Fragment key={tool.id}>{button}</React.Fragment>
-        );
-      })}
-    </nav>
-  );
-}
-
-/// 14 px stroke icons in currentColor for the host actions, by SF Symbol name.
-function toolIcon(symbol: string): React.ReactNode {
-  const path: Record<string, React.ReactNode> = {
-    plusminus: <path d="M4 4.5h4M6 2.5v4M4 11.5h8M10 4.5h2" />,
-    terminal: (
-      <>
-        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
-        <path d="m4.75 6.25 2 1.75-2 1.75M8.5 10h2.75" />
-      </>
-    ),
-    folder: (
-      <path d="M1.75 4.25c0-.8.65-1.5 1.5-1.5h2.6l1.5 1.5h5.4c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H3.25c-.85 0-1.5-.65-1.5-1.5z" />
-    ),
-    "bubble.left.and.text.bubble.right": (
-      <path d="M2.25 4c0-.85.65-1.5 1.5-1.5h8.5c.85 0 1.5.65 1.5 1.5v5.5c0 .85-.65 1.5-1.5 1.5H7l-3 2.5V11h-.25c-.85 0-1.5-.65-1.5-1.5zM5 5.75h6M5 8h4" />
-    ),
-    plus: <path d="M8 3v10M3 8h10" />,
-  };
+/// The 14 px plus in currentColor before "Integrate a harness".
+function PlusIcon() {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -593,28 +556,9 @@ function toolIcon(symbol: string): React.ReactNode {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      {path[symbol] ?? <circle cx="8" cy="8" r="2" />}
+      <path d="M8 3v10M3 8h10" />
     </svg>
   );
-}
-
-function toolMenuTitle(t: Translate, id: string): string {
-  if (id === "splitRight") return t("newTabPage.tool.splitRight");
-  if (id === "splitDown") return t("newTabPage.tool.splitDown");
-  return id;
-}
-
-function toolTitle(t: ReturnType<typeof useT>, tool: NonNullable<NewTabHost["tools"]>[number]): string {
-  const key: Record<
-    string,
-    "newTabPage.tool.changes" | "newTabPage.tool.terminal" | "newTabPage.tool.files" | "newTabPage.tool.sideChat"
-  > = {
-    openDiffViewer: "newTabPage.tool.changes",
-    newSurface: "newTabPage.tool.terminal",
-    "file.open": "newTabPage.tool.files",
-    "agentPane.searchChats": "newTabPage.tool.sideChat",
-  };
-  return key[tool.id] ? t(key[tool.id]) : tool.title;
 }
 
 function rowKey(row: ScreenRow): string {
@@ -623,6 +567,10 @@ function rowKey(row: ScreenRow): string {
       return `tab:${row.id}`;
     case "history":
       return `history:${row.url}`;
+    case "open":
+      return `open:${row.url}`;
+    case "workspace":
+      return `workspace:${row.id}`;
     default:
       return row.type;
   }
@@ -633,14 +581,18 @@ function rowFavicon(row: ScreenRow): string | undefined {
   return row.type === "tab" || row.type === "history" ? row.icon : undefined;
 }
 
-function rowTitle(row: ScreenRow): string {
+function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "search":
+      return nt("row.searchFor", { text: row.text });
+    case "ask":
+      return nt("row.ask", { agent: row.agent });
     case "open":
       return row.text;
     case "history":
       return row.title ?? row.url;
     case "tab":
+    case "workspace":
       return row.title;
   }
 }
@@ -652,17 +604,24 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "history":
       return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
     case "tab":
+    case "workspace":
       return row.detail;
+    case "ask":
+      return row.model;
     default:
       return undefined;
   }
 }
 
-function rowAction(t: Translate, row: ScreenRow): string {
+function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "search":
     case "open":
       return t("newTabPage.row.open");
+    case "ask":
+      return t("composer.send");
+    case "workspace":
+      return nt("row.workspace");
     case "tab":
       return t("newTabPage.row.tab");
     case "history":

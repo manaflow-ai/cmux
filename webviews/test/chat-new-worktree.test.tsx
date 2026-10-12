@@ -144,3 +144,19 @@ test("the refusal names the session host's reason, not the pane's generic failur
   };
   await expect(newWorktree(native, FOLDER, () => {})).rejects.toThrow("/Users/me/app is not in a git repository");
 });
+
+// From op-next-icons: the host may ask about the worktree's folder before a chat starts there
+// (`workspace.useFolder` answers confirm). New Worktree hands back that question for the pane to
+// show above the composer, as a picked folder's is; nothing starts until the user answers.
+test("a folder question about the worktree comes back to ask, and starts nothing yet", async () => {
+  const native = async (method: string, params?: Record<string, unknown>) => {
+    if (method === "git.worktree.create")
+      return { value: { root: ROOT, branch: "cmux/chat-1a2b3c", base: "main" }, replayed: false };
+    if (method === "workspace.useFolder") return { status: "confirm", reason: "home", cwd: params?.cwd };
+    throw new Error(`unexpected ${method}`);
+  };
+  const used: string[] = [];
+  const made = await newWorktree(native, FOLDER, (cwd) => used.push(cwd));
+  expect(made).toEqual({ root: ROOT, branch: "cmux/chat-1a2b3c", ask: { cwd: ROOT, reason: "home" } });
+  expect(used).toEqual([]);
+});

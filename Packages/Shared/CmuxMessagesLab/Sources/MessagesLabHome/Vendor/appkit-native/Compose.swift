@@ -254,6 +254,33 @@ final class FieldTextView: NSTextView {
     /// objects when `caretRect` last laid out the whole text.
     private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
     private var laidOut: LayoutState?
+    /// The layout inputs that are not in the text storage, so no `didProcessEditing` reports a change
+    /// of them (hq-6d): the text view's font, typing attributes, default paragraph style and container
+    /// inset (counted in `inputChanges` by their setters), and the container's and layout manager's
+    /// settings. A change lays out the whole text again, from scratch. (On macOS 27 TextKit 2 already
+    /// invalidated the caret's line for each input the self-test changes, so the line check alone was
+    /// right there: self-test "caret: a layout input changed ...", 2026-10-12; this key does not depend
+    /// on that undocumented behaviour, on any OS.)
+    /// (`textContainerOrigin` and `textTopInset` are read at each call, not laid out.)
+    private struct LayoutInputs: Equatable {
+        var changes: Int
+        var padding: CGFloat
+        var maxLines: Int
+        var lineBreak: NSLineBreakMode
+        var exclusions: [NSBezierPath]
+        var orientation: NSLayoutManager.TextLayoutOrientation
+        var fontLeading: Bool
+        var hyphenation: Bool
+    }
+    private var laidOutInputs: LayoutInputs?
+    private var inputChanges = 0
+    override var font: NSFont? { didSet { inputChanges &+= 1 } }
+    override var defaultParagraphStyle: NSParagraphStyle? { didSet { inputChanges &+= 1 } }
+    override var textContainerInset: NSSize { didSet { if textContainerInset != oldValue { inputChanges &+= 1 } } }
+    // AppKit sets the typing attributes again at caret moves: only a different value counts.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        didSet { if !NSDictionary(dictionary: typingAttributes).isEqual(to: oldValue) { inputChanges &+= 1 } }
+    }
     private var storageEdits = 0
     private var storageObserver: NSObjectProtocol?
     private var observedStorage: ObjectIdentifier?
@@ -322,6 +349,17 @@ final class FieldTextView: NSTextView {
             observedStorage = storage
             laidOut = nil
         }
+        let inputs = LayoutInputs(changes: inputChanges, padding: textContainer?.lineFragmentPadding ?? -1,
+                                  maxLines: textContainer?.maximumNumberOfLines ?? -1, lineBreak: textContainer?.lineBreakMode ?? .byWordWrapping,
+                                  exclusions: textContainer?.exclusionPaths ?? [], orientation: textContainer?.layoutOrientation ?? .horizontal,
+                                  fontLeading: tlm.usesFontLeading, hyphenation: tlm.usesHyphenation)
+        if inputs != laidOutInputs {
+            // Kept first: a caret update inside the invalidation sees these inputs as laid out.
+            let had = laidOutInputs != nil
+            laidOutInputs = inputs
+            laidOut = nil
+            if had { tlm.invalidateLayout(for: tlm.documentRange) }
+        }
         let state = LayoutState(edits: storageEdits, width: textContainer?.size.width ?? -1,
                                 manager: ObjectIdentifier(tlm), container: textContainer.map(ObjectIdentifier.init))
         // The caret at the end of the text is in the last line's fragment (no fragment begins there).
@@ -338,6 +376,14 @@ final class FieldTextView: NSTextView {
         guard let l = line else { return nil }
         let o = textContainerOrigin
         return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: 1, height: 17)
+    }
+    /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
+    /// whole text is laid out again from scratch (equal when no layout input went stale).
+    func caretRects(at indices: [Int]) -> (kept: [CGRect?], fresh: [CGRect?]) {
+        let kept = indices.map { caretRect(at: $0) }
+        if let tlm = textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
+        laidOut = nil
+        return (kept, indices.map { caretRect(at: $0) })
     }
     @discardableResult
     private func scrollCaretIntoField(_ range: NSRange? = nil) -> Bool {

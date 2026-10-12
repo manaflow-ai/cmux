@@ -45,8 +45,19 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": .array(Self.backdrops.choices.map { choice in
-                ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
+            // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré) and the
+            // person's own images theirs ("Your images"); the page groups the grid by it.
+            "backdrops": .array(Self.backdrops.choices.map { choice -> JSONValue in
+                var row: [String: JSONValue] = ["id": .string(choice.id), "title": .string(choice.title),
+                                                "attribution": .string(choice.attribution)]
+                if case .art(let art) = choice {
+                    row["collection"] = .string(art.collection.rawValue)
+                    row["collection_title"] = .string(art.collection.title)
+                } else if case .file = choice {
+                    row["collection"] = .string(BackdropUserImages.collection)
+                    row["collection_title"] = .string(BackdropUserImages.collectionTitle)
+                }
+                return .object(row)
             }),
             "derived": .object(pageDerivedNumbers()),
         ]
@@ -62,8 +73,17 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick).
-    static let backdrops = BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default)
+    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick), read
+    /// each time so an image the person just added is listed.
+    static var backdrops: BackdropCatalog {
+        BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default,
+                        userImages: userImages)
+    }
+
+    /// The person's own background images, in the backgrounds folder.
+    static var userImages: BackdropUserImages? {
+        BackdropArtDownloads.defaultFolder.map(BackdropUserImages.init(folder:))
+    }
 
     /// The theme picker's write: the same theme actions as the palette, at `level` of the active
     /// window; nil `spec` returns the level to the Ghostty config.

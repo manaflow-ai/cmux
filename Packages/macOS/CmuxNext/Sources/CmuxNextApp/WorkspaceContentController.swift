@@ -230,6 +230,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
+        controller.view.toolbar = PaneToolbar(pane: controller) // split right/down and the tab's actions (cx-kk7lm)
         panes[pane] = controller
         services.paneMounts.changed()
         if !isApplying { sendTopology() }

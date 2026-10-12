@@ -114,18 +114,20 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown) in ObservationStream({
+            for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
                 return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
-                        SidebarRows.visibleLayout(layout.document))
+                        SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
-                self.show(sections, layout: shown, launching: launching, failed: failed)
+                self.show(sections, layout: shown, launching: launching, failed: failed, creating: creating)
+                // A workspace a window owns lists its own row from here on (cx-9a7wx).
+                PendingWorkspaceRows.shared.forget { registry.value.owner(of: $0) != nil }
             }
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
@@ -190,13 +192,14 @@ final class SidebarBridge {
 
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
-    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
+    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
+                      creating: [PendingWorkspaceRows.Row] = []) {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
-        rows.show(sections)
+        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
@@ -353,7 +356,7 @@ final class SidebarBridge {
         switch target {
         case .layoutItem(let id): layoutItemMenu(id)
         case .layoutSection(let id): layoutSectionMenu(id)
-        default: SidebarContextMenus.menu(for: target, model: model, services: services)
+        default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }
 

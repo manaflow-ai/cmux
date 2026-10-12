@@ -1075,6 +1075,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_source_archive.py
 
+      - name: Validate the cmux-next guards' notices pair check
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_guards_notices_pair.py
+
       - name: Validate nightly version numbers per track
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_version.py

@@ -604,6 +604,7 @@ function LocationPicker({
             );
           }}
           inline
+          keepHeight
         />
         {onBrowse && (
           <>

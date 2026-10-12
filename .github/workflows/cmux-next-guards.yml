@@ -49,3 +49,9 @@ jobs:
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
+
+      # The release-path package step's own data check: package-notices.json's
+      # libghostty-vt texts are for the graph's commit (#19508 moved the notices,
+      # the graph followed seven hours later) and the pinned texts match.
+      - name: package-notices.json covers vt-link-graph.json
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-data

@@ -1,9 +1,9 @@
 // `agentPane.showContextUsage` and `agentPane.showDictation` in cmux.json (Swift CmuxNextSettings
-// AgentPaneComposerSetting), pushed by the host as the `composer` event: whether the composer
-// shows its context usage ring, and whether every composer (the chat's and the New Tab page's)
-// shows its dictation mic. The ring's right-click hides it and the footer's shows it again; the
-// mic's right-click hides it and Settings shows it again. The page sets the value at once and the
-// host writes it (`pane.showContextUsage`, `pane.showDictation`), then pushes it back.
+// AgentPaneComposerSetting), pushed by the host as the `composer` event: whether every composer
+// (the chat's and the New Tab page's) shows its context usage ring and its dictation mic. Each
+// hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
+// composer's button row offers Show. The page sets the value at once and asks the host to write it
+// (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 import { useSyncExternalStore } from "react";
 
 export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean };
@@ -45,3 +45,18 @@ declare global {
   }
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
+
+/// The host's write of a composer setting: `pane.showContextUsage` or `pane.showDictation` with `show`.
+type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation", show: boolean) => void;
+let composerHost: ComposerHost | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerComposerHost(write: ComposerHost | undefined) {
+  composerHost = write;
+}
+
+/// Shows or hides a composer control in every composer, and asks the host to persist it.
+export function showComposerControl(key: keyof ComposerSettings, show: boolean) {
+  setComposerSettings({ [key]: show });
+  composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
+}

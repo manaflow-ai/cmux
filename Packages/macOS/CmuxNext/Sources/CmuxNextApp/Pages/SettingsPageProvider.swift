@@ -45,6 +45,10 @@ final class SettingsPageProvider: PageProvider {
     var pickFolders: (@MainActor () async -> [String]?)?
     /// Save as Ghostty Theme and Import Theme File (`cmux.settings.theme.save`/`.import`).
     var themeFiles: SettingsThemeFiles?
+    /// The backgrounds folder and its image picker (`cmux.settings.backdrop.choose_image`).
+    var backdropImages: SettingsBackdropImages?
+    /// Browse more art: the museum search's results for this page.
+    var museumArt: MuseumArtSession?
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
@@ -149,6 +153,10 @@ final class SettingsPageProvider: PageProvider {
                 try await write(descriptor, .array((current + added).map(JSONValue.string)), by: .user)
             }
             return ["added": .array(added.map(JSONValue.string))]
+        case "cmux.settings.backdrop.choose_image":
+            return try await chooseBackdropImage()
+        case "cmux.settings.art.search", "cmux.settings.art.use":
+            return try await museumArt(op, params: params)
         case "cmux.settings.section.actions":
             guard let name = params["section"]?.stringValue, let section = SettingsSection(rawValue: name) else {
                 throw PageError.invalidParams("section is required")
@@ -327,7 +335,7 @@ final class SettingsPageProvider: PageProvider {
         PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
     }
 
-    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
+    func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
         do {
             try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {

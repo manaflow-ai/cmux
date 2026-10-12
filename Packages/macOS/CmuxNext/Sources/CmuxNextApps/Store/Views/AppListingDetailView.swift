@@ -26,6 +26,7 @@ struct AppListingDetailView: View {
             }
             .appStoreColumn()
             .padding(.vertical, Metrics.space5)
+            .thinScrollers()
         }
         .accessibilityIdentifier("appStore.detail.\(listing.id)")
     }

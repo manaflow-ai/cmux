@@ -42,7 +42,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
-    case rememberNewTab(agent: String)
+    case rememberNewTab(AgentPaneRememberedPick)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched

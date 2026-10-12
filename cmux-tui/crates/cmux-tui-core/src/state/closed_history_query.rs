@@ -47,7 +47,28 @@ fn public_tab(tab: &Value) -> Value {
     if let Some(page) = tab["conversation"]["page"].as_str() {
         public["page"] = json!(page);
     }
+    if reopens_empty(tab) {
+        public["empty"] = json!(true);
+    }
     public
+}
+
+/// Whether a stored tab would reopen as nothing, so Recently Closed can leave it out: an
+/// untouched New Tab page (a chat tab whose agent session has no session yet, no page and no
+/// route) or a browser on `about:blank`. A remote terminal, a chat, a page and any other
+/// conversation source never are.
+fn reopens_empty(tab: &Value) -> bool {
+    if tab["kind"] != "browser" || !tab["remote"].is_null() {
+        return false;
+    }
+    let conversation = &tab["conversation"];
+    match conversation.as_object() {
+        None => matches!(tab["url"].as_str(), None | Some("" | "about:blank")),
+        Some(source) => {
+            source.keys().all(|key| key == "agent_session")
+                && source.get("agent_session").is_some_and(|agent| agent["session"].is_null())
+        }
+    }
 }
 
 /// The public `ClosedMemberRecord` of one stored member.

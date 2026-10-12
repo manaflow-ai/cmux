@@ -53,6 +53,12 @@ public final class TerminalSession {
         didSet { if hostLossCause != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
     }
 
+    /// The daemon reports the shell's host link down (tab `terminal_state`):
+    /// the banner names it instead of leaving a silent last screen.
+    public var shellStall: TerminalShellStall? {
+        didSet { if shellStall != oldValue { view.showShellStall(shellStall) } }
+    }
+
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {

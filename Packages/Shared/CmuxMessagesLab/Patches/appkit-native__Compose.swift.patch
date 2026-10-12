@@ -10,7 +10,7 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -317,6 +320,7 @@
+@@ -367,6 +370,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,7 +18,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -774,11 +778,11 @@
+@@ -824,11 +828,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

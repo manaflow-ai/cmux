@@ -11,6 +11,16 @@
 
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
+/** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
+export type MuseumArtResult = {
+  key: string;
+  title: string;
+  artist: string;
+  date: string;
+  source: string;
+  page: string;
+};
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -87,8 +97,11 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
-  /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
-  backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /**
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
+   */
+  backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
 };
@@ -294,6 +307,12 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Browse More Art: public-domain works in open museum collections matching `query`. */
+  "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
+  /** Downloads the work `key` into the backgrounds folder and sets it as the background. */
+  "cmux.settings.art.use": [{ key: string }, { id: string }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
