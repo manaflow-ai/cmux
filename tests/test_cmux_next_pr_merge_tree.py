@@ -5,9 +5,11 @@ published before cmux-next's same-tree checks can run; its own pull_request
 token cannot start that (HTTP 403), so the same-tree check went red on 33 pull
 requests in a day. The publisher runs from main as pull_request_target,
 executes none of the pull request's code, and against a fake GitHub API:
-points cmux-tui-pin-<sha12> at the merge commit and dispatches the artifacts
-run, unless one already publishes it, and publishes nothing for a conflict or
-a newer head.
+points cmux-tui-pin-<sha12> at the merge commit with the release App's token
+(GITHUB_TOKEN gets 403 on a ref at a feat-cmux-next commit), whose push starts
+the artifacts run; dispatches that run with GITHUB_TOKEN only for a pin that
+already existed; and publishes nothing when a run already publishes the tree,
+for a conflict or for a newer head.
 """
 
 import http.server
@@ -34,6 +36,7 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
 
     state: dict = {}
     calls: list = []
+    tokens: list = []
 
     def log_message(self, *_args):
         pass
@@ -64,6 +67,7 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])) or b"null")
         self.calls.append(("POST", self.path, body))
+        self.tokens.append((self.path, self.headers["Authorization"]))
         if self.path == "/repos/o/r/git/refs":
             self.reply(422, {"message": "Reference already exists"}) if self.state.get("existing_pin") else self.reply(201, {})
         elif self.path == "/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches":
@@ -76,23 +80,23 @@ class PublisherTests(unittest.TestCase):
     def publish(self, **state):
         FakeGitHub.state = {"mergeable": [True], **state}
         FakeGitHub.calls = []
+        FakeGitHub.tokens = []
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHub)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.shutdown)
-        env = dict(os.environ, GH_TOKEN="t", GITHUB_REPOSITORY="o/r",
+        env = dict(os.environ, GH_TOKEN="actions-token", CMUX_PR_TREE_PIN_TOKEN="app-token", GITHUB_REPOSITORY="o/r",
                    GITHUB_API_URL=f"http://127.0.0.1:{server.server_address[1]}",
                    CMUX_PR_TREE_POLL_SECONDS="0", CMUX_PR_TREE_MERGE_WAIT_SECONDS="5")
         result = subprocess.run([sys.executable, str(SCRIPT), "7", HEAD], env=env, text=True,
                                 capture_output=True, timeout=30)
         return result, [call for call in FakeGitHub.calls if call[0] == "POST"]
 
-    def test_pins_the_merge_commit_and_dispatches_its_publish(self):
+    def test_pins_the_merge_commit_with_the_app_token_and_its_push_publishes(self):
         result, posts = self.publish(mergeable=[None, None, True])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(posts, [
-            ("POST", "/repos/o/r/git/refs", {"ref": f"refs/heads/{PIN}", "sha": MERGE}),
-            ("POST", "/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches", {"ref": PIN}),
-        ])
+        # The App's ref is a real push, which starts the artifacts run itself.
+        self.assertEqual(posts, [("POST", "/repos/o/r/git/refs", {"ref": f"refs/heads/{PIN}", "sha": MERGE})])
+        self.assertEqual(FakeGitHub.tokens, [("/repos/o/r/git/refs", "Bearer app-token")])
 
     def test_an_active_or_published_run_is_not_dispatched_again(self):
         for run in ({"status": "in_progress", "conclusion": None}, {"status": "completed", "conclusion": "success"}):
@@ -105,10 +109,11 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([post[1] for post in posts][-1], "/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches")
 
-    def test_an_existing_pin_at_the_merge_commit_is_reused(self):
+    def test_an_existing_pin_at_the_merge_commit_is_dispatched_with_the_actions_token(self):
         result, posts = self.publish(existing_pin=MERGE)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(posts[-1], ("POST", "/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches", {"ref": PIN}))
+        self.assertEqual(FakeGitHub.tokens[-1], ("/repos/o/r/actions/workflows/cmux-tui-artifacts.yml/dispatches", "Bearer actions-token"))
 
     def test_a_pin_at_another_commit_fails(self):
         result, posts = self.publish(existing_pin="c" * 40)
@@ -123,7 +128,7 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(posts, [], state)
 
     def test_a_refused_dispatch_fails_loudly(self):
-        result, _ = self.publish(dispatch_status=403)
+        result, _ = self.publish(existing_pin=MERGE, dispatch_status=403)
         self.assertEqual(result.returncode, 1)
         self.assertIn("::error title=cmux-tui merge tree not published", result.stdout)
 
@@ -145,7 +150,13 @@ class WorkflowTests(unittest.TestCase):
         (job,) = self.workflow["jobs"].values()
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         self.assertEqual(self.workflow.get("permissions"), {})
-        self.assertEqual(job["permissions"], {"actions": "write", "contents": "write", "pull-requests": "read"})
+        self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
+        # The App key lives only in this job's protected environment.
+        self.assertEqual(job["environment"], "cmux-tui-merge-tree")
+        (mint,) = [step for step in job["steps"] if "create-github-app-token" in step.get("uses", "")]
+        self.assertEqual(mint["with"]["permission-contents"], "write")
+        self.assertEqual(mint["with"]["permission-workflows"], "write")
+        self.assertEqual(mint["with"]["repositories"], "${{ github.event.repository.name }}")
         checkouts = [step for step in job["steps"] if "actions/checkout" in step.get("uses", "")]
         self.assertEqual(len(checkouts), 1)
         # The trusted default branch, where the publisher script lives (a plain
