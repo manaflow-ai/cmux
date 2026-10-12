@@ -127,6 +127,19 @@ class ScopedChecksTests(unittest.TestCase):
                                  {'webviews/src/pages/zz/Orphan.tsx': ORPHAN})
         self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
 
+    def test_coverage_base_gap_warns_on_a_pr_changing_the_gallery_format(self):
+        # format.ts only validates entries, so editing it owns entry problems, not coverage gaps (#19699).
+        fmt = (WEBVIEWS / 'src/gallery/format.ts').read_text() + '// edited\n'
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},
+                                 {'webviews/src/gallery/format.ts': fmt})
+        self.assertRun(checkout.run(COVERAGE), False, 'pages/zz/Orphan.tsx#Orphan')
+
+    def test_coverage_pr_changing_the_check_owns_every_finding(self):
+        check = (WEBVIEWS / COVERAGE).read_text() + '// edited\n'
+        checkout = self.checkout({'webviews/src/pages/zz/Orphan.tsx': ORPHAN},
+                                 {f'webviews/{COVERAGE}': check})
+        self.assertRun(checkout.run(COVERAGE), True, 'pages/zz/Orphan.tsx#Orphan')
+
     def test_coverage_pr_dropping_an_allowlist_line_owns_it(self):
         allowlist = WEBVIEWS / 'test/gallery-coverage.allowlist.json'
         text = allowlist.read_text()
