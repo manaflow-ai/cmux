@@ -39,3 +39,6 @@ Loop log for the agent building this. Updated in place.
 - iMessage parity pass from docs/IMESSAGE-SPEC.md (capture agent running).
 - Recorded animation verification (drawer, push, bubble send) with frame analysis vs references.
 - Demo checkpoint ~15:05 PT: device + Mac builds.
+- Host restart mid-session (r48): the phone notices within ~3 s of the Mac leaving signaling, redials as soon
+  as it is back (~4 s after restart), and a terminal whose shell died with the host shows
+  "This terminal ended when cmux Host restarted" with a New terminal button that works.

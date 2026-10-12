@@ -459,7 +459,12 @@ public final class WebRTCDialer: PeerDialer, @unchecked Sendable {
                 }
             }
             try hub.channel.send(to: peerID, session: session, payload: ["kind": "offer", "sdp": .string(offer.sdp)])
-            try await link.waitUntilOpen(timeout: options.connectTimeout)
+            // Cancelling the dial fails the wait right away instead of at the timeout.
+            try await withTaskCancellationHandler {
+                try await link.waitUntilOpen(timeout: options.connectTimeout)
+            } onCancel: {
+                link.fail("Cancelled")
+            }
             try Task.checkCancellation()
         } catch {
             // Never leave a half-open peer connection gathering candidates.

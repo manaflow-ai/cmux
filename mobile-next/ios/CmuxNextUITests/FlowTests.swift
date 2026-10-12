@@ -416,6 +416,34 @@ final class FlowTests: XCTestCase {
         pause(1)
     }
 
+    /// The host restarts mid-session; the app reconnects and the terminal
+    /// screen keeps working (the restart is done from outside the test).
+    func testReconnectAfterHostRestart() throws {
+        let app = launchSignedIn()
+        pause(4)
+        app.buttons["shell.menu"].tap()
+        pause(1)
+        app.buttons["sidebar.terminals"].tap()
+        let newTerminal = app.buttons.matching(identifier: "terminals.new").element(boundBy: 0)
+        XCTAssertTrue(newTerminal.waitForExistence(timeout: 20))
+        newTerminal.tap()
+        pause(4)
+        app.buttons["terminal.keyboard"].tap()
+        pause(1)
+        app.typeText("echo before-restart\n")
+        pause(2)
+        snap(app, "b0-before")
+        pause(40)   // host is restarted now
+        snap(app, "b1-during")
+        let fresh = app.buttons["terminal.new-after-end"]
+        XCTAssertTrue(fresh.waitForExistence(timeout: 20), "an ended terminal should offer a new one")
+        fresh.tap()
+        pause(7)   // let the new login shell print its prompt
+        app.typeText("echo after-restart-$((6*7))\n")
+        pause(4)
+        snap(app, "b2-after")
+    }
+
     /// Forces TURN relay and checks the Mac connects through it.
     func testRelayConnection() throws {
         let app = launchSignedIn(arguments: ["-cnm-relay-only"])

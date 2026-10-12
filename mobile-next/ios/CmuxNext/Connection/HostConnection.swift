@@ -55,6 +55,7 @@ final class HostConnection: Identifiable {
     @ObservationIgnored private var attaching: [String: [AgentEvent]] = [:]
     @ObservationIgnored private var dialTask: Task<Void, Never>?
     @ObservationIgnored private var online = false
+    @ObservationIgnored private var offlineDropTask: Task<Void, Never>?
     @ObservationIgnored private var retry = 0
     @ObservationIgnored private let dialer: PeerDialer
     @ObservationIgnored var peerID: String { "host-" + id }
@@ -68,12 +69,31 @@ final class HostConnection: Identifiable {
     // MARK: Link lifecycle
 
     func setOnline(_ online: Bool) {
+        let cameOnline = online && !self.online
         self.online = online
         if online {
+            // A dial started while the Mac was away would sit out its full
+            // timeout; the Mac is back, so dial again now.
+            if cameOnline, peer == nil, let stale = dialTask {
+                stale.cancel()
+                dialTask = nil
+            }
             if peer == nil, dialTask == nil { connect() }
         } else if peer == nil {
             status = .offline
+        } else {
+            // The Mac left signaling. If it stays away, the link is dead too
+            // (a killed host never says goodbye; WebRTC would take ~30 s to
+            // notice), so drop it and reconnect as soon as the Mac is back.
+            offlineDropTask?.cancel()
+            offlineDropTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, !Task.isCancelled, !self.online, let peer = self.peer else { return }
+                peer.close()
+                self.dropped("Mac went offline")
+            }
         }
+        if online { offlineDropTask?.cancel() }
     }
 
     func connect() {
@@ -91,6 +111,7 @@ final class HostConnection: Identifiable {
                 }
                 await self.attach(link)
             } catch {
+                guard !Task.isCancelled else { return }
                 self.status = self.online ? .failed(error.localizedDescription) : .offline
                 self.dialTask = nil
                 self.scheduleRetry()

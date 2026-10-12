@@ -126,12 +126,25 @@ struct TerminalScreen: View {
     @State private var title: String?
     @State private var controlArmed = false
     @State private var controller = TerminalController()
+    @State private var replacementID: UInt32?
 
-    private var info: TerminalInfo? { host.terminals.first { $0.id == terminalID } }
+    private var info: TerminalInfo? { host.terminals.first { $0.id == (replacementID ?? terminalID) } }
+    @Environment(\.dismiss) private var dismiss
+
+    /// The shell is gone: it exited, or the Mac's host restarted (shells end
+    /// with it), so there is nothing to type into any more.
+    private var ended: String? {
+        guard host.status.isConnected else { return nil }
+        guard let info else { return String(localized: "This terminal ended when cmux Host restarted on \(host.name).") }
+        guard !info.running else { return nil }
+        if let code = info.exitCode, code != 0 { return String(localized: "The shell exited with code \(code).") }
+        return String(localized: "The shell exited.")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             TerminalSurface(controller: controller)
+                .id(replacementID ?? terminalID)
                 .ignoresSafeArea(.container, edges: .bottom)
             if controller.keyboardShown {
                 KeyBar(controlArmed: controlArmed) { key in controller.press(key) }
@@ -139,6 +152,38 @@ struct TerminalScreen: View {
             }
         }
         .background(Color(hex: 0x1E1E1E))
+        .overlay(alignment: .bottom) {
+            if let ended {
+                VStack(spacing: 12) {
+                    Text(ended).font(.subheadline).foregroundStyle(.white.opacity(0.8)).multilineTextAlignment(.center)
+                    Button {
+                        Task {
+                            if let fresh = try? await host.createTerminal(cwd: info?.cwd, cols: 80, rows: 30) {
+                                controller.stop()
+                                controller = TerminalController()
+                                controller.view.focusWhenShown = true
+                                controller.onTitle = { title = $0 }
+                                controller.onControl = { controlArmed = $0 }
+                                replacementID = fresh.id
+                                controller.start(host: host, terminal: fresh.id)
+                            }
+                        }
+                    } label: {
+                        Label("New terminal", systemImage: "plus").font(.system(size: 16, weight: .semibold))
+                            .padding(.horizontal, 18).frame(height: 44)
+                            .background(.white, in: .capsule).foregroundStyle(.black)
+                    }
+                    .accessibilityIdentifier("terminal.new-after-end")
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial.opacity(0.9), in: .rect(cornerRadius: 22, style: .continuous))
+                .padding(16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .environment(\.colorScheme, .dark)
+            }
+        }
+        .animation(.snappy, value: ended)
         .navigationTitle(title ?? info?.title ?? "Terminal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color(hex: 0x1E1E1E), for: .navigationBar)

@@ -22,6 +22,9 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     /// Set by the key bar: the next typed letter is sent as a control code.
     var controlArmed = false { didSet { onControlChanged?(controlArmed) } }
     var onControlChanged: ((Bool) -> Void)?
+    /// Take keyboard focus as soon as the view is on screen (a replacement
+    /// terminal opened from the keyboard).
+    var focusWhenShown = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -46,6 +49,10 @@ final class GhosttyTerminalView: UIView, UIKeyInput, UITextInputTraits {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil, surface == nil { createSurface() }
+        if window != nil, focusWhenShown {
+            focusWhenShown = false
+            becomeFirstResponder()
+        }
         if let surface { ghostty_surface_set_occlusion(surface, window != nil) }
     }
 
