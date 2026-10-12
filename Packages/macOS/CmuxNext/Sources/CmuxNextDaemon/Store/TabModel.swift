@@ -1,4 +1,5 @@
-import Foundation
+import CmuxNextWakeups
+public import Foundation
 public import Observation
 
 // Main-actor mirror records. Each record is a small @Observable final class
@@ -60,6 +61,14 @@ public final class TabModel: Identifiable {
     public internal(set) var progress: TerminalProgressReport?
     /// The terminal's OSC 7501 program status records (`extra.program_status`).
     public internal(set) var programStatus: [ProgramStatusRecord] = []
+    /// When the terminal's running shell command started (`extra.busy.since_ms`: the daemon's
+    /// OSC 133 C..D fact), nil at a prompt. How long it must run to show is the client's call.
+    public internal(set) var commandSinceMs: UInt64?
+    /// This clock's time when `commandSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var commandSeenAt: Date?
+    /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
+    public private(set) var commandRecheck = 0
+    @ObservationIgnored private var commandTimer: DemandTimer?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -164,7 +173,8 @@ public final class TabModel: Identifiable {
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
-    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
+                    commandSinceMs: UInt64? = nil) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
@@ -172,6 +182,20 @@ public final class TabModel: Identifiable {
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
         if self.programStatus != programStatus { self.programStatus = programStatus }
+        if self.commandSinceMs != commandSinceMs {
+            commandSeenAt = commandSinceMs.map { _ in Date() }
+            self.commandSinceMs = commandSinceMs
+            commandTimer?.cancel()
+        }
+    }
+
+    /// Reads the running command's age again after `delay`: one one-shot timer per running command,
+    /// armed by the status mapping while the command is younger than its threshold.
+    public func recheckCommand(after delay: Duration) {
+        let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
+        commandTimer = timer
+        // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.
+        timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
     /// Point updates from surface events (no full snapshot).
