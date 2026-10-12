@@ -81,7 +81,7 @@ public enum ConversationDetailsHeaderGeometry {
         quickActionSizes[max(0, min(quickActionSizes.count - 1, index))]
     }
 
-    public static func layout(width: CGFloat, safeTop: CGFloat, offset: CGFloat, showsTabs: Bool, isGroup: Bool, titleHeight: CGFloat = Self.titleHeight, quickActionSize: CGFloat = Self.quickActionSize) -> ConversationDetailsHeaderLayout {
+    public static func layout(width: CGFloat, safeTop: CGFloat, offset: CGFloat, showsTabs: Bool, isGroup: Bool, titleHeight: CGFloat = Self.titleHeight, quickActionSize: CGFloat = Self.quickActionSize, tabBarHeight: CGFloat = Self.tabBarHeight) -> ConversationDetailsHeaderLayout {
         let quickActionsFromTitle = titleHeight + quickActionsBelowTitle
         let p = progress(offset: offset)
         let size = avatarSize - (avatarSize - collapsedAvatarSize) * p
@@ -125,6 +125,22 @@ public enum ConversationDetailsTabGeometry {
     /// bottom) on a quick critically damped spring.
     public static let liftSpring = spring(dampingRatio: 1, response: 0.15)
     public static let liftOutset = CGSize(width: 8, height: 5)
+
+    /// The capsule's vertical padding around its label's line.
+    public static let capsuleVerticalPadding: CGFloat = 8
+
+    /// The labels follow the subheadline style (15 pt at Large, 49 at AX5 in
+    /// Messages, iOS 26.5): the capsule is a label line tall plus the
+    /// padding (33.9 pt at Large, 74.47 at AX5).
+    public static func capsuleHeight(lineHeight: CGFloat) -> CGFloat {
+        lineHeight + 2 * capsuleVerticalPadding
+    }
+
+    /// The bar: the capsule on the pixel grid (34 pt at Large, 74.67 at AX5).
+    public static func barHeight(capsuleHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        let scale = max(1, scale)
+        return (capsuleHeight * scale - 0.001).rounded(.up) / scale
+    }
 
     public static func capsule(_ rest: CGRect, lift: CGFloat) -> CGRect {
         rest.insetBy(dx: -liftOutset.width * lift, dy: -liftOutset.height * lift)
