@@ -39,7 +39,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -90,7 +93,8 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const { useState } = await import("react");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
-  const { usePickerCatalog, resetModelCatalogForTests } = await import("../src/agent-session/acpmux/modelCatalogHost");
+  const { usePickerCatalog, resetModelCatalogForTests } =
+    await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   resetModelCatalogForTests();
@@ -125,12 +129,16 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
     const [catalog, setCatalog] = useState(initial);
     // The pane's action: acpmux probes every agent again and the catalog re-reads.
     (
-      window as unknown as { cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>> }
+      window as unknown as {
+        cmuxAcpmuxActions: Record<string, (params: unknown) => Promise<unknown>>;
+      }
     ).cmuxAcpmuxActions = {
       "models.refresh": async (params) => {
         probes.push(params);
         setCatalog((current) =>
-          current.map((entry) => (entry.id === harness ? { ...entry, models: [...entry.models, probedModel] } : entry)),
+          current.map((entry) =>
+            entry.id === harness ? { ...entry, models: [...entry.models, probedModel] } : entry,
+          ),
         );
       },
     };
@@ -174,7 +182,9 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
 
   const byLabel = (label: string) =>
     dom.window.document.querySelector<HTMLElement>(`button[aria-label="${label}"]`) ??
-    [...dom.window.document.querySelectorAll<HTMLElement>("button")].find((item) => item.textContent === label);
+    [...dom.window.document.querySelectorAll<HTMLElement>("button")].find(
+      (item) => item.textContent === label,
+    );
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
@@ -185,4 +195,28 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   expect(pickerCatalog).toContain(probedModel.id);
   expect(asked).toContain("models.catalog");
   expect(byLabel("Refresh models")!.getAttribute("title")).not.toBe("Couldn’t refresh models");
+});
+
+test("an agent with no models yet says so and points at Refresh models, not No matching models", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  root = createRoot(host);
+  await act(async () => {
+    root!.render(
+      <ModelPicker
+        catalog={[{ id: "claude", name: "Claude Code", models: [] }]}
+        harness="claude"
+        label="Claude Code"
+        efforts={[]}
+        recents={[]}
+        onLand={() => undefined}
+        onEffort={() => undefined}
+        catalogRefresh={{ status: "idle", refresh: () => undefined }}
+      />,
+    );
+  });
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  const text = dom.window.document.body.textContent ?? "";
+  expect(text).toContain("No models yet. Refresh to ask the agent again.");
+  expect(text).not.toContain("No matching models");
 });
