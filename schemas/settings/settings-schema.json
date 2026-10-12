@@ -1854,6 +1854,67 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hiddenButtons.help",
+        "text" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hiddenButtons",
+      "keywords" : [
+        "toolbar",
+        "split",
+        "buttons",
+        "hide"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "tabs",
+        "hiddenButtons"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hiddenButtons",
+        "text" : "Hidden Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -21818,7 +21879,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e69a9c7313c5992195b547c429133bfb90890d67a8c1e26a2337f3e540940647",
+  "schema_hash" : "64ad680dd3434f99d16b822a0e4a11dae25ba5463cfd7ee074be9b20be3b0295",
   "sections" : [
     {
       "id" : "general",
