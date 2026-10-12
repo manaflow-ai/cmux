@@ -34,6 +34,15 @@ cat > "$FAKE_BIN/codesign" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'codesign %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+if [ "${1:-}" = "-d" ]; then
+  # codesign -d -a <arch> --verbose=4 <bundle>: one CDHash per slice.
+  printf 'CDHash=%s\n' "$(printf '%s' "$3" | shasum | cut -c1-40)" >&2
+fi
+EOF
+
+cat > "$FAKE_BIN/lipo" <<'EOF'
+#!/usr/bin/env bash
+printf 'arm64\n'
 EOF
 
 cat > "$FAKE_BIN/xcrun" <<'EOF'
@@ -67,6 +76,13 @@ if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
 fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "info" ]; then
   printf '{"id":"%s","status":"%s"}\n' "${3:-}" "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
+fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "log" ]; then
+  printf '{"status":"Accepted","ticketContents":%s}\n' "${CMUX_TEST_DMG_TICKET:-[]}"
+fi
+if [ "${1:-}" = "stapler" ] && [ "${2:-}" = "validate" ] && [ "${CMUX_TEST_HELPER_UNSTAPLED:-0}" = 1 ] \
+  && [[ "${3:-}" == *"/cmux Computer Use.app" ]]; then
+  exit 65
 fi
 EOF
 
@@ -109,6 +125,7 @@ cat > "$FAKE_BIN/notarize-computer-use-helper" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+exit "${CMUX_TEST_HELPER_EXIT:-0}"
 EOF
 chmod +x "$FAKE_BIN"/*
 
@@ -122,6 +139,7 @@ run_helper() {
   CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-nightly-mount" \
   CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
   CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+  CMUX_LIPO_TOOL="$FAKE_BIN/lipo" \
   CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
   CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
   CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
@@ -462,6 +480,52 @@ if grep -q '^xcrun notarytool' "$LOG" || ! grep -q 'SHA-256' "$TMP_DIR/continue-
 fi
 
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
+
+# cx-urd.68: Apple still holds the helper after its bounded wait (exit 75).
+# The run goes on to the DMG, whose ticket covers the helper's slices (Codesign
+# kept the helper's submitted signature), instead of failing the nightly. An
+# unstapled helper the accepted DMG ticket does not cover stops the run.
+QUEUED_APP="$TMP_DIR/queued/cmux NIGHTLY.app"
+QUEUED_HELPER="$QUEUED_APP/Contents/Library/cmux Computer Use.app"
+mkdir -p "$QUEUED_APP/Contents/MacOS" "$QUEUED_HELPER/Contents/MacOS"
+printf 'signed-app-fixture\n' > "$QUEUED_APP/Contents/MacOS/cmux"
+printf 'helper\n' > "$QUEUED_HELPER/Contents/MacOS/cmux-cua"
+python3 -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux-cua", "CFBundleIdentifier": "com.cmuxterm.cua"}, open(sys.argv[1], "wb"))' \
+  "$QUEUED_HELPER/Contents/Info.plist"
+helper_cdhash="$(printf '%s' arm64 | shasum | cut -c1-40)"
+run_queued() {
+  : > "$LOG"
+  rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg" "$TMP_DIR/queued.dmg".notarization.*
+  CMUX_TEST_HELPER_EXIT=75 CMUX_TEST_HELPER_UNSTAPLED=1 \
+    run_helper "$QUEUED_APP" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg"
+}
+if ! CMUX_TEST_DMG_TICKET="[{\"arch\":\"arm64\",\"cdhash\":\"$helper_cdhash\",\"path\":\"cmux Computer Use.app/Contents/MacOS/cmux-cua\"}]" \
+  run_queued >/dev/null 2>"$TMP_DIR/queued.err"; then
+  echo "FAIL: a helper still in Apple's queue must not fail the nightly" >&2
+  cat "$TMP_DIR/queued.err" "$LOG" >&2
+  exit 1
+fi
+if ! grep -Fq "xcrun notarytool submit $TMP_DIR/queued.dmg" "$LOG" || ! grep -Fq "xcrun stapler staple $TMP_DIR/queued.dmg" "$LOG" \
+  || [ ! -e "$TMP_DIR/queued-immutable.dmg" ]; then
+  echo "FAIL: a queued helper must still produce the notarized, stapled DMG" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+if CMUX_TEST_DMG_TICKET='[]' run_queued >/dev/null 2>"$TMP_DIR/queued-uncovered.err"; then
+  echo "FAIL: an unstapled helper the DMG ticket does not cover must stop the run" >&2
+  exit 1
+fi
+if grep -Fq "xcrun stapler staple $QUEUED_APP" "$LOG" || [ -e "$TMP_DIR/queued-immutable.dmg" ]; then
+  echo "FAIL: an uncovered helper must stop before the app is stapled" >&2
+  exit 1
+fi
+: > "$LOG"
+if CMUX_TEST_HELPER_EXIT=1 run_helper "$QUEUED_APP" "$TMP_DIR/queued.dmg" "$TMP_DIR/queued-immutable.dmg" >/dev/null 2>&1 \
+  || grep -q '^xcrun notarytool submit' "$LOG"; then
+  echo "FAIL: a rejected helper must still fail before the DMG submission" >&2
+  exit 1
+fi
+echo "PASS: a helper still in Apple's queue falls through to the DMG, whose ticket must cover it"
 
 # The bounded notary wait only helps if the step and the job outlive it: the
 # step allows the wait plus DMG creation and the post-notary verification,
