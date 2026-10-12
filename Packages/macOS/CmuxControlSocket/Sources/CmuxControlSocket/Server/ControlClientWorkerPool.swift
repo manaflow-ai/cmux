@@ -266,7 +266,13 @@ public actor ControlClientWorkerPool {
     }
 
     private func park(jobID: UInt64) -> ParkResult {
-        .notAPoolJob
+        guard runningTasks[jobID] != nil else { return .notAPoolJob }
+        guard !parkedJobIDs.contains(jobID) else { return .parked }
+        guard parkedJobIDs.count < maximumParkedJobs else { return .parkedJobsFull }
+        parkedJobIDs.insert(jobID)
+        activeJobs = max(0, activeJobs - 1)
+        startNextPendingJob()
+        return .parked
     }
 
     private func finish(jobID: UInt64) {
