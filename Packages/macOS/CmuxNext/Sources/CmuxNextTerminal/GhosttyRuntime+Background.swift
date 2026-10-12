@@ -17,6 +17,22 @@ extension GhosttyRuntime {
     /// call `reloadConfig()`.
     public static var terminalBackgroundOverridden = false
 
+    /// The config files' own `background-opacity`, before cmux.json's
+    /// override: Ghostty's value while Material is "Ghostty". Recorded on
+    /// every load of the user's config (tests set it).
+    public static var configBackgroundOpacity: Double = 1
+    /// The config files' own `background-blur` (C encoding), before
+    /// cmux.json's override. Recorded like ``configBackgroundOpacity``.
+    public static var configBackgroundBlur = 0
+
+    /// ``backgroundOverrideLines(_:configuredOpacity:configuredBlur:)`` for
+    /// a config load; the user's own config (no `theme`) also records its
+    /// raw opacity and blur.
+    static func recordingBackgroundOverrideLines(configuredOpacity: Double, configuredBlur: Int, theme: String?) -> [String] {
+        if theme == nil { (configBackgroundOpacity, configBackgroundBlur) = (configuredOpacity, configuredBlur) }
+        return backgroundOverrideLines(backgroundOverride, configuredOpacity: configuredOpacity, configuredBlur: configuredBlur)
+    }
+
     /// Config lines that turn the config's `background-opacity` and
     /// `background-blur` into what `background` resolves them to; empty
     /// when nothing changes.
