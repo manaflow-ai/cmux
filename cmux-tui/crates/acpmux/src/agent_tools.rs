@@ -331,7 +331,10 @@ impl AgentTools {
             if server.name == crate::secret_mcp::SERVER_NAME {
                 server.env = vec![
                     (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
-                    ("ACPMUX_SOCKET".to_owned(), crate::config::socket_path().to_string_lossy().into_owned()),
+                    (
+                        "ACPMUX_SOCKET".to_owned(),
+                        crate::config::socket_path().to_string_lossy().into_owned(),
+                    ),
                 ];
             }
         }
