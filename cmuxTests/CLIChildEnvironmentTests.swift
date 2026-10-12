@@ -44,6 +44,21 @@ import Darwin
         #expect(child["CMUX_APP_HOST_ISOLATION_REQUIRED"] == nil)
     }
 
+    /// A fixture that points XDG_CONFIG_HOME inside its own home is testing
+    /// that override; the isolated lane must not move it back to `.config`.
+    @Test
+    func aFixtureOwnedConfigurationRootIsKept() {
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
+        let child = normalizer.normalizing([
+            "HOME": "/tmp/cli-fixture",
+            "XDG_CONFIG_HOME": "/tmp/cli-fixture/xdg config",
+        ])
+        #expect(child["CFFIXED_USER_HOME"] == "/tmp/cli-fixture")
+        #expect(child["XDG_CONFIG_HOME"] == "/tmp/cli-fixture/xdg config")
+    }
+
     @Test
     func anUnpinnedHostLeavesTheChildAlone() {
         // A stray CFFIXED_USER_HOME that does not match HOME is a developer's
