@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d7197176d6626400cd73cde71531657da3412e0ecfceb822df0e6b1bfb7fe9eb. */
+/* cmux-tui mux protocol 12, IR 2a0c7150bfd53de3d63c4aa438c3f1be1fdfda063c9a28418ffed3cd7975f5be. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -871,7 +871,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -1161,7 +1161,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1173,7 +1173,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;

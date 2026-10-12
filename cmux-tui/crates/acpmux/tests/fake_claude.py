@@ -144,6 +144,13 @@ for line in sys.stdin:
             except OSError:
                 result["cwd"] = "denied"
             text = json.dumps(result)
+        # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
+        if said.strip() == "todo-probe":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
+                  "input": {"todos": [
+                      {"content": "Add retry", "status": "completed", "activeForm": "Adding retry"},
+                      {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
+                      {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": text}}})
         send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,

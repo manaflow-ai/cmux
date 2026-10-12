@@ -81,7 +81,9 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
   return (
     <header className="acpmux-floating-header">
       <StatusMark status={floating.status} />
-      <span className="acpmux-floating-title">{floating.title}</span>
+      <span className="acpmux-floating-title" title={floating.title}>
+        {floating.title}
+      </span>
       <button
         type="button"
         className="acpmux-header-tool"
@@ -108,7 +110,8 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
         title={`${t("render.collapse")} ⌘J`}
         onClick={() => floating.setCollapsed(true)}
       >
-        <Icon name="disclosure.expanded" size={15} />
+        {/* Folds up into the bar: the chevron points up. */}
+        <Icon name="disclosure.expanded" size={15} className="acpmux-icon-flip" />
       </button>
       <button
         type="button"
@@ -132,7 +135,8 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         type="button"
         className="acpmux-floating-bar-open"
         aria-label={`${t("render.expand")}: ${floating.title}`}
-        title={`${t("render.expand")} ⌘J`}
+        // The bar cuts the title and last line short; the tooltip has both in full.
+        title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
         onClick={() => floating.setCollapsed(false)}
       >
         <StatusMark status={floating.status} />

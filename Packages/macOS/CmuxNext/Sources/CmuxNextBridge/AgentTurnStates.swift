@@ -55,13 +55,30 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     }
 
     /// One decoded `_acpmux/session_changed` (decode it off the main actor): the session, its
-    /// new state (nil: no indicator, or purged) and its last message (`lastMessage`, cx-13w3.1).
-    /// Nil when the line names no session state.
-    public static func change(_ params: [String: Any]) -> (session: String, state: AgentTurnState?, lastMessage: String?)? {
+    /// new state (nil: no indicator, or purged), its last message (`lastMessage`, cx-13w3.1) and
+    /// whether its notifications are muted. Nil when the line names no session state.
+    public static func change(_ params: [String: Any])
+        -> (session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool)? {
         guard let id = params["sessionId"] as? String else { return nil }
-        if params["kind"] as? String == "purged" { return (id, nil, nil) }
+        if params["kind"] as? String == "purged" { return (id, nil, nil, false) }
         guard let summary = params["session"] as? [String: Any] else { return nil }
-        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary))
+        return (summary["sessionId"] as? String ?? id, AgentTurnState.of(summary: summary), lastMessage(summary), muted(summary))
+    }
+
+    /// The acpmux session tag that mutes a chat's notifications (cx-sg1qz), and its value. The
+    /// tag lives with the chat, so every window, device and the phone feed honor it; the
+    /// cmux-tui daemon posts nothing for a muted chat.
+    public static let muteTag = "notifications"
+    public static let mutedValue = "muted"
+
+    /// Whether a summary's chat is muted (its `tags`).
+    public static func muted(_ summary: [String: Any]) -> Bool {
+        (summary["tags"] as? [String: Any])?[muteTag] as? String == mutedValue
+    }
+
+    /// The muted sessions of a watch result.
+    public static func muted(result: [String: Any]) -> Set<String> {
+        Set((result["sessions"] as? [Any] ?? []).compactMap { $0 as? [String: Any] }.filter(muted).compactMap { $0["sessionId"] as? String })
     }
 
     /// A summary's `lastMessage` text: the reply's last line, else the prompt; nil before one.
@@ -111,6 +128,8 @@ public final class AgentTurnStateStore {
     /// Each session's last message (expanded sidebar rows, cx-13w3.1), apart from
     /// `states` so a new reply redraws only the rows that show it.
     public var lastMessages: [String: String] = [:]
+    /// The sessions whose notifications are muted (`AgentTurnStates.muted`).
+    public var muted: Set<String> = []
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
@@ -127,5 +146,12 @@ public final class AgentTurnStateStore {
     public func lastMessage(for ref: AgentSessionRef) -> String? {
         guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
         return lastMessages[session]
+    }
+
+    /// Whether the chat an agent chat tab shows has its notifications muted; nil when
+    /// the chat is not on this Mac (its acpmux runs elsewhere) or not known yet.
+    public func isMuted(_ ref: AgentSessionRef) -> Bool? {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return nil }
+        return muted.contains(session)
     }
 }

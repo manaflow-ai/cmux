@@ -981,7 +981,7 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:60-61 (MetricTunables.tabMinWidth)"
   },
   "paletteRowHeight": {
-   "compact": 32,
+   "compact": 28,
    "comfortable": 40,
    "unit": "pt",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:65-66 (MetricTunables.paletteRowHeight)"

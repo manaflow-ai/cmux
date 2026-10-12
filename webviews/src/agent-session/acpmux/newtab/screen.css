@@ -67,10 +67,17 @@
 .nt-enter {
   margin-left: auto;
   padding: 2px 6px;
+  border: 0;
   border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  color: var(--acpmux-composer-dim);
+  color: var(--agent-text);
   font: var(--text-caption) / 1 system-ui;
+}
+.nt-enter:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.nt-enter:disabled {
+  color: var(--acpmux-composer-dim);
 }
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
