@@ -44,6 +44,18 @@ import Testing
         #expect(workspace.input.accentColor == nil)
     }
 
+    /// A window opened while Art Color is on draws the app's art hue on its own chrome (a top page,
+    /// or a workspace of the other light or dark).
+    @Test func aNewWindowTakesTheAppsArtHue() throws {
+        let hue = try #require(Self.work.accentColor)
+        ThemeScope.app.setBackdropSelection(.art(Self.work))
+        defer { ThemeScope.app.setBackdropSelection(nil) }
+        ThemeStore.shared.setAccentFollowsArt(true)
+        defer { ThemeStore.shared.setAccentFollowsArt(false) }
+        let room = ThemeScope(level: .room)
+        #expect(room.input.accentColor == hue)
+    }
+
     @Test func everyWorksArtColorPassesTheContrastContractOnDarkAndLight() {
         var dark = ThemeInput.ghosttyDefault
         dark.background = ThemeRGB(hex: 0x1D1F21)
