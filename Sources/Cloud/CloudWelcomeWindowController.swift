@@ -29,14 +29,21 @@ enum CloudCreationGate: Equatable {
     }
 }
 
-/// Shows the 0.65.1 Cloud welcome once, whether Cloud is on or off, unless
-/// MDM blocks Cloud. Debug builds can reopen it from Help.
+/// Shows the Cloud welcome campaign once on its eligible releases (0.65.1 and
+/// 0.65.2), whether Cloud is on or off, unless MDM blocks Cloud. Debug builds
+/// can reopen it from Help.
 @MainActor
 final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// The welcome is a release announcement, rather than a permanent prompt.
-    /// Versioning the marker lets a later announcement be shown once without
-    /// bringing back an older welcome that a user already dismissed.
+    /// The persisted marker holds this campaign id, so a user sees the campaign
+    /// once across all of its releases, and a later campaign with a new id is
+    /// shown once without bringing back one a user already dismissed. The id is
+    /// the release that first shipped the campaign, which is what 0.65.1 wrote.
     nonisolated static let campaignVersion = "0.65.1"
+    /// App versions that automatically show this campaign. Add a release here
+    /// to extend the campaign; keep ``campaignVersion`` so earlier viewers are
+    /// not shown it again.
+    nonisolated static let campaignAppVersions: Set<String> = ["0.65.1", "0.65.2"]
     nonisolated static let seenVersionDefaultsKey = "cmux.cloud.welcome.seenVersion"
 
     private var window: NSWindow?
@@ -48,7 +55,9 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     private var didConsiderLaunchPresentation = false
 
     /// Cloud's on/off setting does not affect the announcement. Only managed
-    /// DisableCloud policy excludes users from this one-time release campaign.
+    /// DisableCloud policy excludes users from this one-time release campaign,
+    /// which shows on any version in ``campaignAppVersions`` until the marker
+    /// records ``campaignVersion``.
     nonisolated static func shouldPresentAutomatically(
         defaults: UserDefaults,
         appVersion: String,
@@ -58,13 +67,14 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         isUITestMode: Bool = false
     ) -> Bool {
         guard !isDebugBuild, !isRunningUnderXCTest, !isUITestMode else { return false }
-        return appVersion == campaignVersion
+        return campaignAppVersions.contains(appVersion)
             && defaults.string(forKey: seenVersionDefaultsKey) != campaignVersion
             && !policy.isEnforced(.disableCloud)
     }
 
-    /// Records that this release's announcement has been considered. The
-    /// caller writes this before presenting so a crash or quit cannot replay it.
+    /// Records that this campaign's announcement has been considered, on any of
+    /// its releases. The caller writes this before presenting so a crash or
+    /// quit cannot replay it.
     nonisolated static func markCampaignSeen(in defaults: UserDefaults) {
         defaults.set(campaignVersion, forKey: seenVersionDefaultsKey)
     }
