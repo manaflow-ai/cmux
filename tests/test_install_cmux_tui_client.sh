@@ -210,6 +210,32 @@ cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
 echo "PASS: a rate-limited attestation lookup is retried, then verified"
 
+# A quota that never resets ends the loop after the default retries (sized to
+# outlast GitHub's hourly reset), and the error names the rate limit instead
+# of claiming the manifest has no valid attestation.
+echo 1000 > "$TEST_DIR/rate-limited-forever"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-forever" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$TEST_DIR/RateLimitedForever.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/rate-limited-forever.log" 2>&1 && {
+    echo "FAIL: installed while the attestation lookup stayed rate-limited" >&2
+    exit 1
+  }
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 10 ] || {
+  echo "FAIL: expected 1 attempt + 9 retries, got $(grep -c '^gh attestation verify' "$EVENTS")" >&2
+  exit 1
+}
+grep -q 'error: the GitHub API rate limit did not reset' "$TEST_DIR/rate-limited-forever.log" || {
+  echo "FAIL: exhausted rate-limit retries did not report the rate limit" >&2
+  cat "$TEST_DIR/rate-limited-forever.log" >&2
+  exit 1
+}
+if grep -q 'no valid build-provenance attestation' "$TEST_DIR/rate-limited-forever.log"; then
+  echo "FAIL: exhausted rate-limit retries claimed the attestation is invalid" >&2
+  exit 1
+fi
+[ ! -e "$TEST_DIR/RateLimitedForever.app/Contents/Resources/bin/cmux" ]
+echo "PASS: a rate limit that never resets stops after the retries with a rate-limit error"
+
 # A real verification failure is final on the first answer.
 FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
   --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {
