@@ -11,7 +11,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dividerThickness: CGFloat = 1
     /// Width of the draggable area centered on a divider. Token: `Metrics.dividerHitWidth`.
     public var dividerHitThickness: CGFloat = 7
-    /// Gap between columns and at the outer horizontal edges in columns mode. Token: `Metrics.columnGap`.
+    /// Gap between columns and at the outer horizontal edges in columns mode. Token:
+    /// `Metrics.stripColumnGap` (0 by default for edge-to-edge separations).
     public var columnGap: CGFloat = 6
     /// Corner radius of floating layout chrome (drop highlight). Token: `Metrics.panelCornerRadius`.
     public var panelCornerRadius: CGFloat = 10
@@ -100,7 +101,7 @@ extension LayoutStyle {
         var style = self
         style.dividerThickness = Metrics.dividerThickness
         style.dividerHitThickness = Metrics.dividerHitWidth
-        style.columnGap = Metrics.columnGap
+        style.columnGap = Metrics.stripColumnGap
         style.panelCornerRadius = Metrics.panelCornerRadius
         style.paneChromeHeight = Metrics.tabStripHeight
         style.panePadding = Metrics.panePadding
