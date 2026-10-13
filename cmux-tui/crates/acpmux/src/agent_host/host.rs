@@ -209,6 +209,8 @@ struct State {
     /// waits here is bounded by the controller, which waits for answers.
     stdin_tx: mpsc::UnboundedSender<String>,
     translator: Option<Arc<Translator>>,
+    /// `codex app-server` bridged in process (`codex_app_server.rs`).
+    codex: Option<Arc<crate::codex_app_server::Translator>>,
     pgid: Option<i32>,
     /// The harness leader has not been reaped: its group id is still ours.
     leader_alive: Arc<std::sync::atomic::AtomicBool>,
@@ -335,6 +337,9 @@ impl Started {
             }
             tr
         });
+        let codex = (spec.translator.is_none()
+            && crate::codex_app_server::is_launch(&spec.program, &spec.args))
+        .then(crate::codex_app_server::translator);
         let mut state = State {
             record,
             spec,
@@ -351,6 +356,7 @@ impl Started {
             controller: None,
             stdin_tx,
             translator,
+            codex,
             pgid,
             leader_alive,
             stderr_dropped: 0,
@@ -358,6 +364,10 @@ impl Started {
             under: Vec::new(),
             last_owner: None,
         };
+        // The app-server's initialize goes out at spawn, before the hub's.
+        if let Some(cx) = state.codex.clone() {
+            state.codex_out(cx.start());
+        }
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
         // The leader exited and its exit is not pushed yet.
@@ -381,6 +391,7 @@ impl Started {
                     permit_out = false;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
+                        state.codex_closed();
                     }
                     state.stdout_done = true;
                     state.maybe_push_exit();
@@ -409,6 +420,7 @@ impl Started {
                             "harness output stays open after its exit; reporting the exit"
                         );
                         state.end_background_shells().await;
+                        state.codex_closed();
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
@@ -600,7 +612,16 @@ impl State {
                 .ok()
                 .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
                 .is_some_and(|t| t == "result" || t == "control_response");
-            if let Some(tr) = self.translator.clone() {
+            if let Some(cx) = self.codex.clone() {
+                // An answer to one of the translator's requests: it gets an
+                // error in its place, so what waits on it is answered.
+                if let Ok(v) = serde_json::from_str::<Value>(&line)
+                    && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
+                {
+                    let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "codex app-server answer was over the size limit"}});
+                    self.codex_out(cx.from_server(&err));
+                }
+            } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
                         self.push(Entry::In { msg: m.to_value() });
@@ -612,6 +633,23 @@ impl State {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
                 self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
             }
+            return;
+        }
+        if let Some(cx) = self.codex.clone() {
+            let raw: Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => {
+                    self.push(Entry::Err { line: format!("[non-json stdout] {line}") });
+                    return;
+                }
+            };
+            if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
+                self.push(Entry::Tap {
+                    dir: TapDir::In,
+                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                });
+            }
+            self.codex_out(cx.from_server(&raw));
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -647,6 +685,35 @@ impl State {
         }
     }
 
+    /// What the Codex translator produced: lines for the app-server, ACP
+    /// messages for the controller.
+    fn codex_out(&mut self, outs: Vec<cmux_codex_acp::Out>) {
+        let split = crate::codex_app_server::split(outs);
+        for l in split.server {
+            self.write_codex_line(l);
+        }
+        for m in split.hub {
+            self.push(Entry::In { msg: m.to_value() });
+        }
+    }
+
+    /// The app-server's output ended: the translator answers what waits on
+    /// it, before the exit entry.
+    fn codex_closed(&mut self) {
+        if let Some(cx) = self.codex.clone() {
+            self.codex_out(cx.server_closed("it exited"));
+        }
+    }
+
+    fn write_codex_line(&mut self, line: Value) {
+        self.push(Entry::Tap {
+            dir: TapDir::Out,
+            msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
+                .to_value(),
+        });
+        let _ = self.stdin_tx.send(crate::codex_app_server::line(&line));
+    }
+
     fn write_claude_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -663,6 +730,13 @@ impl State {
             && let Some(n) = id.as_i64()
         {
             self.max_out_id = self.max_out_id.max(n);
+        }
+        if let Some(cx) = self.codex.clone() {
+            self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
+            // Answers and updates the translator gives itself go out as if
+            // Codex sent them.
+            self.codex_out(cx.from_client(&message.to_value()));
+            return;
         }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });

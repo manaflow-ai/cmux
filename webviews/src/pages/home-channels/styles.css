@@ -1138,8 +1138,8 @@ body,
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--hc-border, rgba(128, 128, 128, 0.25));
-  font-size: 12px;
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-detail);
 }
 .hc-gate {
   max-width: 420px;
@@ -1150,7 +1150,7 @@ body,
   gap: 12px;
 }
 .hc-gate h1 {
-  font-size: 18px;
+  font-size: var(--text-heading);
   margin: 0;
 }
 .hc-gate label {
@@ -1166,12 +1166,12 @@ body,
 .hc-gate-endpoint {
   opacity: 0.7;
   font-family: ui-monospace, monospace;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .hc-gate-code {
-  font-size: 20px;
+  font-size: var(--text-heading);
   font-variant-numeric: tabular-nums;
 }
 .hc-gate-error {
-  color: #d33;
+  color: var(--hc-danger);
 }
