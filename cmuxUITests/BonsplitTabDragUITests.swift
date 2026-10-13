@@ -113,6 +113,60 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    /// Regression for #20194: a tab dropped onto a pane edge turns that pane into a
+    /// split. On macOS 27 a pane host then laid out during the drop trapped on its
+    /// `@Environment(BonsplitController.self)` read and the app exited.
+    func testDroppingTabsOntoPaneEdgesBuildsNestedSplitsWithoutCrashing() {
+        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for nested-split Bonsplit tab drop UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        let betaTab = app.buttons[ready["betaTitle"] ?? "UITest Beta"]
+        let gammaTab = app.buttons[ready["gammaTitle"] ?? "UITest Gamma"]
+        let deltaTab = app.buttons[ready["deltaTitle"] ?? "UITest Delta"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(deltaTab.waitForExistence(timeout: 5.0), "Expected delta tab to exist")
+
+        // Each drop changes the split tree while the drag session is still delivering
+        // the drop, which is when the trap fired.
+        let drops: [(name: String, tab: XCUIElement, target: CGVector)] = [
+            ("delta to the right edge", deltaTab, CGVector(dx: 0.97, dy: 0.55)),
+            ("gamma to the bottom of the right pane", gammaTab, CGVector(dx: 0.85, dy: 0.95)),
+            ("beta to the bottom of the left pane", betaTab, CGVector(dx: 0.35, dy: 0.95)),
+        ]
+        for drop in drops {
+            XCTAssertTrue(drop.tab.waitForExistence(timeout: 5.0), "Expected tab to exist before dropping \(drop.name)")
+            drop.tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.25, thenDragTo: window.coordinate(withNormalizedOffset: drop.target))
+            XCTAssertFalse(
+                waitForCondition(timeout: 2.0) { app.state == .notRunning },
+                "Expected the app to survive dropping \(drop.name)"
+            )
+        }
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabCount", equals: "1", atPath: dataPath, timeout: 5.0) != nil,
+            "Expected every drop to move its tab out of alpha's pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            [betaTab, gammaTab, deltaTab].allSatisfy(\.exists),
+            "Expected the dropped tabs to stay in the window"
+        )
+    }
+
     func testMinimalModeReordersEarlierTabToMiddleIndex() {
         let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
 
