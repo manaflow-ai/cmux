@@ -2634,17 +2634,6 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
-    "tabs.hiddenButtons" : {
-      "default" : [
-
-      ],
-      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Hidden Tab Bar Buttons",
-      "type" : "array"
-    },
     "tabs.newTabPosition" : {
       "default" : "end",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
