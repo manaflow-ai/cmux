@@ -148,7 +148,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         tap.require(toFail: doubleTap)
         scrollView.addGestureRecognizer(tap)
         if !usesSystemZoom {
-            let drag = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+            let drag = TouchUpPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
             drag.delegate = self
             drag.name = "conversation.photoViewer.dismissDrag"
             view.addGestureRecognizer(drag)
@@ -268,7 +268,9 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         case .ended, .cancelled, .failed:
             let velocity = pan.velocity(in: view).y
             if pan.state == .ended, translation.y > 80 || velocity > 600 {
-                dragReleaseTime = CACurrentMediaTime()
+                // The finger's own lift, not this later callback (a frame
+                // can pass between them): Quick Look's spring runs from it.
+                dragReleaseTime = (pan as? TouchUpPanGestureRecognizer)?.touchUpTime ?? CACurrentMediaTime()
                 dismiss(animated: true)
             } else {
                 let start = dragStart
@@ -464,6 +466,21 @@ final class ConversationPhotoFlightDriver: NSObject {
         } else {
             step(ConversationPhotoFlight.progress(at: t, omega: omega))
         }
+    }
+}
+/// A pan that remembers when its last finger lifted (the touch event's
+/// time, on the media clock).
+final class TouchUpPanGestureRecognizer: UIPanGestureRecognizer {
+    private(set) var touchUpTime: CFTimeInterval?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        touchUpTime = nil
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        touchUpTime = event.timestamp
+        super.touchesEnded(touches, with: event)
     }
 }
 #endif
