@@ -85,7 +85,8 @@ extension CmuxTuiSurfaceProvider {
                           preserveCurrentNavigation: Bool = false, request: URLRequest? = nil) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let desktopPort = info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort
-        let fallbackID: SurfaceResourceID = if info.hasDesktop, (desktopPort...(desktopPort + 15)).contains(requestedPort) {
+        let fallbackID: SurfaceResourceID = if info.hasDesktop,
+                                                CmuxTuiSnapshotParser.displayPorts(forDesktopPort: desktopPort).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - desktopPort + 1)")
         } else {
             SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(requestedPort)")
@@ -194,10 +195,12 @@ extension CmuxTuiSurfaceProvider {
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
             browser.bindCloudBrowserNavigation()
-            browser.cloudAccess.adoptCommittedRoute(model: model, url: logicalURL, resourceID: resourceID)
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: logicalURL, resourceID: resourceID,
+                                                     desktopPort: info.desktopPort)
             model.connect()
         } else {
-            browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID, request: request)
+            browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID,
+                                          desktopPort: info.desktopPort, request: request)
         }
         materializedPanels.insert(browser.id)
         return true
