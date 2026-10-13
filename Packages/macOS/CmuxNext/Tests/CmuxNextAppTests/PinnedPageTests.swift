@@ -72,6 +72,8 @@ struct PinnedPageTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // Actions reach tabs through the window's panes, which attach after the daemon's.
+            try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a

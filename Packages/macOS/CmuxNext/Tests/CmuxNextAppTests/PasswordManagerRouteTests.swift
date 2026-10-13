@@ -18,7 +18,8 @@ struct PasswordManagerRouteTests {
         try await Self.withApp { services, _ in
             let invocation = ActionInvocation(arguments: ["url": .string(address)])
             #expect(services.registry.perform("openBrowser", invocation: invocation))
-            try await Self.until { Self.tabs(services).contains { $0.page == "passwords" } }
+            // A store page tab, or an app-only one while the daemon cannot hold page tabs yet.
+            try await Self.until { services.pages.window(showing: .passwords, windows: services.windows.controllers) != nil }
             #expect(!Self.tabs(services).contains { $0.url?.contains("password") == true && $0.page == nil },
                     "Chromium's password manager opened in a browser tab")
         }
@@ -56,6 +57,8 @@ struct PasswordManagerRouteTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // Actions reach tabs through the window's panes, which attach after the daemon's.
+            try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
