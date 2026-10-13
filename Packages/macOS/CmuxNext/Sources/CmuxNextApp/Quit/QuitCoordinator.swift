@@ -189,7 +189,7 @@ final class QuitCoordinator {
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
                 #if DEBUG
-                if self?.wedgesEngineStop == true { QuitEngineWedge.block(self?.watchdog) }
+                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
                 await services.cache.cef.shutdown()
             }

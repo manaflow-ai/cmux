@@ -12,7 +12,7 @@ import CmuxNextSettings
 /// clicks that button. While "Some sessions did not end" shows, the report
 /// carries `failure` (its lines and buttons) and `press: "retry" |
 /// "quit-anyway"` answers it. `{wedge_engine_stop: true}` makes the next
-/// quit's engine stop block the main thread for good (`QuitEngineWedge`).
+/// quit's engine stop block the main thread for good (`QuitDeadline.wedgeMainThread`).
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
