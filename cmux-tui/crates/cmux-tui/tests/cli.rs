@@ -3682,26 +3682,24 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/frontend_browser_status.rs"]
+mod frontend_browser_status;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
-#[cfg(unix)]
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
-#[cfg(unix)]
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
-#[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[path = "cli/state_helpers.rs"]
 mod state_helpers;
-#[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
 #[path = "cli/tab_group_hex.rs"]
