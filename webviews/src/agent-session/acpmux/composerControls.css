@@ -4,11 +4,11 @@
   width: max-content;
   min-width: 140px;
   max-width: min(240px, calc(100vw - 24px));
-  padding: 5px;
-  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
-  border-radius: 10px;
+  padding: var(--ui-popup-padding);
+  border: 0;
+  border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
