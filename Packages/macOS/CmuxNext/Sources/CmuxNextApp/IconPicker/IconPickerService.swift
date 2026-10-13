@@ -41,7 +41,7 @@ final class IconPickerService {
         let provider: IconPickerProvider
     }
 
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.

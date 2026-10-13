@@ -46,6 +46,34 @@ struct BookmarkFolderIconTests {
         #expect(try Self.stored(Self.folder(nil))["icon"] == nil)
     }
 
+    // MARK: The request
+
+    /// `update-bookmark` sends `icon` only when it changes: a string sets it, null removes it.
+    @Test func updateBookmarkSendsTheIconOnlyWhenItChanges() throws {
+        func sent(_ icon: FieldUpdate<String>) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(UpdateBookmarkRequest(bookmark: "bm_folder", icon: icon, mutation: nil))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(try sent(.set("🚀"))["icon"] as? String == "🚀")
+        #expect(try sent(.clear)["icon"] is NSNull)
+        #expect(try sent(.unchanged)["icon"] == nil)
+    }
+
+    /// The edit the app applies and sends follows the daemon's rule: a folder takes an icon, a
+    /// URL bookmark refuses one (a removal too).
+    @Test func onlyAFolderTakesAnIcon() throws {
+        var tree = BookmarkTree()
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_folder"), index: nil))
+        let url = try #require(URL(string: "https://example.com"))
+        try tree.apply(.create(.bookmark("Example", url: url, in: "bm_folder", id: "bm_url"), index: nil))
+        try tree.apply(.update(id: "bm_folder", icon: .set("🚀")))
+        #expect(tree.node("bm_folder")?.icon == "🚀")
+        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_url", icon: .set("🚀"))) }
+        #expect(throws: BookmarkError.self) { try tree.apply(.update(id: "bm_url", icon: .clear)) }
+        try tree.apply(.update(id: "bm_folder", icon: .clear))
+        #expect(tree.node("bm_folder")?.icon == nil)
+    }
+
     // MARK: Drawing
 
     @Test func theBarDrawsAFoldersOwnIconAndTheFolderSymbolWithout() throws {
