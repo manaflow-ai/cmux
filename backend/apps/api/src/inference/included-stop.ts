@@ -21,7 +21,16 @@ export const includedPlanOf = (plan: string | null | undefined): UsagePlan | nul
   return isUsagePlan(id) ? id : null
 }
 
-const err402 = (spentUsd: number, includedUsd: number) =>
+/** The included amount (micro-dollars) that applies to this caller, or undefined when the stop is off. */
+export const includedMicrosFor = (env: Env, caller: { readonly plan?: string | null }): number | undefined => {
+  if (env.USAGE_HARD_STOP_UNBILLED !== "1") return undefined
+  const plan = includedPlanOf(caller.plan)
+  // A paid plan this catalog does not know has no included amount: no AI until it is billable.
+  return Math.round((plan ? usageIncludedUsd(plan, usagePriceSet(env)) : 0) * 1_000_000)
+}
+
+/** The 402 of the included-amount stop: Cloud-service copy, the amounts and the reset time. */
+export const includedReached = (spentUsd: number, includedUsd: number) =>
   Response.json(
     {
       error: {
@@ -33,14 +42,3 @@ const err402 = (spentUsd: number, includedUsd: number) =>
     },
     { status: 402 }
   )
-
-type Meter = { includedAdmit(entity: string, includedMicros: number, maxMicros: number): Promise<{ ok: true } | { ok: false; spent_micros: number }> }
-
-export const includedStop = async (env: Env, meter: unknown, caller: { readonly team: string; readonly plan?: string | null }, maxMicros: number): Promise<Response | null> => {
-  if (env.USAGE_HARD_STOP_UNBILLED !== "1") return null
-  const plan = includedPlanOf(caller.plan)
-  // A paid plan this catalog does not know has no included amount: no AI above zero until it is billable.
-  const includedUsd = plan ? usageIncludedUsd(plan, usagePriceSet(env)) : 0
-  const r = await (meter as Meter).includedAdmit(caller.team, Math.round(includedUsd * 1_000_000), maxMicros)
-  return r.ok ? null : err402(Math.round(r.spent_micros) / 1_000_000, includedUsd)
-}

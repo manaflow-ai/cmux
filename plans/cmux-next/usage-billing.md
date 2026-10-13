@@ -339,6 +339,16 @@ amount included in your plan for this month. It resets at the start of next mont
 Turning it on in production is a live step (it stops every paid team at the included amount until
 the live sync marks it billable).
 
+Review (S5 security, REVISE folded in): the check runs inside the member reservation's transaction, so
+two calls cannot both pass it. A billable mark counts while its period end plus 2 hours is ahead and
+the sync saw it in the last 2 hours (`BILLABLE_GRACE_MS`), so a renewal or one failed run does not stop
+a paying team, and a canceled or moved subscription stops being billable within 2 hours. Stated
+policy: past_due subscriptions stay billable (Stripe retries the card); annual plans are never
+billable for usage (no monthly metered item) and so stop at the included amount; the stop counts the
+UTC month, so a team that moves off the card plan mid-month can stop at once (it errs toward
+refusing). A truncated subscription listing logs `billing.usage_sync.truncated` as an error; an alert
+on it is a live step.
+
 ## 12. S6 design: the live switch (note only, nothing built)
 
 - Today `stripeKeyMode` refuses every live key in every environment, before any call.
@@ -346,8 +356,8 @@ the live sync marks it billable).
   of these hold, checked at the start of each run:
   1. `ENVIRONMENT === "production"` (staging and development refuse live keys forever);
   2. the key is a restricted key (`rk_live_`), never a full secret key (`sk_live_` stays refused);
-  3. `BILLING_USAGE_LIVE` equals the release tag of the reviewed commit (a var set by the production
-     deploy rail, so a stray var cannot turn it on in another build);
+  3. a build-time constant in the bundle (`USAGE_LIVE_ENABLED = true`, compiled in by the reviewed
+     change itself; a var cannot prove which build is running, because the same rail sets both);
   4. the production catalog read finds the live meter with aggregation `last` and the `-v2` prices with
      the amounts that the catalog code names; any mismatch refuses the run (no writes).
 - First live run is staged: `BILLING_USAGE_LIVE_ALLOW` lists subscription ids (staff accounts); the sync
@@ -356,6 +366,14 @@ the live sync marks it billable).
   production dry run (the sync's read-only mode: lists what it would add and send, writes nothing),
   the chief's go, and Lawrence's yes for money. The restricted key is created by Lawrence in the
   Dashboard and set on the production Worker through the release rails with a receipt.
-- Rollback: delete the production `STRIPE_USAGE_KEY`; the sync refuses with `no_key` on the next run.
+  5. every object the run reads from Stripe has `livemode` equal to the key's mode; any mismatch
+     refuses the run.
+- Order with the included-amount stop: first one complete, untruncated live sync with no allowlist
+  marks every billable team; only then `USAGE_HARD_STOP_UNBILLED=1` in production. With the staff-only
+  allowlist on, the stop must stay off (it would stop every other paying team).
+- The sync's read-only (dry-run) mode does not exist yet: it is a work item of S6.
+- Rollback: turn the stop off first (`USAGE_HARD_STOP_UNBILLED` unset), then delete the production
+  `STRIPE_USAGE_KEY`; the sync refuses with `no_key` on the next run. (With the stop on and no sync,
+  every billable mark expires and every paying team stops at its included amount.)
   Usage items stay on subscriptions (metered, so nothing is billed without meter events); a cleanup
   run can remove them if live billing is abandoned.

@@ -349,6 +349,11 @@ describe("the included-amount stop (cx-y79zh S5)", () => {
     stripe.addSub("sub_inc1", "cus_inc1", { plan: "pro", stackUserId: stackUser }, "cmux-pro-monthly-50")
     expect((await sync()).body).toMatchObject({ items_added: 1 })
     expect((await chat(t, stopOn)).status).toBe(200)
+    // A mark the sync stopped renewing (canceled, moved off the card plan) expires: the stop applies again.
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_billable SET seen_at = ?`, Date.now() - 3 * 3600_000)
+    })
+    expect((await chat(t, stopOn)).status).toBe(402)
   })
 
   it("gives Founders the Pro included amount", async () => {

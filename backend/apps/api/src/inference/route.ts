@@ -13,7 +13,7 @@ import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from ".
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
-import { includedStop } from "./included-stop.ts"
+import { includedMicrosFor, includedReached } from "./included-stop.ts"
 
 /**
  * The model router's HTTP surface (plans/cmux-next/model-router.md, cx-dna4.1):
@@ -200,11 +200,11 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
     const check = await meter.check(caller.team)
     if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
-    // A team whose usage above the plan's included amount cannot be billed stops at that amount (cx-y79zh S5).
-    const included = await includedStop(env, meter, caller, maxMicros)
-    if (included) return included
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
-    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros)
+    // A team whose usage above the plan's included amount cannot be billed stops at that amount, checked in the
+    // reservation's own transaction (cx-y79zh S5).
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller))
+    if (!held.ok && held.included) return includedReached(held.spent_usd, held.limit_usd)
     if (!held.ok) {
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })
     }
