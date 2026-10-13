@@ -231,3 +231,96 @@ fn stats_civil_dates() {
     assert_eq!(civil_date(-1), "1969-12-31");
     assert_eq!(civil_date(11_016), "2000-02-29");
 }
+
+#[test]
+fn stats_a_turn_cut_by_a_restart_ends_at_its_last_record() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "idle", DAY0 + DAY));
+    log.prompt(DAY0 + 18 * HOUR);
+    log.started(DAY0 + 18 * HOUR);
+    log.push(DAY0 + 18 * HOUR + 10 * MIN, "in", "tool_call", json!({}));
+    log.status(DAY0 + 18 * HOUR + 10 * MIN, "waiting");
+    // The daemon died; its next start, the morning after, marks the turn.
+    log.push(
+        DAY0 + DAY + 9 * HOUR,
+        "mux",
+        "turn_result",
+        json!({"status": "failed", "detail": "outcome_unknown"}),
+    );
+    let s = summarize(&store, &options(DAY0 + 2 * DAY, 7)).unwrap();
+    assert_eq!(s.working_ms, 10 * MIN);
+    assert_eq!(s.waiting_ms, 0);
+    assert_eq!(s.turns_failed, 1);
+    assert_eq!(s.hours[2], 0, "nothing counted overnight");
+}
+
+#[test]
+fn stats_a_prompt_after_a_dead_turn_ends_it_at_its_last_record() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 3 * DAY));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.push(DAY0 + 5 * MIN, "in", "tool_call", json!({}));
+    log.status(DAY0 + 5 * MIN, "waiting");
+    // No turn end and no restart record: the next prompt is two days later.
+    log.prompt(DAY0 + 2 * DAY);
+    log.started(DAY0 + 2 * DAY);
+    log.result(DAY0 + 2 * DAY + MIN, "completed");
+    log.status(DAY0 + 2 * DAY + MIN, "ready");
+    let s = summarize(&store, &options(DAY0 + 3 * DAY, 7)).unwrap();
+    assert_eq!(s.working_ms, 5 * MIN + MIN);
+    assert_eq!(s.waiting_ms, 0);
+}
+
+#[test]
+fn stats_an_unreadable_log_is_skipped() {
+    struct Torn(MemoryStore);
+    impl Store for Torn {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.0.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.0.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            self.0.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.0.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            if id == "torn" {
+                anyhow::bail!("stream did not contain valid UTF-8");
+            }
+            self.0.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.0.delete(id)
+        }
+    }
+    let store = Torn(MemoryStore::default());
+    for id in ["good", "torn"] {
+        let mut log = session(&store.0, meta(id, "claude", "ready", DAY0 + HOUR));
+        log.prompt(DAY0);
+        log.started(DAY0);
+        log.result(DAY0 + 10 * MIN, "completed");
+    }
+    let s = summarize(&store, &options(DAY0 + HOUR, 1)).unwrap();
+    assert_eq!((s.sessions, s.working_ms), (1, 10 * MIN));
+}
+
+#[test]
+fn stats_the_streak_does_not_depend_on_the_range() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 20 * DAY));
+    for day in 0..=20 {
+        let at = DAY0 + day * DAY + 12 * HOUR;
+        log.prompt(at);
+        log.started(at);
+        log.result(at + MIN, "completed");
+    }
+    let until = DAY0 + 20 * DAY + 13 * HOUR;
+    let week = summarize(&store, &options(until, 7)).unwrap();
+    assert_eq!((week.streak.current, week.streak.longest), (21, 21));
+    assert_eq!(week.days.len(), 7);
+}
