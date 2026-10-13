@@ -17,6 +17,13 @@
 //! connections; an agent tab of this store whose record names this store;
 //! the machine kind gate), so a team VM or a Cloud VM of unknown kind
 //! records no trust from here. The tab may already have a session.
+//!
+//! Folder rule, as for a chat on the Mac (`workspace.agent_start.get`): a
+//! trust answer for `/` or a folder above this user's home folder is refused
+//! (`agent_session.above_home`), and the home folder itself is trusted only
+//! with `home_confirmed` (the person first chose it as the chat's folder;
+//! `agent_session.home_unconfirmed` otherwise), so one click never trusts a
+//! whole home folder.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -65,6 +72,8 @@ pub(super) struct TrustParams {
     cwd: String,
     #[serde(default)]
     level: Option<String>,
+    #[serde(default)]
+    home_confirmed: bool,
 }
 
 impl TrustParams {
@@ -130,7 +139,25 @@ fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
     )
 }
 
+/// The home folder rule for a Trust answer (see the module doc).
+fn home_rule(params: &TrustParams) -> Result<(), Refusal> {
+    if params.level.as_deref() != Some("trusted") {
+        return Ok(());
+    }
+    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
+    let Some(home) = std::env::var_os("HOME").and_then(|home| canonical(home.as_ref())) else {
+        return Ok(());
+    };
+    // A folder that does not exist is acpmux's to refuse.
+    let Some(cwd) = canonical(params.cwd.as_ref()) else { return Ok(()) };
+    if cwd == home {
+        return if params.home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
+    }
+    if home.starts_with(&cwd) { Err(Refusal::AboveHome) } else { Ok(()) }
+}
+
 fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Value, Refusal> {
+    home_rule(params)?;
     let link = connect(mux, socket)?;
     let result = match &params.level {
         None => link.call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT),

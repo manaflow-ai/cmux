@@ -30,7 +30,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         -> (client: any AgentSessionRemoteClient, session: String)
     /// The trust of `cwd` on the other machine (acpmux's `acp.trust.get` reply), or with `level`
     /// the person's answer recorded there (`acp.trust.set`).
-    public typealias Trust = @Sendable (_ cwd: String, _ level: String?) async throws -> Data
+    public typealias Trust = @Sendable (_ cwd: String, _ level: String?, _ homeChosen: Bool) async throws -> Data
+    /// The relay's mark on a Trust answer for a home folder the person chose there.
+    public static let homeChosenParam = "cmuxHomeChosen"
 
     private struct State {
         var onFrame: (@Sendable (String) -> Void)?
@@ -99,7 +101,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // task-owner: one daemon call per trust question or answer; its reply ends it
             Task { [weak self] in
                 do {
-                    let answer = try await trust(cwd, level)
+                    let answer = try await trust(cwd, level, params[Self.homeChosenParam] as? String == "true")
                     self?.emit(id.map { #"{"jsonrpc":"2.0","id":\#($0),"result":"# + String(decoding: answer, as: UTF8.self) + "}" })
                 } catch {
                     let refused = error as? AgentSessionRemoteError
