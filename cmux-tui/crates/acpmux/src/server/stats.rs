@@ -1,7 +1,7 @@
 //! `_acpmux/stats` (hq#1920): personal stats over every session log
-//! (`crate::stats`). Local only: the unix socket and the app's own pane
-//! connection; a remote WebSocket or a peer gets "Method not found", like
-//! `_acpmux/directories`.
+//! (`crate::stats`). How a person works is their data (C5), like the chat
+//! index: only the local unix socket gets it, and every WebSocket origin
+//! (Web, LocalApp, Peer) gets "Method not found". Never forwarded to a peer.
 
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ pub(super) async fn handle(
     origin: Origin,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !matches!(origin, Origin::Local | Origin::LocalApp) {
+    if origin != Origin::Local {
         return Err(RpcError::method_not_found(method::MUX_STATS));
     }
     let options = StatsOptions::from_params(params, crate::store::now_ms());
