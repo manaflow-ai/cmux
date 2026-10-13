@@ -1,5 +1,89 @@
 # cnx link connectivity
 
+## WireGuard performance: before and after (2026-10-13, afternoon)
+
+Branch `feat-cnx-ios-wgperf`. `cnx-dial` (release) on Aziz's MacBook,
+`cnx-hostd` (release, with `cnx-stub-tui`) on `mini-cmuxs-mac-mini-2` under
+`~/cnx-ios-e2e/wgperf` (user-local, removed afterwards), personal space of
+the DEBUG dev account (tokens in 0600 files, deleted afterwards), Tailscale
+excluded, 50 pings and a 10 MiB echo per run. "Before" is the binaries of
+`feat-cnx-ios-relay` (same Rust as this branch's base), "after" is this
+branch with Worker 0.6.0. The runs alternated within 25 minutes.
+
+| Mode | Build | Path | Runs passed (10 MiB echo) | RTT median (range of medians) | Echo each way |
+| --- | --- | --- | --- | --- | --- |
+| WireGuard, relay only | before | `relay` (Worker) | 3 of 8 (4 `keepalive timed out`, 1 tunnel closed) | 238 to 345 ms | 3.3 to 4.2 Mbit/s |
+| WireGuard, relay only | after | `turn` | 5 of 5 | 14.4 to 14.9 ms | 15.0 to 78.7 Mbit/s (median 32.0) |
+| WireGuard, relay only, `--no-turn` | after | `relay` (Worker) | 4 of 5 (1 WireGuard handshake timed out mid-echo) | 56.7 to 66.5 ms | 5.2 to 5.7 Mbit/s |
+| WireGuard, default | before | `direct` (same LAN) | 5 of 6 (1 signaling reset) | 0.5 ms | 223 to 247 Mbit/s |
+| WireGuard, default | after | `direct` (same LAN) | 5 of 5 | 0.5 to 0.7 ms | 58 to 238 Mbit/s |
+| WebRTC, relay only | before | `turn` | 1 of 6 (5 `offline` or timed out, see finding 4) | 14.6 ms | 19.5 Mbit/s |
+| WebRTC, relay only | after | `turn` | 5 of 5 | 14.8 to 15.6 ms | 12.1 to 134.7 Mbit/s |
+
+WireGuard relay-only RTT is now 0.97x the TURN RTT of WebRTC (target 1.5x),
+the 10 MiB echo passed 5 of 5, and throughput was at least 15 Mbit/s and
+usually above 30 Mbit/s. Today the mini's UDP to the LAN worked, so the
+default mode went direct; the one-way case is covered by the Rust test
+`wireguard_one_way_lan_settles_on_turn`.
+
+### Findings
+
+1. **The Worker relay's latency is Cloudflare routing, not our code.** The
+   `workers.dev` address answered from `CDG` (Paris) at 14:20, from `PDX` at
+   14:30 and from `DFW` at 14:40, while `cloudflare.com` and
+   `turn.cloudflare.com` answered from `SJC` with 7 to 10 ms. ICMP to the
+   Worker's address took 10 ms, but TCP took 148 ms to connect: the traffic
+   was forwarded to a far colo after reaching the edge, which happens to
+   free-plan traffic. Each relayed datagram crosses ingress, hub and
+   ingress again for both sockets, and the two sockets can enter at
+   different colos, so RTT ran 240 to 345 ms. The personal hub runs in `SJC`
+   (`GET /v1/teams/:id/hub`). A WebSocket round trip to it measured 290 ms
+   before the 0.6.0 deploy and 47 ms after, through `PDX` both times.
+2. **Fix: WireGuard over TURN.** The dialer now allocates on Cloudflare TURN,
+   which is well routed, and offers the relayed address. The Mac sends to it
+   like to any endpoint, so old Macs work unchanged. This path does not use
+   the Worker, so it has the same RTT as WebRTC.
+3. **`keepalive timed out` was head-of-line blocking.** The link's keepalive
+   ping waited behind up to 10 MiB of queued echo data (the writer queue
+   holds 1024 frames of up to 256 KiB). At 4 Mbit/s the ping waited more
+   than 20 s, and a healthy link closed. Pings and pongs now go ahead of
+   data, and any inbound frame counts as life. Red-green tests:
+   `ping_overtakes_queued_bulk_data` and `keepalive_counts_any_inbound_frame`.
+4. **A stale tunnel broke the next dial.** After a WireGuard session ended
+   without `bye`, the Mac's tunnel kept sending relay frames. The Worker
+   answered every frame with an `offline` error, and every dial in progress
+   on that socket failed on the first error: "device is offline" on 5 of 6
+   WebRTC runs. Now dials ignore errors naming another session, a closed
+   tunnel sends `bye`, and the Worker sends one refusal per session every
+   5 s. One run also saw the Worker close the Mac's socket with 1013
+   "Service overloaded".
+5. **Path flapping.** A side that received the peer's LAN UDP made it the
+   route even when its own UDP to that address was refused (`EHOSTUNREACH`),
+   and then stopped spraying the other endpoints, so it never found the TURN
+   address. Refused addresses are now never the route. A changed route
+   needs a new marker, and a route silent for 14 s falls back to the relay.
+6. **The Worker relay is still slow under bulk load**, about 5.5 Mbit/s at
+   60 ms RTT. The 256 KiB TCP window would allow about 35 Mbit/s, so the
+   limit is the cost per WebSocket message in the hub (one message per
+   datagram). The binary rate limit (4000/s, burst 8000) was not the cap
+   at these rates; it is now 12000/s, burst 24000. Batching datagrams per
+   message is the next step if the Worker relay must carry bulk data. With
+   TURN it is only the fallback.
+7. **Hub placement.** New hubs get a `locationHint` from the caller's
+   geolocation instead of the colo that received the first request, so a
+   day of bad ingress can no longer place a hub far away for good. Existing
+   hubs keep their place.
+
+Rerun (tokens in 0600 files, never printed):
+
+```bash
+cnx-dial --base-url https://cnx-ios-api-dev.debussy.workers.dev --token-file <token> \
+  --team personal-<sub> --mac <mac device id> --exclude-cgnat --pings 50 \
+  --transport wireguard --relay-only [--no-turn]
+curl -H "authorization: Bearer $(cat <token>)" \
+  https://cnx-ios-api-dev.debussy.workers.dev/v1/teams/personal-<sub>/hub
+```
+
 ## Relay only: simulated distant network (2026-10-13)
 
 Every Mac reachable from the office sits behind the same NAT, so a distant
