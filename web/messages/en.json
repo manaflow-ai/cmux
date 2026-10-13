@@ -176,6 +176,11 @@
       "message": "This machine did not respond in time, so the request could not finish.",
       "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Still in progress",
+      "message": "The cloud provider has not finished this change yet. It may still complete.",
+      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
+    },
     "providerTimeout": {
       "title": "Cloud provider is slow",
       "message": "The cloud provider did not answer in time.",
@@ -5048,7 +5053,10 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "rateLimitedTitle": "Sign-in is busy",
+    "rateLimitedBody": "Our sign-in provider is handling too many requests. Wait a few seconds, then continue. You do not need to sign in again.",
+    "retryButton": "Continue signing in"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",
@@ -7262,7 +7270,10 @@
     "switchFailed": "Could not sign out. Try again.",
     "invalidTitle": "This invitation is no longer valid",
     "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
-    "goToTeams": "Go to your teams"
+    "goToTeams": "Go to your teams",
+    "unavailableTitle": "Could not confirm your sign-in",
+    "unavailableBody": "Our sign-in provider is busy. Wait a few seconds, then try the invitation again. You do not need to sign in again.",
+    "retry": "Try again"
   },
   "mobile": {
     "agentFeed": {

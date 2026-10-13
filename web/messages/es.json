@@ -35,6 +35,11 @@
       "message": "Esta máquina no respondió a tiempo, así que la solicitud no pudo completarse.",
       "action": "Pausa la máquina, luego reanúdala y vuelve a intentarlo. En la app de Mac, elige Pausar máquina y luego Reanudar máquina. En una terminal, ejecuta cmux vm pause '<machine>' y luego cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Todavía en curso",
+      "message": "El proveedor de la nube aún no ha terminado este cambio. Es posible que todavía se complete.",
+      "action": "Comprueba el estado de la máquina con cmux vm ls o en la lista de máquinas antes de volver a intentarlo."
+    },
     "providerTimeout": {
       "title": "El proveedor de la nube va lento",
       "message": "El proveedor de la nube no respondió a tiempo.",
@@ -3466,7 +3471,10 @@
     "title": "Sesión iniciada en cmux",
     "body": "Si cmux no se abrió automáticamente, usa el botón de abajo.",
     "button": "Volver a cmux",
-    "switchAccountButton": "Usar otra cuenta"
+    "switchAccountButton": "Usar otra cuenta",
+    "rateLimitedTitle": "El inicio de sesión está ocupado",
+    "rateLimitedBody": "Nuestro proveedor de inicio de sesión está recibiendo demasiadas solicitudes. Espera unos segundos y continúa. No necesitas iniciar sesión de nuevo.",
+    "retryButton": "Continuar el inicio de sesión"
   },
   "landing": {
     "bestTerminal": {
@@ -5501,6 +5509,9 @@
     "switchFailed": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
     "invalidTitle": "Esta invitación ya no es válida",
     "invalidBody": "Caducó, se revocó o ya se usó. Pide una nueva a un administrador del equipo.",
-    "goToTeams": "Ir a tus equipos"
+    "goToTeams": "Ir a tus equipos",
+    "unavailableTitle": "No pudimos confirmar tu inicio de sesión",
+    "unavailableBody": "Nuestro proveedor de inicio de sesión está ocupado. Espera unos segundos y vuelve a abrir la invitación. No necesitas iniciar sesión de nuevo.",
+    "retry": "Reintentar"
   }
 }

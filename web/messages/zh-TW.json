@@ -35,6 +35,11 @@
       "message": "這台機器未能及時回應，因此無法完成請求。",
       "action": "先暫停機器，再繼續執行，然後重試。在 Mac App 中，先選擇「暫停機器」，再選擇「繼續執行機器」。在終端機中，先執行 cmux vm pause '<machine>'，再執行 cmux vm resume '<machine>'。"
     },
+    "inProgress": {
+      "title": "仍在進行中",
+      "message": "雲端服務供應商尚未完成此變更，它稍後仍可能完成。",
+      "action": "重試之前，請使用 cmux vm ls 或在機器列表中查看機器狀態。"
+    },
     "providerTimeout": {
       "title": "雲端服務供應商回應緩慢",
       "message": "雲端服務供應商未能及時回應。",
@@ -3466,7 +3471,10 @@
     "title": "已登入 cmux",
     "body": "如果 cmux 沒有自動開啟，請使用下方按鈕。",
     "button": "返回 cmux",
-    "switchAccountButton": "使用其他帳號"
+    "switchAccountButton": "使用其他帳號",
+    "rateLimitedTitle": "登入忙碌中",
+    "rateLimitedBody": "我們的登入服務收到太多要求。請稍候幾秒鐘後繼續。你不需要重新登入。",
+    "retryButton": "繼續登入"
   },
   "landing": {
     "bestTerminal": {
@@ -5501,6 +5509,9 @@
     "switchFailed": "無法登出，請再試一次。",
     "invalidTitle": "此邀請已失效",
     "invalidBody": "邀請已過期、已撤銷或已被使用。請向團隊管理員索取新的邀請。",
-    "goToTeams": "前往你的團隊"
+    "goToTeams": "前往你的團隊",
+    "unavailableTitle": "無法確認你的登入",
+    "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
+    "retry": "重試"
   }
 }

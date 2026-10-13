@@ -35,6 +35,11 @@
       "message": "Cette machine n'a pas répondu à temps, la requête n'a donc pas pu aboutir.",
       "action": "Mettez la machine en pause, reprenez-la, puis réessayez. Dans l'app Mac, choisissez Mettre la machine en pause, puis Reprendre la machine. Dans un terminal, exécutez cmux vm pause '<machine>', puis cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Toujours en cours",
+      "message": "Le fournisseur cloud n'a pas encore terminé cette modification. Elle peut encore aboutir.",
+      "action": "Vérifiez l'état de la machine avec cmux vm ls ou dans la liste des machines avant de réessayer."
+    },
     "providerTimeout": {
       "title": "Le fournisseur cloud est lent",
       "message": "Le fournisseur cloud n'a pas répondu à temps.",
@@ -3469,7 +3474,10 @@
     "title": "Connecté à cmux",
     "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
     "button": "Retourner à cmux",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "rateLimitedTitle": "La connexion est saturée",
+    "rateLimitedBody": "Notre service de connexion reçoit trop de requêtes. Patientez quelques secondes, puis continuez. Vous n'avez pas besoin de vous reconnecter.",
+    "retryButton": "Continuer la connexion"
   },
   "landing": {
     "bestTerminal": {
@@ -5504,6 +5512,9 @@
     "switchFailed": "Impossible de se déconnecter. Réessayez.",
     "invalidTitle": "Cette invitation n’est plus valide",
     "invalidBody": "Elle a expiré, a été révoquée ou a déjà été utilisée. Demandez-en une nouvelle à un admin de l’équipe.",
-    "goToTeams": "Accéder à vos équipes"
+    "goToTeams": "Accéder à vos équipes",
+    "unavailableTitle": "Impossible de confirmer votre connexion",
+    "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
+    "retry": "Réessayer"
   }
 }

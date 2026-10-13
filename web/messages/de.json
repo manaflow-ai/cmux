@@ -35,6 +35,11 @@
       "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
       "action": "Pausiere die Maschine, setze sie dann fort und versuche es erneut. Wähle in der Mac-App „Maschine pausieren“ und dann „Maschine fortsetzen“. Führe im Terminal cmux vm pause '<machine>' und dann cmux vm resume '<machine>' aus."
     },
+    "inProgress": {
+      "title": "Noch in Bearbeitung",
+      "message": "Der Cloud-Anbieter hat diese Änderung noch nicht abgeschlossen. Sie kann noch abgeschlossen werden.",
+      "action": "Prüfe den Status der Maschine mit cmux vm ls oder in der Maschinenliste, bevor du es erneut versuchst."
+    },
     "providerTimeout": {
       "title": "Cloud-Anbieter antwortet langsam",
       "message": "Der Cloud-Anbieter hat nicht rechtzeitig geantwortet.",
@@ -3467,7 +3472,10 @@
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
     "button": "Zurück zu cmux",
-    "switchAccountButton": "Anderes Konto verwenden"
+    "switchAccountButton": "Anderes Konto verwenden",
+    "rateLimitedTitle": "Anmeldung ist ausgelastet",
+    "rateLimitedBody": "Unser Anmeldedienst verarbeitet zu viele Anfragen. Warte ein paar Sekunden und fahre dann fort. Du musst dich nicht erneut anmelden.",
+    "retryButton": "Anmeldung fortsetzen"
   },
   "landing": {
     "bestTerminal": {
@@ -5502,6 +5510,9 @@
     "switchFailed": "Abmeldung fehlgeschlagen. Versuche es erneut.",
     "invalidTitle": "Diese Einladung ist nicht mehr gültig",
     "invalidBody": "Sie ist abgelaufen, wurde widerrufen oder bereits verwendet. Bitte einen Team-Admin um eine neue.",
-    "goToTeams": "Zu deinen Teams"
+    "goToTeams": "Zu deinen Teams",
+    "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
+    "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
+    "retry": "Erneut versuchen"
   }
 }
