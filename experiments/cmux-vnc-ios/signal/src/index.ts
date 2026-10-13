@@ -28,6 +28,13 @@ export default {
     if (url.pathname === "/health") return Response.json({ ok: true })
     if (!match || !ROOM_ID.test(match[1])) return new Response("not found", { status: 404 })
     const room = env.ROOMS.get(env.ROOMS.idFromName(match[1]))
+    if (match[2] === "ice") {
+      // The room checks the secret; the Worker mints (its env always has the current secrets).
+      const verdict = await room.fetch(request)
+      if (verdict.status !== 204) return verdict
+      const turn: { status: string } = { status: "" }
+      return Response.json({ iceServers: await iceServers(env, turn), turn: turn.status })
+    }
     return room.fetch(request)
   },
 }
@@ -62,7 +69,7 @@ export class Room implements DurableObject {
       return new Response("wrong secret", { status: 403 })
     }
 
-    if (kind === "ice") return Response.json({ iceServers: await this.iceServers() })
+    if (kind === "ice") return new Response(null, { status: 204 })
     if (request.headers.get("upgrade") !== "websocket") return new Response("expected websocket", { status: 426 })
     if (role !== "host" && role !== "viewer") return new Response("bad role", { status: 400 })
 
@@ -93,28 +100,37 @@ export class Room implements DurableObject {
   async webSocketError(socket: WebSocket): Promise<void> {
     await this.webSocketClose(socket)
   }
+}
 
-  /// STUN always; Cloudflare Realtime TURN when the key is configured.
-  private async iceServers(): Promise<Array<{ urls: string[]; username?: string; credential?: string }>> {
-    const keyId = this.env.CLOUDFLARE_TURN_KEY_ID
-    const token = this.env.CLOUDFLARE_TURN_KEY_API_TOKEN
-    if (!keyId || !token) return [STUN]
-    try {
-      const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify({ ttl: TURN_TTL_SECONDS }),
-      })
-      if (!res.ok) return [STUN]
-      const body = (await res.json()) as { iceServers?: unknown }
-      const raw = Array.isArray(body.iceServers) ? body.iceServers : body.iceServers ? [body.iceServers] : []
-      const servers = (raw as Array<Record<string, unknown>>).flatMap((s) => {
-        const urls = (Array.isArray(s.urls) ? s.urls : [s.urls]).filter((u): u is string => typeof u === "string" && /^(stun|turn|turns):/.test(u))
-        return urls.length ? [{ urls, username: s.username as string | undefined, credential: s.credential as string | undefined }] : []
-      })
-      return servers.length ? servers : [STUN]
-    } catch {
+/** STUN always; Cloudflare Realtime TURN when the key is configured. */
+/** `turn.status` says why there is no relay (no key, an HTTP status, an error); no secret values. */
+async function iceServers(env: Env, turn: { status: string }): Promise<Array<{ urls: string[]; username?: string; credential?: string }>> {
+  const keyId = env.CLOUDFLARE_TURN_KEY_ID?.trim()
+  const token = env.CLOUDFLARE_TURN_KEY_API_TOKEN?.trim()
+  if (!keyId || !token) {
+    turn.status = "not configured"
+    return [STUN]
+  }
+  try {
+    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(keyId)}/credentials/generate-ice-servers`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ttl: TURN_TTL_SECONDS }),
+    })
+    if (!res.ok) {
+      turn.status = `provider answered ${res.status}`
       return [STUN]
     }
+    const body = (await res.json()) as { iceServers?: unknown }
+    const raw = Array.isArray(body.iceServers) ? body.iceServers : body.iceServers ? [body.iceServers] : []
+    const servers = (raw as Array<Record<string, unknown>>).flatMap((s) => {
+      const urls = (Array.isArray(s.urls) ? s.urls : [s.urls]).filter((u): u is string => typeof u === "string" && /^(stun|turn|turns):/.test(u))
+      return urls.length ? [{ urls, username: s.username as string | undefined, credential: s.credential as string | undefined }] : []
+    })
+    turn.status = servers.length ? "ok" : "no servers"
+    return servers.length ? servers : [STUN]
+  } catch (error) {
+    turn.status = `error: ${String(error).slice(0, 120)}`
+    return [STUN]
   }
 }
