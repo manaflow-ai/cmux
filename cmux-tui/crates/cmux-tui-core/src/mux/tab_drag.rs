@@ -504,6 +504,12 @@ impl Mux {
         transaction: Option<Arc<str>>,
     ) {
         let decorations = self.tree_decorations();
+        #[cfg(test)]
+        if let Some(hook) =
+            self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        {
+            hook();
+        }
         let delta = {
             let state = self.state.lock().unwrap();
             presentation::tab_changed_delta(&state, &decorations, surface)
