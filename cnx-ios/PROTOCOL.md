@@ -49,16 +49,25 @@ with 4001 `moved`.
 
 - server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
 - server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`
-- client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`
+- client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
+  On every forwarded signal the DO overwrites `from` with the sender's
+  deviceId and sets `"fromUserId": <sender's Stack userId>` (clients never
+  set it). `cnx-hostd` admits a dial only when `fromUserId` equals the Mac's
+  own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
   - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
   - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP}`, `wg-resp` `{publicKey, endpoints, overlayIP}`
   - `bye` `{reason}`
 - relay for WireGuard when no direct UDP path: binary frames
   `[16 bytes sessionId][16 bytes to deviceId][wireguard datagram]`; the DO
-  rewrites the second field to the sender before forwarding. Relay needs an
+  rewrites the second field to the sender before forwarding. sessionId and
+  deviceIds are UUIDs, written as their 16 raw bytes. Relay needs an
   admitted session between exactly those two devices (opened by a `signal`,
   ended by `bye` or after 24 h); datagrams up to 65535 bytes.
+- WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
+  `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
+  socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
+  dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
 - `{"type":"error","code","message","sessionId"?}` for refusals (`not_owner`,
   `offline`, `rate_limited`, `bad_request` for malformed frames or a `from`
   that is not the socket's device).
@@ -73,7 +82,9 @@ is bound to the two devices of its first admitted signal.
 
 A link is one reliable ordered byte stream (WebRTC: data channel `cnx-link`,
 ordered, reliable; WireGuard: one smoltcp TCP stream to `overlayIP:7420`).
-Frames: `u32 BE length | u32 BE channel | u8 type | payload`.
+Frames: `u32 BE length | u32 BE channel | u8 type | payload`, where `length`
+counts the channel, type and payload bytes (5 + payload length). A payload is
+at most 256 KiB; larger writes are split into several `data` frames.
 
 | type | meaning |
 | --- | --- |
@@ -89,9 +100,15 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   filtered per line by a command allowlist (read/watch, terminal attach/input/
   resize, workspace/tab list/create/close/select, conversation and question
   commands). Command-bearing params such as spawn argv are denied.
-- `acpmux`: splice to the acpmux loopback WebSocket (frames as length-delimited JSON).
+- `acpmux`: splice to the acpmux loopback WebSocket: one link `data` frame
+  carries exactly one WebSocket text message (a JSON value) in each direction.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
 - `echo`: test service.
+
+A service that ends normally closes its channel with `{code:"eof"}`; a
+refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
+`unavailable`. When the link itself drops, local channels see
+`link_closed`.
 
 ## Transport switch
 
