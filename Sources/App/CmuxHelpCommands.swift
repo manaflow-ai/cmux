@@ -27,7 +27,7 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
-            Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
+            Button(ProUpgradePresenter.upgradeMenuTitle) {
                 ProUpgradePresenter.present(source: .helpMenu)
             }
             #if DEBUG

@@ -15899,7 +15899,7 @@ private struct SidebarHelpMenuButton: View {
                 isExternalLink: false
             )
             helpOptionButton(
-                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                title: ProUpgradePresenter.upgradeMenuTitle,
                 action: .upgrade,
                 accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
                 isExternalLink: false,

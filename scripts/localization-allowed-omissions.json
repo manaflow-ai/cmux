@@ -4974,5 +4974,111 @@
   "globalSearch.agent.claude": {
     "class": "brand",
     "source": "Claude"
+  },
+  "pricing.max.workspace.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
+  },
+  "settings.account.max.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "cmux Max is the product name; the translated catalog entry is still required.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
   }
 }

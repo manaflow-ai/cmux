@@ -8,22 +8,24 @@ struct BillingPlanTests {
         let state = BillingPlanState.unknown.applyingSuccess(
             for: "account-a",
             isPro: true,
-            canManageBilling: true
+            canManageBilling: true,
+            planID: "max"
         )
         #expect(state.accountID == "account-a")
         #expect(state.isPro)
         #expect(state.canManageBilling)
+        #expect(state.isMax)
     }
 
     @Test("same-account failure preserves the last known answer")
     func sameAccountFailurePreservesAnswer() {
-        let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true)
+        let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true, planID: "max")
         #expect(state.applyingFailure(for: "account-a") == state)
     }
 
     @Test("different-account failure clears the answer")
     func differentAccountFailureClearsAnswer() {
-        let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true)
+        let state = BillingPlanState(accountID: "account-a", isPro: true, canManageBilling: true, planID: "max")
         #expect(state.applyingFailure(for: "account-b") == .unknown)
     }
 }

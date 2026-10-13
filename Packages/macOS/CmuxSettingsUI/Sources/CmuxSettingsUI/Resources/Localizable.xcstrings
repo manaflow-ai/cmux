@@ -15313,6 +15313,242 @@
           }
         }
       }
+    },
+    "settings.account.max.activeSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Max subscription is active. Manage billing or cancel in Stripe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشتراك Max الخاص بك نشط. يمكنك إدارة الفوترة أو الإلغاء في Stripe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr Max-Abonnement ist aktiv. Verwalten Sie die Abrechnung oder kündigen Sie in Stripe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu suscripción Max está activa. Gestiona la facturación o cancélala en Stripe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre abonnement Max est actif. Gérez la facturation ou résiliez dans Stripe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max サブスクリプションは有効です。Stripe で請求管理やキャンセルができます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 구독이 활성화되어 있습니다. Stripe에서 결제를 관리하거나 취소할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 订阅已生效。可在 Stripe 中管理结算或取消订阅。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 Max 訂閱已啟用。可在 Stripe 中管理帳單或取消。"
+          }
+        }
+      }
+    },
+    "settings.account.max.externalSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Max access is managed by our previous billing system. Contact support to make changes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتم إدارة وصولك إلى Max بواسطة نظام الفوترة السابق الخاص بنا. اتصل بالدعم لإجراء تغييرات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihr Max-Zugang wird über unser vorheriges Abrechnungssystem verwaltet. Wenden Sie sich an den Support, um Änderungen vorzunehmen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu acceso a Max se gestiona a través de nuestro sistema de facturación anterior. Ponte en contacto con el soporte técnico para realizar cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre accès Max est géré par notre ancien système de facturation. Contactez l’assistance pour effectuer des modifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max へのアクセスは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 액세스는 이전 결제 시스템에서 관리됩니다. 변경하려면 고객 지원팀에 문의하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 Max 权限由我们之前的结算系统管理。如需变更请联系支持团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 Max 存取權由我們先前的計費系統所管理。如需進行變更，請聯絡支援團隊。"
+          }
+        }
+      }
+    },
+    "settings.account.max.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Max"
+          }
+        }
+      }
+    },
+    "settings.account.pro.upgradeMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Max…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Max…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Max upgraden…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar a Max…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Max…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maxにアップグレード…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max로 업그레이드…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Max…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Max…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

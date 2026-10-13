@@ -156,8 +156,8 @@ private struct SidebarAccountPopover: View {
                 Divider()
                     .padding(.vertical, 4)
             }
-            accountMenuRow(
-                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                accountMenuRow(
+                    title: ProUpgradePresenter.upgradeMenuTitle,
                 systemImage: "sparkles"
             ) {
                 dismiss()

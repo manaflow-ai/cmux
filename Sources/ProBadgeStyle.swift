@@ -260,7 +260,7 @@ struct ProBadgeView: View {
     @State private var isHovered = false
 
     private var helpTitle: String {
-        String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
+        ProUpgradePresenter.upgradeMenuTitle
     }
 
     private var dismissTitle: String {

@@ -77,6 +77,13 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
 
+    /// Whether the current account's exact personal plan is Max.
+    ///
+    /// Hosts that only expose the older Pro entitlement can use the default
+    /// value. Max-aware hosts override it so upgrade copy can name the next
+    /// plan without changing the Cloud access gate.
+    var isMaxActive: Bool { get }
+
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
@@ -84,4 +91,5 @@ public protocol AccountFlow: AccountTeamManagement {
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+    public var isMaxActive: Bool { false }
 }
