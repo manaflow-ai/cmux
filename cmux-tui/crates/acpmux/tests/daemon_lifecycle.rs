@@ -64,7 +64,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 2\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
@@ -77,7 +77,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         .env("SHELL", &shell)
         .env_remove("XPC_SERVICE_NAME")
         .env_remove("CLAUDECODE")
-        .env_remove("AMX_TEST_IMPORTED")
+        .env_remove("SSL_CERT_DIR")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -126,7 +126,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     rpc.call(
         "session/prompt",
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: AMX_TEST_IMPORTED"}]}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: SSL_CERT_DIR"}]}),
     )
     .await;
     let events = rpc
@@ -138,7 +138,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         .iter()
         .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
         .collect();
-    assert_eq!(texts, ["AMX_TEST_IMPORTED=yes"]);
+    assert_eq!(texts, ["SSL_CERT_DIR=/amx-test-imported"]);
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["ready"], true);
     assert_eq!(status["loginEnv"], "imported");

@@ -361,25 +361,112 @@ fn pairs() -> Vec<(String, String)> {
     out
 }
 
+static EXTRA_ALLOW: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
+/// Names the person added to the allow-list (`loginEnvAllow` in
+/// config.json; default empty). Exact names, or a prefix ending in `*`.
+pub fn set_extra_allow(names: Vec<String>) {
+    *EXTRA_ALLOW.write().unwrap_or_else(|e| e.into_inner()) = names;
+}
+
+fn truthy(key: &str) -> bool {
+    let v = std::env::var(key).ok().or_else(|| var(key));
+    v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
+}
+
+/// The allow-list: which login-shell variables a child of `family`
+/// (`claude`, `codex`, else none) gets. Every other variable stays in the
+/// daemon (GITHUB_TOKEN, GH_TOKEN, NPM_TOKEN, ...), unless the person adds
+/// its name to `loginEnvAllow`.
+///
+/// - Every child: PATH (login PATH first); version-manager variables that
+///   find the binary (MISE_*, ASDF_*, NVM_*, VOLTA_*, BUN_INSTALL,
+///   DIRENV_*); proxies (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY, both
+///   cases); custom CA (NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR).
+/// - Claude: ANTHROPIC_*, CLAUDE_* (CLAUDE_CODE_* included), DISABLE_* and
+///   *_TELEMETRY; AWS_* only when CLAUDE_CODE_USE_BEDROCK is set; GOOGLE_*,
+///   CLOUDSDK_*, GCLOUD_* only when CLAUDE_CODE_USE_VERTEX is set.
+/// - Codex: OPENAI_*, CODEX_*.
+pub fn allowed(key: &str, family: Option<&str>) -> bool {
+    const COMMON_PREFIXES: [&str; 5] = ["MISE_", "ASDF_", "NVM_", "VOLTA_", "DIRENV_"];
+    const COMMON: [&str; 12] = [
+        "PATH",
+        "BUN_INSTALL",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+        "no_proxy",
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
+    ];
+    if COMMON.contains(&key)
+        || key == "SSL_CERT_DIR"
+        || COMMON_PREFIXES.iter().any(|p| key.starts_with(p))
+    {
+        return true;
+    }
+    let extra = EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner());
+    if extra.iter().any(|n| match n.strip_suffix('*') {
+        Some(prefix) => !prefix.is_empty() && key.starts_with(prefix),
+        None => n == key,
+    }) {
+        return true;
+    }
+    drop(extra);
+    match family {
+        Some("claude") => {
+            key.starts_with("ANTHROPIC_")
+                || key.starts_with("CLAUDE_")
+                || key.starts_with("DISABLE_")
+                || key.ends_with("_TELEMETRY")
+                || (key.starts_with("AWS_") && truthy("CLAUDE_CODE_USE_BEDROCK"))
+                || ((key.starts_with("GOOGLE_")
+                    || key.starts_with("CLOUDSDK_")
+                    || key.starts_with("GCLOUD_"))
+                    && truthy("CLAUDE_CODE_USE_VERTEX"))
+        }
+        Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
+        _ => false,
+    }
+}
+
+fn pairs_for(family: Option<&str>) -> Vec<(String, String)> {
+    pairs().into_iter().filter(|(k, _)| allowed(k, family)).collect()
+}
+
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
-/// daemon inside a Claude Code session): the scrub puts these back.
-pub(crate) fn nested_overrides() -> Vec<(String, String)> {
+/// daemon inside a Claude Code session), within the allow-list of
+/// `family`: the scrub puts these back.
+pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
     let Some(i) = &st.imported else { return Vec::new() };
-    i.vars.iter().filter(|(k, _)| crate::config::is_nested_claude_key(k)).cloned().collect()
+    let nested: Vec<(String, String)> =
+        i.vars.iter().filter(|(k, _)| crate::config::is_nested_claude_key(k)).cloned().collect();
+    drop(st);
+    nested.into_iter().filter(|(k, _)| allowed(k, family)).collect()
 }
 
-/// Apply the imported environment to a command.
+/// Apply the allow-listed login environment every child gets (PATH,
+/// version managers, proxies, CA) to a command.
 pub fn apply_std(cmd: &mut std::process::Command) {
-    cmd.envs(pairs());
+    cmd.envs(pairs_for(None));
 }
 
 /// Same, for tokio's process builder.
 pub fn apply_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(pairs());
+    cmd.envs(pairs_for(None));
+}
+
+/// The allow-listed login environment for a harness of `family`.
+pub fn apply_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) {
+    cmd.envs(pairs_for(family));
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).

@@ -411,6 +411,10 @@ pub struct Config {
     pub peers: BTreeMap<String, PeerConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// More login-shell variables agents get, beyond the allow-list
+    /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub login_env_allow: Vec<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
@@ -818,7 +822,7 @@ pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
-    cmd.envs(crate::login_env::nested_overrides());
+    cmd.envs(crate::login_env::nested_overrides(None));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 
@@ -851,10 +855,16 @@ pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
 
 /// Same, for tokio's process builder.
 pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
+    scrub_nested_claude_env_tokio_for(cmd, None);
+}
+
+/// Same, for a harness of `family`: the login values put back are those of
+/// that family's allow-list (`login_env::allowed`).
+pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
-    cmd.envs(crate::login_env::nested_overrides());
+    cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 

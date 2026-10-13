@@ -739,12 +739,17 @@ everywhere. Peers are saved in `config.json` under `peers`.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
-(`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and fills in what its own environment lacks:
-PATH (login PATH first), `ANTHROPIC_*` routes and keys, `CLAUDE_CONFIG_DIR`, Bedrock and Vertex
-switches, proxies, tool settings. The same `claude` that works in a terminal then works under the
-daemon. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
-`ANTHROPIC_*` keys from its agents and gives them the login shell's values instead. Precedence:
-profile, preset and session env, then the daemon's own environment, then the login shell's.
+(`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and passes on only an allow-list of what its
+own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM_*, VOLTA_*,
+BUN_INSTALL, DIRENV_*, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
+NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
+DISABLE_*, *_TELEMETRY; AWS_* only with CLAUDE_CODE_USE_BEDROCK; GOOGLE_*, CLOUDSDK_*, GCLOUD_* only
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
+default empty). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+`ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
+same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
+then the login shell's.
 `<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
 files: non-secret values and the names of secret ones (their values stay in memory), so a start
 with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
