@@ -188,6 +188,12 @@ extension DaemonConnection {
         try await request(UpdateFrontendBrowserTabRequest(surface: surface, url: url, title: title, faviconURL: faviconURL))
     }
 
+    /// Moves a frontend browser tab to browser profile `profileID` in place (`frontend-browser-tab-profile-v1`).
+    @discardableResult
+    public func setFrontendBrowserTabProfile(_ surface: SurfaceID, profileID: String) async throws -> SetFrontendBrowserTabProfileRequest.Response {
+        try await request(SetFrontendBrowserTabProfileRequest(surface: surface, profileID: profileID))
+    }
+
     public func renameTab(_ surface: SurfaceID, to name: String) async throws { _ = try await request(RenameTabRequest(surface: surface, name: name)) }
     public func renamePane(_ pane: PaneID, to name: String) async throws { _ = try await request(RenamePaneRequest(pane: pane, name: name)) }
     public func renameScreen(_ screen: ScreenID, to name: String) async throws { _ = try await request(RenameScreenRequest(screen: screen, name: name)) }

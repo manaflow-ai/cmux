@@ -141,7 +141,7 @@ extension WorkspaceBlueprint {
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
                     case .browser: tab.url.map {
-                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
+                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.browserProfileID)
                     }
                     // A remote reference or a conversation is not re-created on duplicate.
                     case .remoteTerminal, .conversation, .other: nil

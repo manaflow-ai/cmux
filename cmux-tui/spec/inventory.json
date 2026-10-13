@@ -26,6 +26,7 @@
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
+    "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.engine.get",

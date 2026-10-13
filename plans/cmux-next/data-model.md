@@ -289,8 +289,24 @@ X, Open Link in Browser Profile X, `--browser-profile`), else the workspace's
 personal browser profile, else its space's, else `default`. No window level: a
 window's browser profile is its space's. The resolved id is stored on the tab
 at creation (`frontend_browser_tabs.profile_id`) and never changes by
-inheritance, so no live page silently changes cookie jar; Move Tab to Browser
-Profile reopens its URL in the target.
+inheritance, so no live page silently changes cookie jar. Move Tab to Browser
+Profile is the one explicit change: `update-frontend-browser-tab {profile_id}`
+(`frontend-browser-tab-profile-v1`) moves the record in place (same tab id and
+position), and the app re-creates the page in the target store (a new
+`WKWebView` with that profile's `WKWebsiteDataStore`, or a new CEF browser in
+that profile's `CefRequestContext`), which loads the same URL. Back/forward
+history and unsaved form input stay behind: page state must not cross
+profiles. A page made later (asleep, deferred) wakes in the record's profile
+without the old history. A tab of another machine's tree, or a daemon without
+the capability, gets the old move (the URL reopens in a new tab). The app's page swap
+follows the record (`BrowserProfileService.followRecordProfiles`), so any daemon
+client that moves the record moves the page.
+Agents use the daemon: `cmux browser profile list|create|open` (raw
+browser-profile commands) and `browser.tab.set_profile {tab, profile}`
+(`browser-profile-agent-v1`, CLI `cmux browser tab <tab> set-profile`, MCP);
+a profile is named by id or exact name, and a tab's profile is its
+`extra.browser_profile_id`. No agent verb deletes a profile: only a person
+does (`delete-browser-profile`).
 
 Display: the omnibar shows the tab's browser profile (dot or icon, name in the
 tooltip and Page Info) whenever more than one exists; a tab whose browser

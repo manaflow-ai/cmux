@@ -91,6 +91,35 @@
       },
       "extra": false
     },
+    "BrowserTabProfileResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names now."
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the tab was in that profile already."
+        }
+      },
+      "extra": false
+    },
     "RequestOrigin": {
       "kind": "enum",
       "values": [
@@ -2041,7 +2070,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. A frontend-rendered browser tab carries browser_profile_id: the browser profile whose store its page uses (default when none was set; browser-profile-agent-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -13674,6 +13703,65 @@
         "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.set_profile": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name, else the one name that matches ignoring case."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A frontend-rendered browser tab only. The tab keeps its id and place in the pane; its record names the profile (frontend-browser-tab-profile-v1), and the app that shows it makes the page in that profile's store and loads the same URL, so cookies, local storage and IndexedDB switch at once. Back/forward history and session storage stay with the old store: the page in the new profile starts a new history. The same profile again changes nothing (changed false)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserTabProfileResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

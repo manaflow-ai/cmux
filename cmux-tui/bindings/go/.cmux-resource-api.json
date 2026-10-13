@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "12fd12db69cb3347c7dd6b5bf4aaabe52ddf566ea936381c73db1aa8d5294b18",
+  "catalog_sha256": "ba8dd32c1ed1ce6abbabc1cda7cf36446d03637f2cba1297b50e58312376b5c6",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -68,6 +68,9 @@
       "class": "mutation"
     },
     "browser.tab.emulate.clear": {
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "class": "mutation"
     },
     "browser.viewer.release": {

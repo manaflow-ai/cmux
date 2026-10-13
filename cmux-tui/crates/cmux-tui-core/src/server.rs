@@ -397,7 +397,9 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
-pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
+pub use frontend_browser_history::{
+    FRONTEND_BROWSER_HISTORY_CAPABILITY, FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
+};
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.

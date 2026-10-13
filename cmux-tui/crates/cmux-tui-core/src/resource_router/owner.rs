@@ -14,6 +14,8 @@ pub(super) enum OperationOwner {
     Git,
     /// The daemon history module (history_ops.rs).
     History,
+    /// `browser.tab.set_profile` (browser_profile_ops.rs).
+    BrowserProfile,
     Credential,
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
@@ -148,6 +150,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::HistoryVisitRemove
         | ResourceOperation::HistoryVisitSummaries
         | ResourceOperation::HistoryVisitImport => OperationOwner::History,
+        ResourceOperation::BrowserTabSetProfile => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet

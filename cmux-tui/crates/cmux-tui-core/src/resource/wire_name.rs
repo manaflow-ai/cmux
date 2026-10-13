@@ -195,6 +195,7 @@ impl ResourceOperation {
             Self::BrowserDevicesRemoveCustom => "browser.devices.remove_custom",
             Self::BrowserTabEmulate => "browser.tab.emulate",
             Self::BrowserTabEmulateClear => "browser.tab.emulate.clear",
+            Self::BrowserTabSetProfile => "browser.tab.set_profile",
             Self::KeybindingsGet => "keybindings.get",
             Self::KeybindingsSet => "keybindings.set",
             Self::KeybindingsRemove => "keybindings.remove",

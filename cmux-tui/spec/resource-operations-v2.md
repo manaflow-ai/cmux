@@ -55,7 +55,7 @@ correlation, and idempotency metadata.
 | `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
 | `stream` | 1 | `stream.cancel` |
-| `tab` | 13 | `browser.tab.emulate`, `browser.tab.emulate.clear`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
+| `tab` | 14 | `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |
 | `terminal` | 23 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.output_read`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `window_record` | 3 | `window_record.delete`, `window_record.list`, `window_record.put` |

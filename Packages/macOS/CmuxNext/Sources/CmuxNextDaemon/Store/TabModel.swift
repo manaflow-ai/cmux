@@ -40,6 +40,8 @@ public final class TabModel: Identifiable {
     public internal(set) var gitBranch: String?
     public internal(set) var gitDetached: Bool
     public internal(set) var browserEngine: String?
+    /// A frontend browser tab's browser profile (`frontend-browser-tab-profile-v1` moves it in place).
+    public internal(set) var browserProfileID: String?
     public internal(set) var faviconURL: String?
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
@@ -138,6 +140,7 @@ public final class TabModel: Identifiable {
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
         browserEngine = s.browserEngine
+        browserProfileID = s.browserProfileID
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
@@ -173,6 +176,7 @@ public final class TabModel: Identifiable {
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
         if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
+        if browserProfileID != s.browserProfileID { browserProfileID = s.browserProfileID }
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }

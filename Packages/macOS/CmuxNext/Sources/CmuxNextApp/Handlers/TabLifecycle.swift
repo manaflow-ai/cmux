@@ -271,26 +271,7 @@ enum TabLifecycle {
             else { controller.newBrowserTab(url: url, engine: engine, then: then) }
             return
         }
-        let browserTabs = ctx.services.cache.browserTabs
-        if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
-        guard browserTabs.isAvailable(in: pane) else { return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs)) }
-        let choice: BrowserEngineChoice
-        switch browserTabs.resolve(requested: engine) {
-        case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
-        case .open(let resolved): choice = resolved
-        }
-        let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
-        let logger = ctx.services.daemon.logger
-        ctx.registry.track(Task {
-            do {
-                let surface = try await browserTabs.open(choice, in: pane, url: address)
-                agentTab?(surface)
-                return nil
-            } catch {
-                logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
-                return "new-frontend-browser-tab: \(error)"
-            }
-        })
+        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
     }
 
     /// The browser tab a lone agent chat leaves in its pane when it docks: a
@@ -313,6 +294,12 @@ enum TabLifecycle {
             controller.newBrowserTab(url: url, engine: engine, background: background, profile: profile, then: agentTab)
             return
         }
+        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: profile, then: agentTab)
+    }
+
+    /// A new browser tab (in `profile`, else the cascade's) in a pane that is not on screen.
+    private static func openOffscreen(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String?,
+                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         let browserTabs = ctx.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
@@ -324,12 +311,14 @@ enum TabLifecycle {
         case .open(let resolved): choice = resolved
         }
         let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
+        let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
                 let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
                 agentTab?(surface)
                 return nil
             } catch {
+                logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                 return "new-frontend-browser-tab: \(error)"
             }
         })

@@ -28,6 +28,7 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+mod browser_profile_ops;
 pub mod diagnostics;
 mod event_bus;
 #[cfg(unix)]

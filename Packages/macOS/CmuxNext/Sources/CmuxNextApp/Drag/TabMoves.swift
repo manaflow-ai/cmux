@@ -53,7 +53,7 @@ enum TabMoves {
             guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
             else { return nil }
-            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.snapshot.browserProfileID)
+            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.browserProfileID)
         default:
             return nil
         }

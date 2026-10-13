@@ -248,15 +248,18 @@ final class BrowserHibernation {
             cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
             return
         }
-        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: placeholder.profileID, zoom: placeholder.state.zoom)
+        // The record's profile: a tab moved to another one while asleep wakes there, without the old one's history.
+        let profile = cache.tabModel(key) == nil ? placeholder.profileID : cache.browserProfile?(key) ?? placeholder.profileID
+        let history = profile == placeholder.profileID ? placeholder.restoreState : nil
+        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
         switch placeholder.engineKind {
         case .webkit:
             let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)
-            if !tab.restore(placeholder.restoreState), let url = placeholder.state.url { tab.load(url) }
+            if !(history.map({ tab.restore($0) }) ?? false), let url = placeholder.state.url { tab.load(url) }
             finishRestore(key, token: token, page: tab)
         case .cef:
             configuration.initialURL = placeholder.state.url
-            configuration.restoreState = placeholder.restoreState
+            configuration.restoreState = history
             let make = cache.makeCEFTab
             let tab = cache.tabModel(key)
             Task { @MainActor [weak self, weak cache] in
