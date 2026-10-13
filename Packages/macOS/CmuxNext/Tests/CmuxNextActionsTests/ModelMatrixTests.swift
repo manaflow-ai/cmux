@@ -153,12 +153,13 @@ import Testing
         return [["action": action, "entry": entry]]
     }
 
-    /// Every `$name` string anywhere in the case.
+    /// Every `$name` string anywhere in the case but its prose notes.
     static func refs(in value: Any) -> Set<String> {
         switch value {
         case let text as String: text.hasPrefix("$") ? [text] : []
         case let array as [Any]: array.reduce(into: Set<String>()) { $0.formUnion(refs(in: $1)) }
-        case let object as [String: Any]: object.values.reduce(into: Set<String>()) { $0.formUnion(refs(in: $1)) }
+        case let object as [String: Any]:
+            object.filter { $0.key != "note" }.values.reduce(into: Set<String>()) { $0.formUnion(refs(in: $1)) }
         default: []
         }
     }
