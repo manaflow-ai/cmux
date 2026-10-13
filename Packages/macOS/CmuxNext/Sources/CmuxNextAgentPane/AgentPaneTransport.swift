@@ -70,6 +70,9 @@ import CmuxNextCompat
     /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
     /// first `session/prompt` on that connection goes with it, however long the start took.
     var remoteStartCredit: (connection: Int, at: TimeInterval)?
+    /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
+    /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
+    var remoteTrustCredit: (connection: Int, at: TimeInterval)?
     /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
     static let remoteStartCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
