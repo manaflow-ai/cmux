@@ -211,10 +211,8 @@ impl SessionFold {
                     }
                 }
             }
-            "turn_started" if record.dir == "mux" => {
-                if self.open.is_some() {
-                    self.open = Some(at);
-                }
+            "turn_started" if record.dir == "mux" && self.open.is_some() => {
+                self.open = Some(at);
             }
             "turn_result" if record.dir == "mux" => {
                 let status = match record.msg.get("status").and_then(Value::as_str) {
@@ -224,36 +222,30 @@ impl SessionFold {
                 };
                 self.close(at, status);
             }
-            "turn_end" | "turn_error" if record.dir == "mux" => {
+            "turn_end" | "turn_error"
+                if record.dir == "mux"
                 // Older logs end a turn here; current ones follow with a
                 // turn_result that sets the status (`awaiting_result`).
-                if self.open.is_some() {
-                    let status = if record.kind == "turn_error" {
-                        TurnStatus::Failed
-                    } else if record.msg.get("stopReason").and_then(Value::as_str)
-                        == Some("cancelled")
-                    {
-                        TurnStatus::Cancelled
-                    } else {
-                        TurnStatus::Completed
-                    };
-                    self.close_pending(at, status);
-                }
+                && self.open.is_some() =>
+            {
+                let status = if record.kind == "turn_error" {
+                    TurnStatus::Failed
+                } else if record.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled")
+                {
+                    TurnStatus::Cancelled
+                } else {
+                    TurnStatus::Completed
+                };
+                self.close_pending(at, status);
             }
-            "tool_call" if record.dir == "in" => {
-                if self.in_range(at) {
-                    self.tool_calls += 1;
-                }
+            "tool_call" if record.dir == "in" && self.in_range(at) => {
+                self.tool_calls += 1;
             }
-            "permission_request" if record.dir == "mux" => {
-                if self.in_range(at) {
-                    self.permission_requests += 1;
-                }
+            "permission_request" if record.dir == "mux" && self.in_range(at) => {
+                self.permission_requests += 1;
             }
-            "permission_auto" if record.dir == "mux" => {
-                if self.in_range(at) {
-                    self.permission_auto += 1;
-                }
+            "permission_auto" if record.dir == "mux" && self.in_range(at) => {
+                self.permission_auto += 1;
             }
             "status" if record.dir == "mux" => {
                 let status = record
