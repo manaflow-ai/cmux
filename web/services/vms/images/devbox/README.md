@@ -150,9 +150,10 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
 
 - `start-vnc.sh` runs as the work user `cmux` with `HOME=/home/cmux`
   and `DISPLAY=:1`, so the desktop session is the same account terminals
-  and SSH land in; RFB on **5901 loopback-only** (no VNC auth: the owner's
-  private network is the only ingress), noVNC via websockify on **6901**
-  at `/`. Idempotent: every component is guarded by a liveness probe.
+  and SSH land in; RFB on **5901 loopback-only** (no VNC auth), and noVNC via
+  websockify on **6901 loopback-only** at `/`. The authenticated cmux-tui
+  browser carrier is the only path that forwards the screen to a pane.
+  Idempotent: every component is guarded by a liveness probe.
 - The session runs one D-Bus session bus (reused across supervisor passes),
   the accessibility bus (`at-spi-bus-launcher --launch-immediately`, so
   `cua-driver`'s `get_window_state` resolves window trees), openbox, feh
@@ -221,15 +222,14 @@ at a raw `freestyle/*` base, because it has no cmux-tui state or startup
 contract.
 
 Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
-Displays row, `cmux vm open <m>:desktop`) returns
-`http://<private VPC IPv4>:6901/vnc.html?path=websockify`, reachable only
-over the owner's WireGuard tunnel, exactly the path the daemon route takes,
-after a guest-side heal that is one blocking `systemctl start cmux-desktop`
-(the unit's READY is the signal). No public ingress is ever opened for it: noVNC has no
-auth of its own, so a machine outside a private network gets an error, not
-a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
-edge. The daemon still runs as root, so root shells get `DISPLAY` but not
-the session bus.
+Displays row, `cmux vm open <m>:desktop`) heals the unit with one blocking
+`systemctl start cmux-desktop` (the unit's READY is the signal). The app's
+authenticated cmux-tui browser carrier then forwards the private page to a
+local pane; the guest listener is not reachable directly from another private
+network peer. No public ingress is opened, and a machine outside a private
+network gets an error rather than a public URL. `desktopWrapper.ts` stays the
+seam for a future public TLS edge. The daemon still runs as root, so root
+shells get `DISPLAY` but not the session bus.
 
 ## Identity: the machine is `cmux`
 

@@ -156,13 +156,11 @@ export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 // becomes active 20-30 s after boot; the first agent request before that
 // reaches the origin without the header and is rejected, then succeeds.
 //
-// The desktop and forwarded ports (`openPort`) travel the same private path
-// as the daemon: the URL is the machine's VPC address, reachable only through
-// the owner's tunnel, and the platform is never asked for a public ingress.
-// The devbox desktop serves noVNC on 6901 with no VNC-level auth (the
-// network is the gate, exactly as it is for the daemon port), so a machine
-// that is not on a private network gets no desktop URL at all rather than a
-// public one.
+// Forwarded ports (`openPort`) use the machine's private VPC address; the
+// platform is never asked for public ingress. The devbox desktop keeps both
+// RFB and noVNC on loopback, so the app reaches it through the authenticated
+// cmux-tui browser carrier. A machine that is not on a private network gets no
+// desktop URL at all rather than a public one.
 
 export const FREESTYLE_REMOTE_WS_BIND = `[::]:${CMUX_TUI_PORT}`;
 /** The lease ledger's record of a port open; the private address itself never expires. */
@@ -406,10 +404,10 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
 /**
  * The address a machine's HTTP ports are opened at: its private VPC address,
  * v4 first for the same tunnel-routing reason the daemon route prefers it.
- * There is deliberately no public fallback, unlike the daemon route: the
- * daemon authenticates every session itself (Noise device enrollment), the
- * desktop and a dev server do not, so only the network may gate them. A
- * machine without a private network therefore has no port to open.
+ * There is deliberately no public fallback, unlike the daemon route. The
+ * desktop listener is loopback-only and reached through the authenticated
+ * browser carrier; other ports remain private-network services. A machine
+ * without a private network therefore has no port to open.
  */
 export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];

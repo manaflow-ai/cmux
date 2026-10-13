@@ -195,6 +195,7 @@ describe("devbox desktop layer", () => {
     expect(verify).toContain("hexPort(DEVBOX_DESKTOP_RFB_PORT)");
     expect(verify).toContain("hexPort(DEVBOX_DESKTOP_NOVNC_PORT)");
     expect(verify).toContain("vnc-5901-loopback-only");
+    expect(verify).toContain("novnc-6901-loopback-only");
     expect(DEVBOX_DESKTOP_RFB_PORT.toString(16).toUpperCase()).toBe("170D");
     expect(DEVBOX_DESKTOP_NOVNC_PORT.toString(16).toUpperCase()).toBe("1AF5");
   });

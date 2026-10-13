@@ -416,6 +416,7 @@ RUN work_user="$(getent passwd 1000 | cut -d: -f1)" && work_home="$(getent passw
   && for i in $(seq 1 90); do ss -tln | grep -q ':6901 ' && ss -tln | grep -q ':5901 ' && test -s /run/cmux-desktop/env && break; sleep 1; done \
   && ss -tln | grep -q ':5901 ' && ss -tln | grep -q ':6901 ' \
   && ss -tln | grep ':5901 ' | grep -q '127.0.0.1:5901' \
+  && ss -tln | grep ':6901 ' | grep -q '127.0.0.1:6901' \
   && curl -fsS http://127.0.0.1:6901/ | grep -qi novnc \
   && pgrep -u "$work_user" -x 'Xvnc|Xtigervnc' && pgrep -u "$work_user" -x openbox && pgrep -u "$work_user" -x tint2 \
   && pgrep -u "$work_user" -x vncconfig && pgrep -u "$work_user" -f at-spi-bus-launcher \
