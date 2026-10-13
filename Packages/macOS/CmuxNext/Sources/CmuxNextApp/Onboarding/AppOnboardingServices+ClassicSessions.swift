@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import Foundation
 
 /// What `workspace.importClassic` opened and what it left in classic.
@@ -111,20 +112,24 @@ extension AppOnboardingServices {
     /// connection itself, never by polling.
     private func connected(_ daemon: DaemonService) async throws -> DaemonService {
         if daemon.connection != nil { return daemon }
-        // concurrency-allow: the observation task exits on cancellation; this bounds an SSH connect
-        let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask {
-                for await ready in ObservationStream({ daemon.connection != nil }) where ready { return true }
-                return false
+        // The first of the connection appearing, the twenty-second SSH connect limit and
+        // cancellation resumes the wait once (no task group waits for a loser).
+        let outcome = FirstOutcome<Bool>()
+        let watch = Task { @MainActor in
+            for await ready in ObservationStream({ daemon.connection != nil }) where ready {
+                outcome.resolve(true)
+                return
             }
-            group.addTask {
-                // wakeup-allow: one-shot twenty-second SSH connect deadline
-                try? await Task.sleep(for: .seconds(20))
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
         }
+        let bound = DemandTimer(owner: "ClassicImport.sshConnect")
+        bound.schedule(after: .seconds(20)) { outcome.resolve(false) }
+        let ready = await withTaskCancellationHandler {
+            await outcome.value()
+        } onCancel: {
+            outcome.resolve(false)
+        }
+        watch.cancel()
+        bound.cancel()
         try Task.checkCancellation()
         guard ready, daemon.connection != nil else { throw DaemonError.notConnected }
         return daemon

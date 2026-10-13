@@ -30,8 +30,10 @@ public struct ClosedRetention: Sendable, Equatable {
         var prune = Prune()
         if maxGroups > 0, full || items.count > maxGroups { prune.keepNewest = maxGroups }
         if maxAgeDays > 0 {
-            let cutoff = nowMs.subtractingReportingOverflow(UInt64(maxAgeDays) * 86_400_000)
-            if !cutoff.overflow, full || items.contains(where: { $0.closedAtMs < cutoff.partialValue }) {
+            // An age too large for UInt64 milliseconds keeps everything, like a cutoff before 1970.
+            let age = UInt64(clamping: maxAgeDays).multipliedReportingOverflow(by: 86_400_000)
+            let cutoff = nowMs.subtractingReportingOverflow(age.partialValue)
+            if !age.overflow, !cutoff.overflow, full || items.contains(where: { $0.closedAtMs < cutoff.partialValue }) {
                 prune.beforeMs = cutoff.partialValue
             }
         }
