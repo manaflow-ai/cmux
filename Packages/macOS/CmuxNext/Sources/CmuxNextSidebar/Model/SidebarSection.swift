@@ -58,13 +58,18 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public var status: Status
     /// Tooltip for the header: why an update is needed and what it enables.
     public var detail: String?
+    /// The machine's own icon (`session-icon-v1`, from the home session
+    /// registry), drawn in place of its kind's symbol; nil draws the symbol.
+    public var icon: WorkspaceIcon?
 
-    public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil) {
+    public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
+                icon: WorkspaceIcon? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
         self.detail = detail
+        self.icon = icon
     }
 }
 
@@ -100,4 +105,11 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
 
     /// Every workspace in this section, in visual order.
     public var workspaces: [SidebarWorkspace] { nodes.flatMap(\.workspaces) }
+
+    /// How many machine sections `sections` hold. With one, its header (when
+    /// shown) is the list's "Projects" title, not the machine's, and draws
+    /// no machine icon (`SidebarRow.titlesProjects`).
+    public static func machineCount(_ sections: [SidebarSection]) -> Int {
+        sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+    }
 }

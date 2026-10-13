@@ -12,7 +12,7 @@ public nonisolated struct TabSearchMatch: Sendable, Hashable {
 /// (same rows, same fuzzy index, same section order), for callers without
 /// a palette: the `tab.search` control method behind `cmux tab search` and
 /// the MCP tool. A ranker instance serializes access to its shared bridge.
-// crash-allow: the ranker owns a Mutex around its non-Sendable JavaScriptCore bridge.
+// crash-allow: the ranker owns a Mutex around its non-Sendable ranker bridge.
 public final class TabSearchRanker: @unchecked Sendable {
     nonisolated private let ranker: PaletteRanker
     private struct State {
@@ -22,7 +22,7 @@ public final class TabSearchRanker: @unchecked Sendable {
     }
     nonisolated private let state = Mutex(State())
 
-    /// Creates a tab-search ranker with a persistent JavaScriptCore context.
+    /// Creates a tab-search ranker with a persistent ranker handle.
     nonisolated public init() {
         ranker = PaletteRanker()
     }

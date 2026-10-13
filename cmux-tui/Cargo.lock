@@ -1070,6 +1070,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-git"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1149,6 +1157,16 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-palette-ranker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1509,6 +1527,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-git",
  "cmux-history",
  "cmux-layout-reducer",
  "cmux-link",

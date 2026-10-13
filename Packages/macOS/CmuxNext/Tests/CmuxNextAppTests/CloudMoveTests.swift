@@ -162,6 +162,52 @@ struct CloudMoveTests {
         }
     }
 
+    /// A move a quit interrupted is never left half-done without a word: the relaunched app shows
+    /// a card in the chat (the move didn't finish, Retry or dismiss), and its Retry runs the move
+    /// again on the machine it was pinned to (cx-rppd.16).
+    @Test func aMoveInterruptedByAQuitOffersRetryInItsChatAfterTheRelaunch() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            try await Self.interruptByQuit(move)
+            let card = try #require(await move.toolCards()?.first, "the relaunched app says nothing about the unfinished move")
+            #expect(Self.text(card, "text") == CloudMoveStrings.unfinishedMove)
+            #expect(Self.actionIDs(card) == ["retry", "dismiss"], "\(Self.actionIDs(card))")
+
+            // The chat's folder, as this Mac's acpmux reports it for the chat's session (a person's
+            // Retry names no path; the CLI run before the quit did).
+            move.services.agentTabs.localSessionHost = SessionFolderHost(folder: move.project.path)
+            _ = await move.answer(try #require(Self.text(card, "id")), "retry", gesture: true)
+            let deadline = ContinuousClock.now + .seconds(20)
+            while move.calls().count < 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            let after = await move.toolCards(waiting: false)?.first.flatMap { Self.text($0, "text") }
+            let again = try #require(move.calls().dropFirst().first, "Retry did not run the move again: \(move.calls()); card: \(after ?? "none")")
+            #expect(Array(again.prefix(5)) == ["link", "sync", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
+        }
+    }
+
+    /// A person who dismissed that card is not asked again at the next launch for the same move.
+    @Test func aDismissedUnfinishedMoveStaysQuietAfterTheNextRelaunch() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            try await Self.interruptByQuit(move)
+            let card = try #require(await move.toolCards()?.first, "the relaunched app says nothing about the unfinished move")
+            _ = await move.answer(try #require(Self.text(card, "id")), "dismiss", gesture: true)
+            try await move.relaunch()
+            // The offer runs once this Mac's tree is loaded (relaunch waited for the tab): give it a moment.
+            try? await Task.sleep(for: .seconds(2))
+            #expect(move.services.cloud.toolCards.cards(tab: move.key).isEmpty, "the dismissed move asks again")
+            #expect(move.services.cloud.moveRetries[move.key] == .move(machineID: "vm-move"), "dismissing dropped the move's machine pin")
+        }
+    }
+
+    /// Starts the move, lets its folder sync begin, then quits and relaunches the app.
+    private static func interruptByQuit(_ move: Move) async throws {
+        move.services.cloud.move.timeout = .seconds(60)
+        move.start()
+        let deadline = ContinuousClock.now + .seconds(20)
+        while move.calls().isEmpty, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        try #require(move.calls().count == 1, "the move never started its sync: \(move.calls())")
+        try await move.relaunch()
+    }
+
     /// A machine whose cmux-tui is too old for the move (cx-rppd.13) is named as one in plain words,
     /// whether the folder copy or the chat move found it, and nothing moves: this Mac's tab stays and
     /// the toast offers "Update Machine" on that machine.

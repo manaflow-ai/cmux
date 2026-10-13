@@ -112,7 +112,7 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     let state = connection
         .query_row(
-            "SELECT zoom, back_json, forward_json, icon FROM tab_state WHERE tab_id = ?1",
+            "SELECT zoom, back_json, forward_json, icon, emulation_json FROM tab_state WHERE tab_id = ?1",
             [tab_id],
             |row| {
                 Ok((
@@ -120,11 +120,17 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((zoom, back, forward, icon)) = state {
+    if let Some((zoom, back, forward, icon, emulation)) = state {
+        if let Some(emulation) =
+            emulation.as_deref().and_then(crate::state::browser_devices::resolve)
+        {
+            fields.insert("emulation".into(), emulation);
+        }
         if let Some(zoom) = zoom {
             fields.insert("zoom".into(), json!(zoom));
         }

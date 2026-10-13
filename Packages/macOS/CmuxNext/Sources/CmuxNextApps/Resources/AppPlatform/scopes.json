@@ -85,6 +85,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.devices.add_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.forward": {
       "scope": "browser:write",
       "class": "mutation"
@@ -118,6 +130,14 @@
       "class": "mutation"
     },
     "browser.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
       "scope": "browser:write",
       "class": "mutation"
     },
@@ -560,6 +580,10 @@
     "finder.open": {
       "scope": "finder:write",
       "class": "mutation"
+    },
+    "git.branches": {
+      "scope": "git:read",
+      "class": "read"
     },
     "git.checkpoint.create": {
       "scope": "git:write",
@@ -1409,6 +1433,10 @@
       "scope": "team_vm:read",
       "class": "read"
     },
+    "team.ai_limit.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -1770,6 +1798,8 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.ai_limit.member.set",
+    "team.ai_limit.set",
     "team.audit.list",
     "team.enrollment_token.create",
     "team.enrollment_token.list",
