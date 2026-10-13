@@ -10,10 +10,11 @@ struct RemoteSessionView: View {
     @State private var chromeVisible = true
     @State private var signInUser = ""
     @State private var signInPassword = ""
+    @State private var orientation = OrientationLock.saved
 
     var body: some View {
         ZStack(alignment: .top) {
-            RemoteScreen(session: session, keyboardVisible: $keyboardVisible)
+            RemoteScreen(session: session, fitToDisplay: session.preferences.fitToDisplay, keyboardVisible: $keyboardVisible)
                 .ignoresSafeArea()
             if chromeVisible { topBar.transition(.move(edge: .top).combined(with: .opacity)) }
             stateCard
@@ -23,7 +24,15 @@ struct RemoteSessionView: View {
         .preferredColorScheme(.dark)
         .statusBarHidden(!chromeVisible)
         .persistentSystemOverlays(.hidden)
-        .onDisappear { session.close() }
+        .onAppear { AppDelegate.lock(orientation.mask) }
+        .onChange(of: orientation) {
+            OrientationLock.saved = orientation
+            AppDelegate.lock(orientation.mask)
+        }
+        .onDisappear {
+            AppDelegate.lock(.all)
+            session.close()
+        }
     }
 
     private var topBar: some View {
@@ -39,6 +48,11 @@ struct RemoteSessionView: View {
             }
             Spacer(minLength: 8)
             Menu {
+                Toggle("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
+                Picker("Orientation", systemImage: orientation.symbol, selection: $orientation) {
+                    ForEach(OrientationLock.allCases) { lock in Label(lock.title, systemImage: lock.symbol).tag(lock) }
+                }
+                .pickerStyle(.menu)
                 Toggle("Stream stats", isOn: $session.preferences.showStats)
                 Section("Send") {
                     Button("Control-Option-Delete", systemImage: "command") { session.tap(.deleteForward, modifiers: [.control, .option]) }
@@ -147,6 +161,7 @@ struct RemoteSessionView: View {
 /// Hosts `RemoteScreenViewController` in SwiftUI.
 struct RemoteScreen: UIViewControllerRepresentable {
     let session: RemoteSession
+    let fitToDisplay: Bool
     @Binding var keyboardVisible: Bool
 
     func makeUIViewController(context: Context) -> RemoteScreenViewController {
@@ -154,6 +169,7 @@ struct RemoteScreen: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: RemoteScreenViewController, context: Context) {
+        controller.fitToDisplay = fitToDisplay
         if controller.isKeyboardVisible != keyboardVisible { controller.isKeyboardVisible = keyboardVisible }
     }
 }

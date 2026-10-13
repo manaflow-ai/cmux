@@ -7,9 +7,10 @@ import UIKit
 /// pans a zoomed view, two-finger tap right-clicks, two fingers scroll, and
 /// pinch zooms (zoom in for small targets).
 ///
-/// A computer with several displays shows one display per page: swipe
-/// sideways (or tap the page dots) to switch; pinching leaves paging for
-/// free zoom, and a page dot brings it back.
+/// Fitted mode (the default) pins the view to one display: zoom out stops at
+/// its fit and panning stays inside it. A computer with several displays
+/// shows one per page: swipe at fit (or tap the page dots) to switch. With
+/// fitted mode off, pinching zooms freely across all displays.
 final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     let session: RemoteSession
 
@@ -98,7 +99,6 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateZoomLimits(resetToFit: false)
-        if paged { show(page: page, animated: false) }
     }
 
     // MARK: Frames
@@ -154,6 +154,15 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
 
     // MARK: Displays
 
+    /// Pinned to one display (on by default): zoom out stops at its fit,
+    /// panning stays inside it, and a swipe at fit changes display.
+    var fitToDisplay = true {
+        didSet {
+            guard fitToDisplay != oldValue else { return }
+            if fitToDisplay { show(page: page, animated: true) } else { paged = false; updateZoomLimits(resetToFit: false) }
+        }
+    }
+
     /// Finds the displays from the pixels, at most once a second (a display
     /// the server paints late is picked up on a later frame).
     private func detectScreens(in frame: VNCFrame) {
@@ -170,32 +179,46 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         screens = next
         pageControl.numberOfPages = next.count
         pageControl.isHidden = next.count < 2
-        guard next.count > 1 else {
-            paged = false
-            centerContent()
-            return
-        }
-        page = min(page, next.count - 1)
-        centerContent()
+        page = min(page, max(0, next.count - 1))
         // First time: open on the display at the origin (the main display on a Mac).
-        if first { page = next.firstIndex { $0.origin == .zero } ?? 0 }
-        if first || paged { show(page: page, animated: !first) }
+        if first, next.count > 1 { page = next.firstIndex { $0.origin == .zero } ?? 0 }
+        if fitToDisplay || (paged && next.count > 1) {
+            show(page: page, animated: !first)
+        } else {
+            updateZoomLimits(resetToFit: false)
+        }
+    }
+
+    /// The display the view is pinned to: one of several, or the whole frame.
+    private var focusRect: CGRect {
+        screens.indices.contains(page) ? screens[page] : CGRect(origin: .zero, size: frameSize)
+    }
+
+    private func fitScale(_ rect: CGRect) -> CGFloat {
+        guard rect.width > 0, rect.height > 0 else { return 1 }
+        return min(view.bounds.width / rect.width, view.bounds.height / rect.height)
+    }
+
+    /// The content offset that centers `rect` at `scale`.
+    private func centeredOffset(_ rect: CGRect, scale: CGFloat) -> CGPoint {
+        CGPoint(x: rect.minX * scale - (view.bounds.width - rect.width * scale) / 2,
+                y: rect.minY * scale - (view.bounds.height - rect.height * scale) / 2)
     }
 
     /// Fits display `index` to the view.
     private func show(page index: Int, animated: Bool) {
-        guard screens.indices.contains(index), view.bounds.width > 0 else { return }
-        page = index
+        guard frameSize != .zero, view.bounds.width > 0 else { return }
+        page = screens.indices.contains(index) ? index : 0
         paged = true
-        pageControl.currentPage = index
-        let rect = screens[index]
-        let bounds = view.bounds.size
-        let scale = min(bounds.width / rect.width, bounds.height / rect.height)
-        let offset = CGPoint(x: rect.minX * scale - (bounds.width - rect.width * scale) / 2,
-                             y: rect.minY * scale - (bounds.height - rect.height * scale) / 2)
+        pageControl.currentPage = page
+        let rect = focusRect
+        let scale = fitScale(rect)
         let apply = { [self] in
+            scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
+            scrollView.maximumZoomScale = max(scale * 6, 2)
+            centerContent()
             scrollView.zoomScale = scale
-            scrollView.contentOffset = offset
+            scrollView.contentOffset = centeredOffset(rect, scale: scale)
         }
         if animated {
             UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut, .allowUserInteraction], animations: apply)
@@ -205,13 +228,43 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         updateCursor()
     }
 
-    /// A swipe that ends while paged moves one display (or snaps back).
+    private var atFit: Bool { abs(scrollView.zoomScale - fitScale(focusRect)) < 0.001 }
+
+    /// The offsets that keep the focused display on screen (centered on an
+    /// axis where it is smaller than the view).
+    private func clamped(_ offset: CGPoint, allowHorizontal: Bool) -> CGPoint {
+        let rect = focusRect, scale = scrollView.zoomScale, bounds = view.bounds.size
+        func range(_ minEdge: CGFloat, _ length: CGFloat, _ viewLength: CGFloat) -> ClosedRange<CGFloat> {
+            let low = minEdge * scale, size = length * scale
+            if size <= viewLength {
+                let centered = low - (viewLength - size) / 2
+                return centered ... centered
+            }
+            return low ... low + size - viewLength
+        }
+        let x = range(rect.minX, rect.width, bounds.width), y = range(rect.minY, rect.height, bounds.height)
+        return CGPoint(x: allowHorizontal ? offset.x : min(max(offset.x, x.lowerBound), x.upperBound),
+                       y: min(max(offset.y, y.lowerBound), y.upperBound))
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard fitToDisplay, frameSize != .zero else { return }
+        // A swipe at fit may move sideways (to page); everything else stays in the display.
+        let paging = scrollView.isDragging && screens.count > 1 && atFit
+        let next = clamped(scrollView.contentOffset, allowHorizontal: paging)
+        if next != scrollView.contentOffset { scrollView.contentOffset = next }
+    }
+
+    /// A swipe that ends at fit moves one display (or snaps back); zoomed in,
+    /// panning stops at the display's edges.
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard paged, screens.count > 1 else { return }
-        let rect = screens[page]
-        let scale = scrollView.zoomScale
-        let home = rect.minX * scale - (view.bounds.width - rect.width * scale) / 2
+        let pages = paged && screens.count > 1 && (atFit || !fitToDisplay)
+        guard pages else {
+            if fitToDisplay { targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }
+            return
+        }
+        let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
         let moved = scrollView.contentOffset.x - home
         var target = page
         if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, screens.count - 1) }
@@ -221,19 +274,28 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     }
 
     func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
-        // Pinching leaves paging; a page dot brings it back.
-        paged = false
+        // Free mode: pinching leaves paging; a page dot brings it back.
+        if !fitToDisplay { paged = false }
     }
 
     // MARK: Zoom
 
     private func updateZoomLimits(resetToFit: Bool) {
         guard frameSize.width > 0, frameSize.height > 0, view.bounds.width > 0 else { return }
-        let fit = min(view.bounds.width / frameSize.width, view.bounds.height / frameSize.height)
+        if fitToDisplay || paged {
+            // Re-fit after a rotation or resize; keep a zoomed-in view zoomed.
+            let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
+            if resetToFit || wasAtFit { show(page: page, animated: false) } else {
+                scrollView.minimumZoomScale = fitToDisplay ? fitScale(focusRect) : fitScale(CGRect(origin: .zero, size: frameSize))
+                centerContent()
+            }
+            return
+        }
+        let fit = fitScale(CGRect(origin: .zero, size: frameSize))
         let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
         scrollView.minimumZoomScale = fit
         scrollView.maximumZoomScale = max(fit * 6, 2)
-        if !paged, resetToFit || wasAtFit || scrollView.zoomScale < fit { scrollView.zoomScale = fit }
+        if resetToFit || wasAtFit || scrollView.zoomScale < fit { scrollView.zoomScale = fit }
         centerContent()
     }
 
@@ -241,13 +303,17 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerContent()
+        if fitToDisplay, !scrollView.isZoomBouncing {
+            let next = clamped(scrollView.contentOffset, allowHorizontal: false)
+            if next != scrollView.contentOffset { scrollView.contentOffset = next }
+        }
         updateCursor()
     }
 
-    /// Letterboxes the screen when it is smaller than the view. With several
-    /// displays the insets also let any one display sit centered.
+    /// Insets that let any display sit centered (fitted mode and pages);
+    /// otherwise letterboxing for a frame smaller than the view.
     private func centerContent() {
-        if screens.count > 1 {
+        if fitToDisplay || screens.count > 1 {
             let bounds = scrollView.bounds.size
             scrollView.contentInset = UIEdgeInsets(top: bounds.height, left: bounds.width, bottom: bounds.height, right: bounds.width)
             return

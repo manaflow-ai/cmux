@@ -2,6 +2,7 @@ import CmuxVNC
 import Foundation
 import Observation
 import Security
+import UIKit
 
 /// A saved VNC computer. The password lives in the Keychain, never here.
 struct SavedHost: Identifiable, Codable, Hashable {
@@ -15,11 +16,60 @@ struct SavedHost: Identifiable, Codable, Hashable {
     var endpoint: VNCEndpoint? { VNCEndpoint.parse(address)?.endpoint }
 }
 
-/// Per-host session preferences.
+/// Per-host session preferences. Decoding tolerates missing keys, so
+/// hosts saved by older builds keep loading.
 struct SessionPreferences: Codable, Hashable {
     /// Draw the remote cursor shape locally (no round trip for pointer motion).
     var localCursor = true
     var showStats = true
+    /// Pinned to one display: zoom out stops at that display's fit and
+    /// panning stays inside it; swipes at fit change display.
+    var fitToDisplay = true
+
+    init() {}
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        localCursor = try container.decodeIfPresent(Bool.self, forKey: .localCursor) ?? true
+        showStats = try container.decodeIfPresent(Bool.self, forKey: .showStats) ?? true
+        fitToDisplay = try container.decodeIfPresent(Bool.self, forKey: .fitToDisplay) ?? true
+    }
+}
+
+/// Which orientations a session may use (remembered across sessions).
+enum OrientationLock: String, CaseIterable, Identifiable {
+    case auto, portrait, landscape
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .auto: "Auto-Rotate"
+        case .portrait: "Portrait"
+        case .landscape: "Landscape"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .auto: "arrow.trianglehead.2.clockwise.rotate.90"
+        case .portrait: "iphone"
+        case .landscape: "iphone.landscape"
+        }
+    }
+
+    var mask: UIInterfaceOrientationMask {
+        switch self {
+        case .auto: .all
+        case .portrait: .portrait
+        case .landscape: .landscape
+        }
+    }
+
+    private static let key = "cmux.vnc.orientationLock"
+    static var saved: OrientationLock {
+        get { UserDefaults.standard.string(forKey: key).flatMap(OrientationLock.init(rawValue:)) ?? .auto }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+    }
 }
 
 /// Saved hosts in UserDefaults, passwords in the Keychain.
