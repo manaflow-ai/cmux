@@ -31,9 +31,11 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     @MainActor
     public init(_ state: UpdateState, version: String?) {
         switch state {
-        case .idle, .permissionRequest, .preparingCheck:
+        case .idle, .permissionRequest:
             self = .hidden
-        case .checking:
+        case .preparingCheck, .checking:
+            // preparingCheck: a check the user asked for waits for the
+            // running Sparkle session (a scheduled or silent one) to end.
             self = .checking
         case .updateAvailable(let available):
             // Only with `updates.downloadAutomatically` off: background
