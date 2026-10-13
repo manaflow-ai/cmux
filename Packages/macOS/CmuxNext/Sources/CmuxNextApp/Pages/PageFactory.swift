@@ -37,10 +37,10 @@ struct PageFactory {
             apps?.transport.turnedOff
         }
         let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
-            return AppsPageConfirmations.confirmation(op: op, params: params, detail: detail)
+            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail)
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
