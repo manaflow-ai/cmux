@@ -138,6 +138,23 @@ fi
 key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { printf '%s\n' "$resolved" >&2; echo "error: the resolver printed no tree key" >&2; exit 1; }
 
+# 1b. The daemon tests passed for this tree (chief 2026-10-13). cmux-tui-artifacts
+# publishes a tree before its daemon tests end; such a tree's source.json says
+# daemonTests "separate", and publish-tree-tested writes daemon-tests.json when
+# they pass. A tree published before that change (no field) was published only
+# after its tests, as before. Missing marker: not promoted now; the artifacts
+# run requests promotion again when the tests pass.
+tree_base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}/tree/$key"
+tree_meta="$(mktemp -d)"
+trap 'rm -rf "$tree_meta"; cleanup_strings' EXIT
+if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta/source.json" "$tree_base/source.json" 2>/dev/null \
+   && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("daemonTests") == "separate" else 1)' "$tree_meta/source.json"; then
+  if ! curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta/daemon-tests.json" "$tree_base/daemon-tests.json" 2>/dev/null; then
+    echo "not promoting ${sha:0:12}: the daemon tests have not passed for tree $key yet (no daemon-tests.json); the artifacts run requests it when they pass"
+    exit 0
+  fi
+fi
+
 if [[ "$mode" == release-compile-green ]]; then
   rc=0
   request "$sha" || rc=$?
