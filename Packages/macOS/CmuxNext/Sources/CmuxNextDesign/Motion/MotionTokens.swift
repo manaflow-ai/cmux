@@ -21,10 +21,12 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 
 /// Spring tokens. Each one is a response (seconds for one undamped period)
 /// and a damping fraction (1 = critically damped), as in SwiftUI
-/// `.spring(response:dampingFraction:)`. Damping 0.9 overshoots 0.05% (0.1
-/// pt on a 200 pt move, invisible) and ends visibly ~30% sooner than a
-/// critically damped spring's long tail. Values and rationale are in
-/// plans/cmux-next/motion.md; change them only there and here.
+/// `.spring(response:dampingFraction:)`. The structural ones (`move`,
+/// `appear`, `disappear`) are critically damped with a short response
+/// (they never pass the target; `ui.animations.bounce` subtle opts into a
+/// SwiftUI bounce). The values are the spec's design-tokens.json `motion`
+/// (cmux-motion reads the same file; scripts/cmux-next/motion-parity.py
+/// compares this port's paths with cmux-motion's).
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
     /// rows, pane and divider frames, pane zoom, toolbar height.

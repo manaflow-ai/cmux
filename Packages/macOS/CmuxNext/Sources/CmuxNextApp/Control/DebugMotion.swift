@@ -14,6 +14,10 @@ import CmuxNextWakeups
 /// "newTab", "newWorkspace") and `value` true or false set `ui.animations.*`
 /// in memory the same way. The report lists the display links alive
 /// (`display_links`: 0 once every spring rests, so the window idles).
+/// `trajectory` returns this port's motion parity corpus (the resolved
+/// chrome springs and their frame paths), the same document cmux-motion's
+/// `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
+/// compares the two.
 enum DebugMotion {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
@@ -33,6 +37,8 @@ enum DebugMotion {
             if let name = params["name"]?.stringValue, let kind = MotionKind(rawValue: name), let on = params["value"]?.boolValue {
                 if on { DesignSettings.shared.disabledAnimations.remove(kind) } else { DesignSettings.shared.disabledAnimations.insert(kind) }
             }
+        case "trajectory":
+            return MotionParityCorpus.document
         case "stop":
             let report = self.report
             MotionTrace.stop()

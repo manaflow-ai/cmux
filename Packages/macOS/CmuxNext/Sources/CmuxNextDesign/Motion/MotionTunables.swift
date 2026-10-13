@@ -8,9 +8,11 @@ public nonisolated enum MotionTunables {
     // MARK: Springs (speed "fast")
 
     static let springDefaults: [MotionSpring: (SpringParameters, String)] = [
-        .move: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .appear: (SpringParameters(response: 0.18, dampingFraction: 0.9), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
-        .disappear: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Tab close, group collapse, row removal, sidebar hide."),
+        // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
+        // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
+        .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
+        .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
+        .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
         .scroll: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
         .screen: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Screen switch slide."),
