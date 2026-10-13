@@ -10,6 +10,8 @@ public import AppKit
 public final class ThemedFieldBox: NSView {
     public let field: NSTextField
     private var editing = false
+    /// Increase Contrast changes the focus border's width; the setting is not observable otherwise.
+    private var contrastObserver: (any NSObjectProtocol)?
     private var heightConstraint: NSLayoutConstraint?
 
     /// The box's height; a change (a live density change) resizes it.
@@ -63,6 +65,16 @@ public final class ThemedFieldBox: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let contrastObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(contrastObserver)
+            self.contrastObserver = nil
+        }
+        if window != nil {
+            contrastObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.applyTheme() }
+            }
+        }
         applyTheme()
     }
 
