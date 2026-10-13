@@ -90,11 +90,14 @@ export function PermissionCard({
   const allowOnceShortcut = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
   const allowChatShortcut = useShortcut(SHORTCUT_ACTIONS.permissionAllowChat);
   const denyShortcut = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
-  const shortcutLabels = {
-    allow_once: allowOnceShortcut,
-    allow_chat: allowChatShortcut,
-    deny: denyShortcut,
-  } satisfies Record<KnownPermissionKind, string | undefined>;
+  const shortcutLabels = useMemo(
+    () => ({
+      allow_once: allowOnceShortcut,
+      allow_chat: allowChatShortcut,
+      deny: denyShortcut,
+    }) satisfies Record<KnownPermissionKind, string | undefined>,
+    [allowOnceShortcut, allowChatShortcut, denyShortcut],
+  );
   // The keys reach the group from its focused buttons, so it listens natively: it is a group,
   // not a control of its own.
   useEffect(() => {
