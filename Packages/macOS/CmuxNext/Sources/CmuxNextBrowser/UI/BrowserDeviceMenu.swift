@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Chrome's device menu (Emulate Device…) drawn from the daemon's device
 /// list (`browser.devices.list`, browser-devices-v1, cx-ocbf3): No Device,
