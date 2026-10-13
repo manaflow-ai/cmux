@@ -496,3 +496,26 @@ async fn a_daemon_env_proxy_never_becomes_the_login_env() {
     let (reply, _) = ask(&d, "claude").await;
     assert_eq!(found(&reply)["proxy"], Value::Null);
 }
+
+/// (d2) Vertex switched on in the login shell: the agent keeps its region
+/// names (CLOUD_ML_REGION, VERTEX_REGION_*); a Claude agent without Vertex
+/// does not get them.
+#[tokio::test]
+async fn vertex_from_the_login_shell_keeps_its_regions() {
+    let regions =
+        "export CLOUD_ML_REGION=us-east5\nexport VERTEX_REGION_CLAUDE_OPUS=europe-west1\n";
+    let dir = scratch("vertex", &format!("export CLAUDE_CODE_USE_VERTEX=1\n{regions}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["auth"], json!(["vertex"]), "{v}");
+    assert_eq!(v["cloudMlRegion"], "us-east5", "{v}");
+    assert_eq!(v["vertexRegions"], json!(["VERTEX_REGION_CLAUDE_OPUS"]), "{v}");
+    drop(d);
+    let dir = scratch("novertex", &format!("export ANTHROPIC_API_KEY=sk-login\n{regions}"));
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["cloudMlRegion"], Value::Null, "{v}");
+    assert_eq!(v["vertexRegions"], json!([]), "{v}");
+}

@@ -81,6 +81,8 @@ for line in sys.stdin:
         for k, v in (settings.get("env") or {}).items():
             env.setdefault(k, str(v))
         found = [k for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN") if env.get(k)]
+        if env.get("CLAUDE_CODE_USE_VERTEX") == "1":
+            found.append("vertex")
         if env.get("CLAUDE_CODE_USE_BEDROCK") == "1":
             found.append("bedrock")
         helper = settings.get("apiKeyHelper")
@@ -95,7 +97,9 @@ for line in sys.stdin:
                                "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA"),
                                "loginOnly": sorted(k for k in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN", "MISE_GITHUB_TOKEN",
                                                                "NVM_AUTH_HEADER") if os.environ.get(k)),
-                               "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY")})
+                               "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
+                               "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
+                               "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_"))})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,

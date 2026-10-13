@@ -743,7 +743,7 @@ daemon with a bare environment, so every daemon reads the login shell's environm
 own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM_*, VOLTA_*,
 BUN_INSTALL, DIRENV_*, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
-DISABLE_*, *_TELEMETRY; AWS_* only with CLAUDE_CODE_USE_BEDROCK; GOOGLE_*, CLOUDSDK_*, GCLOUD_* only
+DISABLE_*, *_TELEMETRY; AWS_* only with CLAUDE_CODE_USE_BEDROCK; GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* only
 with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and

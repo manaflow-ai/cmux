@@ -465,7 +465,9 @@ pub fn allowed_with(
                 || (key.starts_with("AWS_") && truthy("CLAUDE_CODE_USE_BEDROCK", profile))
                 || ((key.starts_with("GOOGLE_")
                     || key.starts_with("CLOUDSDK_")
-                    || key.starts_with("GCLOUD_"))
+                    || key.starts_with("GCLOUD_")
+                    || key == "CLOUD_ML_REGION"
+                    || key.starts_with("VERTEX_REGION_"))
                     && truthy("CLAUDE_CODE_USE_VERTEX", profile))
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
@@ -497,6 +499,8 @@ fn storable(key: &str, value: &str) -> bool {
             .iter()
             .any(|p| key.starts_with(p))
         || key.ends_with("_TELEMETRY")
+        || key == "CLOUD_ML_REGION"
+        || key.starts_with("VERTEX_REGION_")
 }
 
 /// A login variable a profile or route may name as `${env:VAR}`: only one
