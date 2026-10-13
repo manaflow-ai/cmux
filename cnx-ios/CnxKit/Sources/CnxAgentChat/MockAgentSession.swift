@@ -278,6 +278,7 @@ public final class MockAgentSession: AgentSessionSource {
         ], cwd: "~/Development/cmux")))
         let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
         try Task.checkCancellation()
+        let allowed = choice != nil && choice != "deny"
         if let choice, choice != "deny" {
             emit(.update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "x2", status: .inProgress))))
             try await pause(1500)
@@ -290,7 +291,7 @@ public final class MockAgentSession: AgentSessionSource {
         plan[3].status = .inProgress
         emit(.update(.plan(plan)))
         // AskUserQuestion with two items.
-        try await stream(S.beforeQuestion, messageID: "m-q")
+        try await stream(allowed ? S.beforeQuestion : S.beforeQuestionDenied, messageID: "m-q")
         let question = S.question(session: summary.id)
         pendingQuestionID = question.id
         emit(.question(question))

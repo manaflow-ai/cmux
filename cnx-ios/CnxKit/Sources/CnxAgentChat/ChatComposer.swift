@@ -13,6 +13,11 @@ struct ChatComposer: View {
     @Binding var attachments: [AgentAttachment]
     var focus: FocusState<Bool>.Binding
     var collapsible: Bool
+    /// Expand and focus as soon as the composer appears (Reply instead,
+    /// which swaps the permission bar back to the composer).
+    var expandOnAppear = false
+    /// Replaces "Reply to <agent>" (e.g. while replying instead of a permission).
+    var placeholderOverride: String?
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -64,6 +69,7 @@ struct ChatComposer: View {
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
+        .onAppear { if expandOnAppear { expand() } }
     }
 
     private var card: some View {
@@ -108,7 +114,7 @@ struct ChatComposer: View {
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
-    private var placeholder: String { "Reply to \(store.summary.agentName)" }
+    private var placeholder: String { placeholderOverride ?? "Reply to \(store.summary.agentName)" }
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {

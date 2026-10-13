@@ -179,6 +179,14 @@ public final class AgentChatStore {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
+        // A message while a permission waits is "Reply instead" (SPEC 6.5):
+        // deny the request so the agent can go on, and send the message as
+        // guidance. Otherwise the agent waits on a permission nobody answers.
+        if let permission = pendingPermission {
+            let options = permission.request.options
+            let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
+            respond(to: permission.request, option: deny)
+        }
         source.send(.prompt(text: text, attachments: attachments, steer: steer))
     }
 

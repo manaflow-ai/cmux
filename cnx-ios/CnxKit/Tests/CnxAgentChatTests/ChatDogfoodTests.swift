@@ -59,6 +59,7 @@ import Testing
         } else {
             Issue.record("permission not denied: \(String(describing: record?.resolution))")
         }
+        for _ in 0..<200 where store.queue.isEmpty { await Task.yield() }
         #expect(store.queue.map(\.text) == ["Run only the dialer tests instead"])
     }
 }

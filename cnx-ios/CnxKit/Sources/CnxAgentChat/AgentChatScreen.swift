@@ -416,14 +416,16 @@ public struct AgentChatBottomStack: View {
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
                         withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
-                        surface.composerFocused = true
+
                     }
                     .padding(12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
-                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty)
+                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
+                                 expandOnAppear: surface.replyInsteadOfPermission,
+                                 placeholderOverride: store.pendingPermission != nil ? "Tell \(store.summary.agentName) what to do instead" : nil)
                         .transition(.opacity)
                 }
             }
@@ -438,7 +440,13 @@ public struct AgentChatBottomStack: View {
         .animation(.cnxSmooth, value: store.pendingPermission?.request.id)
         .onChange(of: store.pendingPermission?.request.id) { surface.replyInsteadOfPermission = false }
         .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
-        .onChange(of: composerFocused) { _, focused in if surface.composerFocused != focused { surface.composerFocused = focused } }
+        .onChange(of: composerFocused) { _, focused in
+            if surface.composerFocused != focused { surface.composerFocused = focused }
+            // Leaving "Reply instead" without typing brings the permission choices back.
+            if !focused, surface.replyInsteadOfPermission, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
+                withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = false }
+            }
+        }
     }
 }
 
