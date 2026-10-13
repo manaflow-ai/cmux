@@ -14,6 +14,11 @@ from xml.dom import minidom
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
+# Pages of 100 associated PRs read for one commit before giving up.
+ASSOCIATION_PAGES = 20
+PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
+                labels(first: 100) { nodes { name } }
+                files(first: 100) { totalCount nodes { path } }"""
 
 
 class GitHub:
@@ -59,28 +64,53 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     else:
         raise RuntimeError("More than 10000 commits since publication; repair the channel marker before retrying")
     owner, name = github.repo.split("/")
+    repository = "repository(owner: " + json.dumps(owner) + ", name: " + json.dumps(name) + ")"
     members = set(commits)
     prs = {}
+
+    def keep(nodes: list[dict]) -> None:
+        for pr in nodes:
+            merged = pr.get("mergeCommit") or {}
+            if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
+                prs[pr["number"]] = pr
+
+    overflow = []
     for offset in range(0, len(commits), 25):
-        objects = []
-        for index, sha in enumerate(commits[offset:offset + 25]):
-            objects.append(f'''c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{
-              pageInfo {{ hasNextPage }} nodes {{ number title url mergedAt baseRefName mergeCommit {{ oid }}
-                labels(first: 100) {{ nodes {{ name }} }}
-                files(first: 100) {{ totalCount nodes {{ path }} }}
-              }}
-            }} }} }}''')
-        result = github.graphql('query { repository(owner: ' + json.dumps(owner) + ', name: ' + json.dumps(name) + ') { ' + ' '.join(objects) + ' } }')
-        for obj in result.values():
+        batch = commits[offset:offset + 25]
+        objects = [f'c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{ '
+                   f'pageInfo {{ hasNextPage }} nodes {{ {PR_FIELDS} }} }} }} }}' for index, sha in enumerate(batch)]
+        result = github.graphql("query { " + repository + " { " + " ".join(objects) + " } }")
+        for index, sha in enumerate(batch):
+            obj = result.get(f"c{index}")
             if obj is None:
                 raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
             associated = obj["associatedPullRequests"]
             if associated["pageInfo"]["hasNextPage"]:
-                raise RuntimeError("A commit has more than ten associated PRs; inspect its associations before retrying")
-            for pr in associated["nodes"]:
-                merged = pr.get("mergeCommit") or {}
-                if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
-                    prs[pr["number"]] = pr
+                # A base-branch commit merged into a long-lived branch is
+                # associated with every open PR that contains it; page it.
+                overflow.append(sha)
+                continue
+            keep(associated["nodes"])
+    for sha in overflow:
+        cursor = None
+        for _ in range(ASSOCIATION_PAGES):
+            after = f", after: {json.dumps(cursor)}" if cursor else ""
+            result = github.graphql(
+                "query { " + repository + f' {{ c0: object(oid: "{sha}") {{ ... on Commit {{ '
+                f"associatedPullRequests(first: 100{after}) {{ pageInfo {{ hasNextPage endCursor }} "
+                f"nodes {{ {PR_FIELDS} }} }} }} }} }} }}")
+            obj = result.get("c0")
+            if obj is None:
+                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
+            associated = obj["associatedPullRequests"]
+            keep(associated["nodes"])
+            cursor = associated["pageInfo"].get("endCursor")
+            if not associated["pageInfo"]["hasNextPage"]:
+                break
+            if not cursor:
+                raise RuntimeError("GitHub associated PRs pagination returned no cursor; retry metadata generation")
+        else:
+            raise RuntimeError(f"A commit has more than {ASSOCIATION_PAGES * 100} associated PRs; inspect its associations before retrying")
     return list(prs.values())
 
 
