@@ -17,7 +17,7 @@ use cmux::{
     SessionId, TabId, TabUpdateOptions, Update, WorkspaceGroupCreateOptions,
     WorkspaceGroupUpdateOptions, WorkspaceId, WorkspacePlaceOptions, WorkspaceUpdateOptions,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -725,6 +725,7 @@ fn keyed_frontend_browser_tab_create_identifies_then_sends_the_key_and_decodes_r
             url: Some("https://cmux.com/docs".into()),
             title: Some("Docs".into()),
             favicon_url: Update::Clear,
+            profile_id: Update::Unchanged,
             owner: None,
         })
         .unwrap();

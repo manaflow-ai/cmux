@@ -20,19 +20,20 @@
 //! preview never counts these records as unsupported required state.
 
 mod snapshot;
-use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
-use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
+use crate::state::conversation_tabs_store::{read_conversation_tabs, ConversationTabRecord};
+use crate::state::remote_terminal_tabs_store::{read_remote_terminals, RemoteTerminalRecord};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
-use super::session_journal::{JournalAppend, append_journal_record};
+use super::personal_browser_profiles::resolve_browser_profile_id_in;
+use super::session_journal::{append_journal_record, JournalAppend};
 use super::{
-    JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
-    WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
+    new_uuid_v4, unix_epoch_ms, JournalClass, JournalProducer, JournalReplayPolicy,
+    JournalSensitivity, JournalSubject, WorkspaceRegistry,
 };
 mod saved_tab_groups;
 pub(crate) use saved_tab_groups::{
@@ -42,8 +43,8 @@ pub(crate) use saved_tab_groups::{
 mod frontend_browser_history;
 mod icon;
 pub use icon::{
-    IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
-    validate_presentation_icon_asset,
+    is_sha256_hex, parse_icon_asset, validate_icon_value, validate_presentation_icon_asset,
+    IconAssetKind,
 };
 pub(crate) mod svg_icon;
 
@@ -1150,6 +1151,19 @@ impl WorkspaceRegistry {
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        self.update_frontend_browser_with_profile(browser_id, url, title, favicon_url, None)
+    }
+
+    /// Update a frontend browser's location, presentation, or browser
+    /// profile. `Some(None)` clears the profile; `None` leaves it unchanged.
+    pub fn update_frontend_browser_with_profile(
+        &mut self,
+        browser_id: &str,
+        url: Option<&str>,
+        title: Option<&str>,
+        favicon_url: Option<Option<&str>>,
+        profile_id: Option<Option<&str>>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -1165,15 +1179,20 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
+        if let Some(profile_id) = profile_id {
+            record.profile_id = profile_id
+                .map(|profile_id| resolve_browser_profile_id_in(&tx, profile_id))
+                .transpose()?;
+        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, profile_id = ?5
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url],
+            params![browser_id, record.url, record.title, record.favicon_url, record.profile_id],
         )?;
         append_presentation_record(
             &tx,

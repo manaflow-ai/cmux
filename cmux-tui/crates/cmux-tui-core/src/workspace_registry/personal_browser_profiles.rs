@@ -6,16 +6,16 @@
 //! `personal_workspaces.browser_profile_id` and `profiles.browser_profile_id`;
 //! deleting a profile clears them in the same transaction.
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::personal_store::{
-    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, require_icon_asset, subject,
-    validate_appearance, validate_browser_profile_ref, validate_name, validate_personal_json,
-    write_order,
+    commit_personal, insertion_final_index, require_icon_asset, subject, validate_appearance,
+    validate_browser_profile_ref, validate_name, validate_personal_json, write_order,
+    DEFAULT_PROFILE_ID,
 };
-use super::{WorkspaceRegistry, new_uuid_v4};
+use super::{new_uuid_v4, WorkspaceRegistry};
 
 /// The table and its `default` row. Additive and idempotent: it runs at
 /// every open, so a registry migrated before this capability gains it.
@@ -128,7 +128,42 @@ fn order(connection: &Connection) -> anyhow::Result<Vec<String>> {
     Ok(read_browser_profiles(connection)?.into_iter().map(|profile| profile.id).collect())
 }
 
+pub(crate) fn resolve_browser_profile_id_in(
+    connection: &Connection,
+    value: &str,
+) -> anyhow::Result<String> {
+    let exact_id = connection
+        .query_row(
+            "SELECT browser_profile_id FROM browser_profiles WHERE browser_profile_id = ?1",
+            [value],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(id) = exact_id {
+        return Ok(id);
+    }
+    let mut statement = connection.prepare(
+        "SELECT browser_profile_id FROM browser_profiles
+         WHERE name = ?1 ORDER BY browser_profile_id ASC",
+    )?;
+    let ids = statement
+        .query_map([value], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    match ids.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => anyhow::bail!("unknown browser profile {value}"),
+        _ => anyhow::bail!("browser profile name is ambiguous: {value}"),
+    }
+}
+
 impl WorkspaceRegistry {
+    /// Resolve a browser profile by its stable id or exact display name.
+    /// Stable ids take precedence; ambiguous names are rejected.
+    pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
+        let connection = self.connection.get();
+        resolve_browser_profile_id_in(&connection, value)
+    }
+
     /// Create a browser profile at `index` (default last). An existing id
     /// returns the stored record with `false`, so a retried import finds
     /// the profile it made.
