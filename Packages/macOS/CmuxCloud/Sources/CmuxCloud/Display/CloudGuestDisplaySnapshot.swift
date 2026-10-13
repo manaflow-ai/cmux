@@ -12,6 +12,11 @@ public struct CloudGuestDisplaySnapshot: Decodable, Sendable {
 
     public init(data: Data) throws {
         self = try JSONDecoder().decode(Self.self, from: data)
+        // The guest helper currently ships the display slot contract as
+        // RFB 5900+n and noVNC 6900+n. These are image compatibility values;
+        // the Cloud runtime metadata advertises the primary noVNC port for
+        // routing, while a future image that changes this pairing must extend
+        // the contract before this validation can be relaxed.
         guard version == 1, !displays.isEmpty, displays.count <= 16,
               Set(displays.map(\.id)).count == displays.count,
               displays.contains(where: { $0.number == 1 }),
