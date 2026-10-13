@@ -27328,67 +27328,104 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "bookmark.newFolder",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.newFolder",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.addAllTabs",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "new",
+          "kind" : "folder",
           "order" : 6,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "bookmark.addAllTabs",
-          "kind" : "action",
-          "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "New",
+          "title_key" : "menu.folder.new",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.edit",
           "kind" : "action",
+          "order" : 8,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.setIcon",
+              "kind" : "action",
+              "label" : "Set Icon…",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.clearIcon",
+              "kind" : "action",
+              "label" : "Remove Icon",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 9,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.setIcon",
+          "id" : "bookmark.copyLink",
           "kind" : "action",
-          "label" : "Set Icon…",
-          "order" : 10,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "bookmark.clearIcon",
-          "kind" : "action",
-          "label" : "Remove Icon",
           "order" : 11,
           "visible_when" : {
             "debug_only" : false,
@@ -27404,26 +27441,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.copyLink",
-          "kind" : "action",
-          "order" : 13,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 14
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "bookmark.toggleBar",
           "kind" : "action",
-          "order" : 15,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27436,7 +27456,7 @@
           "enabled_when" : "can_perform",
           "id" : "bookmark.manager",
           "kind" : "action",
-          "order" : 16,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27447,13 +27467,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 17
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.remove",
           "kind" : "action",
-          "order" : 18,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
