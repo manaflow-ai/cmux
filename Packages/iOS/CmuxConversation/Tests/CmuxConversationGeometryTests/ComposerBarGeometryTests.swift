@@ -141,3 +141,16 @@ import Testing
         #expect(frame.width == 98.0 / 3 && frame.height == 98.0 / 3)
     }
 }
+
+/// Messages centers the record glyph on the "+" (iOS 27.0, iPhone 17 Pro
+/// New Message: field 516.7...557, plus 517...557, glyph 526...548, so its
+/// center 537 is 20 pt above the field's bottom); ours centered it in the
+/// 40.33 pt field, 0.17 pt higher and off the pixel grid (498.71).
+@Suite struct ComposerRecordGlyphPlacementTests {
+    @Test func glyphCentersOnThePlusRow() {
+        let frame = ComposerBarGeometry.recordGlyphFrame(fieldBottom: 557, fieldTrailing: 386, scale: 3)
+        #expect(frame.midY == 537)
+        #expect(frame.minY == 526)
+        #expect(frame.height == 22)
+    }
+}
