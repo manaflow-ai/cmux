@@ -33,6 +33,10 @@ name: cmux-next PR autofix
 #     one commit to the pull request's branch.
 # No loop: a head that is already an autofix commit (its Autofix-Run trailer)
 # is not repaired again, and a repaired head has nothing left to repair.
+# Bootstrap exception: on the first landing of the freshness checker, the base
+# archive may not contain it yet. The fallback to the checked-out head is only
+# used for that migration run; once this change is in base, every normal run
+# selects the base copy above the fallback.
 on:
   pull_request:
     branches: [feat-cmux-next]
