@@ -169,8 +169,8 @@ describe("Hexclave webhook inbox", () => {
     const inbox = harness.inbox;
     const now = new Date(harness.nowMs());
     const lease = new Date(harness.nowMs() + 60_000);
-    expect(await inbox.claimDrainSlot(now, lease, 2)).toBe(0);
-    expect(await inbox.claimDrainSlot(now, lease, 2)).toBe(1);
+    expect((await inbox.claimDrainSlot(now, lease, 2))?.slot).toBe(0);
+    expect((await inbox.claimDrainSlot(now, lease, 2))?.slot).toBe(1);
     expect(await inbox.claimDrainSlot(now, lease, 2)).toBeNull();
     expect((await harness.drain()).skipped).toBe(true);
   });
