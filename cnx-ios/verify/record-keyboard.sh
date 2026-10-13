@@ -43,10 +43,18 @@ swipe_composer() {
 }
 
 log=$(mktemp)
-xcrun simctl io "$udid" recordVideo --codec h264 --force "$dir/$label.mp4" >"$log" 2>&1 &
-rec=$!
+# One simctl recording at a time per host ("Host recording is already in
+# progress" while another session records): retry until this one starts.
+for attempt in $(seq 60); do
+  xcrun simctl io "$udid" recordVideo --codec h264 --force "$dir/$label.mp4" >"$log" 2>&1 &
+  rec=$!
+  for _ in $(seq 50); do grep -q "Recording started" "$log" && break; kill -0 $rec 2>/dev/null || break; sleep 0.1; done
+  grep -q "Recording started" "$log" && break
+  kill -INT $rec 2>/dev/null || true; wait $rec 2>/dev/null || true
+  sleep 2
+done
+grep -q "Recording started" "$log" || { cat "$log"; exit 1; }
 trap 'kill -INT $rec 2>/dev/null || true' EXIT
-until grep -q "Recording started" "$log"; do sleep 0.1; done
 sleep 0.8
 field
 sleep 1.6

@@ -33,7 +33,13 @@ struct ChatComposer: View {
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
-    private var collapsed: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
+    private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
+    /// Follows `collapsedTarget` inside an explicit `.cnxSmooth` animation.
+    /// Losing focus to the keyboard's dismissal changes the target in an
+    /// update that carries no animation, and the capsule snapped shut while
+    /// the transcript above it eased down (verify/keyboard.md).
+    @State private var shownCollapsed: Bool?
+    private var collapsed: Bool { shownCollapsed ?? collapsedTarget }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -71,6 +77,14 @@ struct ChatComposer: View {
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        .onChange(of: collapsedTarget, initial: true) { _, target in
+            guard shownCollapsed != target else { return }
+            if shownCollapsed == nil {
+                shownCollapsed = target
+            } else {
+                withAnimation(.cnxSmooth) { shownCollapsed = target }
+            }
+        }
     }
 
     private var card: some View {
@@ -87,6 +101,7 @@ struct ChatComposer: View {
                     .padding(.top, 14)
                     .padding(.bottom, 6)
                     .accessibilityLabel(placeholder)
+                    .onAppear { if expandRequested { focus.wrappedValue = true } }
             }
             HStack(spacing: 8) {
                 plusMenu

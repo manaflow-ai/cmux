@@ -95,7 +95,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         super.init(nibName: nil, bundle: nil)
         contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
         if let dock {
-            dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { [weak self] in self?.dockHeightChanged($0) }
+            dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
         }
     }
 
@@ -126,7 +126,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
             emptyHost.rootView = empty
             if let dock {
-                dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { [weak self] in self?.dockHeightChanged($0) }
+                dockHost?.rootView = Self.measuring(dock, alignment: .bottom) { _ in }
             }
             if let jump { jumpHost?.rootView = jump }
             positionedInitially = false
@@ -262,6 +262,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         surface.scroller = self
+        surface.stackHeightFrame = { [weak self] in self?.stackHeightFrame($0) }
+        if let height = surface.drawnStackHeight { stackHeightFrame(height) }
         if placement == .external { externalMetricsChanged() }
         #if DEBUG
         if ChatKeyboardTrace.isEnabled { trace = ChatKeyboardTrace(owner: self) }
@@ -283,8 +285,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     // MARK: Insets and position
 
+    /// The stack's top is its bottom (which only the keyboard or the
+    /// resting place moves) less its height as drawn this frame.
     private var bottomInset: CGFloat {
-        max(0, view.bounds.maxY - dockGuide.layoutFrame.minY) + Self.contentGap
+        max(0, view.bounds.maxY - (dockGuide.layoutFrame.maxY - stackHeight)) + Self.contentGap
     }
 
     private var bottomOffset: CGPoint {
@@ -353,39 +357,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
     }
 
-    private func dockHeightChanged(_ height: CGFloat) {
-        guard abs(stackHeight - height) > 0.25 else { return }
+    /// The stack's height as drawn this frame, from the stack itself
+    /// (`AgentChatBottomStack` reports it through an animatable modifier on
+    /// the composer's spring, once per rendered frame). The transcript's
+    /// inset and offset are set in the same SwiftUI update that draws the
+    /// stack at that height, so the two land in the same frame; UIKit
+    /// timing never has to match SwiftUI's.
+    private func stackHeightFrame(_ height: CGFloat) {
+        guard abs(stackHeight - height) > 0.01 else { return }
         stackHeight = height
         dockContainer?.interactiveHeight = height
-        guard view.window != nil else {
-            dockHeightConstraint?.constant = height
-            view.setNeedsLayout()
-            return
-        }
-        // SwiftUI animates the stack's growth with `.cnxSmooth`
-        // (spring(duration: 0.35, bounce: 0)); the transcript's inset follows
-        // on the same spring, in its own animation even inside the
-        // keyboard's (UIKit adds the two: the content rides the keyboard's
-        // curve and the stack's growth at once).
-        //
-        // Applied on the next main-queue turn: SwiftUI starts its animation
-        // with the next frame it renders, which comes after the rest of this
-        // turn (bringing up the keyboard can block it for 200 ms); an
-        // animation committed now would be most of the way through by then.
-        NextFrame.run { [weak self] in
-            guard let self, let constraint = self.dockHeightConstraint, constraint.constant != self.stackHeight else { return }
-            UIView.animate(springDuration: 0.35, bounce: 0, initialSpringVelocity: 0, delay: 0,
-                           options: [.allowUserInteraction, .overrideInheritedDuration, .overrideInheritedCurve]) {
-                constraint.constant = self.stackHeight
-                self.view.layoutIfNeeded()
-            }
-        }
+        dockHeightConstraint?.constant = height
+        view.setNeedsLayout()
+        UIView.performWithoutAnimation { updateInsets() }
     }
 
     /// The external stack's height and resting bottom from the surface.
     private func externalMetricsChanged() {
         guard placement == .external, isViewLoaded else { return }
-        if let height = surface.stackHeight { dockHeightChanged(height) }
         // The stack's bottom is reported in screen space; with the keyboard
         // down it is the resting place (TabsKit puts it above its toolbar).
         if let maxY = surface.stackMaxY, !surface.composerFocused, view.window != nil {
@@ -499,6 +488,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             "nav=\(f(navBar?.minY)),\(f(navBar?.maxY))",
             "tracking=\(scrollView.isTracking ? 1 : 0)",
             "offset=\(f(scrollBoundsY))",
+            "stackH=\(f(stackHeight))", "drawnH=\(f(surface.drawnStackHeight))", "reportedH=\(f(surface.stackHeight))",
         ].joined(separator: " ")
     }
     #endif

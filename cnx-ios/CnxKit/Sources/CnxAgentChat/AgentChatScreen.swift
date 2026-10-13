@@ -72,6 +72,10 @@ public final class AgentChatSurface {
     public internal(set) var stackMaxY: CGFloat?
     /// The live transcript's scroll view (jump to bottom, demos).
     @ObservationIgnored weak var scroller: (any ChatTranscriptScrolling)?
+    /// The bottom stack's height as drawn, once per frame while it animates
+    /// (the transcript's inset follows it in the same frame).
+    @ObservationIgnored var stackHeightFrame: ((CGFloat) -> Void)?
+    @ObservationIgnored var drawnStackHeight: CGFloat?
 
     public init() {}
 
@@ -438,6 +442,7 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var showsJump = true
     var bottomPadding: CGFloat = 8
+    @State private var reportedHeight: CGFloat = 0
     @FocusState private var composerFocused: Bool
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
@@ -507,7 +512,20 @@ public struct AgentChatBottomStack: View {
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
                 if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
+                if reportedHeight != frame.height {
+                    // Interpolated on the composer's spring (`.cnxSmooth`):
+                    // the reporter below hands the transcript every frame.
+                    if reportedHeight == 0 {
+                        reportedHeight = frame.height
+                    } else {
+                        withAnimation(.cnxSmooth) { reportedHeight = frame.height }
+                    }
+                }
             }
+            .modifier(DrawnHeightReporter(height: reportedHeight) { height in
+                surface.drawnStackHeight = height
+                surface.stackHeightFrame?(height)
+            })
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
             // drags that start above it).
@@ -537,6 +555,27 @@ public struct AgentChatBottomStack: View {
                 withAnimation(.cnxSmooth) { surface.showPermissionChoices() }
             }
         }
+    }
+}
+
+/// Hands its animated height to `report` on every frame it is drawn (an
+/// animatable modifier's body runs once per animation frame with the
+/// interpolated value).
+nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
+    var height: CGFloat
+    let report: @MainActor (CGFloat) -> Void
+
+    var animatableData: CGFloat {
+        get { height }
+        set {
+            height = newValue
+            // SwiftUI sets the interpolated value here once per frame.
+            if newValue > 0 { MainActor.assumeIsolated { report(newValue) } }
+        }
+    }
+
+    @MainActor func body(content: Content) -> some View {
+        content.onAppear { if height > 0 { report(height) } }
     }
 }
 
