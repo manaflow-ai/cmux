@@ -30,6 +30,7 @@ tree first-party-apps/cloud/server
 # embeds a file this list does not cover and prints the line to add; add the
 # same path to cmux-tui-artifacts.yml's pull_request_target paths. A blob a
 # revision lacks is left out of its key.
+blob Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Retired.swift
 blob Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json
 blob backend/catalog/cloud-operations.json
 blob backend/packages/home-core/conformance/conversation-cases.json
@@ -37,6 +38,7 @@ blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
+blob plans/cmux-next/spec-proposals/visuals/design-tokens.json
 blob schemas/chief-home/vectors.json
 blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json

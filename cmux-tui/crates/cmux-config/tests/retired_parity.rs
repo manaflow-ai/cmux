@@ -16,10 +16,15 @@ fn app_retired_keys() -> BTreeMap<String, String> {
     let body = &SWIFT[start..];
     let body = &body[..body.find("\n    ]").expect("end of retiredKeys literal")];
     let mut keys = BTreeMap::new();
-    for line in body.lines().map(str::trim) {
-        let Some(entry) = line.strip_prefix('"').and_then(|l| l.strip_suffix("\",")) else {
+    // Every entry line parses: one in another shape would otherwise go unchecked.
+    for line in body.lines().skip(1).map(str::trim) {
+        if line.is_empty() || line.starts_with("//") {
             continue;
-        };
+        }
+        let entry =
+            line.strip_prefix('"').and_then(|l| l.strip_suffix("\",")).unwrap_or_else(|| {
+                panic!("retiredKeys entry not one `\"key\": \"reason\",` line: {line}")
+            });
         let (key, reason) = entry.split_once("\": \"").expect("\"key\": \"reason\"");
         keys.insert(key.to_string(), reason.replace("\\\"", "\""));
     }
