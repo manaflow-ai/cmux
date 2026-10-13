@@ -48,15 +48,12 @@ const base: Props = {
   host: "This Mac",
   chips: Chips,
   omnibar,
-  defaultKind: "same-kind",
   projects,
   onSubmit: () => undefined,
   onJump: () => undefined,
   onOpenSession: () => undefined,
   onShowAll: () => undefined,
-  onSetDefaultKind: () => undefined,
   onBrowseProject: async () => "/Users/you/src/relay",
-  onAddHarness: () => undefined,
 };
 
 function withReceipt(Component: typeof NewTabPage) {
@@ -83,17 +80,9 @@ function withReceipt(Component: typeof NewTabPage) {
             props.onShowAll();
             record("show-all");
           }}
-          onSetDefaultKind={(kind) => {
-            props.onSetDefaultKind?.(kind);
-            record(`default:${kind}`);
-          }}
           onBrowseProject={async () => {
             record("browse-project");
             return props.onBrowseProject?.();
-          }}
-          onAddHarness={() => {
-            props.onAddHarness?.();
-            record("add-harness");
           }}
         />
       </div>
