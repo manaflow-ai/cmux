@@ -57,10 +57,12 @@ mkdir -p "$work/macos"
 lipo -create "$work/macos-arm64/libcmuxwg.a" "$work/macos-x86_64/libcmuxwg.a" -output "$work/macos/libcmuxwg.a"
 
 headers="$work/Headers"
-mkdir -p "$headers"
-# The cgo header declares Go's runtime types; keep only what Swift needs.
-cp "$work/macos-arm64/libcmuxwg.h" "$headers/libcmuxwg.h"
-cat > "$headers/module.modulemap" <<'EOF'
+# A subdirectory: Xcode copies every static xcframework's Headers into one
+# include/ folder, so a top-level module.modulemap collides with other
+# libraries' (GhosttyNextKit).
+mkdir -p "$headers/CmuxWGC"
+cp "$work/macos-arm64/libcmuxwg.h" "$headers/CmuxWGC/libcmuxwg.h"
+cat > "$headers/CmuxWGC/module.modulemap" <<'EOF'
 module CmuxWGC {
     header "libcmuxwg.h"
     link "resolv"

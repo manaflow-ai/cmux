@@ -1,0 +1,46 @@
+# cmux next for iPhone over WireGuard. Generate with: xcodegen generate
+name: CmuxNextWG
+options:
+  bundleIdPrefix: dev.cmux.ios
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: 7WLXT3NR37
+    CODE_SIGN_STYLE: Manual
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+packages:
+  CmuxWireGuard:
+    path: ../Packages/Shared/CmuxWireGuard
+  CmuxMobileSSH:
+    path: ../Packages/iOS/CmuxMobileSSH
+  CmuxiOS:
+    path: ../ios/CmuxiOS
+targets:
+  CmuxNextWG:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: CmuxWireGuard
+        product: CmuxWireGuard
+      - package: CmuxWireGuard
+        product: CmuxWireGuardPairing
+      - package: CmuxMobileSSH
+        product: CmuxMobileSSH
+      - package: CmuxiOS
+        product: CmuxiOSTerminal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.ios.wg
+        PRODUCT_NAME: cmux next
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: App/Resources/Info.plist
+        OTHER_LDFLAGS: ["-lc++", "-lresolv"]
