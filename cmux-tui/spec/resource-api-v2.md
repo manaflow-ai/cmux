@@ -957,7 +957,10 @@ owner (commands.md `conversation-list` and the other `conversation-*`
 commands: Home, the Chief and paired devices) on this protocol. They are the
 same owner and the same rules, with nothing added on the v2 path:
 
-- Trusted local (Unix) connections only. The caller's principal is the
+- Trusted local (Unix) connections, and with `ws-conversations-v1`
+  authenticated WebSocket connections (static credential or approved
+  pairing), whose principal is always `user_local` (a WebSocket connection
+  cannot bind an agent). The caller's principal is the
   connection's conversation principal: `user_local`, or the agent
   participant the connection bound with `conversation-bind`. As on the raw
   commands, every unbound local connection is `user_local`: a process of

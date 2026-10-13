@@ -49,6 +49,9 @@ pub(super) fn subscribe_command(
     };
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
+    // Conversation events go to the person's own clients: the Unix socket
+    // and authenticated WebSocket connections (`ws-conversations-v1`).
+    let conversation_client = mux.control_clients.is_owner_client(client);
     let pending_pairings = if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
@@ -87,7 +90,7 @@ pub(super) fn subscribe_command(
                 // for drafts in set-client-info (the admission of
                 // `conversation.events`; old clients never see the event).
                 MuxEvent::Conversation(event) if event.is_draft() => {
-                    let wanted = trusted_pairing_client
+                    let wanted = conversation_client
                         && event_mux.control_clients.supports_capability(
                             client,
                             super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
@@ -106,7 +109,10 @@ pub(super) fn subscribe_command(
                         _ => continue,
                     }
                 }
-                MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
+                MuxEvent::Conversation(_) if !conversation_client => {
+                    continue;
+                }
+                MuxEvent::CloudConversation(_)
                     if !trusted_pairing_client =>
                 {
                     continue;

@@ -191,6 +191,20 @@ impl super::ClientRegistry {
                 .is_some_and(|record| matches!(record.transport, super::ClientTransport::Unix))
         })
     }
+
+    /// Whether `client` is one of the person's own clients for the local
+    /// conversations (`ws-conversations-v1`): a Unix socket connection, or a
+    /// WebSocket connection, which is registered only after it presented
+    /// the daemon's credential or an approved pairing credential
+    /// (transports.md "Authentication and Pairing"). A poisoned registry
+    /// lock trusts no connection (fail closed).
+    pub(super) fn is_owner_client(&self, client: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.clients.get(&client).is_some_and(|record| {
+                matches!(record.transport, super::ClientTransport::Unix | super::ClientTransport::WebSocket)
+            })
+        })
+    }
 }
 
 #[cfg(test)]
