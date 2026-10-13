@@ -35,7 +35,7 @@ import argparse
 import ctypes
 import json
 import os
-import plistlib
+import re
 import shutil
 import signal
 import socket
@@ -119,6 +119,7 @@ def owned(app_pid: int, bundle: str):
     found = {}
     for pid, _ppid, cmd in process_table():
         if in_bundle(cmd, bundle) is not None:
+            _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
         elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
             found[pid] = (kind_of(cmd, bundle), cmd)
@@ -189,16 +190,19 @@ class App:
         the app through it."""
         params = {"action": action, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
-            stream.settimeout(120)
-            stream.connect(self.socket)
-            stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
-            reply = b""
-            while not reply.endswith(b"\n"):
-                chunk = stream.recv(65536)
-                if not chunk:
-                    break
-                reply += chunk
+        reply = b""
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+                stream.settimeout(120)
+                stream.connect(self.socket)
+                stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
+                while not reply.endswith(b"\n"):
+                    chunk = stream.recv(65536)
+                    if not chunk:
+                        break
+                    reply += chunk
+        except OSError as error:  # includes a timeout: this workspace is skipped, the run goes on
+            return {"error": f"{action}: {error}"}
         try:
             answer = json.loads(reply or b"{}")
         except ValueError:
@@ -248,7 +252,9 @@ class FakeChats:
                 if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
                     listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
                                             capture_output=True, text=True, timeout=30).stdout
-                    paths = [line[1:] for line in listed.splitlines() if line.startswith("n") and line.endswith("acpmux.sock")]
+                    # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.
+                    paths = [line[1:] for line in listed.splitlines()
+                             if line.startswith("n/") and line.endswith(".sock") and "acpmux" in line]
                     if paths:
                         return paths[0]
             time.sleep(1)  # test script: waiting for the app's acpmux to listen
@@ -320,14 +326,22 @@ def close_workspace(app: App, workspace: str):
     return response
 
 
+# Every process of the bundle this run saw: the terminal hosts its daemons
+# start run outside the bundle and name their daemon (`--owner ...@<pid>`).
+_run_pids: set[int] = set()
+
+
 def bundle_pids(bundle: str) -> set[int]:
-    """The bundle's processes, with the terminal hosts its daemons started:
-    those run a copy of cmux-tui outside the bundle, named by the app's
-    bundle id (`--owner <bundle id>:...`)."""
-    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as handle:
-        owner = f"--owner {plistlib.load(handle)['CFBundleIdentifier']}:"
-    return {pid for pid, _, cmd in process_table()
-            if in_bundle(cmd, bundle) is not None or ("__terminal-host" in cmd and owner in cmd)}
+    """The bundle's processes, with the terminal hosts this run's daemons started."""
+    table = process_table()
+    pids = {pid for pid, _, cmd in table if in_bundle(cmd, bundle) is not None}
+    _run_pids.update(pids)
+    hosts = set()
+    for pid, _, cmd in table:
+        owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+        if owner and int(owner.group(1)) in _run_pids:
+            hosts.add(pid)
+    return pids | hosts
 
 
 def is_binary(cmd: str, binary: str) -> bool:
@@ -367,6 +381,7 @@ def end_bundle(bundle: str):
     bundle ran before the launch (`launch`), so every one is this run's."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
     apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
     end_processes(bundle_pids(bundle))
 
