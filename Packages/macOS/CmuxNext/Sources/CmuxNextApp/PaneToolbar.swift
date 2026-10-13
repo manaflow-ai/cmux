@@ -7,8 +7,7 @@ import CmuxNextDaemon
 /// it shows while the pointer is over the pane's top-right corner. Its menu is the strip plus's
 /// (a terminal, a browser, an agent chat, … in this pane), then Split Right, Split Down, the shown
 /// tab's own actions and Toggle Pane Zoom. A chat's pane has none: its header has its own (acpmux
-/// header/ChatHeaderTools.tsx). `tabs.hiddenButtons` hid buttons from the old row, which put them
-/// under "…"; every action is under "…" now, so it no longer applies.
+/// header/ChatHeaderTools.tsx).
 @MainActor
 final class PaneToolbar {
     /// What the selected tab is, for its own actions; nil is a chat: no "…".
