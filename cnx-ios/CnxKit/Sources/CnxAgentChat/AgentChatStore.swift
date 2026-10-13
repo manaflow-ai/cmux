@@ -231,9 +231,19 @@ public final class AgentChatStore {
                 turn.endedAt = at
                 turn.errorText = errorText
                 for index in turn.items.indices {
-                    if case .tool(var call) = turn.items[index], call.isRunning {
+                    switch turn.items[index] {
+                    case .tool(var call) where call.isRunning:
                         call.status = status == .completed ? .completed : .failed
                         turn.items[index] = .tool(call)
+                    // Requests the turn no longer waits on stop looking live.
+                    case .question(var question) where question.isPending:
+                        question.state = .cancelled
+                        turn.items[index] = .question(question)
+                    case .permission(var record) where record.resolution == nil:
+                        record.resolution = .cancelled
+                        turn.items[index] = .permission(record)
+                    default:
+                        break
                     }
                 }
             }
