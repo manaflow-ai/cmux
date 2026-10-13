@@ -843,7 +843,10 @@ pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }
-    std::env::vars_os().map(|(k, _)| k).filter(|k| is_nested_claude_key(&k.to_string_lossy())).collect()
+    std::env::vars_os()
+        .map(|(k, _)| k)
+        .filter(|k| is_nested_claude_key(&k.to_string_lossy()))
+        .collect()
 }
 
 /// Same, for tokio's process builder.

@@ -86,7 +86,12 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
 /// The sign-in sources `env` gives Claude Code. `keychain`: also ask the
 /// keychain (one `security` call, item attributes only, no secret).
 pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
-    let user_home = env.get("HOME").filter(|h| !h.is_empty()).map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let user_home = env
+        .get("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .unwrap_or_default();
     let custom = env.get("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty());
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
     let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
@@ -110,14 +115,19 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
         let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
         let at = tilde(&file);
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
-            let has = |k: &str| senv.get(k).is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()) || v.is_boolean() || v.is_number());
+            let has = |k: &str| {
+                senv.get(k).is_some_and(|v| {
+                    v.as_str().is_some_and(|s| !s.is_empty()) || v.is_boolean() || v.is_number()
+                })
+            };
             for (key, _) in PROVIDER_KEYS.iter().chain(TOKEN_KEYS.iter()) {
                 if has(key) && !found.env_keys.iter().any(|k| k == key) {
                     found.sources.push(format!("{key} in {at}"));
                 }
             }
             if found.endpoint.is_none()
-                && let Some(url) = senv.get(BASE_URL).and_then(|v| v.as_str()).filter(|v| !v.is_empty())
+                && let Some(url) =
+                    senv.get(BASE_URL).and_then(|v| v.as_str()).filter(|v| !v.is_empty())
             {
                 found.endpoint = Some(endpoint_host(url));
             }
@@ -129,7 +139,9 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
         }
     }
     if home.join(".credentials.json").is_file() {
-        found.sources.push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
+        found
+            .sources
+            .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
     if keychain && !found.signed_in() && keychain_item(custom.map(String::as_str)) {
         found.sources.push(if found.custom_home {
@@ -151,7 +163,8 @@ fn keychain_item(config_dir: Option<&str>) -> bool {
     let service = match config_dir {
         None => "Claude Code-credentials".to_owned(),
         Some(dir) => {
-            let hex: String = Sha256::digest(dir.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+            let hex: String =
+                Sha256::digest(dir.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
             format!("Claude Code-credentials-{}", &hex[..8])
         }
     };
@@ -230,7 +243,8 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     if !is_sign_in_failure(original) || original.starts_with("Claude is not signed in here") {
         return None;
     }
-    let agent_env = SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
+    let agent_env =
+        SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
     let agent = find(&agent_env, true);
     let terminal_env = terminal_env();
     let terminal = find(&terminal_env, true);
@@ -266,7 +280,10 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
             with_endpoint(agent)
         ));
     } else {
-        out.push_str(&format!(" This agent found no sign-in (Claude home {}).", tilde(&agent.home)));
+        out.push_str(&format!(
+            " This agent found no sign-in (Claude home {}).",
+            tilde(&agent.home)
+        ));
     }
     if terminal.signed_in() {
         out.push_str(&format!(
@@ -278,7 +295,8 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
         out.push_str(" Your terminal has no Claude sign-in either.");
     }
     let fix = if agent.signed_in() {
-        "Run `claude /login` in a terminal, or check that key, then send the message again.".to_owned()
+        "Run `claude /login` in a terminal, or check that key, then send the message again."
+            .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
         format!(
             "This agent uses the Claude home {}, your terminal uses {}. Remove CLAUDE_CONFIG_DIR from this agent's profile, or sign in for that home with `CLAUDE_CONFIG_DIR={} claude /login`, then send the message again.",

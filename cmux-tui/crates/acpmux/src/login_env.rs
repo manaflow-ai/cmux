@@ -149,7 +149,8 @@ pub fn begin() -> Plan {
 /// Run the login shell once (bounded by `TIMEOUT`) and remember its
 /// environment. Returns true when the children's environment changed.
 pub async fn import() -> bool {
-    let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
+    let shell =
+        std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let started = Instant::now();
     let before = pairs();
     let output = run_shell(&shell).await;
@@ -195,7 +196,8 @@ pub fn refresh_if_changed() {
         st.last_check = Some(Instant::now());
     }
     let now = fingerprint();
-    let changed = STATE.read().unwrap_or_else(|e| e.into_inner()).fingerprint.as_deref() != Some(&now);
+    let changed =
+        STATE.read().unwrap_or_else(|e| e.into_inner()).fingerprint.as_deref() != Some(&now);
     if !changed || REFRESHING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -301,7 +303,10 @@ pub fn var(key: &str) -> Option<String> {
 /// Keys the import adds on top of the daemon's environment.
 pub fn imported_keys() -> Vec<String> {
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
-    st.imported.as_ref().map(|i| i.vars.iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default()
+    st.imported
+        .as_ref()
+        .map(|i| i.vars.iter().map(|(k, _)| k.clone()).collect())
+        .unwrap_or_default()
 }
 
 /// Secret variable names the login shell sets whose values this process
@@ -498,13 +503,12 @@ fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
 /// size and mtime of each (absent ones count too), plus the shell itself.
 fn fingerprint() -> String {
     use sha2::{Digest, Sha256};
-    let home = std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let home =
+        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     let zdot = std::env::var_os("ZDOTDIR").map(PathBuf::from).unwrap_or_else(|| home.clone());
     let shell = std::env::var("SHELL").unwrap_or_default();
-    let mut files: Vec<PathBuf> = [".zshenv", ".zprofile", ".zshrc", ".zlogin"]
-        .iter()
-        .map(|f| zdot.join(f))
-        .collect();
+    let mut files: Vec<PathBuf> =
+        [".zshenv", ".zprofile", ".zshrc", ".zlogin"].iter().map(|f| zdot.join(f)).collect();
     for f in [
         ".bash_profile",
         ".bash_login",
@@ -523,7 +527,9 @@ fn fingerprint() -> String {
     ] {
         files.push(home.join(f));
     }
-    for f in ["/etc/zshenv", "/etc/zprofile", "/etc/zshrc", "/etc/profile", "/etc/bashrc", "/etc/paths"] {
+    for f in
+        ["/etc/zshenv", "/etc/zprofile", "/etc/zshrc", "/etc/profile", "/etc/bashrc", "/etc/paths"]
+    {
         files.push(PathBuf::from(f));
     }
     files.push(PathBuf::from(&shell));

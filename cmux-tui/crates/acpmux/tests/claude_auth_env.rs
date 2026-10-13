@@ -162,10 +162,18 @@ async fn ask(d: &Daemon, harness: &str) -> (Result<Value, String>, Value) {
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let answer = rpc
-        .answer("session/prompt", json!({"sessionId": id, "prompt": [{"type": "text", "text": "auth?"}]}))
+        .answer(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "auth?"}]}),
+        )
         .await;
-    let events = rpc.call("_acpmux/events", json!({"sessionId": id, "kinds": ["turn_result"]})).await;
-    let turn = events["events"].as_array().and_then(|e| e.last()).map(|e| e["msg"].clone()).unwrap_or_default();
+    let events =
+        rpc.call("_acpmux/events", json!({"sessionId": id, "kinds": ["turn_result"]})).await;
+    let turn = events["events"]
+        .as_array()
+        .and_then(|e| e.last())
+        .map(|e| e["msg"].clone())
+        .unwrap_or_default();
     if let Some(e) = answer.get("error") {
         return (Err(e["message"].as_str().unwrap_or_default().to_owned()), turn);
     }
@@ -193,7 +201,9 @@ fn found(reply: &Result<Value, String>) -> &Value {
 async fn a_route_only_in_the_login_shell_reaches_the_agent() {
     let dir = scratch(
         "sr",
-        &format!("export ANTHROPIC_BASE_URL={SUBROUTER}\nexport ANTHROPIC_AUTH_TOKEN=ignored-by-router\n"),
+        &format!(
+            "export ANTHROPIC_BASE_URL={SUBROUTER}\nexport ANTHROPIC_AUTH_TOKEN=ignored-by-router\n"
+        ),
     );
     let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
     let (reply, _) = ask(&d, "claude").await;
@@ -209,7 +219,9 @@ async fn a_route_only_in_the_login_shell_reaches_the_agent() {
 async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
     let dir = scratch(
         "nest",
-        &format!("export ANTHROPIC_BASE_URL={SUBROUTER}\nexport ANTHROPIC_AUTH_TOKEN=ignored-by-router\n"),
+        &format!(
+            "export ANTHROPIC_BASE_URL={SUBROUTER}\nexport ANTHROPIC_AUTH_TOKEN=ignored-by-router\n"
+        ),
     );
     let d = start(
         &dir,
@@ -234,7 +246,8 @@ async fn an_api_key_helper_on_the_login_path_signs_in() {
     let dir = scratch("helper", "export PATH=\"$HOME/bin:$PATH\"\n");
     std::fs::create_dir_all(dir.join("home/bin")).unwrap();
     write_executable(&dir.join("home/bin/team-key"), "#!/bin/sh\necho sk-from-helper\n");
-    std::fs::write(dir.join("home/.claude/settings.json"), r#"{"apiKeyHelper": "team-key"}"#).unwrap();
+    std::fs::write(dir.join("home/.claude/settings.json"), r#"{"apiKeyHelper": "team-key"}"#)
+        .unwrap();
     let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
     let (reply, _) = ask(&d, "claude").await;
     assert_eq!(found(&reply)["auth"], json!(["apiKeyHelper"]));
@@ -281,7 +294,8 @@ async fn a_claude_only_on_the_login_path_starts() {
         &shims.join("claude"),
         &format!("#!/bin/sh\nexec env FAKE_CLAUDE_VIA=mise-shim python3 {FAKE_CLAUDE} \"$@\"\n"),
     );
-    let harness = json!({"argv": ["claude"], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_AUTH": "1"}});
+    let harness =
+        json!({"argv": ["claude"], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_AUTH": "1"}});
     let d = start(&dir, json!({"claude": harness}), &[]).await;
     let (reply, _) = ask(&d, "claude").await;
     let v = found(&reply);
@@ -318,17 +332,15 @@ async fn an_agent_on_another_claude_home_names_both_homes() {
     let dir = scratch("home", "export EDITOR=vi\n");
     std::fs::write(
         dir.join("home/.claude/settings.json"),
-        format!(r#"{{"env": {{"ANTHROPIC_BASE_URL": "{SUBROUTER}", "ANTHROPIC_AUTH_TOKEN": "x"}}}}"#),
+        format!(
+            r#"{{"env": {{"ANTHROPIC_BASE_URL": "{SUBROUTER}", "ANTHROPIC_AUTH_TOKEN": "x"}}}}"#
+        ),
     )
     .unwrap();
     std::fs::create_dir_all(dir.join("home/.chief/claude")).unwrap();
     let chief_home = dir.join("home/.chief/claude");
-    let d = start(
-        &dir,
-        json!({"claude": claude(json!({"CLAUDE_CONFIG_DIR": chief_home}))}),
-        &[],
-    )
-    .await;
+    let d =
+        start(&dir, json!({"claude": claude(json!({"CLAUDE_CONFIG_DIR": chief_home}))}), &[]).await;
     let (reply, _) = ask(&d, "claude").await;
     let Err(text) = reply else { panic!("signed in on an empty home: {reply:?}") };
     for part in [
@@ -348,7 +360,8 @@ async fn an_agent_on_another_claude_home_names_both_homes() {
 async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let rc = "echo run >> \"$HOME/shell-runs\"\nexport ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport TEAM_ROUTE_NAME=plain-value\n";
     let dir = scratch("cache", rc);
-    let runs = || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    let runs =
+        || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
     {
         let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
         let (reply, _) = ask(&d, "claude").await;
@@ -364,7 +377,11 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777, 0o600);
     // No secret: the next start uses the cache and never runs the shell.
-    std::fs::write(dir.join("home/.fakerc"), "echo run >> \"$HOME/shell-runs\"\nexport TEAM_ROUTE_NAME=plain-value\n").unwrap();
+    std::fs::write(
+        dir.join("home/.fakerc"),
+        "echo run >> \"$HOME/shell-runs\"\nexport TEAM_ROUTE_NAME=plain-value\n",
+    )
+    .unwrap();
     {
         let _d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -384,7 +401,9 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
 async fn a_hung_login_shell_holds_agents_at_most_three_seconds() {
     let dir = scratch("hang", "sleep 30\nexport ANTHROPIC_API_KEY=never\n");
     let started = Instant::now();
-    let d = start(&dir, json!({"claude": claude(json!({"ANTHROPIC_API_KEY": "from-profile"}))}), &[]).await;
+    let d =
+        start(&dir, json!({"claude": claude(json!({"ANTHROPIC_API_KEY": "from-profile"}))}), &[])
+            .await;
     let (reply, _) = ask(&d, "claude").await;
     let elapsed = started.elapsed();
     assert_eq!(found(&reply)["auth"], json!(["ANTHROPIC_API_KEY"]));
