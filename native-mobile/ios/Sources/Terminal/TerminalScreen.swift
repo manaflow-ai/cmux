@@ -89,6 +89,13 @@ struct TerminalScreen: View {
             NavigationStack {
                 if let services = connection.services, let cwd = liveTab.cwd {
                     DiffScreen(cwd: cwd, services: services)
+                        // Like the Files sheet: a glass X, not only the grabber.
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button(String(localized: "Close"), systemImage: "xmark") { showDiff = false }
+                                    .accessibilityIdentifier("diff.close")
+                            }
+                        }
                 }
             }
             .presentationDragIndicator(.visible)
