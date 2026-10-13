@@ -10,7 +10,7 @@ import Testing
 /// emoji, an SF Symbol name or a stored image or SVG asset of the home daemon. The daemon's record
 /// carries it into the app's tree, the bookmarks bar and the manager page draw it in place of the
 /// folder symbol (the folder symbol stands in while a stored asset loads), and Set/Remove Folder
-/// Icon are bookmark actions for the palette, the right-click menus, the CLI and MCP.
+/// Icon are bookmark actions for the right-click menus, the CLI and MCP.
 @MainActor @Suite(.serialized)
 struct BookmarkFolderIconTests {
     static let asset = "svg:sha256-" + String(repeating: "e", count: 64)

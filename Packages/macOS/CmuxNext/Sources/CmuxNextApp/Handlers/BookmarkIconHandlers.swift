@@ -5,8 +5,8 @@ import Foundation
 
 /// Set and remove a bookmark folder's icon (`bookmark-icon-v1`, cx-qno.11.3):
 /// the shared icon string, the same rule as workspace group icons. An icon
-/// argument (CLI, MCP, scripts) sets it; without one (palette, the bar's and
-/// the manager page's right-click menus) the shared icon picker opens beside
+/// argument (CLI, MCP, scripts) sets it; without one (the bar's and the
+/// manager page's right-click menus) the shared icon picker opens beside
 /// the folder and its pick takes the same path. Every change goes through
 /// `IconHistory`, so a user's change offers an undo. Bookmarks live in the
 /// home daemon, which takes the change and stores an image or SVG pick.
@@ -45,9 +45,20 @@ enum BookmarkIconHandlers {
         ActionTargetVisibility.hide("bookmark.clearIcon", in: registry) { (quietFolder($0, resolver)?.icon ?? "").isEmpty }
     }
 
-    /// The folder an invocation names; refuses a URL bookmark (only a folder has an icon).
-    private static func folder(_ invocation: ActionInvocation, _ resolver: BookmarkResolver) throws -> BookmarkNode {
-        let node = try resolver.node(invocation, profile: resolver.profile(invocation))
+    /// The folder an invocation names: a folder id or title (first in tree order) ahead of the
+    /// bookmark matching the shared resolver uses, else that; refuses a URL bookmark (only a
+    /// folder has an icon).
+    static func folder(_ invocation: ActionInvocation, _ resolver: BookmarkResolver) throws -> BookmarkNode {
+        let profile = resolver.profile(invocation)
+        if invocation.target?.kind != .bookmark,
+           let text = invocation["bookmark"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
+            let tree = resolver.services.bookmarks.tree(profile), folded = text.lowercased()
+            if let folder = tree.node(text) ?? tree.ordered.first(where: { $0.isFolder && $0.title.lowercased() == folded }),
+               folder.isFolder {
+                return folder
+            }
+        }
+        let node = try resolver.node(invocation, profile: profile)
         guard node.isFolder else { throw ActionFailure(message: BookmarkAppStrings.notFolder) }
         return node
     }

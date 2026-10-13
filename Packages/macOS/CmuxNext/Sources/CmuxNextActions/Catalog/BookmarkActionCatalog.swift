@@ -77,13 +77,13 @@ nonisolated enum BookmarkActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "bookmark.setIcon", title: t("action.bookmark.setIcon", "Set Bookmark Folder Icon…"),
                 keywords: ["bookmark", "folder", "icon", "emoji", "symbol"], category: .browser, symbol: "face.smiling",
-                surfaces: [.palette, .contextMenu], arguments: [query, CatalogArgument.iconString.optional], targets: [.bookmark],
+                surfaces: [.contextMenu], arguments: [query, CatalogArgument.iconString.optional], targets: [.bookmark],
                 cliName: "bookmark set-icon"
             ),
             ActionDescriptor(
                 id: "bookmark.clearIcon", title: t("action.bookmark.clearIcon", "Remove Bookmark Folder Icon"),
                 keywords: ["bookmark", "folder", "icon", "emoji", "symbol", "reset"], category: .browser, symbol: "xmark.circle",
-                surfaces: [.palette, .contextMenu], arguments: [query], targets: [.bookmark], cliName: "bookmark clear-icon"
+                surfaces: [.contextMenu], arguments: [query], targets: [.bookmark], cliName: "bookmark clear-icon"
             ),
             ActionDescriptor(
                 id: "bookmark.move", title: t("action.bookmark.move", "Move Bookmark…"),
