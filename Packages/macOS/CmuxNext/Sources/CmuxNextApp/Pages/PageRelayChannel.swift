@@ -130,10 +130,17 @@ final class PageRelayChannel {
                         if connectedBefore { self.resync() }
                         connectedBefore = true
                     case .unknown(name: "overflow", payload: _):
-                        // The daemon ended the stream: subscribe again, then re-read.
+                        // The daemon ended the stream: subscribe again, then re-read, so no
+                        // change falls between the re-read and the new stream.
                         // task-owner: one subscribe request with the control deadline
-                        Task { _ = try? await connection?.request(SubscribeRequest(treeEvents: .coarse)) }
-                        self.resync()
+                        Task { [weak self] in
+                            do {
+                                _ = try await connection?.request(SubscribeRequest(treeEvents: .coarse))
+                                self?.resync()
+                            } catch {
+                                Self.logger.warning("page relay resubscribe failed: \(String(describing: error), privacy: .public)")
+                            }
+                        }
                     case .unknown(let name, var payload):
                         if case .object(var members) = payload {
                             members.removeValue(forKey: "event")
@@ -176,9 +183,12 @@ final class PageRelayChannel {
         let connection = try await task.value
         // A relay that dropped and was replaced stops reconnecting, so only one connection
         // carries this page's id and events.
-        await relay?.close()
+        let replaced = relay
+        await replaced?.close()
         relay = connection
         pumpEvents(connection)
+        // Events while the old connection was down are lost: the pages re-read.
+        if replaced != nil { resync() }
         return connection
     }
 

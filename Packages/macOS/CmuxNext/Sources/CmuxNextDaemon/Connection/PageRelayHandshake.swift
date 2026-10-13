@@ -30,12 +30,14 @@ enum PageRelayHandshake {
             let reply = try WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: hello[0].get().line)
             configuration.relayIdentity?.connectionID = reply.connectionId
             configuration.relayIdentity?.gestureOperations = Set(reply.pageOperations?.gesture ?? [])
-            let events = reply.pageEvents ?? []
-            configuration.relayIdentity?.events = Set(events)
+            var events = Set(reply.pageEvents ?? [])
             if !events.isEmpty {
+                // A refused or failed subscribe leaves the page without live events, never
+                // without its calls.
                 let subscribed = await transport.pipeline([PipelinedLine(SubscribeRequest(treeEvents: .coarse))], timeout: timeout)
-                _ = try WireCoding.decodeResponse(EmptyResponse.self, from: subscribed[0].get().line)
+                if (try? WireCoding.decodeResponse(EmptyResponse.self, from: subscribed[0].get().line)) == nil { events = [] }
             }
+            configuration.relayIdentity?.events = events
             return identity
         } catch {
             transport.close()

@@ -55,6 +55,8 @@ pub(super) fn subscribe_command(
     // A page relay hears only its page's events (page-router.json `events`;
     // client_hello admits its `subscribe` only when there are some).
     let page_events = super::origin_gate::page_relay_events(mux, client);
+    // Its events are never tree deltas: render none only to drop them.
+    let tree_deltas = tree_deltas && page_events.is_none();
     let pending_pairings = if trusted_pairing_client && page_events.is_none() {
         mux.pending_pairings()
     } else {

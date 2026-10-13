@@ -1,9 +1,10 @@
 //! `client-hello` step 1 (plans/cmux-next/request-origin.md, "Hello and
 //! capability"): `{cmd: "client-hello", role: "main"|"page_relay",
 //! install_id?, page?}` -> `{connection_id, user_origin_allowed, nonce?,
-//! page?, page_operations?}`. `page` (page relays only, `page-router-v1`)
-//! names the page the relay serves; the reply carries that page's allow
-//! list from spec/page-router.json.
+//! page?, page_operations?, page_events?}`. `page` (page relays only,
+//! `page-router-v1`) names the page the relay serves; the reply carries that
+//! page's allow list and the events it hears (`page-events-v1`) from
+//! spec/page-router.json.
 //!
 //! The hello is accepted only as a connection's first line, or as its second
 //! line right after exactly one `identify`; any other line first (a second
@@ -25,8 +26,11 @@
 //! A page relay connection carries only `cmux.protocol/2` requests (pages
 //! speak nothing else through the relay). Every other line on it is refused
 //! with `origin.forbidden {required: "agent", derived: "page"}` (default
-//! deny), except `identify` and a (late, so refused) `client-hello`. This
-//! keeps every legacy command, `subscribe` included, away from page JS.
+//! deny), except `identify`, a (late, so refused) `client-hello`, and a
+//! plain `subscribe` when its page hears events (`page-events-v1`; the
+//! stream then carries only those events, cmd_subscribe.rs). This keeps
+//! every other legacy command away from page JS; page JS never sends the
+//! `subscribe` (the host does, in its relay handshake).
 
 use cmux_link::app_caller::PeerToken;
 use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
