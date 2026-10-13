@@ -180,6 +180,24 @@ ${tooltips}`,
         });
       }
 
+      // Leo 10-13 (coherence pass): one elevation for every menu and popover. The New Tab
+      // suggestions cast a deeper, darker shadow of their own than the menus opened from the same
+      // box, so the two read as different layers.
+      test("every menu and popover in the agent pane casts the one popup elevation", async () => {
+        const page = await open(browser, pane);
+        const look = (id: string) =>
+          page.$eval(`#${id}`, (node) => {
+            const style = getComputedStyle(node);
+            return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+          });
+        const want = await look("context-menu");
+        const ids = pane.surfaces.filter((id) => id !== "title-tooltip");
+        const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
+        for (const id of ids) seen[id] = await look(id);
+        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        await page.close();
+      });
+
       test("the web tooltips match the native tooltip", async () => {
         for (const fixture of [pages, pane]) {
           const page = await open(browser, fixture);
