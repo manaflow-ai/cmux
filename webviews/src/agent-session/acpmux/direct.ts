@@ -1986,6 +1986,17 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/markUnread", { sessionId });
   }
+  /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
+  /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
+  /// install from the Harnesses page).
+  async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const reply = await this.request("_acpmux/harness/health", {
+      ...(options.refresh ? { refresh: true } : {}),
+      ...(options.rescan ? { rescan: true } : {}),
+    });
+    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {

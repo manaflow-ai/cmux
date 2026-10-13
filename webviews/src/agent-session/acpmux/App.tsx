@@ -2098,11 +2098,23 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
-  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
-  // another machine or in the cloud gets none (its CLI is not this Mac's).
+  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
+  // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
+  /// it by that name); `{}` for a chat on another machine, whose CLIs are not this Mac's.
+  const readHarnessHealth = async (params: Record<string, unknown>): Promise<{ health?: HarnessHealth | null }> => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("error.notOpen"));
+    if (!healthLocal) return {};
+    const row = await client.harnessHealth(String(params.id ?? ""), {
+      refresh: params.refresh === true,
+      rescan: params.rescan === true,
+    });
+    return { health: (row as HarnessHealth | undefined) ?? null };
+  };
   // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
   const healthStale = useRef(false);
   const [healthRecheck, setHealthRecheck] = useState(0);
@@ -2129,11 +2141,8 @@ function AcpmuxPane() {
     // Only the fetch a recheck started asks acpmux to check again.
     const refresh = healthRecheck !== healthRechecked.current;
     healthRechecked.current = healthRecheck;
-    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
-      id: healthHarness,
-      ...(refresh ? { refresh: true } : {}),
-    })
-      .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
+    void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
+      .then((reply) => live && setHarnessHealth(reply.health ?? undefined))
       .catch(() => undefined);
     return () => {
       live = false;
@@ -4597,7 +4606,9 @@ function AcpmuxPane() {
               catalog={pickerCatalog}
               acpmux={snapshot.catalog}
               {...(harnessFolder ? { cwd: harnessFolder } : {})}
-              callNative={callNative}
+              callNative={(method, params = {}) =>
+                method === "harness.health" ? readHarnessHealth(params) : callNative(method, params)
+              }
               checking={harnessesChecking}
               refreshCatalog={pickerState.refresh}
               onClose={() => setHarnessesOpen(false)}

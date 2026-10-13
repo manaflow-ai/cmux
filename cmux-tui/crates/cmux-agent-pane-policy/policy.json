@@ -11,7 +11,8 @@
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
-    "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread"
+    "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
+    "_acpmux/harness/health"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -74,6 +75,7 @@
     "_acpmux/secret_submit": {"params": ["sessionId", "secretId", "value"], "acpmux": []},
     "_acpmux/archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/markUnread": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/harness/health": {"params": ["refresh", "rescan"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},

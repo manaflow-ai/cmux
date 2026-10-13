@@ -10,7 +10,8 @@
 //! process it chooses. The local app may `remove`, `restore` (recoverable),
 //! read the `registry` and ask for `health`, which runs only the configured
 //! harnesses' `--version` and `auth.check`, as the daemon does every few
-//! hours; Web and peer may call none of them. The daemon cannot see
+//! hours; a Web page may read `health` as last checked (nothing runs); peer
+//! may call none of them. The daemon cannot see
 //! gestures; the app's host calls add and doctor over the unix socket only
 //! from a user's action.
 //! After a change the catalog reloads and `_acpmux/watch` connections get
@@ -65,6 +66,20 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params(
             "adding or checking a harness runs a program: only the unix socket may ask for it",
         ));
+    }
+    // A plain browser page on the listener (Web, never a peer) may read the
+    // last health rows: no refresh, no latest-version check, no auto-update
+    // choice, and no first check (each of those runs the harnesses' CLIs).
+    // Decided by the chief 2026-10-13 for the agent pane's dev host (cx-jlzsf).
+    if origin == Origin::Web && m == method::MUX_HARNESS_HEALTH {
+        let asks =
+            |key: &str| params.get(key).is_some_and(|v| !v.is_null() && *v != Value::Bool(false));
+        if ["refresh", "rescan", "checkLatest", "autoUpdate"].iter().any(|key| asks(key)) {
+            return Err(RpcError::invalid_params(
+                "a remote WebSocket connection reads harness health only as last checked (no refresh, rescan, checkLatest or autoUpdate)",
+            ));
+        }
+        return Ok(json!({"harnesses": hub.health.rows()}));
     }
     if origin.web_class() {
         return Err(RpcError::invalid_params(
