@@ -217,10 +217,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     @objc private func handleTap(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: collectionView)
         guard tapMayOpenItem(tap) else { return }
-        if photoDrawer != nil {
-            dismissPhotoDrawer()
-            return
-        }
+        // Messages keeps the Photos drawer up through taps on the transcript,
+        // which do nothing while it is open (not even open a photo); the drawer
+        // closes from its own drag, the field or the plus button.
+        if photoDrawer != nil { return }
         // A tap away from selected bubble text clears it, and does nothing else.
         if textSelection != nil {
             if !touchBelongsToTextSelection(point) { endTextSelection() }
