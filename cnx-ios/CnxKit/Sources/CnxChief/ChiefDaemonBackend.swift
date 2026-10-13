@@ -1,5 +1,6 @@
 import CmuxConversationCore
 import CnxTransport
+import CryptoKit
 import Foundation
 
 /// The real Chief: the cmux-tui local conversation owner, reached through a
@@ -9,7 +10,7 @@ import Foundation
 /// `conversation-history`, writes with `conversation-op`, and turns
 /// `conversation-changed` / `conversation-typing` events into store events.
 /// A `rev` gap means events were missed: the store is told to refetch.
-public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable {
+public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Sendable {
     let core: Core
 
     public init(client: DaemonClient, identity: ChiefIdentity = .standard, conversationID: String? = nil) {
@@ -33,9 +34,7 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
     }
 
     public func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
-        var op: [String: Any] = ["kind": "message.send", "client_msg_id": draft.clientMessageID, "parts": [["type": "text", "text": draft.text]]]
-        if let reply = draft.replyToID { op["reply_to"] = ["message_id": reply, "part_index": 0] }
-        return try await core.op(op, idempotencyKey: draft.clientMessageID)
+        try await core.send(draft)
     }
 
     public func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
@@ -58,9 +57,18 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
         await core.markRead(upToSeq)
     }
 
+    /// `conversation-attachment-upload` (capability `local-attachments-v1`):
+    /// begin by SHA-256, send 2 MiB chunks, commit. The message names the
+    /// stored hash in an `attachment` part.
     public func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
-        // `conversation-attachment-upload` (local-attachments-v1) is not on the hostd allowlist yet.
-        throw ConversationBackendError(code: -32601, message: "attachments are not available over the link yet")
+        let size = ChiefImageSize(data: data)
+        let ext = mimeType == "image/png" ? "png" : mimeType == "image/heic" ? "heic" : "jpg"
+        return try await core.upload(data, mimeType: mimeType, name: "IMG_\(Int(Date().timeIntervalSince1970)).\(ext)",
+                                     width: size.width, height: size.height, file: nil)
+    }
+
+    public func uploadFileAttachment(_ data: Data, info: ConversationFileInfo) async throws -> ConversationAttachment {
+        try await core.upload(data, mimeType: info.mimeType, name: info.name, width: nil, height: nil, file: info)
     }
 
     public func close() {
@@ -80,6 +88,12 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
         /// Messages seen, by id: my current tapback (to replace it) and receipts.
         private var known: [String: ConversationMessage] = [:]
         private var readTask: Task<Void, Never>?
+        /// Uploaded attachments by the id the store holds, as message parts.
+        private var uploadedParts: [String: [String: Any]] = [:]
+        /// Attachment bytes by hash: uploaded here or read once with `conversation-attachment-read`.
+        private var attachmentBytes: [String: Data] = [:]
+        /// 2 MiB: base64 keeps each line under the link's 4 MiB line cap.
+        static let chunkBytes = 2 * 1024 * 1024
 
         init(client: DaemonClient, identity: ChiefIdentity, conversationID: String?) {
             self.client = client
@@ -128,11 +142,78 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
             return id
         }
 
+        func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+            var parts: [[String: Any]] = draft.attachmentIDs.compactMap { uploadedParts[$0] }
+            if !draft.text.isEmpty || parts.isEmpty { parts.append(["type": "text", "text": draft.text]) }
+            var op: [String: Any] = ["kind": "message.send", "client_msg_id": draft.clientMessageID, "parts": parts]
+            if let reply = draft.replyToID { op["reply_to"] = ["message_id": reply, "part_index": 0] }
+            return try await self.op(op, idempotencyKey: draft.clientMessageID)
+        }
+
+        func upload(_ data: Data, mimeType: String, name: String, width: Int?, height: Int?, file: ConversationFileInfo?) async throws -> ConversationAttachment {
+            let id = try await resolve()
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            var begin: [String: Any] = [
+                "op": "begin", "conversation": id, "sha256": hash, "byte_count": data.count,
+                "mime_type": mimeType, "name": name,
+            ]
+            if let width, width > 0 { begin["width"] = width }
+            if let height, height > 0 { begin["height"] = height }
+            let started = try await call("conversation-attachment-upload", begin)
+            if let upload = started["upload"] as? String {
+                var offset = 0
+                repeat {
+                    let piece = data.subdata(in: offset..<min(data.count, offset + Self.chunkBytes))
+                    _ = try await call("conversation-attachment-upload", [
+                        "op": "chunk", "upload": upload, "piece": "original", "offset": offset,
+                        "data": piece.base64EncodedString(),
+                    ])
+                    offset += piece.count
+                } while offset < data.count
+                _ = try await call("conversation-attachment-upload", ["op": "commit", "upload": upload])
+            }
+            attachmentBytes[hash] = data
+            var part: [String: Any] = [
+                "type": "attachment", "hash": hash, "name": name, "mime_type": mimeType, "byte_count": data.count,
+            ]
+            if let width, width > 0 { part["width"] = width }
+            if let height, height > 0 { part["height"] = height }
+            let attachment = wire.attachment(part, bytes: data) ?? ConversationAttachment(
+                id: "att:\(hash)", kind: .file, width: 0, height: 0, url: nil, localData: data, file: file
+            )
+            uploadedParts[attachment.id] = part
+            return attachment
+        }
+
+        /// Reads the bytes of every attachment part not seen yet, so the
+        /// message renders from them (the owner serves no URL).
+        private func hydrate(_ object: [String: Any]) async {
+            guard let id = conversationID else { return }
+            for part in object["parts"] as? [[String: Any]] ?? [] where part["type"] as? String == "attachment" {
+                guard let hash = part["hash"] as? String, attachmentBytes[hash] == nil else { continue }
+                var data = Data()
+                while true {
+                    guard let chunk = try? await call("conversation-attachment-read", [
+                        "conversation": id, "hash": hash, "offset": data.count, "length": Self.chunkBytes,
+                    ]), let text = chunk["data"] as? String, let bytes = Data(base64Encoded: text) else { break }
+                    data.append(bytes)
+                    if chunk["eof"] as? Bool ?? true || bytes.isEmpty { break }
+                }
+                if !data.isEmpty { attachmentBytes[hash] = data }
+            }
+        }
+
+        /// A wire message, its attachments' bytes read first.
+        private func decode(_ object: [String: Any]) async -> ConversationMessage? {
+            await hydrate(object)
+            return wire.message(object, peerReadSeq: peerReadSeq, bytes: attachmentBytes)
+        }
+
         func op(_ op: sending [String: Any], idempotencyKey: String = UUID().uuidString) async throws -> ConversationMessage {
             let id = try await resolve()
             let result = try await call("conversation-op", ["conversation": id, "idempotency_key": idempotencyKey, "op": op])
             guard let change = result["change"] as? [String: Any], let object = change["message"] as? [String: Any],
-                  let message = wire.message(object, peerReadSeq: peerReadSeq) else {
+                  let message = await decode(object) else {
                 throw ConversationBackendError(code: -4, message: "conversation-op returned no message")
             }
             remember(message)
@@ -177,7 +258,10 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
                 if let summary = snapshot["conversation"] as? [String: Any] { absorb(summary) }
                 objects = snapshot["messages"] as? [[String: Any]] ?? []
             }
-            let messages = objects.compactMap { wire.message($0, peerReadSeq: peerReadSeq) }
+            var messages: [ConversationMessage] = []
+            for object in objects {
+                if let message = await decode(object) { messages.append(message) }
+            }
             messages.forEach(remember)
             return ConversationHistoryPage(messages: messages, hasMore: (messages.first?.seq ?? 1) > 1)
         }
@@ -249,16 +333,16 @@ public final class ChiefDaemonBackend: ConversationBackend, @unchecked Sendable 
                     return
                 }
                 rev = incoming
-                apply(object["change"] as? [String: Any] ?? [:])
+                await apply(object["change"] as? [String: Any] ?? [:])
             default:
                 break
             }
         }
 
-        private func apply(_ change: [String: Any]) {
+        private func apply(_ change: [String: Any]) async {
             switch change["kind"] as? String {
             case "message", "message-updated":
-                if let object = change["message"] as? [String: Any], let message = wire.message(object, peerReadSeq: peerReadSeq) {
+                if let object = change["message"] as? [String: Any], let message = await decode(object) {
                     yieldMessage(message)
                 }
             case "read-cursor":

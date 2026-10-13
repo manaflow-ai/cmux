@@ -70,6 +70,8 @@ final class MessageCell: UICollectionViewCell {
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
     /// Drawer travel at a full reveal (set per swipe); see `TimestampDrawerRows`.
     var timestampRevealDistance: CGFloat = 58 { didSet { applyShifts() } }
+    /// `ConversationPresentationOptions.incomingRowsFollowTimestampDrawer`.
+    var incomingFollowsTimestampDrawer = false { didSet { applyShifts() } }
     /// Swipe-right reply drag offset in points (the bubble's travel).
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
@@ -350,7 +352,7 @@ final class MessageCell: UICollectionViewCell {
         }
 
         configureAudio(model: model, layout: layout)
-        timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
+        timeLabel.text = ConversationShortTime.text(for: message.sentAt)
         setNeedsLayout()
         applyShifts()
         accessibility.update(model: model, layout: layout)
@@ -487,7 +489,7 @@ final class MessageCell: UICollectionViewCell {
         guard let model else { return }
         let reveal = TimestampDrawerRows.travel(
             isOutgoing: model.isOutgoing,
-            inAvatarTranscript: model.reservesAvatarColumn,
+            inAvatarTranscript: model.reservesAvatarColumn || incomingFollowsTimestampDrawer,
             reveal: timestampReveal * timestampRevealDistance
         )
         shiftable.transform = CGAffineTransform(translationX: replyDrag + selectionShift - reveal, y: 0)
@@ -732,7 +734,7 @@ final class TimestampCell: UICollectionViewCell {
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
-        let time = date.formatted(date: .omitted, time: .shortened)
+        let time = ConversationShortTime.text(for: date)
         let day: String
         // Older than a week, Messages joins the date and time with "at"
         // ("Thu, Sep 24 at 7:18 PM"; device recording, iOS 26).
@@ -830,10 +832,13 @@ final class ConversationStartCell: UICollectionViewCell {
         let text = NSMutableAttributedString(string: title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
-        let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!
+        let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
-        // A ~7 x 9 pt lock on the baseline, as measured for the compose screen.
-        lockAttachment.bounds = CGRect(x: 0, y: -0.5, width: 7, height: 9)
+        // A 9.33 pt tall lock on the baseline at the symbol's own proportions
+        // (Messages 26.5: the glyph is 6 x 8.3 pt; a 7 x 9 pt box squeezed
+        // it to 4.7 x 8 pt).
+        let lockHeight: CGFloat = 28.0 / 3.0
+        lockAttachment.bounds = CGRect(x: 0, y: -0.5, width: lockHeight * lock.size.width / lock.size.height, height: lockHeight)
         let attachment = NSMutableAttributedString(attachment: lockAttachment)
         attachment.addAttributes([.font: ConversationTheme.timestampFont, .paragraphStyle: centered], range: NSRange(location: 0, length: attachment.length))
         text.append(attachment)
@@ -886,9 +891,11 @@ final class TypingCell: UICollectionViewCell {
     /// the transcript. Shifting the bounds origin leaves the content view's
     /// transform to arrival animations.
     var timestampDrawerOffset: CGFloat = 0 { didSet { applyTimestampDrawerOffset() } }
+    /// `ConversationPresentationOptions.incomingRowsFollowTimestampDrawer`.
+    var incomingFollowsTimestampDrawer = false { didSet { applyTimestampDrawerOffset() } }
 
     private func applyTimestampDrawerOffset() {
-        contentView.bounds.origin.x = TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: !avatar.isHidden, reveal: timestampDrawerOffset)
+        contentView.bounds.origin.x = TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: !avatar.isHidden || incomingFollowsTimestampDrawer, reveal: timestampDrawerOffset)
     }
 
     override init(frame: CGRect) {

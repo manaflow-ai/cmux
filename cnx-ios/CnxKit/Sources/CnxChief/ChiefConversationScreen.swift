@@ -10,19 +10,23 @@ public struct ChiefRoute: Hashable, Sendable {
 }
 
 /// The Chief conversation: CmuxConversation's Messages-style
-/// `ConversationViewController` over the shared `ChiefSession` store. It
-/// draws its own glass header (back, avatar, name) and owns the bottom edge,
-/// so the SwiftUI navigation bar and the tab bar are hidden while it is up.
+/// `ConversationViewController` over the shared `ChiefSession` store, pushed
+/// on Home's navigation stack. It draws its own glass header (back, avatar,
+/// name) and owns the bottom edge, so the SwiftUI navigation bar and the tab
+/// bar are hidden while it is up; the header's back button and the system
+/// left-edge swipe both pop it.
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
+    let compose: ChiefComposer?
     @Environment(\.dismiss) private var dismiss
 
-    public init(session: ChiefSession = .shared) {
+    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil) {
         self.session = session
+        self.compose = compose
     }
 
     public var body: some View {
-        ChiefConversationController(session: session, back: { dismiss() })
+        ChiefConversationController(session: session, compose: compose, back: { dismiss() })
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
@@ -38,41 +42,138 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            trailingSymbol: "clock.arrow.circlepath"
+            trailingSymbol: "clock.arrow.circlepath",
+            // Every bubble slides left to show send times, as in the
+            // package's lab host (user feedback: only the blue ones moved).
+            incomingRowsFollowTimestampDrawer: true
         )
     }
 }
 
 struct ChiefConversationController: UIViewControllerRepresentable {
     let session: ChiefSession
+    let compose: ChiefComposer?
     let back: () -> Void
 
-    func makeUIViewController(context: Context) -> ConversationViewController {
-        let controller = ConversationViewController(store: session.store, options: .chief)
-        controller.onBack = back
+    func makeUIViewController(context: Context) -> ChiefConversationContainer {
+        let conversation = ConversationViewController(store: session.store, options: .chief)
+        let container = ChiefConversationContainer(conversation: conversation)
+        configure(conversation)
         #if DEBUG
-        ChiefDemoHook.shared.controller = controller
+        ChiefDemoHook.shared.controller = conversation
         #endif
-        return controller
+        return container
     }
 
-    func updateUIViewController(_ controller: ConversationViewController, context: Context) {
-        controller.onBack = back
+    func updateUIViewController(_ container: ChiefConversationContainer, context: Context) {
+        configure(container.conversation)
+    }
+
+    private func configure(_ conversation: ConversationViewController) {
+        conversation.onBack = back
+        // Select mode's Forward opens New Message with the draft, as in the lab.
+        conversation.onForward = { [compose] draft in
+            compose?.present(forwarding: draft)
+        }
+    }
+}
+
+/// Holds the conversation as a child so the pushed screen keeps the
+/// navigation controller's left-edge swipe back. SwiftUI turns the system
+/// recognizer off while the bar is hidden; this turns it back on while
+/// Chief is up, and makes the transcript's reply swipe wait for it so a drag
+/// from the edge pops instead of quoting the bubble under it.
+public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
+    let conversation: ConversationViewController
+    private weak var popRecognizer: UIGestureRecognizer?
+    private weak var previousPopDelegate: (any UIGestureRecognizerDelegate)?
+
+    init(conversation: ConversationViewController) {
+        self.conversation = conversation
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        addChild(conversation)
+        conversation.view.frame = view.bounds
+        conversation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(conversation.view)
+        conversation.didMove(toParent: self)
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard let navigation = navigationController, let pop = navigation.interactivePopGestureRecognizer else { return }
+        if pop.delegate !== self { previousPopDelegate = pop.delegate }
+        pop.isEnabled = true
+        pop.delegate = self
+        popRecognizer = pop
+        for recognizer in conversation.view.allGestureRecognizersInSubtree()
+        where recognizer is UIPanGestureRecognizer && recognizer !== pop && !(recognizer.view is UIScrollView && recognizer === (recognizer.view as? UIScrollView)?.panGestureRecognizer) {
+            recognizer.require(toFail: pop)
+        }
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // Hand the recognizer back to UIKit's own delegate for the next screen.
+        if let pop = popRecognizer, pop.delegate === self {
+            pop.delegate = previousPopDelegate
+        }
+    }
+
+    public func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer === popRecognizer else { return true }
+        return (navigationController?.viewControllers.count ?? 0) > 1
+    }
+
+    public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        false
+    }
+}
+
+private extension UIView {
+    func allGestureRecognizersInSubtree() -> [UIGestureRecognizer] {
+        (gestureRecognizers ?? []) + subviews.flatMap { $0.allGestureRecognizersInSubtree() }
     }
 }
 
 #if DEBUG
 /// DEBUG: lets the demo driver run CmuxConversation's lab verbs (`send`,
-/// `doubletap`, `react`, ...) on the open Chief conversation, the same
-/// paths its gestures take, and scroll its transcript.
+/// `doubletap`, `react`, `timestamps`, ...) on the open Chief conversation,
+/// the same paths its gestures take, and scroll its transcript.
 @MainActor
 public final class ChiefDemoHook {
     public static let shared = ChiefDemoHook()
     weak var controller: ConversationViewController?
+    /// The open New Message sheet, if any.
+    weak var compose: ConversationComposeViewController?
 
     @discardableResult
     public func lab(_ line: String) -> String {
         controller?.labCommand(line) ?? "error no conversation"
+    }
+
+    /// CmuxConversation's photo lab verbs (`drawer`, `send`, `viewer`, `close`).
+    @discardableResult
+    public func photoLab(_ line: String) -> String {
+        controller?.photoLabCommand(line) ?? "error no conversation"
+    }
+
+    /// New Message's lab verbs (`to`, `pick`, `body`, `send`, ...).
+    @discardableResult
+    public func composeLab(_ line: String) -> String {
+        compose?.labCommand(line) ?? "error no compose"
+    }
+
+    /// Picks a photo as the composer's attachment, as the Photos drawer does.
+    public func attachPhoto(_ image: UIImage) {
+        guard let controller, let data = image.jpegData(compressionQuality: 0.85) else { return }
+        controller.store.send(text: "", images: [(data: data, width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), mimeType: "image/jpeg")])
     }
 
     /// Scrolls the transcript to the top (true) or the bottom (false).

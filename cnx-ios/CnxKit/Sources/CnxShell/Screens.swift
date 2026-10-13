@@ -39,7 +39,12 @@ struct HomeScreen: View {
     var body: some View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
-            ConversationsHome(store: shell.store) {
+            ConversationsHome(store: shell.store, open: { route in
+                switch route {
+                case .chief: shell.homePath.append(ChiefRoute())
+                case let .agent(destination): shell.homePath.append(destination)
+                }
+            }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)
             }
             .agentChatDestinations()

@@ -58,6 +58,8 @@ targets:
         CNXTag: $(CNX_TAG)
         NSCameraUsageDescription: Take a photo to attach to a message for your agent.
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
+        NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
+        NSMicrophoneUsageDescription: Record audio messages for Chief and your agents.
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark

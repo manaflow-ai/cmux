@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Measured against iOS 26 Messages' New Message sheet (402 pt wide iPhone).
@@ -12,7 +13,8 @@ enum ComposeMetrics {
     /// "To:" starts 14 pt inside the capsule; typed text 10 pt after it.
     static let toLeading: CGFloat = 14
     static let toGap: CGFloat = 10
-    /// The + (Add Contact) circle: 32 pt, 9 pt from the capsule's trailing edge.
+    /// The + (Add Contact) button's slot: 32.7 pt, 9 pt from the capsule's
+    /// trailing edge (`ComposeRecipientAddGeometry` centers the symbol in it).
     static let addSize = CGSize(width: 32.7, height: 32)
     static let addTrailing: CGFloat = 9
     /// Token rows: 32 pt pitch, the first centered in the 48 pt capsule.
@@ -177,11 +179,10 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
         }
         glass.contentView.addSubview(textField)
 
-        // Measured: a 13 pt bold plus on a 9% black circle (12% white in dark).
-        addButton.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)), for: .normal)
-        addButton.tintColor = .label
-        addButton.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 0, alpha: 0.09) }
-        addButton.layer.cornerRadius = ComposeMetrics.addSize.height / 2
+        // Messages' plus.circle.fill: label plus over a secondarySystemFill disc.
+        let addConfiguration = UIImage.SymbolConfiguration(textStyle: .title1, scale: .medium)
+            .applying(UIImage.SymbolConfiguration(paletteColors: [.label, .secondarySystemFill]))
+        addButton.setImage(UIImage(systemName: ComposeRecipientAddGeometry.symbolName, withConfiguration: addConfiguration), for: .normal)
         addButton.accessibilityLabel = String(localized: "conversation.compose.addContact", defaultValue: "Add Contact", bundle: .module)
         addButton.accessibilityIdentifier = "conversation.compose.addContact"
         addButton.addAction(UIAction { [weak self] _ in
@@ -324,7 +325,8 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
         textField.frame = CGRect(x: textX, y: lineCenter(line) - 15, width: max(m.textMinWidth, right - textX), height: 30)
         let height = max(m.fieldMinHeight, m.lineTop * 2 + CGFloat(line + 1) * m.lineHeight)
         // The + stays on the last line, as in Messages.
-        addButton.frame = CGRect(x: width - m.addTrailing - m.addSize.width, y: height - m.lineTop - m.addSize.height, width: m.addSize.width, height: m.addSize.height)
+        let addSide = UIFontMetrics(forTextStyle: .title1).scaledValue(for: 98.0 / 3, compatibleWith: traitCollection)
+        addButton.frame = ComposeRecipientAddGeometry.frame(fieldWidth: width, lineBottom: height - m.lineTop, side: addSide)
         return height
     }
 }

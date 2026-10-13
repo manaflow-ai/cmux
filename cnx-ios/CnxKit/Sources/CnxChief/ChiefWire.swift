@@ -61,8 +61,24 @@ struct ChiefWire {
         .joined(separator: "\n")
     }
 
+    /// An `attachment` part as the model's attachment, rendered from `bytes`
+    /// (the owner serves bytes by hash, not by URL).
+    func attachment(_ part: [String: Any], bytes: Data?) -> ConversationAttachment? {
+        guard part["type"] as? String == "attachment", let hash = part["hash"] as? String else { return nil }
+        let mime = part["mime_type"] as? String ?? "application/octet-stream"
+        let name = part["name"] as? String ?? "Attachment"
+        let byteCount = (part["byte_count"] as? NSNumber)?.int64Value ?? Int64(bytes?.count ?? 0)
+        let width = (part["width"] as? NSNumber)?.intValue ?? 0
+        let height = (part["height"] as? NSNumber)?.intValue ?? 0
+        let isImage = mime.hasPrefix("image/")
+        return ConversationAttachment(
+            id: "att:\(hash)", kind: isImage ? .image : .file, width: width, height: height, url: nil, localData: bytes,
+            file: isImage ? nil : ConversationFileInfo(name: name, mimeType: mime, byteCount: byteCount)
+        )
+    }
+
     /// `peerReadSeq`: Chief's read cursor; my messages at or below it read as Read.
-    func message(_ object: [String: Any], peerReadSeq: Int) -> ConversationMessage? {
+    func message(_ object: [String: Any], peerReadSeq: Int, bytes: [String: Data] = [:]) -> ConversationMessage? {
         guard let id = object["id"] as? String, let seq = (object["seq"] as? NSNumber)?.intValue,
               let author = object["author"] as? String else { return nil }
         let parts = object["parts"] as? [[String: Any]] ?? []
@@ -80,6 +96,7 @@ struct ChiefWire {
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
+            attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil
         )
     }

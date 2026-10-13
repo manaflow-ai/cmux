@@ -115,3 +115,35 @@ public enum ConversationTopEdgeGeometry {
         return ramp
     }
 }
+
+extension ConversationHeaderGeometry {
+    /// Landscape iPhone (compact height). Messages (iOS 27.0, iPhone 17 Pro
+    /// Max) shrinks its bar to 54 pt starting 24 pt down (the window's safe
+    /// top is 0 there) and seats a 44 pt avatar with the bold name inline to
+    /// its right, no capsule: name 12 pt after the avatar, the compact
+    /// chevron 4 pt after the name, 8 pt of trailing padding, the group
+    /// centered and on the avatar's center line.
+    public struct CompactLayout: Equatable, Sendable {
+        public var barTop: CGFloat
+        public var barHeight: CGFloat
+        public var avatar: CGRect
+        public var name: CGRect
+        public var chevron: CGRect
+    }
+
+    public static let compactBarTop: CGFloat = 24
+    public static let compactBarHeight: CGFloat = 54
+    public static let compactAvatarSize: CGFloat = 44
+    public static let compactNameGap: CGFloat = 12
+    public static let compactChevronGap: CGFloat = 4
+    public static let compactTrailingPadding: CGFloat = 8
+
+    public static func compactLayout(width: CGFloat, safeTop: CGFloat, nameSize: CGSize, chevronSize: CGSize) -> CompactLayout {
+        let top = max(safeTop, compactBarTop)
+        let groupWidth = compactAvatarSize + compactNameGap + nameSize.width + compactChevronGap + chevronSize.width + compactTrailingPadding
+        let avatar = CGRect(x: width / 2 - groupWidth / 2, y: top, width: compactAvatarSize, height: compactAvatarSize)
+        let name = CGRect(x: avatar.maxX + compactNameGap, y: avatar.midY - nameSize.height / 2, width: nameSize.width, height: nameSize.height)
+        let chevron = CGRect(x: name.maxX + compactChevronGap, y: avatar.midY - chevronSize.height / 2, width: chevronSize.width, height: chevronSize.height)
+        return CompactLayout(barTop: top, barHeight: compactBarHeight, avatar: avatar, name: name, chevron: chevron)
+    }
+}
