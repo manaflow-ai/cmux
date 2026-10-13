@@ -173,3 +173,67 @@ fn an_owner_with_its_page_listener_reports_it() {
     assert_eq!(reply["data"]["opened"], false, "{reply}");
     assert_eq!(reply["data"]["url"], credential["url"], "{reply}");
 }
+
+/// cx-hnmbt.10: the app's page listener admits the set of the app's
+/// first-party page origins (`cmux-page://cmux.<page>`), not only the
+/// Channels page, and no other origin. Both doors: `server ensure
+/// --ws-allow-origin <list>` (the app's launch) and `ws-listen
+/// {allow_origins}` (an owner started without the listener). A page origin
+/// connects as its page (page-router-v1): History reads history.
+#[test]
+fn the_page_listener_admits_every_app_page_origin_and_no_other() {
+    const ORIGINS: [&str; 3] =
+        ["cmux-page://cmux.home-channels", "cmux-page://cmux.history", "cmux-page://cmux.apps"];
+    let identify = json!({"id": 1, "cmd": "identify"});
+    let history_list = json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": "list",
+        "operation": "history.entries.list",
+        "params": {"machine": "current", "session": "current", "limit": 5},
+    });
+    let admits_exactly_the_app_pages = |addr: &str, token: &str| {
+        for origin in ORIGINS {
+            let reply = over_websocket(addr, origin, token, identify.clone()).unwrap();
+            assert_eq!(reply["ok"], true, "{origin}: {reply}");
+        }
+        let read = over_websocket(addr, ORIGINS[1], token, history_list.clone()).unwrap();
+        assert_eq!(read["ok"], true, "{read}");
+        for foreign in ["cmux-page://cmux.unlisted", "cmux-page://evil", "http://evil.example"] {
+            assert!(over_websocket(addr, foreign, token, identify.clone()).is_err(), "{foreign}");
+        }
+    };
+    let endpoint = |fixture: &Fixture| {
+        let credential: Value =
+            serde_json::from_slice(&fs::read(fixture.credential_file()).unwrap()).unwrap();
+        let url = credential["url"].as_str().unwrap();
+        let addr = url.strip_prefix("ws://").unwrap().trim_end_matches('/').to_owned();
+        (addr, credential["token"].as_str().unwrap().to_owned())
+    };
+
+    // The app's launch: one comma-separated list.
+    let launched = Fixture::new("origins");
+    launched.ensure(&["--ws-loopback", "--ws-allow-origin", &ORIGINS.join(",")]);
+    let (addr, token) = endpoint(&launched);
+    admits_exactly_the_app_pages(&addr, &token);
+    // A malformed member refuses the whole list.
+    let bad = launched
+        .command("ensure")
+        .args(["--ws-loopback", "--ws-allow-origin", "cmux-page://cmux.history,null"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success(), "a list with null was accepted");
+
+    // An owner without the listener opens it for the same list.
+    let opened = Fixture::new("listen-origins");
+    opened.ensure(&[]);
+    let identity = opened.rpc(json!({"id": 1, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].as_array().unwrap();
+    assert!(capabilities.iter().any(|v| v == "ws-listen-origins-v1"), "{identity}");
+    let reply = opened.rpc(json!({"id": 2, "cmd": "ws-listen", "allow_origins": ORIGINS}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let (addr, token) = endpoint(&opened);
+    admits_exactly_the_app_pages(&addr, &token);
+    // The listener is bound: a request for an origin it does not admit says so.
+    let other = ["cmux-page://cmux.other"];
+    let more = opened.rpc(json!({"id": 3, "cmd": "ws-listen", "allow_origins": other}));
+    assert_eq!(more["ok"], false, "{more}");
+}
