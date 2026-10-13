@@ -256,6 +256,8 @@ struct ComposerBar: View {
             if !isVideo, let jpeg = ComposerModel.agentReadableImage(data, ext: ext) {
                 data = jpeg
                 ext = "jpg"
+            } else if !isVideo, let stripped = ComposerModel.strippingLocation(data) {
+                data = stripped
             }
             model.add(ComposerAttachment(
                 name: "\(isVideo ? "video" : "photo")-\(Self.stamp()).\(ext)",

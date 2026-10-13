@@ -102,10 +102,12 @@ struct TerminalScreen: View {
         }
     }
 
+    private var agentName: String { agent?.agent.map(FeedStore.displayName) ?? String(localized: "agent") }
+
     private var placeholder: String {
         switch agent?.status {
-        case .blocked: String(localized: "Reply to \(agent?.agent ?? "agent")")
-        case .working, .idle, .done: String(localized: "Message \(agent?.agent ?? "agent")")
+        case .blocked: String(localized: "Reply to \(agentName)")
+        case .working, .idle, .done: String(localized: "Message \(agentName)")
         default: String(localized: "Type a command")
         }
     }

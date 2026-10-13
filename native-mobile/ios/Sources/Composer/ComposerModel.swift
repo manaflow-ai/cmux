@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Observation
 import UIKit
 import UniformTypeIdentifiers
@@ -111,8 +112,7 @@ final class ComposerModel {
         }
         var message = Self.plainPunctuation(text.trimmingCharacters(in: .newlines))
         if !paths.isEmpty {
-            let quoted = paths.map(Self.shellQuoted).joined(separator: " ")
-            message = message.isEmpty ? quoted : message + " " + quoted
+            message = Self.appendingPaths(paths, to: message)
         }
         if message.contains("\n") {
             session.paste(message)
@@ -124,6 +124,14 @@ final class ComposerModel {
         attachments = []
         Haptics.tap()
         return true
+    }
+
+    /// The message with the uploaded paths after it, one space between
+    /// ("file " + path never doubles the space).
+    nonisolated static func appendingPaths(_ paths: [String], to message: String) -> String {
+        let quoted = paths.map(shellQuoted).joined(separator: " ")
+        guard !message.isEmpty else { return quoted }
+        return message.last?.isWhitespace == true ? message + quoted : message + " " + quoted
     }
 
     /// A host path as one shell word: bare when it only has safe characters,
@@ -148,6 +156,23 @@ final class ComposerModel {
     static func agentReadableImage(_ data: Data, ext: String) -> Data? {
         guard ["heic", "heif", "tif", "tiff"].contains(ext.lowercased()), let image = UIImage(data: data) else { return nil }
         return image.jpegData(compressionQuality: 0.9)
+    }
+
+    /// The photo without its GPS location (the picker hands over the
+    /// original, location included; it would end up in a file on the Mac
+    /// and in whatever the agent uploads). Lossless: metadata only. Nil when
+    /// there is no location to remove or the data isn't an image.
+    nonisolated static func strippingLocation(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let type = CGImageSourceGetType(source),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              properties[kCGImagePropertyGPSDictionary] != nil else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true]
+        var error: Unmanaged<CFError>?
+        guard CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, &error) else { return nil }
+        return output as Data
     }
 
     static func thumbnail(for data: Data, maxPixel: CGFloat = 240) -> Data? {

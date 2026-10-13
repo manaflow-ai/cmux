@@ -178,9 +178,10 @@ final class AppModel {
         if connection?.host.id == host.id { return }
         connection?.stop()
         selectedHostID = host.id
-        let link = WebRTCHostLink(
-            configuration: .init(apiBase: APIClient.configuredBase, hostID: host.id, token: { [tokenStore] in tokenStore.value ?? "" })
-        )
+        var configuration = WebRTCHostLink.Configuration(apiBase: APIClient.configuredBase, hostID: host.id, token: { [tokenStore] in tokenStore.value ?? "" })
+        // QA: `-relayOnly YES` forces the TURN relay path (no direct candidates).
+        configuration.relayOnly = UserDefaults.standard.bool(forKey: "relayOnly")
+        let link = WebRTCHostLink(configuration: configuration)
         let connection = HostConnection(host: host, link: link)
         // Weak: the connection owns these closures; a strong capture kept every
         // replaced connection (and its terminal surfaces) alive.

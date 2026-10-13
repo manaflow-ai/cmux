@@ -1,3 +1,5 @@
+import ImageIO
+import UIKit
 import Testing
 @testable import CmuxNative
 
@@ -19,5 +21,49 @@ struct ComposerQuotingTests {
 
     @Test func emptyPathIsQuoted() {
         #expect(ComposerModel.shellQuoted("") == "''")
+    }
+}
+
+
+struct PhotoLocationTests {
+    private func jpegWithLocation() -> Data {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }
+        let output = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(output, "public.jpeg" as CFString, 1, nil)!
+        let gps: [CFString: Any] = [kCGImagePropertyGPSLatitude: 37.33, kCGImagePropertyGPSLatitudeRef: "N",
+                                    kCGImagePropertyGPSLongitude: 122.03, kCGImagePropertyGPSLongitudeRef: "W"]
+        CGImageDestinationAddImage(destination, image.cgImage!, [kCGImagePropertyGPSDictionary: gps] as CFDictionary)
+        CGImageDestinationFinalize(destination)
+        return output as Data
+    }
+
+    private func hasLocation(_ data: Data) -> Bool {
+        let source = CGImageSourceCreateWithData(data as CFData, nil)!
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        return properties[kCGImagePropertyGPSDictionary] != nil
+    }
+
+    @Test func locationIsRemoved() throws {
+        let original = jpegWithLocation()
+        #expect(hasLocation(original))
+        let stripped = try #require(ComposerModel.strippingLocation(original))
+        #expect(!hasLocation(stripped))
+        #expect(UIImage(data: stripped) != nil)
+    }
+
+    @Test func photoWithoutLocationIsLeftAlone() {
+        let plain = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).jpegData(withCompressionQuality: 0.9) { _ in }
+        #expect(ComposerModel.strippingLocation(plain) == nil)
+    }
+}
+
+struct ComposerPathJoinTests {
+    @Test func oneSpaceBetweenTextAndPath() {
+        #expect(ComposerModel.appendingPaths(["/tmp/a.jpg"], to: "file") == "file /tmp/a.jpg")
+        #expect(ComposerModel.appendingPaths(["/tmp/a.jpg"], to: "file ") == "file /tmp/a.jpg")
+        #expect(ComposerModel.appendingPaths(["/tmp/a.jpg", "/tmp/b c.png"], to: "") == "/tmp/a.jpg '/tmp/b c.png'")
     }
 }

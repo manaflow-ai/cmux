@@ -48,6 +48,9 @@ owner-handoff (written up for the owning agent).
 | 39 | Memory | Visited terminals kept their session and Ghostty surface for the connection's lifetime (O5). | S3 | fixed: detached sessions beyond the 4 most recent are dropped (`TerminalSessionCache`, tests) |
 | 40 | Sidebar / VoiceOver | The sidebar Mac menu had no accessibility label. | S3 | fixed: "<Mac>, connected" plus a hint |
 | 41 | Terminal / TUI | With a hardware keyboard (or before the software keyboard rose), focusing the composer showed the keys row but the TUI grid kept its rows: `less`'s ":" prompt sat under the keys row. The hosting view's frame never grew with its SwiftUI content, so `bottomInset` stayed at the bare composer (92 pt). | S2 | fixed: the composer reports its measured height (`onGeometryChange`), the controller invalidates the host's intrinsic size and fits the grid to the taller value (less: 53x41 → 53x39, prompt above the keys) |
+| 42 | Attachments / privacy | Photos went to the Mac with their GPS location (the picker says "Location Is Included"); JPEG/PNG originals kept it in the file the agent reads and may upload. | S2 | fixed: `ComposerModel.strippingLocation` drops the GPS metadata losslessly (ImageIO copy with `kCGImageMetadataShouldExcludeGPS`); HEIC→JPEG already dropped it; tests |
+| 43 | Composer | Text ending in a space plus an attachment typed two spaces ("file  /Users/…"). | S3 | fixed: `ComposerModel.appendingPaths`; tests |
+| 44 | QA infra | Relay-only could not be forced from the app. | - | added: `-relayOnly YES` launch argument; verified a relay peer ("relay local=srflx remote=relay"), typing round trip OK |
 
 ## Open (owner handoff or needs a device run)
 
@@ -67,6 +70,7 @@ owner-handoff (written up for the owning agent).
 | Date | Measurement | Result |
 | --- | --- | --- |
 | 2026-10-12 | `footprint` on the sim app (cmux-native-qa) every 60 s for 10 min while cycling 4 terminals (Codex TUI, top, shell, vim) and Feed/Home 6 times | 58 MB at start, 73 MB after 3 min, flat 73-75 MB for the remaining 7 min (no growth per cycle). Malloc Small 38 MB, __DATA 12 MB, WebKit 1.4 MB |
+| 2026-10-12 | Host bridge restart (`cmux-native-host` killed and started) with two phones attached | both phones reconnected and reopened daemon and svc channels within 2 s; terminal live |
 | 2026-10-12 | Foreground after 100 s in background (host had dropped the peer) | new peer connected 3 s after the app came forward, terminal reattached |
 
 ## Improvement ideas (vs Claude, ChatGPT, Grok)
