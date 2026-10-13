@@ -42,8 +42,18 @@ const RECHECK: Duration = Duration::from_secs(10);
 /// A cache older than this is refreshed in the background at start: the
 /// fingerprint cannot see files the startup files source.
 const MAX_AGE: Duration = Duration::from_secs(24 * 3600);
-/// Printed before `env -0`, so rc-file chatter on stdout is skipped.
+/// Printed before `env -0`, so rc-file chatter on stdout is skipped; one
+/// random suffix per run, so no rc file can print it ahead of time.
 const MARKER: &str = "__ACPMUX_LOGIN_ENV__";
+
+fn run_marker() -> String {
+    use sha2::{Digest, Sha256};
+    let seed =
+        format!("{}:{:?}:{:?}", std::process::id(), std::time::SystemTime::now(), Instant::now());
+    let hex: String =
+        Sha256::digest(seed.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("{MARKER}{hex}")
+}
 const CACHE_VERSION: u32 = 1;
 
 #[derive(Debug, Default, Clone)]
@@ -171,7 +181,8 @@ pub async fn import() -> bool {
         std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
     let started = Instant::now();
     let before = pairs();
-    let output = run_shell(&shell).await;
+    let marker = run_marker();
+    let output = run_shell(&shell, &marker).await;
     let elapsed = started.elapsed();
     let Some(text) = output else {
         let mut st = STATE.write().unwrap_or_else(|e| e.into_inner());
@@ -187,7 +198,9 @@ pub async fn import() -> bool {
         );
         return false;
     };
-    let (login, login_path) = parse_env0(&text);
+    let (login, login_path) = parse_env0(&text, &marker);
+    // Only what a child or the daemon itself may use is kept, in memory too.
+    let login: Vec<(String, String)> = login.into_iter().filter(|(k, v)| storable(k, v)).collect();
     save_cache(&login, login_path.as_deref());
     let imported = build(for_children(login), login_path);
     let added = imported.vars.len();
@@ -239,17 +252,30 @@ pub fn refresh_if_changed() {
 /// from /dev/null, in its own process group (killed with everything it
 /// started when `TIMEOUT` passes). The parent Claude session's own keys are
 /// not passed in, so what comes back is the person's setup.
-async fn run_shell(shell: &str) -> Option<String> {
+async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     let mut cmd = tokio::process::Command::new(shell);
-    cmd.args(["-l", "-i", "-c", &format!("printf '\\n{MARKER}\\n'; command env -0")])
+    cmd.args(["-l", "-i", "-c", &format!("printf '\\n{marker}\\n'; command env -0")])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .env("ACPMUX_LOGIN_ENV", "0")
         .kill_on_drop(true);
-    for k in crate::config::nested_claude_keys() {
-        cmd.env_remove(k);
+    // Only the identity a login shell starts from, as a terminal gives it:
+    // nothing of the daemon's own environment (a sandboxed starter's proxy,
+    // PATH or endpoints) can come back as "the login environment".
+    cmd.env_clear();
+    for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG"] {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
     }
+    for (key, v) in std::env::vars_os() {
+        if key.to_str().is_some_and(|k| k.starts_with("LC_")) {
+            cmd.env(key, v);
+        }
+    }
+    cmd.env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+        .env("SHELL", shell)
+        .env("ACPMUX_LOGIN_ENV", "0");
     // Its own session: no controlling terminal (an interactive shell cannot
     // take the terminal a foreground daemon runs in), and its process group
     // id is its pid (killed as a group on timeout).
@@ -370,7 +396,9 @@ pub fn set_extra_allow(names: Vec<String>) {
 }
 
 fn truthy(key: &str) -> bool {
-    let v = std::env::var(key).ok().or_else(|| var(key));
+    // A daemon inside a Claude Code session: that session's switch is not the person's.
+    let own = std::env::var(key).ok().filter(|_| daemon_has(key));
+    let v = own.or_else(|| var(key));
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
@@ -387,7 +415,7 @@ fn truthy(key: &str) -> bool {
 ///   *_TELEMETRY; AWS_* only when CLAUDE_CODE_USE_BEDROCK is set; GOOGLE_*,
 ///   CLOUDSDK_*, GCLOUD_* only when CLAUDE_CODE_USE_VERTEX is set.
 /// - Codex: OPENAI_*, CODEX_*.
-pub fn allowed(key: &str, family: Option<&str>) -> bool {
+pub fn allowed(key: &str, value: &str, family: Option<&str>) -> bool {
     const COMMON_PREFIXES: [&str; 5] = ["MISE_", "ASDF_", "NVM_", "VOLTA_", "DIRENV_"];
     const COMMON: [&str; 12] = [
         "PATH",
@@ -403,20 +431,17 @@ pub fn allowed(key: &str, family: Option<&str>) -> bool {
         "NODE_EXTRA_CA_CERTS",
         "SSL_CERT_FILE",
     ];
-    if COMMON.contains(&key)
-        || key == "SSL_CERT_DIR"
-        || COMMON_PREFIXES.iter().any(|p| key.starts_with(p))
+    // An exact name the person added always comes in; a prefix they added,
+    // like the version-manager prefixes, never brings in a secret
+    // (MISE_GITHUB_TOKEN, NVM_AUTH_HEADER).
+    if extra_exact(key) || COMMON.contains(&key) || key == "SSL_CERT_DIR" {
+        return true;
+    }
+    if (COMMON_PREFIXES.iter().any(|p| key.starts_with(p)) || extra_prefix(key))
+        && !is_secret(key, value)
     {
         return true;
     }
-    let extra = EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner());
-    if extra.iter().any(|n| match n.strip_suffix('*') {
-        Some(prefix) => !prefix.is_empty() && key.starts_with(prefix),
-        None => n == key,
-    }) {
-        return true;
-    }
-    drop(extra);
     match family {
         Some("claude") => {
             key.starts_with("ANTHROPIC_")
@@ -434,8 +459,42 @@ pub fn allowed(key: &str, family: Option<&str>) -> bool {
     }
 }
 
+fn extra_exact(key: &str) -> bool {
+    EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).iter().any(|n| n == key)
+}
+
+fn extra_prefix(key: &str) -> bool {
+    EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).iter().any(|n| {
+        n.strip_suffix('*').is_some_and(|prefix| !prefix.is_empty() && key.starts_with(prefix))
+    })
+}
+
+/// Login keys the daemon itself reads (routing), passed to a child only
+/// when the allow-list passes them.
+const INTERNAL: [&str; 2] = ["SUBROUTER_URL", "ACPMUX_CODEROUTER_CLAUDE_ROUTE"];
+
+/// Whether a login variable is kept at all (memory and cache): allowed for
+/// some family (its Bedrock or Vertex condition aside), or read by the daemon.
+fn storable(key: &str, value: &str) -> bool {
+    INTERNAL.contains(&key)
+        || allowed(key, value, None)
+        || allowed(key, value, Some("codex"))
+        || ["ANTHROPIC_", "CLAUDE_", "DISABLE_", "AWS_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_"]
+            .iter()
+            .any(|p| key.starts_with(p))
+        || key.ends_with("_TELEMETRY")
+}
+
+/// A login variable a profile or route may name as `${env:VAR}`: only one
+/// some harness may get (the allow-list or `loginEnvAllow`).
+pub fn allowed_var(key: &str) -> Option<String> {
+    let v = var(key)?;
+    (allowed(key, &v, None) || allowed(key, &v, Some("claude")) || allowed(key, &v, Some("codex")))
+        .then_some(v)
+}
+
 fn pairs_for(family: Option<&str>) -> Vec<(String, String)> {
-    pairs().into_iter().filter(|(k, _)| allowed(k, family)).collect()
+    pairs().into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
@@ -450,7 +509,7 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
     let nested: Vec<(String, String)> =
         i.vars.iter().filter(|(k, _)| crate::config::is_nested_claude_key(k)).cloned().collect();
     drop(st);
-    nested.into_iter().filter(|(k, _)| allowed(k, family)).collect()
+    nested.into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
 }
 
 /// Apply the allow-listed login environment every child gets (PATH,
@@ -473,8 +532,8 @@ pub fn apply_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) 
 /// Output before the marker line is rc-file chatter; without a marker,
 /// anything an rc file printed before `env` ran is discarded up to the
 /// last newline. Shell-private and per-process variables are dropped.
-pub(crate) fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) {
-    let marker = format!("\n{MARKER}\n");
+pub(crate) fn parse_env0(text: &str, marker: &str) -> (Vec<(String, String)>, Option<String>) {
+    let marker = format!("\n{marker}\n");
     let text = match text.rfind(&marker) {
         Some(at) => &text[at + marker.len()..],
         None => text,
@@ -529,7 +588,9 @@ pub(crate) fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) 
 /// (`https://user:pass@proxy`). Such values are never written to the cache.
 pub fn is_secret(key: &str, value: &str) -> bool {
     /// Anywhere in the name (`PGPASSWORD`, `GITHUBTOKEN`).
-    const WORDS: [&str; 10] = [
+    const WORDS: [&str; 12] = [
+        "AUTHKEY",
+        "PASSPHRASE",
         "PASSWORD",
         "PASSWD",
         "TOKEN",
@@ -546,6 +607,15 @@ pub fn is_secret(key: &str, value: &str) -> bool {
         ["PASS", "PWD", "PAT", "KEY", "AUTH", "SESSION", "HEADERS", "SIGNATURE", "SIG"];
     let upper = key.to_ascii_uppercase();
     if WORDS.iter().any(|w| upper.contains(w)) || upper.split('_').any(|p| PARTS.contains(&p)) {
+        return true;
+    }
+    const MORE_PARTS: [&str; 4] = ["CREDS", "KEYS", "SK", "BEARER"];
+    if upper.split('_').any(|p| MORE_PARTS.contains(&p)) {
+        return true;
+    }
+    const SHAPES: [&str; 8] =
+        ["sk-ant-", "sk-", "ghp_", "gho_", "github_pat_", "xox", "tskey-", "AKIA"];
+    if SHAPES.iter().any(|shape| value.starts_with(shape)) {
         return true;
     }
     let lower = value.to_ascii_lowercase();
@@ -602,26 +672,9 @@ fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    let path = cache_path();
-    let tmp = path.with_extension("json.tmp");
-    #[cfg(unix)]
-    let written = {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)
-            .and_then(|mut f| f.write_all(&bytes))
-    };
-    #[cfg(not(unix))]
-    let written = std::fs::write(&tmp, &bytes);
-    if written.is_ok() && std::fs::rename(&tmp, &path).is_ok() {
-        return;
+    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
+        tracing::warn!("login env cache: {e:#}");
     }
-    let _ = std::fs::remove_file(&tmp);
 }
 
 /// The startup files and tool-manager configs a login shell reads: path,

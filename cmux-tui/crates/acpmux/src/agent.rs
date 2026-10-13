@@ -193,10 +193,8 @@ pub(crate) fn harness_command(
     // Startup files changed since the last read: refresh in the background.
     crate::login_env::refresh_if_changed();
     // The login shell's allow-list for this harness's family (login_env.rs).
-    let family = profile
-        .family
-        .as_deref()
-        .or((profile.kind == crate::config::HarnessKind::ClaudeStdio).then_some("claude"));
+    let family_name = crate::config::derive_family(name, profile);
+    let family = Some(family_name.as_str());
     crate::login_env::apply_tokio_for(&mut cmd, family);
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
@@ -268,7 +266,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::var(var).or_else(|| std::env::var(var).ok()),
+            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
             &crate::config::profiles::keychain_lookup,
         )
     };

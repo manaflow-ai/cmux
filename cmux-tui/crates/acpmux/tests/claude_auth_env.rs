@@ -366,7 +366,7 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     let dir = scratch(
         "cache",
         &format!(
-            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport TEAM_ROUTE_NAME=plain-value\n"
+            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport NO_PROXY=plain-value\nexport TEAM_ROUTE_NAME=not-allow-listed\n"
         ),
     );
     let runs =
@@ -383,11 +383,12 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert!(!text.contains("s3cret-value"), "a secret value in the cache: {text}");
     let v: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(v["secretNames"], json!(["ANTHROPIC_AUTH_TOKEN"]), "{v}");
-    assert_eq!(v["vars"]["TEAM_ROUTE_NAME"], "plain-value", "{v}");
+    assert_eq!(v["vars"]["NO_PROXY"], "plain-value", "{v}");
+    assert!(v["vars"].get("TEAM_ROUTE_NAME").is_none(), "only allow-listed names are cached: {v}");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777, 0o600);
     // The token leaves the rc file: the changed file runs the shell again.
-    let rc = format!("{count}export TEAM_ROUTE_NAME=plain-value\n");
+    let rc = format!("{count}export NO_PROXY=plain-value\n");
     std::fs::write(dir.join("home/.zshrc"), &rc).unwrap();
     {
         let d = start(&dir, harnesses.clone(), &[]).await;
