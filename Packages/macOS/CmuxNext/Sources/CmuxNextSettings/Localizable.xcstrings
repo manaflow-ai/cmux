@@ -85924,127 +85924,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before."
+            "value": "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「メインペインと同じ」では、サイドバーにメインペインと同じ背景を使います。「別にする」では、以前のようにサイドバーを暗く表示します。"
+            "value": "「メインペインと同じ」では、サイドバーにメインペインと同じ背景を使います。「別にする」では、サイドバーをメインペインより暗く表示します。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "«مثل اللوحة الرئيسية» يمنح الشريط الجانبي خلفية اللوحة الرئيسية. «منفصلة» تجعل الشريط الجانبي أغمق كما كان من قبل."
+            "value": "«مثل اللوحة الرئيسية» يمنح الشريط الجانبي خلفية اللوحة الرئيسية. «منفصلة» تجعل الشريط الجانبي أغمق من اللوحة الرئيسية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Isto kao glavno okno daje bočnoj traci pozadinu glavnog okna. Odvojeno zatamnjuje bočnu traku, kao ranije."
+            "value": "Isto kao glavno okno daje bočnoj traci pozadinu glavnog okna. Odvojeno čini bočnu traku tamnijom od glavnog okna."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samme som hovedruden giver sidepanelet hovedrudens baggrund. Separat gør sidepanelet mørkere som før."
+            "value": "Samme som hovedruden giver sidepanelet hovedrudens baggrund. Separat gør sidepanelet mørkere end hovedruden."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Wie Hauptbereich“ gibt der Seitenleiste den Hintergrund des Hauptbereichs. „Getrennt“ dunkelt die Seitenleiste ab, wie bisher."
+            "value": "„Wie Hauptbereich“ gibt der Seitenleiste den Hintergrund des Hauptbereichs. „Getrennt“ macht die Seitenleiste dunkler als den Hauptbereich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Igual que el panel principal da a la barra lateral el fondo del panel principal. Separado oscurece la barra lateral, como antes."
+            "value": "Igual que el panel principal da a la barra lateral el fondo del panel principal. Separado oscurece la barra lateral más que el panel principal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comme le panneau principal donne à la barre latérale l'arrière-plan du panneau principal. Séparé assombrit la barre latérale, comme avant."
+            "value": "Comme le panneau principal donne à la barre latérale l'arrière-plan du panneau principal. Séparé rend la barre latérale plus sombre que le panneau principal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Come il pannello principale dà alla barra laterale lo sfondo del pannello principale. Separato scurisce la barra laterale, come prima."
+            "value": "Come il pannello principale dà alla barra laterale lo sfondo del pannello principale. Separato rende la barra laterale più scura del pannello principale."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដូចផ្ទាំងមេ ផ្ដល់ផ្ទៃខាងក្រោយរបស់ផ្ទាំងមេដល់របារចំហៀង។ ដាច់ដោយឡែក ធ្វើឱ្យរបារចំហៀងងងឹតជាង ដូចពីមុន។"
+            "value": "ដូចផ្ទាំងមេ ផ្ដល់ផ្ទៃខាងក្រោយរបស់ផ្ទាំងមេដល់របារចំហៀង។ ដាច់ដោយឡែក ធ្វើឱ្យរបារចំហៀងងងឹតជាងផ្ទាំងមេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "'메인 패널과 동일'은 사이드바에 메인 패널과 같은 배경을 사용합니다. '분리'는 이전처럼 사이드바를 더 어둡게 표시합니다."
+            "value": "'메인 창과 동일'은 사이드바에 메인 창과 같은 배경을 사용합니다. '분리'는 사이드바를 메인 창보다 어둡게 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Samme som hovedruten gir sidepanelet hovedrutens bakgrunn. Separat gjør sidepanelet mørkere, som før."
+            "value": "Samme som hovedruten gir sidepanelet hovedrutens bakgrunn. Separat gjør sidepanelet mørkere enn hovedruten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jak panel główny nadaje paskowi bocznemu tło panelu głównego. Osobne przyciemnia pasek boczny, jak wcześniej."
+            "value": "Jak panel główny nadaje paskowi bocznemu tło panelu głównego. Osobne przyciemnia pasek boczny względem panelu głównego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Igual ao painel principal dá à barra lateral o fundo do painel principal. Separado escurece a barra lateral, como antes."
+            "value": "Igual ao painel principal dá à barra lateral o fundo do painel principal. Separado deixa a barra lateral mais escura que o painel principal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Как основная панель» даёт боковой панели фон основной панели. «Отдельный» затемняет боковую панель, как раньше."
+            "value": "«Как основная панель» даёт боковой панели фон основной панели. «Отдельный» делает боковую панель темнее основной."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เหมือนบานหลัก ให้แถบด้านข้างใช้พื้นหลังเดียวกับบานหลัก แยกกัน จะทำให้แถบด้านข้างเข้มขึ้นเหมือนเดิม"
+            "value": "เหมือนบานหลัก ให้แถบด้านข้างใช้พื้นหลังเดียวกับบานหลัก แยกกัน จะทำให้แถบด้านข้างเข้มกว่าบานหลัก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ana bölmeyle aynı, kenar çubuğuna ana bölmenin arka planını verir. Ayrı, kenar çubuğunu önceki gibi koyulaştırır."
+            "value": "Ana bölmeyle aynı, kenar çubuğuna ana bölmenin arka planını verir. Ayrı, kenar çubuğunu ana bölmeden daha koyu yapar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "«Як основна панель» дає бічній панелі тло основної панелі. «Окремий» затемнює бічну панель, як раніше."
+            "value": "«Як основна панель» дає бічній панелі тло основної панелі. «Окремий» робить бічну панель темнішою за основну."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Giống khung chính cho thanh bên dùng nền của khung chính. Tách riêng làm thanh bên tối hơn như trước."
+            "value": "Giống khung chính cho thanh bên dùng nền của khung chính. Tách riêng làm thanh bên tối hơn khung chính."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“与主窗格相同”让边栏使用主窗格的背景。“分开”会像以前一样把边栏调暗。"
+            "value": "“与主窗格相同”让边栏使用主窗格的背景。“分开”会让边栏比主窗格更暗。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「與主窗格相同」讓側邊欄使用主窗格的背景。「分開」會像以前一樣把側邊欄調暗。"
+            "value": "「與主窗格相同」讓側邊欄使用主窗格的背景。「分開」會讓側邊欄比主窗格更暗。"
           }
         }
       }
@@ -86115,7 +86115,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메인 패널과 동일"
+            "value": "메인 창과 동일"
           }
         },
         "nb": {

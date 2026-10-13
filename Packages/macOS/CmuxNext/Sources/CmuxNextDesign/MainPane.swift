@@ -52,6 +52,8 @@ extension Metrics {
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
         let separate = CGFloat(isDark ? ChromeTunables.mainPaneShadeDark.value : ChromeTunables.mainPaneShadeLight.value)
-        return DesignSettings.shared.sidebarSurface.chromeShade(separateShade: separate, drawsLines: Borders.drawsLines)
+        // A pane outline or the sidebar's edge line parts them; both are already 0 under borders none.
+        let lineSeparates = paneBorder != .none || sidebarBorderWidth > 0
+        return DesignSettings.shared.sidebarSurface.chromeShade(separateShade: separate, lineSeparates: lineSeparates)
     }
 }

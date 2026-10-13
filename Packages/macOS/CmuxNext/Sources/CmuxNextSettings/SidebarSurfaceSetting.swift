@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 /// `appearance.sidebarSurface` in cmux.json (`SidebarSurface`): "same" (the
 /// default) draws the sidebar on the main pane's surface; "separate" shades
-/// the sidebar and the chrome around the main pane darker, the look before.
+/// the sidebar and the chrome around the main pane darker than the pane.
 /// A missing key is the default; a bad value is the default plus a
 /// diagnostic.
 public nonisolated struct SidebarSurfaceSetting: Sendable {
@@ -27,7 +27,7 @@ public nonisolated struct SidebarSurfaceSetting: Sendable {
             configPath, section: .appearance, group: group,
             title: SettingsText.keyed("settings.sidebar.surface", "Sidebar Background"),
             help: SettingsText.keyed("settings.sidebar.surface.help",
-                                     "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before."),
+                                     "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."),
             kind: .choice([
                 SettingChoice(SidebarSurface.same.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.same", "Same as Main Pane")),
                 SettingChoice(SidebarSurface.separate.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.separate", "Separate")),
