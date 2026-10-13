@@ -91,8 +91,9 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         // Recovery appends synthetic CAN to the terminal output stream. Move
         // the consistency cut past that intentional journal record, then
         // recapture every terminal so no blob predates the new cut.
-        (snapshot, head_before) = crate::resource_api::public_session_snapshot_with_journal_head(mux)
-            .map_err(|error| anyhow::anyhow!("recapture public session snapshot: {error:?}"))?;
+        (snapshot, head_before) =
+            crate::resource_api::public_session_snapshot_with_journal_head(mux)
+                .map_err(|error| anyhow::anyhow!("recapture public session snapshot: {error:?}"))?;
     };
 
     // Verify against one cut as well, so a write landing between two separate
@@ -1561,7 +1562,12 @@ mod tests {
             .workspace_registry
             .lock()
             .unwrap()
-            .terminal_output_records_after(public_id.as_str(), "10000000000040008000000000000070", 0, 1 << 20)
+            .terminal_output_records_after(
+                public_id.as_str(),
+                "10000000000040008000000000000070",
+                0,
+                1 << 20,
+            )
             .unwrap();
         assert!(
             journaled.chunks.iter().any(|chunk| chunk.bytes.ends_with(b"\x18")),
