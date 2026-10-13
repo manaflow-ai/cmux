@@ -646,12 +646,23 @@ impl TerminalMetadata {
         })
     }
 
-    /// When the running shell command started, if one runs.
-    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
-        self.activity.busy_since_ms()
+    /// The running shell command's state and start time, if one runs.
+    pub(crate) fn command_activity(
+        &self,
+    ) -> Option<(crate::terminal_activity::CommandActivity, u64)> {
+        self.activity.command()
     }
 
-    /// Whether the busy fact changed since the last call (marks it taken).
+    /// Notes that the running command uses the terminal interactively when
+    /// `interactive` says so; asks it only while the command still counts
+    /// as non-interactive.
+    pub(crate) fn observe_interactive(&mut self, interactive: impl FnOnce() -> bool) {
+        if self.activity.wants_interactive_check() && interactive() {
+            self.activity.note_interactive();
+        }
+    }
+
+    /// Whether the command fact changed since the last call (marks it taken).
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
     }
