@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSettings
 import AppKit
 import Bonsplit
 import Foundation
