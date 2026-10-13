@@ -8,6 +8,12 @@ import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, r
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
+/**
+ * How long a billable fact (a money meter row: model.spend_usd) is kept: the bill and its later
+ * corrections read these rows (cx-y79zh S2, plans/cmux-next/usage-billing.md), so they outlive the
+ * dedupe window by far. Count-meter rows are priced 0 to customers today and keep the dedupe window.
+ */
+export const BILLABLE_FACT_RETENTION_MS = 400 * 24 * 3600_000
 /** Records per `record` call (one tail invocation or one step boundary sends a handful). */
 export const MAX_RECORDS_PER_CALL = 500
 /** Egress requests per team per minute (abuse limit A18, automations-billing.md 5.5). */
@@ -230,16 +236,32 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   protected override nextWakeAt(): number | null {
-    const row = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger`).toArray()[0]
+    const sql = this.ctx.storage.sql
+    const oldest = (money: boolean) => sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE (meter = 'model.spend_usd') = ?`, money ? 1 : 0).toArray()[0]?.at
     // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-    const keys = row?.at === null || row?.at === undefined ? null : Number(row.at) + USAGE_KEY_RETENTION_MS + 3600_000
-    const reservations = nextUserWake(this.ctx.storage.sql)
-    return keys === null ? reservations : reservations === null ? keys : Math.min(keys, reservations)
+    const due = (at: number | null | undefined, keep: number) => (at === null || at === undefined ? null : Number(at) + keep + 3600_000)
+    const times = [due(oldest(false), USAGE_KEY_RETENTION_MS), due(oldest(true), BILLABLE_FACT_RETENTION_MS), nextUserWake(sql)].filter((t): t is number => t !== null)
+    return times.length === 0 ? null : Math.min(...times)
   }
 
-  /** Dedupe keys leave after their retention; monthly counters stay; stale member reservations are charged. */
+  /** Dedupe keys leave after their retention, billable facts after theirs; monthly counters stay; stale member reservations are charged. */
   protected override async onWake(now: number): Promise<void> {
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
+  }
+
+  /**
+   * The billing level (cx-y79zh S2): the sum of the team's settled AI spend facts recorded in
+   * [from, to), corrections included, in integer micro-dollars. Pass-through pricing: the billed
+   * amount is our cost (AI_PRICE_VERSION). The reconcile worker sends this level, never deltas.
+   */
+  async level(entity: string, from: number, to: number): Promise<{ micros: number; facts: number; last_at: number | null }> {
+    this.bind(entity)
+    const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
+      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at >= ? AND recorded_at < ?`,
+      from, to
+    ).toArray()[0]
+    return { micros: Number(row?.micros ?? 0), facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at) }
   }
 }

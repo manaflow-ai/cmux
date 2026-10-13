@@ -110,6 +110,8 @@ export interface Env {
    * AWS KMS for credential data keys (integrations-plan.md G6). With all four set, new seals wrap the
    * data key with this KMS key; INTEGRATIONS_KEK still opens older rows and derives PKCE keys.
    */
+  /** Service key of the usage reconcile worker for POST /v1/internal/billing/levels (billing-levels.ts); the route is absent without it. */
+  readonly BILLING_LEVELS_KEY?: string
   /** Operator key for POST /v1/admin/outbox/replay (admin-outbox.ts); the route is absent without it. */
   readonly OUTBOX_ADMIN_KEY?: string
   /** Operator key for /v1/admin/team-vm/* (team-vm-admin.ts: registry counts, on-demand prefix report); the routes are absent without it. */

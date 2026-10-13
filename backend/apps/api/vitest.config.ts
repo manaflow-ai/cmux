@@ -73,6 +73,8 @@ export default defineConfig({
           INFERENCE_ENABLED: "1",
           INFERENCE_OPENROUTER_KEY: "test-openrouter-key",
           INFERENCE_DAILY_CAP_USD: "5",
+          // The usage reconcile worker's service key for /v1/internal/billing/levels; test-only.
+          BILLING_LEVELS_KEY: "test-billing-levels-key-0123456789abcdef",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).

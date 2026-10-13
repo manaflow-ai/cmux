@@ -92,6 +92,13 @@ const heldProvider = (reply: () => Response) => {
   return { asked, release }
 }
 
+const LEVELS_KEY = "test-billing-levels-key-0123456789abcdef"
+/** The reconcile worker's read: POST /v1/internal/billing/levels. */
+const levels = async (items: unknown, key = LEVELS_KEY) => {
+  const res = await loopback.fetch("https://api.test/v1/internal/billing/levels", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify({ items }) })
+  return { status: res.status, body: (await res.json()) as any }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -152,5 +159,30 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect(settled.facts.every((f) => f.user === user)).toBe(true)
     expect(settled.member_usd).toBeCloseTo(0.000003, 9)
     expect(settled.team_usd).toBeCloseTo(0.000003, 9)
+    // The bill's level reads the same facts: the expired charge plus its correction is the real cost.
+    const l = await levels([{ stack_user: "spend-facts-late", from: 0, to: Date.now() + 1 }])
+    expect(l.body.levels[0]).toMatchObject({ team, micros: 3, facts: 2, price_version: "ai-passthrough-v1" })
+  })
+
+  it("the billing level of a period is the sum of the facts recorded in it, read with the service key only", async () => {
+    const { t, team } = await paidPerson("spend-facts-level")
+    const before = Date.now()
+    fakeProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "a" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000005 } }))
+    expect((await chat(t)).status).toBe(200)
+    expect((await chat(t)).status).toBe(200)
+    const after = Date.now() + 1
+    const r = await levels([
+      { stack_user: "spend-facts-level", from: before, to: after },
+      { stack_user: "spend-facts-level", from: 0, to: before },
+      { stack_team: "no-such-team", from: before, to: after }
+    ])
+    expect(r.status).toBe(200)
+    expect(r.body.levels[0]).toMatchObject({ team, micros: 10, facts: 2 })
+    expect(r.body.levels[1]).toMatchObject({ team, micros: 0, facts: 0, last_at: null })
+    expect(r.body.levels[2]).toMatchObject({ micros: 0, facts: 0 })
+    // Asking twice gives the same level (the worker sends levels, never deltas).
+    expect((await levels([{ stack_user: "spend-facts-level", from: before, to: after }])).body.levels[0].micros).toBe(10)
+    expect((await levels([{ stack_user: "spend-facts-level", from: before, to: after }], "wrong-key-0123456789abcdef0123456789")).status).toBe(401)
+    expect((await levels([{ stack_user: "x", stack_team: "y", from: 0, to: 1 }])).status).toBe(400)
   })
 })
