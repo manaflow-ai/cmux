@@ -236,7 +236,7 @@ struct SettingsScreen: View {
 
     private var securitySection: some View {
         Section {
-            Toggle(isOn: Binding(get: { requireUnlock }, set: setRequireUnlock)) {
+            Toggle(isOn: Binding(get: { requireUnlock }, set: { setRequireUnlock($0) })) {
                 Label(String(localized: "Require \(AppLock.biometryName)"), systemImage: AppLock.biometrySymbol)
             }
             .tint(Theme.switchOn)

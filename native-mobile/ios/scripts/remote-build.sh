@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # remote-build.sh [sim|device|test] — sync native-mobile to the build Mac and build there.
-# The laptop has no Xcode; the build Mac (default: aziz-other-macbook, Xcode 27) does.
+# The laptop has no Xcode; the build Mac (default: cmux mini mini-cmux12s-mac-mini, Xcode 26.6) does.
 # Concurrent agents: set CMUX_NATIVE_REMOTE_DIR and CMUX_NATIVE_DD to private paths.
 set -euo pipefail
-HOST="${CMUX_NATIVE_BUILD_HOST:-aziz-other-macbook}"
+HOST="${CMUX_NATIVE_BUILD_HOST:-mini-cmux12s-mac-mini}"
 MODE="${1:-sim}"
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-REMOTE="${CMUX_NATIVE_REMOTE_DIR:-cmux-native/work}"
-DD="${CMUX_NATIVE_DD:-~/cmux-native/dd-ios}"
+REMOTE="${CMUX_NATIVE_REMOTE_DIR:-cmux-native-aziz/work}"
+DD="${CMUX_NATIVE_DD:-~/cmux-native-aziz/dd-ios}"
 cd "$ROOT/native-mobile/ios" && xcodegen generate --quiet
 rsync -az --delete --exclude .build --exclude 'node_modules' --exclude '*.xcuserstate' \
   "$ROOT/native-mobile/" "$HOST:$REMOTE/native-mobile/"

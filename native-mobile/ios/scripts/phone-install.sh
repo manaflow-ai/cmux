@@ -7,7 +7,7 @@
 #
 #   phone-install.sh [--device <udid>] [--no-install]
 set -euo pipefail
-HOST="${CMUX_NATIVE_BUILD_HOST:-aziz-other-macbook}"
+HOST="${CMUX_NATIVE_BUILD_HOST:-mini-cmux12s-mac-mini}"
 DEVICE=00008150-0005154E0E84401C
 PROFILE_ID="${CMUX_NATIVE_PROFILE_ID:-9XBF5GGK9D}"
 INSTALL=1
@@ -25,12 +25,12 @@ trap 'rm -rf "$WORK"' EXIT
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 cd "$ROOT/native-mobile/ios" && xcodegen generate --quiet
-rsync -az --delete --exclude .build "$ROOT/native-mobile/" "$HOST:cmux-native/work/native-mobile/"
-rsync -az --delete "$ROOT/Packages/Shared/CmuxGhosttyKit/" "$HOST:cmux-native/work/Packages/Shared/CmuxGhosttyKit/"
-ssh "$HOST" 'set -e; cd ~/cmux-native/work/native-mobile/ios
+rsync -az --delete --exclude .build "$ROOT/native-mobile/" "$HOST:cmux-native-aziz/work/native-mobile/"
+rsync -az --delete "$ROOT/Packages/Shared/CmuxGhosttyKit/" "$HOST:cmux-native-aziz/work/Packages/Shared/CmuxGhosttyKit/"
+ssh "$HOST" 'set -e; cd ~/cmux-native-aziz/work/native-mobile/ios
   xcodebuild -project CmuxNative.xcodeproj -scheme CmuxNative -configuration Release -destination generic/platform=iOS \
-    -derivedDataPath ~/cmux-native/dd-ios-dev CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | tail -5
-  cd ~/cmux-native/dd-ios-dev/Build/Products/Release-iphoneos && rm -f /tmp/CmuxNative-unsigned.zip && ditto -c -k --keepParent CmuxNative.app /tmp/CmuxNative-unsigned.zip'
+    -derivedDataPath ~/cmux-native-aziz/dd-ios-dev CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | tail -5
+  cd ~/cmux-native-aziz/dd-ios-dev/Build/Products/Release-iphoneos && rm -f /tmp/CmuxNative-unsigned.zip && ditto -c -k --keepParent CmuxNative.app /tmp/CmuxNative-unsigned.zip'
 scp -q "$HOST:/tmp/CmuxNative-unsigned.zip" "$WORK/app.zip"
 ditto -x -k "$WORK/app.zip" "$WORK"
 APP="$WORK/CmuxNative.app"
