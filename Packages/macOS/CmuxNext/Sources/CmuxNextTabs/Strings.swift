@@ -4,6 +4,8 @@ import Foundation
 enum Strings {
     static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
+    /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
+    static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {
         String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)

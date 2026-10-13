@@ -165,7 +165,7 @@ def main():
 
     promote = job("request-nightly-next")
     condition = promote["if"]
-    _check("refs/heads/feat-cmux-next" in condition and "github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success'" in condition,
+    _check("refs/heads/feat-cmux-next" in condition and "github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success'" in condition,
            "a publishing run on another branch asks for the nightly-next promotion of the feat-cmux-next head that shares its key")
     checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
     _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")

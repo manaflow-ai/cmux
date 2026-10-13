@@ -76,16 +76,25 @@ pub(super) fn update(mux: &Mux, params: UpdateParams) -> anyhow::Result<Value> {
 }
 
 pub(super) fn move_to(mux: &Mux, params: MoveParams) -> anyhow::Result<Value> {
+    let browser_profile = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .resolve_browser_profile_id(&params.browser_profile)?;
     let (profile, changed) = mux.personal_mutation(|registry| {
-        registry.move_browser_profile(&params.browser_profile, params.index)
+        registry.move_browser_profile(&browser_profile, params.index)
     })?;
     Ok(json!({"browser_profile": profile, "changed": changed}))
 }
 
 pub(super) fn delete(mux: &Mux, params: DeleteParams) -> anyhow::Result<Value> {
-    let id = params.browser_profile.as_str();
+    let id = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .resolve_browser_profile_id(&params.browser_profile)?;
     let (deletion, _) =
-        mux.personal_mutation(|registry| Ok((registry.delete_browser_profile(id)?, true)))?;
+        mux.personal_mutation(|registry| Ok((registry.delete_browser_profile(&id)?, true)))?;
     if let Some(revision) = deletion.bookmarks_revision {
         mux.emit_bookmarks_changed(id.to_string(), revision);
     }
