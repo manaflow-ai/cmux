@@ -427,6 +427,11 @@ export class MockAcpmuxSocket {
         this.touch(target, { tags, archived: undefined }, false);
         return this.sessions.find((session) => session.sessionId === target);
       }
+      // This Mac's agent CLIs as last checked: every listed harness signed in.
+      case "_acpmux/harness/health":
+        return { harnesses: harnesses.map((harness) => ({ id: harness.id, auth: "signedIn" })) };
+      case "_acpmux/reload_config":
+        return {};
       case "_acpmux/markUnread":
         if (!this.sessions.some((session) => session.sessionId === target))
           throw Object.assign(new Error("no such session"), { code: -32001 });
