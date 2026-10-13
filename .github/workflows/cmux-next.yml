@@ -98,6 +98,11 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/bin/**
       - scripts/cmux-next/check-*.sh
+      # The PR fast tier: its runner, registry, quarantine list and test.
+      - scripts/cmux-next/fast-tier.py
+      - scripts/cmux-next/fast-tier.json
+      - scripts/cmux-next/quarantine.json
+      - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
@@ -227,6 +232,11 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/bin/**
       - scripts/cmux-next/check-*.sh
+      # The PR fast tier: its runner, registry, quarantine list and test.
+      - scripts/cmux-next/fast-tier.py
+      - scripts/cmux-next/fast-tier.json
+      - scripts/cmux-next/quarantine.json
+      - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
