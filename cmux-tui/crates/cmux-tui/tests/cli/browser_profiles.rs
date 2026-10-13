@@ -48,6 +48,23 @@ fn browser_profile_commands_create_move_open_and_delete_through_the_daemon() {
     assert!(opened["content_resource_id"].as_str().is_some(), "{opened}");
     assert_eq!(browser_tab(&tree(&server))["browser_profile_id"], profile_id);
 
+    let opened_with_flag = state_cli(
+        &server,
+        None,
+        &[
+            "browser",
+            "profile",
+            "open",
+            "--url",
+            "https://example.com/agents-flag",
+            "--engine",
+            "webkit",
+            "--profile",
+            "Work",
+        ],
+    );
+    assert!(opened_with_flag["content_resource_id"].as_str().is_some(), "{opened_with_flag}");
+
     state_cli(&server, None, &["browser", "profile", "move", "--profile", "Work", "--index", "0"]);
     let moved = state_cli(&server, None, &["browser", "profile", "list"]);
     assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");

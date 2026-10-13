@@ -5,7 +5,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use super::{
     CommandPlan, Flags, Selectors, UsageError, add_optional_parent_selectors, add_pixel_size,
     add_stream_id, insert_float, insert_optional_enum_list, insert_optional_string, insert_u32,
-    insert_u64, map_with, request, strs, usage, validate_decimal, validate_one_of,
+    map_with, request, strs, usage, validate_decimal, validate_one_of,
 };
 
 pub(super) fn parse_browser(
@@ -37,8 +37,8 @@ pub(super) fn parse_browser(
                 map_with("title", Value::String(title)),
             )
         }
-        ["profile", action] => parse_browser_profile(action, flags),
         ["profile", "open", ..] => parse_browser_profile_open(words, flags),
+        ["profile", action] => parse_browser_profile(action, flags),
         ["open"] | ["open", _] => parse_browser_open(words, selectors, flags),
         [selector, "show"] => {
             selectors.insert("browser", "browser", selector)?;
@@ -227,7 +227,10 @@ fn parse_browser_profile_open(
     params.insert("engine".into(), Value::String(flags.required("engine")?));
     params.insert("profile_id".into(), Value::String(flags.required("profile")?));
     if let Some(pane) = flags.take("pane") {
-        insert_u64(&mut params, "pane", "--pane", pane)?;
+        let pane_id = pane
+            .parse::<u64>()
+            .map_err(|_| UsageError::new("--pane must be an unsigned 64-bit integer"))?;
+        params.insert("pane".into(), Value::from(pane_id));
     }
     insert_optional_string(&mut params, flags, "title", "title");
     insert_optional_string(&mut params, flags, "owner", "owner");
