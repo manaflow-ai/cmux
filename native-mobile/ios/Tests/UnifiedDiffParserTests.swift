@@ -289,3 +289,58 @@ struct DiffRendererTests {
         #expect(DiffStatBar.blocks(additions: 1, deletions: 100) == (1, 4))
     }
 }
+
+struct TrailingExpandTests {
+    private func trailingGaps(_ diff: String) throws -> Int {
+        let file = try #require(UnifiedDiffParser.parse(diff).first)
+        let rendered = DiffRenderer.render(file, contents: nil, expanded: [], canExpand: true)
+        return rendered.unified.filter {
+            if case .hunk(_, let header, let gap, _) = $0 { return header.isEmpty && gap == file.hunks.count }
+            return false
+        }.count
+    }
+
+    @Test func hunkEndingBeforeThreeContextLinesReachesEndOfFile() throws {
+        let diff = """
+        diff --git a/README.md b/README.md
+        --- a/README.md
+        +++ b/README.md
+        @@ -1,3 +1,4 @@
+         # Demo
+         
+         A small repo.
+        +More.
+
+        """
+        #expect(try trailingGaps(diff) == 0)
+    }
+
+    @Test func addedFileHasNothingAfterIt() throws {
+        let diff = """
+        diff --git a/New.swift b/New.swift
+        new file mode 100644
+        --- /dev/null
+        +++ b/New.swift
+        @@ -0,0 +1 @@
+        +let x = 1
+
+        """
+        #expect(try trailingGaps(diff) == 0)
+    }
+
+    @Test func fullTrailingContextMayHaveMoreLines() throws {
+        let diff = """
+        diff --git a/a.swift b/a.swift
+        --- a/a.swift
+        +++ b/a.swift
+        @@ -1,4 +1,4 @@
+        -let a = 1
+        +let a = 2
+         let b = 1
+         let c = 1
+         let d = 1
+
+        """
+        #expect(try trailingGaps(diff) == 1)
+    }
+}
