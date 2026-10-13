@@ -1,5 +1,5 @@
-//! Help for the app scopes (cli/app.rs), the app's browser pages and
-//! `notify`, which route before the resource grammar's help.
+//! Help for the app scopes (cli/app.rs), the app's browser pages, `notify`
+//! and `status`, which route before the resource grammar's help.
 
 use std::io::Write;
 
@@ -51,6 +51,7 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));

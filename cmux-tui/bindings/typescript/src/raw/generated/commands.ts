@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f850a4916cbca6e8f4aa52405f0158f7b84f3eccedcb12d07d4e37dfb15f0548. */
+/* cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67. */
 
 
 import type * as T from "./types.js";
@@ -2031,6 +2031,7 @@ export interface SetPersonalWorkspaceRequest extends CmuxRequestBase {
   "browser_profile_id"?: (string) | null;
   "group"?: (string) | null;
   "index"?: (bigint) | null;
+  "remote_localhost"?: (boolean) | null;
   "session_id": string;
   "theme"?: (string) | null;
   "workspace_key": string;
