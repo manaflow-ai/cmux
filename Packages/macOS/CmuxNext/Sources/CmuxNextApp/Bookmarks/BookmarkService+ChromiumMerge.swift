@@ -31,13 +31,14 @@ extension BookmarkService {
         let request = MergeBookmarksRequest(browserProfileID: profile, mergeKey: "chromium-store:" + directory.lastPathComponent,
                                             chromiumBookmarks: text ?? #"{"roots":{}}"#, mutation: nil)
         do {
-            let result = try await connection.mergeBookmarks(request)
-            if result.created > 0 {
-                // The sync must carry the merged nodes, or it removes them from Chromium.
-                daemonChanged(profile)
-                await fetching[profile]?.value
-            }
-            return true
+            _ = try await connection.mergeBookmarks(request)
+            // The sync must carry the merged nodes, or it removes them from
+            // Chromium: read the tree after the merge before saying yes.
+            let list = try await connection.listBookmarks(browserProfileID: profile)
+            trees[profile] = BookmarkTree(ordered: list.bookmarks.map(Self.node(from:)))
+            if homeSettled { loadedFromDaemon.insert(profile) }
+            changed(profiles: [profile])
+            return isLoaded(profile)
         } catch {
             logger.error("chrome.bookmarks: merge-bookmarks \(profile, privacy: .public): \(String(describing: error), privacy: .public)")
             return false
