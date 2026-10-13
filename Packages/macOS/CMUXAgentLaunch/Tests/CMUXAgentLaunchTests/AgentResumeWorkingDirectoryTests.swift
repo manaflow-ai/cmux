@@ -3,6 +3,19 @@ import Testing
 
 @Suite("AgentResumeWorkingDirectory")
 struct AgentResumeWorkingDirectoryTests {
+    @Test("Claude resumes from the worktree that owns its transcript", arguments: [false, true])
+    func claudeTranscriptOverridesStaleLaunchDirectory(nested: Bool) {
+        let sessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let transcript = "/custom/claude/projects/-Users-x-repo--claude-worktrees-feature/"
+            + (nested ? "\(sessionID)/messages/" : "") + "\(sessionID).jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/x/repo/.claude/worktrees/feature",
+            launchWorkingDirectory: "/Users/x/repo",
+            transcriptPath: transcript
+        ) == "/Users/x/repo/.claude/worktrees/feature")
+    }
+
     @Test("Directory-namespaced agents pin the launch cwd over a drifted runtime cwd")
     func directoryNamespacedPrefersLaunch() {
         #expect(

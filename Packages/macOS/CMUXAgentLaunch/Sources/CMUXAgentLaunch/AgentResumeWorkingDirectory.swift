@@ -48,11 +48,13 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     ///   - kind: the agent's raw kind identifier.
     ///   - runtimeCwd: the agent's last-reported runtime cwd (may have drifted).
     ///   - launchWorkingDirectory: the directory the agent was launched in.
+    ///   - transcriptPath: The hook-reported transcript path, when available.
     /// - Returns: the directory to `cd` into, or `nil` when neither input is usable.
     public func resolve(
         kind: String,
         runtimeCwd: String?,
-        launchWorkingDirectory: String?
+        launchWorkingDirectory: String?,
+        transcriptPath: String? = nil
     ) -> String? {
         let runtime = normalized(runtimeCwd)
         let launch = normalized(launchWorkingDirectory)
