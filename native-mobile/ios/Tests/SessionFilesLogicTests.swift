@@ -126,3 +126,16 @@ struct FilePreviewMarkdownTests {
         #expect(html.contains("<td>1</td><td>2</td>"))
     }
 }
+
+struct FileSymbolProseTests {
+    @Test func logsAndPlainTextUseADocumentIconNotCode() {
+        #expect(FileSymbol.symbol(path: "/tmp/host.log") == "doc.text")
+        #expect(FileSymbol.symbol(path: "/tmp/notes.txt") == "doc.text")
+        #expect(FileSymbol.symbol(path: "/tmp/data.csv") == "doc.text")
+        #expect(FileSymbol.symbol(path: "/repo/LICENSE") == "doc.text")
+    }
+
+    @Test func sourceKeepsTheCodeIcon() {
+        #expect(FileSymbol.symbol(path: "/repo/main.swift") == "chevron.left.forwardslash.chevron.right")
+    }
+}
