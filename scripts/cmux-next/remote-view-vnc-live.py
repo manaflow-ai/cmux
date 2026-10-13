@@ -7,15 +7,15 @@
 GUI host only (a fleet capture mini or the build host), never a developer laptop. The default
 URL is the loopback VNC demo desktop (`host=mock&via=vnc`, CmuxVNCDemoServer in the app). For a
 real host (macOS Screen Sharing or any VNC server on the tailnet), pass its record URL and, when
-it needs a sign-in, --user plus the password on stdin: the script stores them as the app's
-Keychain sign-in for that host:port before the run and deletes them after.
+it needs a sign-in, --user plus the password on stdin: the script writes them to a 0600 file the
+development build reads through CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE (an SSH session cannot
+unlock the login Keychain) and deletes it after the run.
 The script launches the tagged app (no activation, automation socket), opens the URL through
 `debug.remote_view open`, checks the tab asks first, presses Connect (`debug.remote_view
 connect`), and passes only when the tab's session is a VNC session (`source: vnc`) that streams
 and shows frame pixels, then saves the window. Ends with quitEndSessions and the tag teardown.
 """
 import argparse, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
-from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -33,9 +33,6 @@ APP = os.path.abspath(opts.app)
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-query = parse_qs(urlparse(opts.url).query)
-ACCOUNT = f"{query['host'][0]}:{query.get('port', ['5900'])[0]}"
-SERVICE = "cmux-next VNC"  # RemoteVNCCredentialStore.service
 
 
 def rpc(method, params=None):
@@ -87,14 +84,12 @@ def step(name, ok, evidence):
     print(("PASS " if ok else "FAIL ") + name, json.dumps(evidence)[:600], flush=True)
 
 
-seeded = False
+credentials_file = None
 if opts.password_stdin:
     password = sys.stdin.readline().rstrip("\n")
-    secret = json.dumps({"username": opts.user or None, "password": password})
-    subprocess.run(["security", "delete-generic-password", "-s", SERVICE, "-a", ACCOUNT],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["security", "add-generic-password", "-s", SERVICE, "-a", ACCOUNT, "-w", secret, "-A"], check=True)
-    seeded = True
+    descriptor, credentials_file = tempfile.mkstemp(prefix="vnc-credentials-", suffix=".json")
+    with os.fdopen(descriptor, "w") as f:  # mkstemp creates it 0600
+        json.dump({"username": opts.user or None, "password": password}, f)
 
 if os.path.exists(SOCKET):
     if "error" not in rpc("debug.focus"):
@@ -107,6 +102,8 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,820"}
+if credentials_file:
+    env["CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE"] = credentials_file
 teardown = TagTeardown(APP)
 teardown.install()
 log = open(os.path.join(opts.out, "app.log"), "a")
@@ -150,9 +147,8 @@ finally:
             app.kill()
             app.wait()
     teardown.end()
-    if seeded:
-        subprocess.run(["security", "delete-generic-password", "-s", SERVICE, "-a", ACCOUNT],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if credentials_file:
+        os.unlink(credentials_file)
     report["failures"] = failures
     with open(os.path.join(opts.out, "vnc-view-live.json"), "w") as f:
         json.dump(report, f, indent=1)
