@@ -9,7 +9,7 @@ extension PaneContentView {
         let pinned = isBandActive
         if pinned { releaseBand() }
         old?.view.removeFromSuperview()
-        if let view = toolbar?.view { addSubview(view, positioned: .above, relativeTo: stripView) }
+        if let view = toolbar?.view { addSubview(view, positioned: .above, relativeTo: stripView); view.stripFrame = { [weak self] in self?.stripView.frame } }
         if pinned { updateBand() }
         needsLayout = true
     }
