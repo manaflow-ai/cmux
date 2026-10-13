@@ -9,7 +9,7 @@ extension AppStore {
                 MacDevice(id: "mac-mini-2", name: "cmux mini 2", isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false),
             ]),
-            Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#32D74B", emoji: "🌵"), macs: [
+            Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
             ]),
             Team(id: "team-fleet", name: "Build Fleet", macs: (1...8).map {

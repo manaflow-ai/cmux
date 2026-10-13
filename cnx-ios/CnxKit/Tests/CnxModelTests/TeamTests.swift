@@ -22,3 +22,22 @@ import Testing
         #expect(store.openingTab(for: ws)?.id == "t-zsh")
     }
 }
+
+@MainActor @Suite struct AccountTeamTests {
+    @Test func accountTeamsReplaceMockTeamsAndKeepSelection() {
+        let store = AppStore.mock()
+        store.applyAccountTeams([
+            AppStore.AccountTeam(id: "a", name: "Alpha"),
+            AppStore.AccountTeam(id: "b", name: "Beta"),
+        ], selectedID: "b")
+        #expect(store.teams.map(\.id) == ["a", "b"])
+        #expect(store.activeTeamID == "b")
+        #expect(store.teams.allSatisfy { TeamAppearance.palette.contains($0.appearance.colorHex) || $0.appearance.emoji != nil })
+    }
+
+    @Test func unknownSelectionFallsBackToAMemberTeam() {
+        let store = AppStore.mock()
+        store.applyAccountTeams([AppStore.AccountTeam(id: "only", name: "Only")], selectedID: "gone")
+        #expect(store.activeTeamID == "only")
+    }
+}

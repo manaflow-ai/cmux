@@ -22,6 +22,10 @@ targets:
     dependencies:
       - package: CnxKit
         product: CnxShell
+      - package: CnxKit
+        product: CnxAuth
+      - package: CnxKit
+        product: CnxModel
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)
@@ -36,8 +40,11 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: cmux
+        CNXTag: $(CNX_TAG)
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchMark
+          UIImageRespectsSafeAreaInsets: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
