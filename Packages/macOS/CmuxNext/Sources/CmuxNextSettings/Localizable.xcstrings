@@ -1,6 +1,923 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.passwords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwords"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلمات السر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lozinke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adgangskoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passwörter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraseñas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mots de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスワード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យសម្ងាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀번호"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hasła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пароли"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parolalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Паролі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mật khẩu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "密碼"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.offerToSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offer to Save Passwords"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض حفظ كلمات السر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponudi čuvanje lozinki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilbyd at gemme adgangskoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Speichern von Passwörtern anbieten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ofrecer guardar contraseñas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proposer d’enregistrer les mots de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proponi di salvare le password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスワードの保存を提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ដល់ការរក្សាទុកពាក្យសម្ងាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀번호 저장 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilby å lagre passord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proponuj zapisywanie haseł"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oferecer para salvar senhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предлагать сохранять пароли"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสนอให้บันทึกรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parolaları Kaydetmeyi Öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропонувати зберігати паролі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đề nghị lưu mật khẩu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提供存储密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提供儲存密碼"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.offerToSave.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسأل علامة تبويب المتصفح عن حفظ بيانات تسجيل الدخول التي ترسلها. لا تسأل علامات التبويب التي يتحكم بها وكيل أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica preglednika pita da sačuva prijavu koju pošaljete. Kartice kojima upravlja agent nikad ne pitaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En browserfane spørger, om den skal gemme et login, du sender. Faner, som en agent styrer, spørger aldrig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Browser-Tab fragt, ob eine von dir gesendete Anmeldung gespeichert werden soll. Tabs, die ein Agent steuert, fragen nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pestaña del navegador pregunta si guardar un inicio de sesión que envías. Las pestañas que controla un agente nunca preguntan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un onglet du navigateur propose d’enregistrer une connexion que vous envoyez. Les onglets pilotés par un agent ne le proposent jamais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una scheda del browser chiede di salvare un accesso che invii. Le schede controllate da un agente non lo chiedono mai."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信したサインイン情報を保存するかブラウザタブが確認します。エージェントが操作するタブでは確認しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងកម្មវិធីរុករកសួរថាតើត្រូវរក្សាទុកការចូលដែលអ្នកបញ្ជូនឬទេ។ ផ្ទាំងដែលភ្នាក់ងារបញ្ជាមិនដែលសួរទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제출한 로그인 정보를 저장할지 브라우저 탭에서 묻습니다. 에이전트가 제어하는 탭은 묻지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En nettleserfane spør om den skal lagre en pålogging du sender. Faner en agent styrer, spør aldri."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta przeglądarki pyta, czy zapisać wysłane dane logowania. Karty sterowane przez agenta nigdy nie pytają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma aba do navegador pergunta se deve salvar um login que você envia. Abas controladas por um agente nunca perguntam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка браузера предлагает сохранить отправленные данные для входа. Вкладки, которыми управляет агент, никогда не предлагают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บเบราว์เซอร์จะถามว่าจะบันทึกข้อมูลลงชื่อเข้าใช้ที่คุณส่งไหม แท็บที่เอเจนต์ควบคุมจะไม่ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir tarayıcı sekmesi gönderdiğiniz oturum açma bilgilerini kaydetmeyi sorar. Bir aracının yönettiği sekmeler asla sormaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка браузера пропонує зберегти надіслані дані для входу. Вкладки, якими керує агент, ніколи не пропонують."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab trình duyệt hỏi có lưu thông tin đăng nhập bạn gửi không. Tab do tác tử điều khiển không bao giờ hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器标签页会询问是否存储你提交的登录信息。由代理操控的标签页从不询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器分頁會詢問是否儲存你提交的登入資訊。由代理操控的分頁從不詢問。"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.generate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Strong Passwords"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اقتراح كلمات سر قوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predlaži jake lozinke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslå stærke adgangskoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starke Passwörter vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerir contraseñas seguras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggérer des mots de passe forts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggerisci password complesse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "強力なパスワードを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ណែនាំពាក្យសម្ងាត់ខ្លាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "강력한 비밀번호 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslå sterke passord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proponuj silne hasła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerir senhas fortes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предлагать надёжные пароли"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แนะนำรหัสผ่านที่รัดกุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güçlü Parolalar Öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропонувати надійні паролі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gợi ý mật khẩu mạnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建议强密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建議高強度密碼"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.generate.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offers a generated password when a site asks for a new one, and saves it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يقترح كلمة سر مولّدة عندما يطلب موقع كلمة سر جديدة، ويحفظها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nudi generisanu lozinku kada stranica traži novu i čuva je."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslår en genereret adgangskode, når et websted beder om en ny, og gemmer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bietet ein generiertes Passwort an, wenn eine Website ein neues verlangt, und speichert es."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ofrece una contraseña generada cuando un sitio pide una nueva y la guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Propose un mot de passe généré quand un site en demande un nouveau, et l’enregistre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Propone una password generata quando un sito ne chiede una nuova e la salva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイトが新しいパスワードを求めたときに生成したパスワードを提案し、保存します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ដល់ពាក្យសម្ងាត់ដែលបានបង្កើត ពេលគេហទំព័រសុំពាក្យសម្ងាត់ថ្មី ហើយរក្សាទុកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이트에서 새 비밀번호를 요구하면 생성된 비밀번호를 제안하고 저장합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foreslår et generert passord når et nettsted ber om et nytt, og lagrer det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Proponuje wygenerowane hasło, gdy witryna prosi o nowe, i je zapisuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oferece uma senha gerada quando um site pede uma nova e a salva."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Предлагает сгенерированный пароль, когда сайт просит новый, и сохраняет его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสนอรหัสผ่านที่สร้างขึ้นเมื่อไซต์ขอรหัสผ่านใหม่ และบันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir site yeni parola istediğinde oluşturulmuş bir parola önerir ve kaydeder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пропонує згенерований пароль, коли сайт просить новий, і зберігає його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đề xuất mật khẩu được tạo khi trang yêu cầu mật khẩu mới, và lưu lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网站要求新密码时提供生成的密码，并存储它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網站要求新密碼時提供產生的密碼，並儲存它。"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.allowExport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Password Export"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح بتصدير كلمات السر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli izvoz lozinki"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad eksport af adgangskoder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passwortexport erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir exportar contraseñas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser l’exportation des mots de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti esportazione password"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスワードの書き出しを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតការនាំចេញពាក្យសម្ងាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비밀번호 내보내기 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat eksport av passord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwalaj na eksport haseł"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir exportação de senhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить экспорт паролей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้ส่งออกรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parola Dışa Aktarmaya İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити експорт паролів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép xuất mật khẩu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许导出密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許匯出密碼"
+          }
+        }
+      }
+    },
+    "settings.browser.passwords.allowExport.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لصفحة كلمات السر كتابة كل كلمات السر المحفوظة في ملف CSV بنص عادي، بعد تأكيدك باستخدام Touch ID أو كلمة السر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava stranici Lozinke da upiše sve sačuvane lozinke u CSV datoteku s običnim tekstom, nakon potvrde putem Touch ID-a ili lozinke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader siden Adgangskoder skrive alle gemte adgangskoder til en CSV-fil i almindelig tekst, når du har bekræftet med Touch ID eller din adgangskode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt der Seite „Passwörter“, alle gespeicherten Passwörter in eine CSV-Datei im Klartext zu schreiben, nachdem du mit Touch ID oder deinem Passwort bestätigt hast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que la página Contraseñas escriba todas las contraseñas guardadas en un archivo CSV de texto sin formato, después de confirmar con Touch ID o tu contraseña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à la page Mots de passe d’écrire tous les mots de passe enregistrés dans un fichier CSV en texte brut, après confirmation avec Touch ID ou votre mot de passe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente alla pagina Password di scrivere tutte le password salvate in un file CSV in testo semplice, dopo la conferma con Touch ID o la password."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touch ID またはパスワードで確認した後、パスワードページが保存済みのすべてのパスワードをプレーンテキストの CSV ファイルに書き出せるようにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យទំព័រពាក្យសម្ងាត់សរសេរពាក្យសម្ងាត់ដែលបានរក្សាទុកទាំងអស់ទៅឯកសារ CSV អត្ថបទធម្មតា បន្ទាប់ពីអ្នកបញ្ជាក់ដោយ Touch ID ឬពាក្យសម្ងាត់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touch ID나 암호로 확인한 후 비밀번호 페이지가 저장된 모든 비밀번호를 일반 텍스트 CSV 파일로 쓸 수 있게 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar Passord-siden skrive alle lagrede passord til en CSV-fil i ren tekst etter at du har bekreftet med Touch ID eller passordet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala stronie Hasła zapisać wszystkie zapisane hasła w pliku CSV jako zwykły tekst po potwierdzeniu Touch ID lub hasłem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que a página Senhas grave todas as senhas salvas em um arquivo CSV de texto simples, depois que você confirmar com Touch ID ou sua senha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет странице «Пароли» записать все сохранённые пароли в CSV-файл открытым текстом после подтверждения с помощью Touch ID или пароля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้หน้ารหัสผ่านเขียนรหัสผ่านที่บันทึกไว้ทั้งหมดลงในไฟล์ CSV แบบข้อความธรรมดา หลังจากคุณยืนยันด้วย Touch ID หรือรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touch ID veya parolanızla onayladıktan sonra Parolalar sayfasının kayıtlı tüm parolaları düz metin bir CSV dosyasına yazmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє сторінці «Паролі» записати всі збережені паролі у CSV-файл відкритим текстом після підтвердження за допомогою Touch ID або пароля."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép trang Mật khẩu ghi mọi mật khẩu đã lưu ra tệp CSV văn bản thuần, sau khi bạn xác nhận bằng Touch ID hoặc mật khẩu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你用触控 ID 或密码确认后，允许“密码”页面将所有已存储的密码写入纯文本 CSV 文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在你以 Touch ID 或密碼確認後，允許「密碼」頁面將所有已儲存的密碼寫入純文字 CSV 檔案。"
+          }
+        }
+      }
+    },
     "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -74616,137 +75533,6 @@
         }
       }
     },
-    "settings.choice.accent.art": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Art Color"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون اللوحة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boja slike"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunstfarve"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildfarbe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color de la obra"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l'œuvre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Colore dell'opera"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アートカラー"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ពណ៌រូបភាព"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작품 색상"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunstfarge"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kolor obrazu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor da Obra"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Цвет картины"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สีจากภาพ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eser Rengi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Колір картини"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Màu tranh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作品色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作品色"
-          }
-        }
-      }
-    },
     "settings.choice.accent.theme": {
       "extractionState": "manual",
       "localizations": {
@@ -84866,6 +85652,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示個人檔案按鈕"
+          }
+        }
+      }
+    },
+    "settings.choice.accent.art": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunstfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de la obra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l'œuvre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell'opera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アートカラー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌រូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작품 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunstfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor da Obra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет картины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีจากภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eser Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір картини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Màu tranh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作品色"
           }
         }
       }

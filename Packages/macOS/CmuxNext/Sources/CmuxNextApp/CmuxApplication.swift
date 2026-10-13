@@ -74,6 +74,15 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
     }
 
+    /// An exception AppKit caught on the main thread. With
+    /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
+    /// here and the uncaught-exception handler never runs, so the record is
+    /// written first; the next launch's notice and report then name it.
+    override func reportException(_ exception: NSException) {
+        UncaughtExceptionRecorder.handle(exception)
+        super.reportException(exception)
+    }
+
     // MARK: Accessibility windows
 
     /// The window Accessibility clients see as this app's focused or main
