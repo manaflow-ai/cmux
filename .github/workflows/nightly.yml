@@ -3991,18 +3991,37 @@ jobs:
           persist-credentials: false
       # Only the published span: a full fetch of every branch and tag did not
       # finish inside this job's timeout (run 37526646874).
-      - name: Fetch the commits since the published nightly-next
-        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${PUBLISHED_SHA:+"$PUBLISHED_SHA"}
+      # The span starts at the newest build whose signed notes were published (its "head"), not at
+      # the last published app: a build whose notes failed to publish then loses no highlight to
+      # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
+      - name: Start the span at the newest published notes
+        id: span
+        run: |
+          set -euo pipefail
+          since=""
+          index="$(mktemp)"
+          if curl -fsSL -A "cmux-release-notes/1" -o "$index" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json" \
+             && curl -fsSL -A "cmux-release-notes/1" -o "$index.sig" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json.sig" \
+             && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$index"; then
+            since="$(python3 scripts/cmux-next/release-notes.py since --index "$index")"
+          fi
+          rm -f "$index" "$index.sig"
+          echo "since=${since:-${PUBLISHED_SHA:-}}" >> "$GITHUB_OUTPUT"
+      - name: Fetch the commits since the newest published notes
+        env:
+          SPAN_SINCE: ${{ steps.span.outputs.since }}
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${SPAN_SINCE:+"$SPAN_SINCE"}
       - name: Build and sign the release notes
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
+          SPAN_SINCE: ${{ steps.span.outputs.since }}
         run: |
           set -euo pipefail
           # The previous published commit. publish-nightly has already moved the
           # nightly-next tag to HEAD_SHA when this job runs, so the tag gave an
           # empty span and every build shipped "changes": [] (cx-lntk); the tag
           # is only the fallback when decide recorded no published commit.
-          since="${PUBLISHED_SHA:-}"
+          since="${SPAN_SINCE:-${PUBLISHED_SHA:-}}"
           if [ -z "$since" ]; then
             since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
           fi
