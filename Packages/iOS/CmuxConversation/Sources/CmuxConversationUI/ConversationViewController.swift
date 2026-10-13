@@ -940,13 +940,16 @@ public final class ConversationViewController: UIViewController {
             }
             metrics = carried
         }
-        let currentIndex = rowIndex
+        // `contains` looks above the cut in the old ids, not in a copy of
+        // `rowIndex`: a copy alive while the batch updates `rowIndex` made
+        // that update copy the whole index (every row of the transcript).
+        let above = oldIDs[..<keep]
         return RowDiff(
-            newIDs: Array(oldIDs[..<keep]) + newTail,
+            newIDs: Array(above) + newTail,
             deleted: oldTail.indices.filter { newPlaces[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
             inserted: newTail.indices.filter { oldPlaces[newTail[$0]] == nil }.map { IndexPath(item: keep + $0, section: 0) },
             moved: nil, structural: true, updated: updated,
-            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && currentIndex[id] != nil) },
+            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && above.contains(id)) },
             updateIndex: { $0.replaceSuffix(from: keep, oldTail, with: newTail) },
             metrics: metrics
         )
