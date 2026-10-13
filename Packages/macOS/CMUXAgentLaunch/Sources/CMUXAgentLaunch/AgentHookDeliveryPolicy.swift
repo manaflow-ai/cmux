@@ -114,14 +114,30 @@ public struct AgentHookDeliveryPolicy: Sendable {
     ///   - controllingTerminal: Returns a live process's controlling terminal
     ///     device, or `nil` when the process has none or no longer exists.
     /// - Returns: The PID whose terminal identifies the hook's pane.
+    ///
+    /// The exported PID is inherited by everything the agent starts, so a
+    /// second agent launched outside the wrapper (a fork in a tmux pane, a
+    /// shell started from the first agent) carries the first agent's PID.
+    /// When that PID is alive on a different terminal than the agent that ran
+    /// the hook, it names another pane, and the hook's own agent wins. On the
+    /// same terminal, or without terminal evidence, the exported PID is kept:
+    /// a launcher shim may export its own PID while the agent runs as its child.
     public func hookAgentPID(
         environmentPID: Int?,
         invocationAgentPID: Int?,
         controllingTerminal: (Int) -> Int64?
     ) -> Int? {
-        if let environmentPID, environmentPID > 0 {
+        let invocationAgentPID = invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
+        guard let environmentPID, environmentPID > 0 else {
+            return invocationAgentPID
+        }
+        guard let invocationAgentPID,
+              invocationAgentPID != environmentPID,
+              let invocationTerminal = controllingTerminal(invocationAgentPID),
+              let environmentTerminal = controllingTerminal(environmentPID),
+              invocationTerminal != environmentTerminal else {
             return environmentPID
         }
-        return invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
+        return invocationAgentPID
     }
 }
