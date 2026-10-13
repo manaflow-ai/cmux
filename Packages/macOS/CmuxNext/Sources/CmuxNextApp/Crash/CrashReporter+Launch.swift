@@ -53,7 +53,7 @@ struct AppCrashReporting: Sendable {
             bundlePath: Bundle.main.bundlePath, mainExecutable: Bundle.main.executablePath, sends: sends)
         forwarder.start()
         self.forwarder = forwarder
-        let tag = environment.launch.tag
+        let tag = environment.daemonTag
         let ownerPanics = OwnerPanicForwarder(
             log: OwnerPanicForwarder.log(stateRoot: Self.ownerStateRoot(tag: tag),
                                          session: (try? DaemonLauncher.sessionName(tag: tag)) ?? "cmux-app"),
@@ -66,22 +66,23 @@ struct AppCrashReporting: Sendable {
     }
 
     /// A layout feedback loop (one view laid out more than
-    /// `LayoutPassGuard.bound` times in one run-loop turn) is reported, with
+    /// its window's LayoutPassGuard limit in one window layout) is reported, with
     /// the view's class, before AppKit throws its layout-pass exception.
     static func installLayoutPassGuard(reporter: CrashReporter) {
         let guardian = LayoutPassGuard.shared
         guardian.onLoop = { report in
             reporter.captureNonFatal(
-                "layout loop: \(report.viewClass) laid out \(report.passes) times in one turn",
+                "layout loop: \(report.viewClass) laid out \(report.passes) times in one window layout",
                 type: "LayoutLoop", fingerprint: ["layout-loop", report.viewClass],
-                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none"],
+                tags: ["layout_loop_view": report.viewClass, "layout_loop_window": report.windowClass ?? "none",
+                       "layout_loop_limit": String(report.limit)],
                 extra: ["ancestry": report.ancestry.joined(separator: " < ")])
         }
         guardian.install()
     }
 
     /// The owner's state root: the parent of its sessions directory, which
-    /// is the tag's `CMUX_TUI_STATE_DIR` (DaemonLauncher) or cmux-tui's default.
+    /// is the daemon tag's `CMUX_TUI_STATE_DIR` (DaemonLauncher) or cmux-tui's default.
     static func ownerStateRoot(tag: String?) -> URL {
         let sessions = tag.map(DaemonLauncher.tagStateDirectory(tag:))
             ?? FileManager.default.homeDirectoryForCurrentUser

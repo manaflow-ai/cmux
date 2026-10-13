@@ -1,0 +1,171 @@
+import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextDaemon
+import Foundation
+
+/// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): the agent runs the move's own action
+/// (`cmux cloud move` from its shell, or the cmux MCP server's tool), and instead of moving, the app
+/// asks the person in that agent's chat with a card (Move, Not now, Always), never a sheet. Only a
+/// click there (a real gesture in the pane, ``AgentPaneToolCard``) starts the move, through the
+/// one Move to Cloud action (``CloudMove``) on that chat, as a person's run. "Always" also records
+/// the chat's synced folder: an agent's later ask from a chat in that folder starts the move at
+/// once, with "Ask first next time" on its card to take that back.
+///
+/// An agent asks only for its own chat: the run's `caller.agent_session` names it, and a target of
+/// another tab is refused. Like every caller rule this trusts the caller's claim; a process that
+/// hides it is a person's run. Bring Back Local is never an agent's: its run is refused.
+@MainActor
+final class CloudMoveAsks {
+    /// The card's owner in ``AgentToolCards``.
+    static let owner = "cloudMove"
+
+    private enum Answer: String {
+        case move, notNow, always, askFirst, retry, dismiss
+    }
+
+    /// One chat's ask, by its tab.
+    private struct Ask {
+        var folder: String
+        var always: Bool
+    }
+
+    private var asks: [String: Ask] = [:]
+    /// Where "Always" folders are kept (``CloudMoveSetup/ledger``); nil keeps them in memory.
+    var defaults: @MainActor () -> UserDefaults? = { nil }
+    private var memory: Set<String> = []
+    static let defaultsKey = "cmux.cloud.moveAlwaysFolders"
+
+    /// Whether `invocation` is an agent's: a cmux MCP run, or one naming the agent chat that sent it.
+    static func isAgent(_ invocation: ActionInvocation) -> Bool {
+        invocation.origin == .mcp || invocation.callerAgentSession != nil
+    }
+
+    /// The agent's ask: checks the chat, then (in tracked work) shows the card in it, or moves at
+    /// once from an "Always" folder. Throws before anything shows when the chat can't move.
+    func ask(_ invocation: ActionInvocation, services: AppServices) throws {
+        guard let session = invocation.callerAgentSession, let (tab, pane) = Self.chat(session, services: services) else {
+            throw ActionFailure(message: CloudMoveAskStrings.notInChat)
+        }
+        if let target = invocation.target, target.kind != .tab || (target.id != tab.id && target.id != tab.resourceID?.rawValue) {
+            throw ActionFailure(message: CloudMoveAskStrings.onlyOwnChat)
+        }
+        guard !CloudMove.hiddenMenuItems(tab).contains(CloudMove.action) else { throw ActionFailure(message: CloudMoveStrings.alreadyRemote) }
+        let tabID = tab.id
+        let work: ActionWork = Task { @MainActor [weak self] in
+            let workspace = services.machines.local.store.workspace(containing: pane.handle)
+            let chat = try? await CloudMove(services: services).chatFolder(tab: tab, workspace: workspace, session: session, invocation: ActionInvocation())
+            guard let self else { return nil }
+            guard let folder = chat.flatMap(CloudMoveFolder.init(chat:)) else { return ActionWorkFailure(CloudMoveStrings.noFolder) }
+            guard !folder.isTooBroad else { return ActionWorkFailure(CloudMoveStrings.homeFolder) }
+            // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
+            if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
+            asks[tabID] = Ask(folder: folder.root, always: false)
+            if alwaysFolders().contains(folder.root) {
+                asks[tabID]?.always = true
+                start(tabID, services: services)
+            } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)), [.move, .notNow, .always], services: services) {
+                asks[tabID] = nil
+                return ActionWorkFailure(CloudMoveAskStrings.noPage)
+            }
+            return nil
+        }
+        services.registry.track(work)
+    }
+
+    /// A move of chat tab `tab` started (a card's Move, or a person's palette, menu or CLI run).
+    func moveStarted(_ tab: String, services: AppServices) {
+        guard let ask = asks[tab] else { return }
+        let text = ask.always ? CloudMoveAskStrings.movingAlways(Self.name(ask.folder)) : CloudMoveStrings.moving
+        show(tab, .working, text, ask.always ? [.askFirst] : [], services: services)
+    }
+
+    /// The move of chat tab `tab` ended: its card goes when it moved, and says why when it stopped.
+    func moveEnded(_ tab: String, failure: String?, services: AppServices) {
+        guard asks[tab] != nil else { return }
+        guard let failure else { return close(tab, services: services) }
+        let retry = services.cloud.moveRetries[tab] != nil
+        show(tab, .failed, failure, retry ? [.retry, .dismiss] : [.dismiss], services: services)
+    }
+
+    @discardableResult
+    private func show(_ tab: String, _ state: AgentPaneToolCard.State, _ text: String, _ answers: [Answer], services: AppServices) -> Bool {
+        let folder = asks[tab].map { Self.name($0.folder) } ?? ""
+        let actions = answers.map { answer in
+            AgentPaneToolCard.Action(id: answer.rawValue, title: Self.title(answer), hint: answer == .always ? CloudMoveAskStrings.alwaysHint(folder) : nil)
+        }
+        let card = AgentPaneToolCard(id: "cloud-move-" + tab, state: state, text: text, actions: actions)
+        return services.cloud.toolCards.set([card], owner: Self.owner, tab: tab) { [weak self, weak services] _, action, _ in
+            guard let self, let services, let answer = Answer(rawValue: action) else { return }
+            self.answer(answer, tab: tab, services: services)
+        }
+    }
+
+    private func answer(_ answer: Answer, tab: String, services: AppServices) {
+        guard let ask = asks[tab] else { return }
+        switch answer {
+        case .move, .retry:
+            start(tab, services: services)
+        case .always:
+            remember(ask.folder, true)
+            asks[tab]?.always = true
+            start(tab, services: services)
+        case .askFirst:
+            remember(ask.folder, false)
+            asks[tab]?.always = false
+            show(tab, .working, CloudMoveStrings.moving, [], services: services)
+        case .notNow, .dismiss:
+            close(tab, services: services)
+        }
+    }
+
+    /// The person's move of chat tab `tab`: the one Move to Cloud action, as a person runs it.
+    private func start(_ tab: String, services: AppServices) {
+        let registry = services.registry
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)
+        var ran = false
+        let refusal = registry.capturingTypedRefusal { ran = registry.perform(CloudMove.action, invocation: invocation) }
+        // A run that did nothing and said nothing (the action is off here) never leaves the card asking.
+        if let reason = refusal?.reason ?? (ran ? nil : CloudMoveAskStrings.noMove) { show(tab, .failed, reason, [.dismiss], services: services) }
+    }
+
+    private func close(_ tab: String, services: AppServices) {
+        asks[tab] = nil
+        services.cloud.toolCards.set([], owner: Self.owner, tab: tab) { _, _, _ in }
+    }
+
+    /// The local chat tab of agent session `session`, with its pane.
+    private static func chat(_ session: String, services: AppServices) -> (TabModel, PaneModel)? {
+        let tabs = services.agentTabs
+        for pane in services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes) {
+            if let tab = pane.tabs.first(where: { (tabs.sessions[tabs.resolve($0.id)] ?? $0.agentSession?.session) == session }) { return (tab, pane) }
+        }
+        return nil
+    }
+
+    private static func name(_ folder: String) -> String { URL(fileURLWithPath: folder).lastPathComponent }
+
+    private static func title(_ answer: Answer) -> String {
+        switch answer {
+        case .move: CloudMoveAskStrings.move
+        case .notNow: CloudMoveAskStrings.notNow
+        case .always: CloudMoveAskStrings.always
+        case .askFirst: CloudMoveAskStrings.askFirst
+        case .retry: CloudMoveStrings.retry
+        case .dismiss: CloudMoveAskStrings.dismiss
+        }
+    }
+
+    // MARK: "Always" folders
+
+    private func alwaysFolders() -> Set<String> {
+        guard let defaults = defaults() else { return memory }
+        return Set(defaults.stringArray(forKey: Self.defaultsKey) ?? [])
+    }
+
+    private func remember(_ folder: String, _ always: Bool) {
+        var folders = alwaysFolders()
+        if always { folders.insert(folder) } else { folders.remove(folder) }
+        guard let defaults = defaults() else { return memory = folders }
+        defaults.set(folders.sorted(), forKey: Self.defaultsKey)
+    }
+}

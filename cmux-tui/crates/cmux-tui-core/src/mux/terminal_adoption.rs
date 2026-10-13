@@ -4,14 +4,14 @@
 use super::*;
 
 impl Mux {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn restored_terminal_binding(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<RestoredTerminalBinding>> {
         let registry = self.workspace_registry.lock().unwrap();
         let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
-            return Ok(None);
+            return detached_terminals::detached_adoption_binding(&registry, terminal_id);
         };
         drop(registry);
         let state = self.state.lock().unwrap();
@@ -30,7 +30,7 @@ impl Mux {
         Ok(Some(RestoredTerminalBinding { public_id, placements }))
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn adopt_restored_terminal(
         self: &Arc<Self>,
         binding: Option<RestoredTerminalBinding>,
@@ -72,7 +72,7 @@ impl Mux {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn adopt_terminal_hosts(self: &Arc<Self>) -> anyhow::Result<()> {
         let options = self.surface_options.lock().unwrap().clone();
         let exit_records = match options.terminal_host_root.as_deref() {
@@ -116,11 +116,12 @@ impl Mux {
                 // never be allowed to terminate a replacement process.
                 continue;
             }
-            // The host's durable sidecar records the child's end.
+            // The host's durable sidecar records the child's end (an
+            // owner-gone end is a host loss: the tabs stay, invariant 3).
             self.persist_terminal_exit(
                 &record.terminal_id,
                 Some(&record.incarnation),
-                &TerminalEnd::ProcessEnded(record.exit.clone()),
+                &TerminalEnd::from_host_exit(record.exit.clone()),
             )?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
@@ -141,7 +142,7 @@ impl Mux {
             if terminal.is_none()
                 && !template_claimed
                 && options.adopt_template_terminal
-                && !record.workspace_key.is_empty()
+                && detached_terminals::names_a_workspace(&record.workspace_key)
                 && self.state.lock().unwrap().workspaces.is_empty()
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
@@ -366,7 +367,7 @@ impl Mux {
     /// Adoption itself has already committed, so a failure here must neither
     /// abort startup nor leave the terminal without its public placement and
     /// binding.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
         let Err(error) = self.complete_template_adoption(terminal_id) else {
             return;
@@ -405,7 +406,7 @@ impl Mux {
     /// topology, then tell the template shell its new identity. The binding is
     /// written only after the commit, so the first `terminal.list` after it
     /// appears includes the terminal it names.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         // A recovered terminal (cx-0tgl LC) is placed the same way; only a
@@ -435,7 +436,7 @@ impl Mux {
     /// the options; the durable row is marked as a template terminal so
     /// finish_terminal_adoption gives it a new placement with fresh public
     /// ids. The ordinary adoption handshake follows.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn claim_template_terminal(
         &self,
         options: &SurfaceOptions,
@@ -472,7 +473,7 @@ impl Mux {
     /// first prompt waits for this file and re-exports both before any user
     /// command (or agent hook) runs. Written only after the adoption above
     /// committed, and atomically, so its presence means the clone is bound.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn publish_template_binding(
         &self,
         terminal_id: &str,
@@ -516,7 +517,7 @@ impl Mux {
     /// longer matches its row. Commits the exit receipt (the host's sidecar
     /// when it left one) and detaches the terminal's tabs only when that
     /// receipt proves a process end; a host loss leaves them dead.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn mark_terminal_ended(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -555,7 +556,7 @@ impl Mux {
             // but its tabs stay, dead (invariant 3).
             let observed = sidecar
                 .as_ref()
-                .map(|(_, record)| TerminalEnd::ProcessEnded(record.exit.clone()))
+                .map(|(_, record)| TerminalEnd::from_host_exit(record.exit.clone()))
                 .unwrap_or_else(|| TerminalEnd::host_lost(reason));
             let incarnation = sidecar
                 .as_ref()
@@ -573,7 +574,7 @@ impl Mux {
         Ok(())
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn finish_terminal_adoption(
         &self,
         terminal_id: &str,
@@ -659,6 +660,7 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {
             self.emit(MuxEvent::TreeChanged);
@@ -675,7 +677,7 @@ impl Mux {
     /// Give an adopted terminal host a new screen and pane in the workspace
     /// with `workspace_key`, without stealing focus. The resource projection
     /// then generates and persists its public ids.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn place_adopted_terminal_in_new_screen(
         &self,
         state: &mut State,
@@ -721,21 +723,21 @@ impl Mux {
         Ok(())
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn consume_template_completion_failure(&self) -> bool {
         self.template_completion_failures
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn consume_terminal_adoption_insert_failure(&self) -> bool {
         self.terminal_adoption_insert_failures
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) fn schedule_terminal_adoption(
         self: &Arc<Self>,
         options: SurfaceOptions,

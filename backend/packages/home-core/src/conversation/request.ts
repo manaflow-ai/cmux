@@ -5,7 +5,7 @@ import type { Change, ConversationHead, Message, Op, Participant } from "./types
 /**
  * One op and the stored rows it needs (the Rust `OpRequest`). The host loads
  * `target` for ops that name a message, `reply_target` for a send with
- * `reply_to`, the conversation's last message, and (to enforce the agent
+ * `reply_to`, `thread_target` for a send with `thread_root`, the conversation's last message, and (to enforce the agent
  * budget) the newest BUDGET_WINDOW messages, newest first.
  */
 export interface OpRequest {
@@ -18,6 +18,8 @@ export interface OpRequest {
   readonly new_message_id: string
   readonly target?: Message | null
   readonly reply_target?: Message | null
+  /** The message a `message.send` names as its `thread_root`, as the host loaded it (or null). */
+  readonly thread_target?: Message | null
   readonly last_message?: Message | null
   /** When present, a `message.send` also passes `checkAgentBudget`, after every other rule. */
   readonly recent?: ReadonlyArray<Message> | null

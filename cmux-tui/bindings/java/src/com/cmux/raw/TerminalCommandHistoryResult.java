@@ -12,21 +12,27 @@ import java.util.Objects;
 
 public final class TerminalCommandHistoryResult implements WireValue {
     private final boolean enabled;
+    private final long retentionDays;
 
     private TerminalCommandHistoryResult(Builder builder) {
         if (!builder.enabledSet) throw new IllegalArgumentException("enabled is required");
         this.enabled = builder.enabled;
+        if (!builder.retentionDaysSet) throw new IllegalArgumentException("retention_days is required");
+        this.retentionDays = builder.retentionDays;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public boolean enabled() { return enabled; }
+    public long retentionDays() { return retentionDays; }
 
     public static TerminalCommandHistoryResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "TerminalCommandHistoryResult");
         Builder builder = builder();
         Object rawEnabled = Wire.required(object, "enabled");
         builder.enabled(Wire.bool(rawEnabled, "TerminalCommandHistoryResult.enabled"));
+        Object rawRetentionDays = Wire.required(object, "retention_days");
+        builder.retentionDays(Wire.uint32(rawRetentionDays, "TerminalCommandHistoryResult.retention_days"));
         return builder.build();
     }
 
@@ -34,17 +40,18 @@ public final class TerminalCommandHistoryResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "enabled", enabled);
+        Wire.put(object, "retention_days", retentionDays);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TerminalCommandHistoryResult that)) return false;
-        return Objects.equals(enabled, that.enabled);
+        return Objects.equals(enabled, that.enabled) && Objects.equals(retentionDays, that.retentionDays);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(enabled); }
+    public int hashCode() { return Objects.hash(enabled, retentionDays); }
 
     @Override
     public String toString() { return "TerminalCommandHistoryResult" + toWire(); }
@@ -52,10 +59,17 @@ public final class TerminalCommandHistoryResult implements WireValue {
     public static final class Builder {
         private Boolean enabled;
         private boolean enabledSet;
+        private Long retentionDays;
+        private boolean retentionDaysSet;
 
         public Builder enabled(boolean value) {
             this.enabled = value;
             this.enabledSet = true;
+            return this;
+        }
+        public Builder retentionDays(long value) {
+            this.retentionDays = value;
+            this.retentionDaysSet = true;
             return this;
         }
         public TerminalCommandHistoryResult build() { return new TerminalCommandHistoryResult(this); }

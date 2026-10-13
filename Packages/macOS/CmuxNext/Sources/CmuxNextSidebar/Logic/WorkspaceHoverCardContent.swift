@@ -1,15 +1,21 @@
+import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextResources
 import Foundation
 
 /// What the workspace hover card says (Leo 2026-10-08, Codex parity): a
 /// title row (the name, a kind or host icon, the relative age) and one row
-/// per meaningful fact, each with an icon. CPU and memory show as one line,
-/// and only when notable.
+/// per meaningful fact, each with an icon: folder, branch, pull request,
+/// computer, the agent working there (cx-13w3), and each reported status entry with its own
+/// icon (cx-qno.11.1). CPU and memory show as one line, and only when notable.
 struct WorkspaceHoverCardContent: Equatable {
     struct Fact: Equatable {
         var icon: IconName
         var text: String
+        /// A status entry's own icon (an SF Symbol name or one emoji), drawn instead of `icon`.
+        var mark: String?
+        /// A status entry's stored image or SVG, drawn instead of both.
+        var image: SidebarFavicon?
     }
 
     var title: String
@@ -17,6 +23,9 @@ struct WorkspaceHoverCardContent: Equatable {
     /// How long ago the workspace was last active ("4w"); nil without activity.
     var age: String?
     var facts: [Fact]
+    /// The workspace's merged status and its style hint (the row's indicator).
+    var activity: StatusIndicatorState = .idle
+    var activityStyle: StatusIndicatorStyle?
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -29,9 +38,19 @@ struct WorkspaceHoverCardContent: Equatable {
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
         if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
+        if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
+        // As many entries as the row shows, then how many more (the daemon keeps up to 64).
+        let entries = workspace.reported?.entries ?? []
+        for entry in entries.prefix(SidebarWorkspaceStatus.visibleEntryLimit) {
+            facts.append(Fact(icon: .listBulletItem, text: entry.displayText, mark: entry.icon, image: entry.image))
+        }
+        if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
+            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit)))
+        }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
-            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts)
+            age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
+            activity: workspace.activity, activityStyle: workspace.activityStyle)
     }
 
     /// The one resource line, or nil while the workspace is quiet.

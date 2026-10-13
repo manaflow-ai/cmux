@@ -28,7 +28,8 @@ public nonisolated enum MotionTunables {
     // MARK: Fades and loops
 
     static let fadeDefaults: [MotionFade: (TimeInterval, String)] = [
-        .hover: (0.08, "Hover fills, hover-revealed buttons, divider hover."),
+        .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
+        .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
         .focus: (0.1, "Pane focus ring and inactive dim."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
@@ -38,6 +39,7 @@ public nonisolated enum MotionTunables {
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
         .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
         .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
+        .cursorHide: (0.3, "Agent cursor fades out once its agent goes idle."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

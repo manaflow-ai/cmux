@@ -239,8 +239,11 @@ pub(super) fn update_tab_group(
     name: Option<String>,
     color: Option<String>,
     collapsed: Option<bool>,
+    icon: Option<Option<String>>,
 ) -> anyhow::Result<Value> {
-    Ok(tab_group_outcome_json(&mux.update_tab_group_as(&actor, &group, name, color, collapsed)?))
+    Ok(tab_group_outcome_json(
+        &mux.update_tab_group_as(&actor, &group, name, color, collapsed, icon)?,
+    ))
 }
 
 pub(super) fn add_tabs_to_tab_group(
@@ -543,7 +546,10 @@ fn resolve_pane_ref(mux: &Mux, reference: &PaneRef) -> anyhow::Result<PaneId> {
     }
 }
 
-fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Option<PaneId>) {
+pub(super) fn surface_placement(
+    mux: &Mux,
+    surface: SurfaceId,
+) -> (Option<WorkspaceId>, Option<PaneId>) {
     mux.with_state(|state| {
         let pane = state.pane_of(surface);
         let workspace = pane

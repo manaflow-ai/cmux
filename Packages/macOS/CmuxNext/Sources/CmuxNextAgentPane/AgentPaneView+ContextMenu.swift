@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 import WebKit
 
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
@@ -7,10 +8,40 @@ import WebKit
 /// `contextMenuEditor` does the same.
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
+    /// Files the person dropped on the page: a real gesture page script can't make (``AgentPaneUpload``).
+    var onFilesDropped: (@MainActor () -> Void)?
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+        return super.performDragOperation(sender)
+    }
+
+    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
+    private let menuAutoFill = PageMenuAutoFill()
+
+    override var inputContext: NSTextInputContext? {
+        menuAutoFill.hidesInputContext() ? nil : super.inputContext
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        menuAutoFill.noteContextClick(event)
+        super.rightMouseDown(with: event)
+    }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        menuAutoFill.menuWillOpen()
         contextMenuEditor?(menu)
         super.willOpenMenu(menu, with: event)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuAutoFill.menuDidClose()
+        super.didCloseMenu(menu, with: event)
     }
 }
 
@@ -55,8 +86,11 @@ extension AgentPaneView {
     /// The page's message handler for ``AgentPaneContextMenuReporter``.
     static let contextMenuHandler = "cmuxAgentContextMenu"
 
-    /// Routes WebKit's context menu through the pane and listens for the page's reports.
+    /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
+    /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``).
     func installContextMenu() {
+        let dropped: @MainActor () -> Void = { [weak self] in self?.model.transport.gestures.record() }
+        if let page { page.onFilesDropped = dropped } else { (webView as? AgentPaneWKWebView)?.onFilesDropped = dropped }
         // A page host view can come back from its pool: never add the handler twice (WebKit throws).
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
@@ -69,7 +103,9 @@ extension AgentPaneView {
     func removeContextMenu() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         page?.contextMenuEditor = nil
+        page?.onFilesDropped = nil
         (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil
+        (webView as? AgentPaneWKWebView)?.onFilesDropped = nil
     }
 
     /// The page's report for the menu about to open (nil: the pointer is not on a message).
@@ -91,10 +127,10 @@ extension AgentPaneView {
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
-            openImage: { [weak self] in self?.runMessageAction("chat.menu.openImage", [:]) }))
+            page: { [weak self] name, params in self?.runMessageAction(name, params) }))
     }
 
-    /// Retry, Edit and Resend, and Open Image: the page's own actions, with the menu choice as the gesture.
+    /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.
     private func runMessageAction(_ name: String, _ params: [String: String]) {
         guard let data = try? JSONSerialization.data(withJSONObject: params) else { return }
         model.transport.gestures.record()

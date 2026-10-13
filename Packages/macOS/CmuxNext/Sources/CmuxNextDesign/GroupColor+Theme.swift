@@ -33,6 +33,11 @@ extension GroupColor {
     /// one): the member bar and the editor's dot. Nil for grey (none).
     public var themed: NSColor? { themeRGB(ThemeContext.active ?? ThemeScope.app.tokens)?.nsColor }
 
+    /// The color where it marks content (tab tints, space avatars and dots, profile dots): the
+    /// theme's palette color, and for grey a visible mid grey (`swatch`), since a grey screen,
+    /// space or profile is a chosen color there, not the "none" tonal step `headerFill` draws.
+    public var markColor: NSColor { themed ?? swatch }
+
     /// The group chip's fill in the active theme scope: the color washed
     /// into the sidebar so the name stays primary text; none draws the
     /// neutral badge fill.
@@ -42,17 +47,42 @@ extension GroupColor {
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: rgb, tokens.isDark ? 0.34 : 0.26).nsColor
     }
 
-    /// The group header bar's fill and the members' bar (the Chrome tab
-    /// group look): the theme's palette color lightened to a pastel so dark
-    /// text reads on it; none is Chrome's light gray.
-    public var headerFill: NSColor {
+    /// The group's color where it draws: the header's dot, the members'
+    /// line and the editor's swatch (cx-q5jw, cx-25az, Leo 2026-10-10: theme
+    /// colors, no pastels, no full header fill): the theme's palette color
+    /// itself, kept readable over the sidebar. None is the sidebar's tonal step.
+    public var headerFill: NSColor { headerRGB(ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
+
+    /// The color as a palette ball in the active theme scope (the app theme outside one): the
+    /// theme's palette color; grey as the app draws it there, the sidebar's neutral step for a
+    /// group (`headerFill`) or the visible mid grey where it marks content (`markColor`).
+    /// theme-scoped
+    public func ballRGB(marksContent: Bool) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        guard let rgb = themeRGB(tokens) else {
-            return (tokens.isDark ? ThemeRGB(hex: 0xDCDDE1) : ThemeRGB(hex: 0xDADCE0)).nsColor
-        }
-        return rgb.withAlpha(1).mixed(toward: ThemeRGB(hex: 0xFFFFFF), 0.35).nsColor
+        guard marksContent, themeRGB(tokens) == nil, let grey = swatch.usingColorSpace(.sRGB) else { return headerRGB(tokens) }
+        return ThemeRGB(red: grey.redComponent, green: grey.greenComponent, blue: grey.blueComponent)
     }
 
-    /// Text and glyphs on `headerFill`: near black, as on Chrome's group headers.
-    public static var headerInk: NSColor { ThemeRGB(hex: 0x1F1F1F).nsColor }
+    /// Text and glyphs on `headerFill`: black or white, whichever reads
+    /// better on the color in this theme.
+    public var headerInk: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard themeRGB(tokens) != nil else { return Palette.textPrimary }
+        return Self.ink(on: headerRGB(tokens)).nsColor
+    }
+
+    /// The order the app gives new groups their colors (cx-25az, Leo
+    /// 2026-10-10: the terminal palette in a stable order): the ANSI
+    /// accents by index, then the two mixed ones. Blue is left to people
+    /// (the no-blue rule covers what the app picks by itself).
+    nonisolated public static let automaticOrder: [GroupColor] = [.red, .green, .yellow, .purple, .cyan, .orange, .pink]
+
+    nonisolated func headerRGB(_ tokens: ThemeTokens) -> ThemeRGB {
+        themeRGB(tokens) ?? tokens.sidebarBackground.withAlpha(1).mixed(toward: tokens.isDark ? .white : .black, 0.12)
+    }
+
+    nonisolated static func ink(on fill: ThemeRGB) -> ThemeRGB {
+        let dark = ThemeRGB(hex: 0x1F1F1F)
+        return fill.contrast(with: dark) >= fill.contrast(with: .white) ? dark : .white
+    }
 }

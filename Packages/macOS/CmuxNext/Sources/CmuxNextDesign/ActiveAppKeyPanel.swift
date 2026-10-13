@@ -65,7 +65,11 @@ open class ActiveAppKeyPanel: NSPanel {
         keyElsewhereObserver = nil
     }
 
-    isolated deinit {
-        stopWatching()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            stopWatching()
+        }
     }
 }

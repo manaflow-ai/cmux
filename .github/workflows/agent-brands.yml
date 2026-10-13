@@ -15,6 +15,7 @@ on:
       - Packages/Shared/CmuxAgentBrands/**
       - webviews/src/agent-session/shared/agentBrands.generated.ts
       - agent-chat/src/agentBrands.generated.ts
+      - cmux-tui/crates/acpmux/src/chats/brand/table.rs
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
       - .xcode-version
@@ -28,6 +29,7 @@ on:
       - Packages/Shared/CmuxAgentBrands/**
       - webviews/src/agent-session/shared/agentBrands.generated.ts
       - agent-chat/src/agentBrands.generated.ts
+      - cmux-tui/crates/acpmux/src/chats/brand/table.rs
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
       - .xcode-version

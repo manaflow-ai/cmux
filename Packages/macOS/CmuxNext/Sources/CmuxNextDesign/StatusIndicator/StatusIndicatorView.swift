@@ -18,6 +18,21 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if isWindowVisible != oldValue { refresh() } }
     }
 
+    /// Whether the view follows its own window's occlusion (chrome spinners whose host tracks
+    /// none, `spinner()`). Off for hosts that set `isWindowVisible` themselves (the sidebar list).
+    public var tracksWindowOcclusion = false {
+        didSet { if tracksWindowOcclusion != oldValue { observeOcclusion() } }
+    }
+
+    /// Draws at the host's size whatever `appearance.statusIndicator.scale` says (chrome spinners
+    /// sized to their slot); the color still follows the setting.
+    public var ignoresScaleSetting = false {
+        didSet { if ignoresScaleSetting != oldValue { refresh() } }
+    }
+
+    private var occlusionObserver: (any NSObjectProtocol)?
+    private weak var observedWindow: NSWindow?
+
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -29,6 +44,16 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    // A window freed with the view still inside never moves the view out, so the occlusion token
+    // goes here. cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an
+    // action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { // main-proof: the guard above returns off the main thread
+            if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        }
+    }
 
     public override var wantsUpdateLayer: Bool { true }
 
@@ -50,7 +75,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     }
 
     private func refresh() {
-        let config = StatusIndicatorAppearance.shared.config
+        var config = StatusIndicatorAppearance.shared.config
+        if ignoresScaleSetting { config.settings.scale = 1 }
         let animates = window != nil && isWindowVisible && config.animatesLoops
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet)
         let showed = showsGlyph
@@ -81,7 +107,28 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeOcclusion()
         if let window { isWindowVisible = window.occlusionState.contains(.visible) }
         refresh()
+    }
+
+    /// Watches the current window's occlusion while `tracksWindowOcclusion` is on; a window that
+    /// shows after the view moved into it starts the animation.
+    private func observeOcclusion() {
+        let target = tracksWindowOcclusion ? window : nil
+        guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return }
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
+        observedWindow = target
+        guard let target else { return }
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: target, queue: .main
+        ) { [weak self] _ in
+            // main-proof: the observer runs on the main queue (queue: .main)
+            MainActor.assumeIsolated {
+                guard let self, let window = self.window else { return }
+                self.isWindowVisible = window.occlusionState.contains(.visible)
+            }
+        }
     }
 }

@@ -32,6 +32,8 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
+  release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
+  release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
 """
@@ -48,16 +50,21 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 # Scopes of fix/feat commits that are about the pipeline or plumbing, not the app.
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
-                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend"}
+                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
     r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|"
-    r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief)\b", re.I)
+    r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|"
+    r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
+    r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
+    r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
+    r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
+    r"consumers?|metrics)\b", re.I)
 # Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-")
+CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
-AREA_PREFIX = re.compile(r"^(cmux-next|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+)\s*:\s*", re.I)
+AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)": references, anywhere in the subject.
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)", re.I)
 
@@ -135,6 +142,8 @@ def parse_highlight(path, text):
     if "title" not in meta:
         raise SystemExit(f"{path}: a highlight needs a 'title:' line")
     item = {"id": os.path.splitext(os.path.basename(path))[0], "title": meta["title"], "body": body.strip(), "media": []}
+    if meta.get("category", "").lower() in {"new", "improved", "fixed", "security"}:
+        item["category"] = meta["category"].lower()
     if meta.get("action"):
         action_id, _, title = meta["action"].partition("|")
         item["action"] = {"id": action_id.strip(), "title": (title.strip() or "Try it")}
@@ -164,6 +173,16 @@ def whats_new_digest(args):
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
+    # One entry the validator refuses (most often: no try-it action or docs link) drops only that
+    # entry, not the whole digest; the notes' highlights still carry every file.
+    kept = []
+    for entry in document.get("entries", []):
+        found = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
+        if found:
+            print(f"whats-new digest: dropped {entry.get('id')}:\n" + "\n".join(found), file=sys.stderr)
+        else:
+            kept.append(entry)
+    document = {**document, "entries": kept}
     problems = validate.validate_document(f"{args.short}.json", document)
     if problems:
         print("whats-new digest skipped:\n" + "\n".join(problems), file=sys.stderr)
@@ -192,7 +211,9 @@ def build(args):
     highlights = []
     for path in sorted(set(p for p in added if p.endswith(".md"))):
         highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
-    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date,
+    # "head": the commit these notes end at; the next build's span starts there (`since`), so a
+    # build whose notes never published loses no change to the build after it.
+    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
     digest = whats_new_digest(args)
     if digest is not None:
@@ -224,10 +245,25 @@ def index(args):
             builds = json.load(f).get("builds", [])
     entry = {"build": notes["build"], "shortVersion": notes["shortVersion"], "date": notes["date"],
              "highlights": len(notes["highlights"])}
+    if re.fullmatch(r"[0-9a-f]{40}", notes.get("head") or ""):
+        entry["head"] = notes["head"]
     builds = [entry] + [b for b in builds if b.get("build") != notes["build"]]
     with open(args.out, "w", encoding="utf-8") as out:
         json.dump({"version": 1, "builds": builds[: args.keep]}, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     print(args.out)
+
+
+def since(args):
+    """Prints the head commit of the newest build in a (verified) index that records one, else
+    nothing. `--not` skips a head (a rerun of the job whose own notes are already published)."""
+    with open(args.index, encoding="utf-8") as f:
+        builds = json.load(f).get("builds", [])
+    for entry in builds:
+        head = entry.get("head")
+        if isinstance(head, str) and re.fullmatch(r"[0-9a-f]{40}", head) and head != args.skip:
+            print(entry["head"])
+            return 0
+    return 0
 
 
 def sign(args):
@@ -239,17 +275,72 @@ def sign(args):
         print(path + ".sig")
 
 
-def verify(args):
-    der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(args.public_key)
+def backfill(args):
+    """Published notes from before summary lines and structured items get them (cx-urd.61.6): for
+    each build in the index that has no file in --out yet, fetch its notes from the first --base that
+    serves a copy whose signature verifies, add "summary" and "items" from its commit subjects when
+    missing, and write it to --out for re-signing. Prints the written paths. Never fails the job: a
+    build that cannot be fetched or verified is skipped."""
+    with open(args.index, encoding="utf-8") as f:
+        builds = [b.get("build", "") for b in json.load(f).get("builds", []) if isinstance(b, dict)][: args.limit]
+    written = []
+    for build in builds:
+        out_path = os.path.join(args.out, f"{build}.json")
+        if not re.fullmatch(r"[0-9.]+", build) or os.path.exists(os.path.join(args.existing or args.out, f"{build}.json")):
+            continue
+        try:
+            notes = fetch_verified_notes(build, args.base, args.public_key)
+        except Exception as error:  # one bad build never stops the others or the job
+            print(f"backfill: skipped {build}: {error}", file=sys.stderr)
+            continue
+        if not isinstance(notes, dict) or notes.get("build") != build or ("summary" in notes and "items" in notes):
+            continue
+        changes = [c for c in notes.get("changes", []) if isinstance(c, str)]
+        notes.setdefault("summary", summarize_changes(changes))
+        notes.setdefault("items", [change_item(c, "") for c in changes])
+        with open(out_path, "w", encoding="utf-8") as out:
+            json.dump(notes, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        written.append(out_path)
+    print("\n".join(written))
+    return 0
+
+
+def fetch_verified_notes(build, bases, public_key):
+    """The notes of `build` from the first base whose copy verifies, else None."""
+    import urllib.request
+    for base in bases:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, f"{build}.json")
+            try:
+                for name in (f"{build}.json", f"{build}.json.sig"):
+                    request = urllib.request.Request(f"{base.rstrip('/')}/notes/{name}", headers={"User-Agent": "cmux-release-notes/1"})
+                    with urllib.request.urlopen(request, timeout=20) as response, open(os.path.join(tmp, name), "wb") as f:
+                        f.write(response.read())
+                if not verified(path, public_key):
+                    continue
+            except Exception:
+                continue
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    return None
+
+
+def verified(path, public_key):
+    """Whether path + ".sig" is a valid Ed25519 signature of path by public_key (raw, base64)."""
+    der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(public_key)
     with tempfile.TemporaryDirectory() as tmp:
         key_der, key_pem, sig = (os.path.join(tmp, n) for n in ("pub.der", "pub.pem", "sig.bin"))
         with open(key_der, "wb") as f:
             f.write(der)
         subprocess.run(["openssl", "pkey", "-pubin", "-inform", "DER", "-in", key_der, "-out", key_pem], check=True, capture_output=True)
-        with open(args.file + ".sig") as f, open(sig, "wb") as out:
+        with open(path + ".sig") as f, open(sig, "wb") as out:
             out.write(base64.b64decode(f.read().strip()))
-        ok = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", args.file,
-                             "-sigfile", sig], capture_output=True).returncode == 0
+        return subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", path,
+                               "-sigfile", sig], capture_output=True).returncode == 0
+
+
+def verify(args):
+    ok = verified(args.file, args.public_key)
     print("verified" if ok else "BAD SIGNATURE")
     return 0 if ok else 1
 
@@ -275,6 +366,16 @@ def main():
     i.add_argument("--previous")
     i.add_argument("--keep", type=int, default=50)
     i.add_argument("--out", required=True)
+    f = sub.add_parser("backfill")
+    f.add_argument("--index", required=True)
+    f.add_argument("--base", action="append", required=True)
+    f.add_argument("--public-key", required=True)
+    f.add_argument("--out", required=True)
+    f.add_argument("--existing", help="a folder whose notes are not backfilled (this build's)")
+    f.add_argument("--limit", type=int, default=50)
+    n = sub.add_parser("since")
+    n.add_argument("--index", required=True)
+    n.add_argument("--not", dest="skip", default="")
     s = sub.add_parser("sign")
     s.add_argument("--key", required=True)
     s.add_argument("files", nargs="+")
@@ -282,7 +383,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

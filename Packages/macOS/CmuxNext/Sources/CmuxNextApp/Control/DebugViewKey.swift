@@ -29,6 +29,12 @@ enum DebugViewKey {
     /// Named key views. Another view joins with ``register(_:_:)``.
     private static var views: [String: Resolver] = [
         "sidebar.list": { $0.sidebar.container.sidebarView.debugKeyView },
+        // Whatever in the sidebar has keyboard focus now, so presses walk on from it (cx-qno.10).
+        "sidebar.focus": { controller in
+            let sidebar = controller.sidebar.container.sidebarView
+            guard let view = controller.window?.firstResponder as? NSView, view.isDescendant(of: sidebar) else { return sidebar.debugKeyView }
+            return view
+        },
     ]
 
     /// Makes `view(controller)` reachable as `debug.view_key` view `name`.
@@ -115,8 +121,11 @@ enum DebugViewKey {
         return services.windows.active ?? services.windows.controllers.first
     }
 
+    /// The responder's class, with its accessibility label when it has one (a sidebar item).
     private static func responderName(_ responder: NSResponder?) -> String {
-        responder.map { String(describing: type(of: $0)) } ?? "none"
+        guard let responder else { return "none" }
+        let label = (responder as? NSView)?.accessibilityLabel().map { " " + $0 } ?? ""
+        return String(describing: type(of: responder)) + label
     }
 
     private final class EndOfChain: NSResponder {

@@ -1,8 +1,10 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -49,11 +51,15 @@ final class TopHomePageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            rowsObservation?.cancel()
+            selectionObservation?.cancel()
+            chiefObservation?.cancel()
+            accountObservation?.cancel()
+        }
     }
 
     private func wireList(_ services: AppServices) {
@@ -110,36 +116,43 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
+        home.refreshChiefAvatar()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _) in Observations({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            for await (all, archived, _, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar)
             }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 list.update(sidebar.model())
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                // The cache's conversation of a Chief home made again (cx-ebm.55).
+                if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
         // on a paired server (G6) replaces the local chief while the page shows the local one.
         chiefObservation = Task { [weak self] in
             var previous = Self.chief(home)
-            for await chief in Observations({ Self.chief(home) }) {
+            for await chief in ObservationStream({ Self.chief(home) }) {
                 guard let self, let chief, chief != previous else { continue }
-                if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
+                if shownIsGone(home.homeStore) {
+                    replaceGone(with: ConversationID(chief), store: home.homeStore)
+                } else if shown == nil || shown?.rawValue == previous {
+                    show(ConversationID(chief))
+                }
                 previous = chief
             }
         }
         let auth = home.services.cloud.auth
         // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
         accountObservation = Task {
-            for await _ in Observations({ auth.user?.id }) { sidebar.reloadPins() }
+            for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
-            for await pending in Observations({ (home.pendingSelection, store.rows.map(\.id)) }) {
+            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
                 guard let self, let id = pending.0, pending.1.contains(id) else { continue }
                 home.pendingSelection = nil
                 show(id)
@@ -167,6 +180,28 @@ final class TopHomePageView: NSView {
     static func chief(_ home: HomeService) -> String? {
         let local = HomeChiefName.select(from: home.conversations)
         return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
+    }
+
+    /// The shown conversation is one the owner's own inbox does not have:
+    /// the cache's conversation of a Chief home made again at the same path
+    /// (cx-ebm.55). Decided only on the owner's inbox, never the cache's copy.
+    private func shownIsGone(_ store: HomeStore) -> Bool {
+        guard let shown else { return false }
+        return store.isInboxCurrent && store.isCacheOnly(shown)
+    }
+
+    /// Shows the live Chief instead of a gone conversation; the text the user
+    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
+    private func replaceGone(with chief: ConversationID, store: HomeStore) {
+        guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
+        if let text = store.draft(for: gone), !text.isEmpty {
+            let own = store.draft(for: chief) ?? ""
+            store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
+            store.setDraft("", for: gone)
+            // Its view says the Chief restarted and that Return sends the text.
+            store.noteCarriedDraft(to: chief)
+        }
+        show(chief)
     }
 
     /// Shows `id` in the transcript column and selects it in the list.
@@ -228,6 +263,9 @@ final class TopHomePageView: NSView {
         }
         guard let window else { return }
         let panel = NSWindow(contentViewController: sheet)
+        // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
+        // resolved before the sheet had a parent.
+        panel.adoptThemeScope(of: self)
         window.beginSheet(panel)
     }
 }

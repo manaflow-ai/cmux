@@ -28,6 +28,8 @@ export type AgentSessionTheme = {
   accentSoft: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
+  /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
+  onAccent?: string;
   danger: string;
   /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
   warning?: string;
@@ -45,7 +47,9 @@ export type AgentSessionTheme = {
   borders?: "default" | "none";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
   /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
-  motion?: { hover: number; focus: number; fadeIn: number; fadeOut: number };
+  /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
+  /// `move` spring's timed equivalent (MotionSpring), 0 when movement is instant.
+  motion?: { hover: number; hoverOut?: number; focus: number; fadeIn: number; fadeOut: number; move?: number };
 };
 
 export type AppContext = {

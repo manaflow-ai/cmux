@@ -5,21 +5,36 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
-import { mergeMessages } from "./model";
+import { DraftBook, type HomeDraft } from "./drafts";
+import { mergeMessages, threadOf } from "./model";
 import {
   HomeOps,
   type HomeConversation,
   type HomeEventBatch,
+  type HomeHistory,
   type HomeInbox,
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomeThreadPage,
+  type HomeThreadStats,
 } from "./types";
 
 export const PAGE = 100;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
+
+/** The open thread as the owner's thread read returned it (`cmux.home.thread`), kept current by
+ * events. Absent on a host without the read: the panel shows the window's replies. */
+export interface ThreadView {
+  root: string;
+  /** The root and the loaded replies, ascending by seq. */
+  messages: readonly HomeMessage[];
+  /** More replies follow the last loaded one. */
+  hasMore: boolean;
+  loading: boolean;
+}
 
 export interface HomeSnapshot {
   connection: Connection;
@@ -33,8 +48,19 @@ export interface HomeSnapshot {
   hasOlder: boolean;
   loadingOlder: boolean;
   thread?: string;
+  /** The open thread's owner read (root and every reply page loaded so far). */
+  threadView?: ThreadView;
+  /** The owner's stats of thread roots (from pages, history and thread reads), by root id. */
+  threadStats: ReadonlyMap<string, HomeThreadStats>;
   /** Participant ids typing in the open conversation. */
   typing: readonly string[];
+  /** What showed as new when the conversation opened: messages after my read cursor (`after`) up
+   * to the newest one then (`through`). Messages that arrive while it is open are read live. */
+  unseen?: { after: number; through: number };
+  /** Threads opened in this visit: their new replies are read. */
+  threadsSeen: ReadonlySet<string>;
+  /** The open conversation's running agent reply (shown until the reply posts). */
+  draft?: HomeDraft;
   error?: string;
 }
 
@@ -49,6 +75,7 @@ export class HomeChannelsStore {
   private nextKey = 0;
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
+  private readonly drafts = new DraftBook();
 
   constructor(private readonly client: PageClient | null) {
     this.snapshot = {
@@ -59,6 +86,8 @@ export class HomeChannelsStore {
       hasOlder: false,
       loadingOlder: false,
       typing: [],
+      threadsSeen: new Set(),
+      threadStats: new Map(),
     };
   }
 
@@ -122,7 +151,18 @@ export class HomeChannelsStore {
   /** Opens a conversation: its newest page, then marks it read. */
   async select(id: string): Promise<void> {
     if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
-    this.set({ selected: id, messages: [], hasOlder: false, thread: undefined, typing: [] });
+    this.set({
+      selected: id,
+      messages: [],
+      hasOlder: false,
+      thread: undefined,
+      threadView: undefined,
+      threadStats: new Map(),
+      typing: [],
+      unseen: undefined,
+      threadsSeen: new Set(),
+      draft: this.drafts.draft(id),
+    });
     await this.reloadPage(id);
   }
 
@@ -141,7 +181,22 @@ export class HomeChannelsStore {
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
       });
       const messages = mergeMessages(kept, fresh, WINDOW);
-      this.set({ conversations, messages, hasOlder: (messages[0]?.seq ?? 1) > 1 });
+      const unseen = this.snapshot.unseen ?? {
+        after: page.conversation.lastSeq - page.conversation.unread,
+        through: page.conversation.lastSeq,
+      };
+      // A reply that came in with this page (not as an event: a gap, a large batch) ends its draft.
+      const live = this.drafts.draft(id);
+      const reply = live && messages.find((m) => m.clientMessageId === live.turn && m.author === live.participant);
+      if (reply) this.drafts.posted(reply);
+      this.set({
+        conversations,
+        messages,
+        hasOlder: (messages[0]?.seq ?? 1) > 1,
+        unseen,
+        draft: this.drafts.draft(id),
+        threadStats: withStats(this.snapshot.threadStats, page.threads),
+      });
       this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
@@ -155,14 +210,18 @@ export class HomeChannelsStore {
     const before = messages[0]?.seq ?? 1;
     this.set({ loadingOlder: true });
     try {
-      const older = await this.client.call<{ messages: HomeMessage[] }>(HomeOps.history, {
+      const older = await this.client.call<HomeHistory>(HomeOps.history, {
         conversation: selected,
         beforeSeq: before,
         limit: PAGE,
       });
       if (this.snapshot.selected !== selected) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
-      this.set({ messages: merged, hasOlder: older.messages.length === PAGE && (merged[0]?.seq ?? 1) > 1 });
+      this.set({
+        messages: merged,
+        hasOlder: older.messages.length === PAGE && (merged[0]?.seq ?? 1) > 1,
+        threadStats: withStats(this.snapshot.threadStats, older.threads),
+      });
     } catch (error) {
       this.set({ error: describe(error) });
     } finally {
@@ -171,7 +230,44 @@ export class HomeChannelsStore {
   }
 
   openThread(root: string | undefined): void {
-    this.set({ thread: root });
+    const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
+    if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
+    else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
+    if (root) void this.loadThread(root, 0);
+  }
+
+  /** The next page of the open thread's replies (the owner's thread read). */
+  loadMoreReplies(): void {
+    const view = this.snapshot.threadView;
+    if (!view || view.loading || !view.hasMore) return;
+    this.set({ threadView: { ...view, loading: true } });
+    void this.loadThread(view.root, view.messages.at(-1)?.seq ?? 0);
+  }
+
+  private async loadThread(root: string, afterSeq: number): Promise<void> {
+    const conversation = this.snapshot.selected;
+    if (!this.client || !conversation) return;
+    const current = () => this.snapshot.selected === conversation && this.snapshot.threadView?.root === root;
+    try {
+      const page = await this.client.call<HomeThreadPage>(HomeOps.thread, {
+        conversation,
+        root,
+        afterSeq,
+        limit: PAGE,
+      });
+      if (!current()) return;
+      const view = this.snapshot.threadView!;
+      const messages = mergeMessages(view.messages, [page.root, ...page.replies], Number.MAX_SAFE_INTEGER);
+      this.set({
+        threadView: { root, messages, hasMore: page.hasMore, loading: false },
+        threadStats: withStats(this.snapshot.threadStats, [page.thread]),
+      });
+    } catch (error) {
+      if (!current()) return;
+      // A host without the read: the panel shows the window's replies (no view).
+      const unknown = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      this.set({ threadView: undefined, ...(unknown ? {} : { error: describe(error) }) });
+    }
   }
 
   /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
@@ -193,15 +289,71 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
+   * owner created it. */
+  async createChannel(title: string, participants: readonly string[]): Promise<boolean> {
+    const name = title.trim();
+    if (!this.client || !name || participants.length === 0) return false;
+    try {
+      const result = await this.client.call<{ conversation?: string }>(HomeOps.createGroup, {
+        title: name,
+        participants,
+        idempotencyKey: this.key("create"),
+      });
+      await this.reloadInbox();
+      if (result.conversation) await this.select(result.conversation);
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Adds my reaction, or takes it back when I already reacted with it. */
   async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
+    const mine = message.reactions.find((r) => r.value === value && r.author === this.snapshot.me?.id);
     try {
       await this.client.call(HomeOps.react, {
         conversation: message.conversation,
         message: message.id,
-        partIndex: 0,
+        partIndex: mine?.partIndex ?? 0,
         value,
+        tapback: mine?.tapback,
+        remove: mine !== undefined,
         idempotencyKey: this.key("react"),
+      });
+    } catch (error) {
+      this.set({ error: describe(error) });
+    }
+  }
+
+  /** Replaces my message's text. Resolves true when the owner took it. */
+  async edit(message: HomeMessage, text: string): Promise<boolean> {
+    const trimmed = text.trim();
+    if (!this.client || !trimmed) return false;
+    try {
+      await this.client.call(HomeOps.edit, {
+        conversation: message.conversation,
+        message: message.id,
+        text: trimmed,
+        idempotencyKey: this.key("edit"),
+      });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Deletes my message for everyone (the owner keeps a "deleted" row). */
+  async retract(message: HomeMessage): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(HomeOps.retract, {
+        conversation: message.conversation,
+        message: message.id,
+        idempotencyKey: this.key("retract"),
       });
     } catch (error) {
       this.set({ error: describe(error) });
@@ -229,6 +381,12 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
+    if (batch.connection === "offline") this.drafts.clear();
+    // Drafts first, then typing off and the posted messages: a reply that posts in the same
+    // batch as its last draft item ends the draft, and a late item cannot bring it back.
+    for (const item of batch.drafts ?? []) this.drafts.apply(item);
+    for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
+    for (const message of batch.messages ?? []) this.drafts.posted(message);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
@@ -242,6 +400,16 @@ export class HomeChannelsStore {
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
     if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
+    // The open thread's view takes its root and replies from events too (a reply, an edit).
+    const view = this.snapshot.threadView;
+    const threadIncoming = view ? incoming.filter((m) => m.id === view.root || threadOf(m) === view.root) : [];
+    if (view && threadIncoming.length > 0) {
+      // Only what follows the loaded pages: a reply between pages comes with the next page.
+      const tail = view.hasMore
+        ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq))
+        : threadIncoming;
+      patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
+    }
     if (batch.typing && selected) {
       const typing = new Set(this.snapshot.typing);
       for (const entry of batch.typing) {
@@ -250,6 +418,10 @@ export class HomeChannelsStore {
         else typing.delete(entry.participant);
       }
       patch.typing = [...typing];
+    }
+    if (selected) {
+      const draft = this.drafts.draft(selected);
+      if (draft?.text !== this.snapshot.draft?.text || draft?.turn !== this.snapshot.draft?.turn) patch.draft = draft;
     }
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
@@ -268,6 +440,17 @@ export class HomeChannelsStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The stats map with these owner stats replacing the roots they name. */
+function withStats(
+  current: ReadonlyMap<string, HomeThreadStats>,
+  stats: readonly HomeThreadStats[] | undefined,
+): ReadonlyMap<string, HomeThreadStats> {
+  if (!stats || stats.length === 0) return current;
+  const next = new Map(current);
+  for (const entry of stats) next.set(entry.root, entry);
+  return next;
 }
 
 /** The Chief DM first, else the newest conversation. */

@@ -2,7 +2,8 @@
    after pages/shared/desktop.css and before the pane's own stylesheets.
 
    --agent-* is the pane's palette. theme.ts sets every entry from the Ghostty theme at
-   runtime; these values only cover the first frame before a theme arrives (a dark page). */
+   runtime; these values only cover the first frame before a theme arrives: the page theme
+   (`--cmux-*`, WebTheme.swift), else a dark page. */
 
 :root {
   color-scheme: dark;
@@ -10,17 +11,17 @@
   background: transparent;
   overflow: hidden;
   --agent-page-bg: transparent;
-  --agent-surface: rgba(30, 30, 30, 0.34);
-  --agent-surface-elevated: rgba(30, 30, 30, 0.48);
-  --agent-input-bg: rgba(8, 8, 8, 0.36);
-  --agent-border: rgba(255, 255, 255, 0.12);
-  --agent-border-strong: rgba(255, 255, 255, 0.22);
-  --agent-text: #ececec;
-  --agent-muted: rgba(236, 236, 236, 0.58);
-  --agent-soft: rgba(236, 236, 236, 0.78);
-  --agent-accent: #8ab4f8;
-  --agent-accent-soft: rgba(138, 180, 248, 0.2);
-  --agent-danger: #ff8d7e;
+  --agent-surface: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 34%, transparent);
+  --agent-surface-elevated: color-mix(in srgb, var(--cmux-elevated-background, #1e1e1e) 48%, transparent);
+  --agent-input-bg: color-mix(in srgb, var(--cmux-app-window, #080808) 36%, transparent);
+  --agent-border: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --agent-border-strong: color-mix(in srgb, var(--agent-text) 22%, transparent);
+  --agent-text: var(--cmux-text, #ececec);
+  --agent-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
+  --agent-soft: color-mix(in srgb, var(--agent-text) 78%, transparent);
+  --agent-accent: var(--agent-text);
+  --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
+  --agent-danger: var(--cmux-app-danger, #ff8d7e);
   --agent-shadow: rgba(0, 0, 0, 0.2);
   --agent-control: color-mix(in srgb, var(--agent-input-bg) 44%, transparent);
   --agent-control-hover: color-mix(in srgb, var(--agent-soft) 8%, transparent);

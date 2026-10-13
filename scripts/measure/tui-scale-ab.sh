@@ -7,6 +7,8 @@
 #   cmux-ci run --class exclusive --script scripts/measure/tui-scale-ab.sh --ref SHA
 #     --arg=against=SHA [--arg=after=SHA] [--arg=counts=250,1000,2000] [--arg=rounds=2]
 # against= is the "before" binary, after= (default: the ref) the "after" one.
+# before_key=/after_key= name the published tree keys directly: the key of an
+# older commit can differ from what this ref's key inputs compute.
 # Both commits need a published cmux-tui tree (pin-cmux-tui.sh docs: push
 # cmux-tui-pin-<short> and let cmux-tui-artifacts.yml publish it). The counts
 # are capped by the free PTYs (kern.tty.ptmx_max minus PTYs in use minus 64).
@@ -14,38 +16,47 @@
 set -euo pipefail
 against=""
 after=HEAD
+before_key=""
+after_key=""
 counts="250,1000,2000"
 rounds=2
 for arg in "$@"; do
   case "$arg" in
     against=*) against="${arg#against=}" ;;
     after=*) after="${arg#after=}" ;;
+    before_key=*) before_key="${arg#before_key=}" ;;
+    after_key=*) after_key="${arg#after_key=}" ;;
     counts=*) counts="${arg#counts=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
     *) echo "tui-scale-ab.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [ -n "$against" ] || { echo "tui-scale-ab.sh: against=SHA is required" >&2; exit 2; }
+case "$rounds" in [1-5]) ;; *) echo "tui-scale-ab.sh: rounds must be 1-5" >&2; exit 2 ;; esac
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/tui-scale"
 rm -rf "$work"
 mkdir -p "$work/ab"
-for rev in "$against" "$after"; do
-  git cat-file -e "$rev^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$rev"
-done
+# Only a revision whose key we compute must be present. Never deepen-limit a
+# full checkout: --depth on a worktree of the warm clone makes it shallow.
+need_fetch() { [ -z "$2" ] && ! git cat-file -e "$1^{commit}" 2>/dev/null; }
+depth=""
+[ "$(git rev-parse --is-shallow-repository)" = "true" ] && depth="--depth=1"
+need_fetch "$against" "$before_key" && git fetch --quiet $depth origin "$against"
+need_fetch "$after" "$after_key" && git fetch --quiet $depth origin "$after"
 base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
-fetch() { # label revision
-  local key sum
-  key="$(python3 scripts/ci/cmux_tui_tree_key.py "$2")"
+fetch() { # label revision [key]
+  local key="${3:-}" sum
+  [ -n "$key" ] || key="$(python3 scripts/ci/cmux_tui_tree_key.py "$2")"
   curl -fsSL --proto '=https' "$base/tree/$key/cmux-tui-aarch64-apple-darwin" -o "$work/bin-$1"
   sum="$(curl -fsSL --proto '=https' "$base/tree/$key/cmux-tui-aarch64-apple-darwin.sha256" | awk '{print $1}')"
   [ "$(shasum -a 256 "$work/bin-$1" | awk '{print $1}')" = "$sum" ] || { echo "TUI-AB sha256 mismatch for $1 ($key)" >&2; exit 1; }
   chmod +x "$work/bin-$1"
-  echo "TUI-AB-BIN $1 rev=$(git rev-parse --short=12 "$2") key=$key"
+  echo "TUI-AB-BIN $1 rev=$2 key=$key"
 }
-fetch before "$against"
-fetch after "$after"
+fetch before "$against" "$before_key"
+fetch after "$after" "$after_key"
 ptmx_max="$(sysctl -n kern.tty.ptmx_max)"
 in_use="$(find /dev -maxdepth 1 -name 'ttys[0-9]*' 2>/dev/null | wc -l | tr -d ' ')"
 cap=$(( ptmx_max - in_use - 64 ))
@@ -54,7 +65,10 @@ IFS=, read -r -a wanted <<< "$counts"
 for n in "${wanted[@]}"; do
   if [ "$n" -le "$cap" ]; then capped="${capped:+$capped,}$n"; fi
 done
-[ -n "$capped" ] || capped="$cap"
+if [ -z "$capped" ]; then
+  [ "$cap" -ge 1 ] || { echo "TUI-AB no free PTYs (ptmx_max=$ptmx_max in_use=$in_use)" >&2; exit 1; }
+  capped="$cap"
+fi
 echo "TUI-AB-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) ptmx_max=$ptmx_max ptys_in_use=$in_use counts=$capped"
 ulimit -n "$(ulimit -Hn)" 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 echo "TUI-AB-LIMITS nofile=$(ulimit -n) maxprocperuid=$(sysctl -n kern.maxprocperuid)"
@@ -80,7 +94,10 @@ for step in data.get("steps", []):
     print(f"TUI-AB {sys.argv[2]} N={step.get('target')} created={step.get('created')} rate={step.get('create_rate_per_s')} "
           f"c50={c.get('p50_ms')} c99={c.get('p99_ms')} echo99={e.get('p99_ms')} "
           f"r50={r.get('p50_ms')} r99={r.get('p99_ms')} w50={w.get('p50_ms')} w99={w.get('p99_ms')}")
-print(f"TUI-AB-STOP {sys.argv[2]} {data.get('stopped')}")
+teardown = data.get("teardown") or {}
+print(f"TUI-AB-STOP {sys.argv[2]} {data.get('stopped')} teardown={json.dumps(teardown)[:300]}")
+if teardown.get("daemon_still_running") or teardown.get("leftover_hosts"):
+    sys.exit("TUI-AB a daemon or terminal host outlived the run")
 EOF
   done
 done

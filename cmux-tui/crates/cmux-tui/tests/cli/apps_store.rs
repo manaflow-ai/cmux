@@ -370,8 +370,22 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
     let hub = apps.dir.join("hub.sock");
     let _listener = UnixListener::bind(&hub).unwrap();
     register(&apps.dir.join("state"), &hub);
-    // A first-party app whose always-on server asks for the link at start
-    // and records the answer.
+    write_probe_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(
+        (reply["t"].clone(), reply["id"].clone()),
+        (json!("host.result"), json!(7)),
+        "{reply}"
+    );
+    (reply, hub)
+}
+
+/// A first-party app whose always-on server asks `cmux.host.link.get` at
+/// start and records every line it gets in `<dir>/link.jsonl`.
+fn write_probe_app(apps: &Apps) {
     write_script(
         &apps.dir.join("servers").join("host-probe"),
         "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
@@ -400,16 +414,161 @@ fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, Pat
             }
         }),
     );
+}
+
+/// cx-rtipa review P2-1: a link whose probe does not finish is unknown, not
+/// "no link": `link.get` answers `apps.link_probe_timeout` (retryable), and
+/// `apps-link-changed` sends that server nothing. The link here is a socket
+/// of this test with a full accept queue (listen backlog 0, filled), so the
+/// daemon's probe connect blocks. Linux only: there a connect to a full
+/// queue waits; macOS refuses it at once.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_link_probe_that_times_out_is_unknown_not_no_link() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let apps = Apps::new("probetime");
+    let hub = apps.dir.join("hub.sock");
+    let address = |path: &Path| {
+        // SAFETY: sockaddr_un is plain data; all-zero is a valid value.
+        let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        addr.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (slot, byte) in addr.sun_path.iter_mut().zip(path.as_os_str().as_encoded_bytes()) {
+            *slot = *byte as libc::c_char;
+        }
+        addr
+    };
+    let len = size_of::<libc::sockaddr_un>() as libc::socklen_t;
+    let socket = |flags: libc::c_int| {
+        // SAFETY: a new socket descriptor this test owns.
+        let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | flags, 0) };
+        assert!(fd >= 0);
+        // SAFETY: as above.
+        unsafe { OwnedFd::from_raw_fd(fd) }
+    };
+    let listener = socket(0);
+    let addr = address(&hub);
+    // SAFETY: bind and listen on the test's own socket.
+    unsafe {
+        assert_eq!(libc::bind(listener.as_raw_fd(), (&raw const addr).cast(), len), 0);
+        assert_eq!(libc::listen(listener.as_raw_fd(), 0), 0);
+    }
+    // Fill the accept queue with non-blocking connects until it refuses.
+    let mut queued = Vec::new();
+    loop {
+        let client = socket(libc::SOCK_NONBLOCK);
+        // SAFETY: connect of the test's own socket.
+        let rc = unsafe { libc::connect(client.as_raw_fd(), (&raw const addr).cast(), len) };
+        if rc != 0 {
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.raw_os_error(), Some(libc::EAGAIN), "fill the accept queue: {error}");
+            break;
+        }
+        queued.push(client);
+        assert!(queued.len() < 64, "the accept queue never filled");
+    }
+    cmux_link::registration::write(
+        &apps.dir.join("state"),
+        &cmux_link::registration::Registration::new(hub, std::process::id()),
+    )
+    .unwrap();
+    write_probe_app(&apps);
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
-
     let reply = apps.lines("link.jsonl", 1).swap_remove(0);
     assert_eq!(
-        (reply["t"].clone(), reply["id"].clone()),
-        (json!("host.result"), json!(7)),
-        "{reply}"
+        (reply["t"].clone(), reply["code"].clone(), reply["retryable"].clone()),
+        (json!("host.error"), json!("apps.link_probe_timeout"), json!(true)),
+        "a probe timeout was reported as: {reply}"
     );
-    (reply, hub)
+    let told = apps.app().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(ok(&told)["servers"], 0, "{told}");
+    let lines = std::fs::read_to_string(apps.dir.join("link.jsonl")).unwrap();
+    assert_eq!(
+        lines.lines().count(),
+        1,
+        "link.changed sent an event while the link was unknown: {lines}"
+    );
+    drop(queued);
+}
+
+/// cx-rtipa S2: a link that `cmux link ensure` starts after an app server
+/// read "no link" reaches that server at once: the app sends
+/// `apps-link-changed`, and the server gets `cmux.host.link.changed` with the
+/// new link's socket. `cmux link stop` and another `apps-link-changed` take
+/// it away again. A connection that is not the verified app is refused.
+#[test]
+fn apps_link_changed_tells_servers_the_link_that_ensure_started() {
+    let apps = Apps::new("ensured");
+    let out = apps.dir.join("link.jsonl");
+    write_script(
+        &apps.dir.join("servers").join("host-probe"),
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+    );
+    let app = apps.dir.join("first-party").join("linked");
+    std::fs::create_dir_all(&app).unwrap();
+    let catalog = json!({ "family": "linked", "operations": [{
+        "name": "linked.ping", "owner": "app:cmux/linked", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": "linked/1"
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    write_app(
+        &apps.dir.join("first-party"),
+        "cmux",
+        "linked",
+        json!({
+            "catalog": "catalog.json", "files": ["catalog.json"],
+            "scopes": { "linked:read": "Read." },
+            "server": {
+                "kind": "native",
+                "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+                "args": [out.to_string_lossy()],
+                "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" },
+                "scopes": { "op:cmux.host.link.get": "Read where the link helper lives." }
+            }
+        }),
+    );
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let first = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(first["value"]["hub_socket"], Value::Null, "no link runs yet: {first}");
+
+    let state = apps.dir.join("state");
+    let link = |args: &[&str]| -> Value {
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("link")
+            .args(args)
+            .arg("--state-dir")
+            .arg(state.join("link"))
+            .env("CMUX_TUI_STATE_DIR", &state)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "link {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        serde_json::from_str(text.lines().last().unwrap_or_default()).unwrap()
+    };
+    let started = link(&["ensure", "--install", "inst_apps_store_link", "--port", "0"]);
+    assert_eq!(started["status"], "started", "{started}");
+    // Only the verified cmux app reports a link change: an agent
+    // connection is refused and tells no server.
+    let refused = apps.agent().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+    let told = apps.app().rpc(json!({ "cmd": "apps-link-changed" }));
+    assert_eq!(ok(&told)["servers"], 1, "{told}");
+    let changed = apps.lines("link.jsonl", 2).swap_remove(1);
+    assert_eq!(
+        (changed["t"].clone(), changed["op"].clone(), changed["data"]["hub_socket"].clone()),
+        (json!("host.event"), json!("cmux.host.link.changed"), started["socket"].clone()),
+        "{changed}"
+    );
+
+    assert_eq!(link(&["stop"])["stopped"], true);
+    ok(&apps.app().rpc(json!({ "cmd": "apps-link-changed" })));
+    let gone = apps.lines("link.jsonl", 3).swap_remove(2);
+    assert_eq!(gone["data"]["hub_socket"], Value::Null, "the stopped link is gone: {gone}");
 }
 
 /// An app holding the family scope still never reaches an op only a
@@ -465,4 +624,160 @@ fn person_only_and_money_ops_never_reach_an_app() {
             call["name"],
         );
     }
+}
+
+/// A first-party app whose always-on server asks `cmux.host.link.get` at
+/// start and again once `<dir>/again` exists, recording each answer in
+/// `<dir>/link.jsonl` (cx-wmd8x).
+fn write_linked_app(apps: &Apps) {
+    write_script(
+        &apps.dir.join("servers").join("host-probe"),
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\n(while [ ! -e \"$2\" ]; do sleep 0.05; done; printf '{\"t\":\"host.request\",\"id\":8,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n') &\nwaiter=$!\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\nkill $waiter 2>/dev/null\n",
+    );
+    let app = apps.dir.join("first-party").join("linked");
+    std::fs::create_dir_all(&app).unwrap();
+    let catalog = json!({ "family": "linked", "operations": [{
+        "name": "linked.ping", "owner": "app:cmux/linked", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": "linked/1"
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    write_app(
+        &apps.dir.join("first-party"),
+        "cmux",
+        "linked",
+        json!({
+            "catalog": "catalog.json", "files": ["catalog.json"],
+            "scopes": { "linked:read": "Read." },
+            "server": {
+                "kind": "native",
+                "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+                "args": [apps.dir.join("link.jsonl").to_string_lossy(), apps.dir.join("again").to_string_lossy()],
+                "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" },
+                "scopes": { "op:cmux.host.link.get": "Read where the link helper lives." }
+            }
+        }),
+    );
+}
+
+/// Stops the daemon and waits until its socket refuses connections, so the
+/// next `ensure` of the same session never meets an owner that is still ending.
+fn stop_daemon(apps: &Apps) {
+    let output = apps.command("stop").output().unwrap();
+    assert!(output.status.success(), "stop failed: {}", String::from_utf8_lossy(&output.stderr));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while UnixStream::connect(&apps.socket).is_ok() {
+        assert!(Instant::now() < deadline, "the daemon did not stop");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The `apps-logs` lines of `app` once one holds `needle` (or every line after 20 s).
+fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let reply = apps.agent().rpc(json!({ "cmd": "apps-logs", "app": app }));
+        let lines: Vec<String> = ok(&reply)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["message"].as_str().unwrap_or_default().to_string())
+            .collect();
+        if lines.iter().any(|l| l.contains(needle)) || Instant::now() > deadline {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// cx-wmd8x: the app server's temporary folder is also its socket folder
+/// (`socket_dir` of `cmux.host.link.get`), a trust boundary. Through the
+/// daemon: a folder that is a symlink, or that other users may open, is never
+/// emptied or used; the server does not start and nothing it would have
+/// answered is sent. A clean start answers a 0700 folder short enough for the
+/// link socket; once that folder opens to other users, the next link answer
+/// refuses.
+#[test]
+fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
+    for case in ["symlink", "open"] {
+        let apps = Apps::new(&format!("sd{case}{}", std::process::id()));
+        write_linked_app(&apps);
+        // A first start names the folder this daemon's app uses.
+        apps.start();
+        ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+        let first = apps.lines("link.jsonl", 1).swap_remove(0);
+        let leaf = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+        // The person turns the app off: its server stops and its folder goes with it.
+        let mut app = apps.app();
+        let set = |app: &mut Client, enabled: bool, key: &str| {
+            let args = json!({ "app": "cmux/linked", "enabled": enabled, "idempotency_key": key });
+            ok(&app.store("cmux.apps.set", args, "user")).clone()
+        };
+        set(&mut app, false, &format!("{case}-off"));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while std::fs::symlink_metadata(&leaf).is_ok() {
+            assert!(Instant::now() < deadline, "{case}: the stopped server's folder stays");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        std::fs::remove_file(apps.dir.join("link.jsonl")).unwrap();
+        // Then another process of the user puts a folder of its own there.
+        let elsewhere = apps.dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("keep"), "x").unwrap();
+        if case == "symlink" {
+            std::os::unix::fs::symlink(&elsewhere, &leaf).unwrap();
+        } else {
+            std::fs::create_dir(&leaf).unwrap();
+            std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(leaf.join("keep"), "x").unwrap();
+        }
+        // Turned on again, the server's start refuses that folder.
+        set(&mut app, true, &format!("{case}-on"));
+        let lines = log_with(&apps, "cmux/linked", "app socket folder");
+        assert!(
+            lines.iter().any(|l| l.contains("app socket folder")),
+            "{case}: the server start must refuse the folder: {lines:?}"
+        );
+        assert!(!apps.dir.join("link.jsonl").exists(), "{case}: a refused server answered nothing");
+        let kept = if case == "symlink" { elsewhere.join("keep") } else { leaf.join("keep") };
+        assert!(kept.exists(), "{case}: a refused folder is never emptied");
+        // The planted folder may be outside the test dir (macOS: the per-user temp dir).
+        if case == "symlink" {
+            std::fs::remove_file(&leaf).unwrap();
+        } else {
+            std::fs::remove_dir_all(&leaf).unwrap();
+        }
+    }
+
+    let apps = Apps::new(&format!("sdclean{}", std::process::id()));
+    write_linked_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let first = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(
+        (first["t"].clone(), first["id"].clone()),
+        (json!("host.result"), json!(7)),
+        "{first}"
+    );
+    let socket_dir = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+    assert!(socket_dir.as_os_str().len() <= 104 - 1 - 27, "{}", socket_dir.display());
+    let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+    assert!(meta.is_dir() && !meta.file_type().is_symlink());
+    assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+    std::fs::set_permissions(&socket_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(apps.dir.join("again"), "").unwrap();
+    let second = apps.lines("link.jsonl", 2).swap_remove(1);
+    assert_eq!(
+        (second["t"].clone(), second["id"].clone(), second["code"].clone()),
+        (json!("host.error"), json!(8), json!("apps.socket_dir_unsafe")),
+        "{second}"
+    );
+    // And the server stops: it never keeps binding in a folder that failed its check.
+    let lines =
+        log_with(&apps, "cmux/linked", "server stopping: its socket folder failed its check");
+    assert!(
+        lines.iter().any(|l| l.contains("server stopping: its socket folder failed its check")),
+        "{lines:?}"
+    );
+    stop_daemon(&apps);
+    let _ = std::fs::remove_dir_all(&socket_dir);
 }

@@ -47,6 +47,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(SessionTransferControl.methods(services: services))
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -73,6 +74,12 @@ final class AppControl {
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // Click by Hint labels (hint-mode-e2e.py).
+            .mainActor("debug.hints") { [weak services] call in
+                guard let services else { return .value(.null) }
+                DebugHints.watchMenus()
+                return .value(DebugHints.report(services.windowHints, params: call.params))
+            },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
@@ -237,6 +244,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            // The app's resign and become-active path without activating it (DebugAppActivation).
+            .mainActor("debug.app_activation") { call in
+                .value(DebugAppActivation.send(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
@@ -261,7 +272,10 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
+                // `new`: one more fixture tab, also when the window lists one already (a fixture tab the daemon
+                // restored from an earlier run of the same tag shows no transcript).
+                let fresh = call.params["new"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -274,6 +288,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowList.list(services: services))
             },
+            .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             .async("debug.window_snapshot") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
@@ -293,6 +308,10 @@ final class AppControl {
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarWheel.post(call.params, services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -366,6 +385,10 @@ final class AppControl {
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
+            // Every window's toasts (R96): list, a person's action run, the undo key.
+            .mainActor("debug.toast") { [weak services] call in
+                .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
+            },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in
                 .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
@@ -402,11 +425,6 @@ final class AppControl {
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher
         publisher.start()
-    }
-
-    /// Publishes the control snapshot synchronously (after compat intents).
-    func publishSnapshotNow() {
-        publisher?.publishNow()
     }
 
     func stop() {

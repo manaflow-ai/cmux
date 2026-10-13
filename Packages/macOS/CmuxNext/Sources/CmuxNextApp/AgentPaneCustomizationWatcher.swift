@@ -72,4 +72,16 @@ final class AgentPaneCustomizationWatcher {
     @concurrent private static func read(_ directory: URL) async -> AgentPaneCustomization {
         AgentPaneCustomization(directory: directory)
     }
+
+    /// Saves the chat header's quick actions into `layout.json` (its right-click menu); the watch
+    /// then pushes the file to every chat. Returns whether it was written.
+    func saveQuickActions(_ list: [AgentPaneQuickAction]) async -> Bool {
+        let saved = await Self.write(list, in: directory)
+        if saved { requestReload() }
+        return saved
+    }
+
+    @concurrent private static func write(_ list: [AgentPaneQuickAction], in directory: URL) async -> Bool {
+        (try? AgentPaneCustomization.savingQuickActions(list, in: directory)) != nil
+    }
 }

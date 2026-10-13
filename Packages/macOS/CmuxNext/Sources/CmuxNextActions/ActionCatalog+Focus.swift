@@ -10,7 +10,7 @@ nonisolated extension ActionCatalog {
         // Tabs
         "tab.focus", "pane.focus", "screen.focus", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
         // Panes and focus targets
-        "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
+        "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "focusSidebar",
         "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "focusTextBoxInput", "focusRightSidebar",
         // Screens
         "screen.next", "screen.previous", "screen.select", "screen.selectLast",
@@ -19,7 +19,7 @@ nonisolated extension ActionCatalog {
         "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
         "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show", "home.openConversation", "home.previousConversation", "home.nextConversation",
         // Focus history and notifications
-        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "markOldestUnreadAndJumpNext",
+        "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",
         // Windows
         "showMainWindow", "showHideAllWindows",

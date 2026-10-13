@@ -4,8 +4,8 @@
   "repo": "manaflow-ai/cmux",
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
-  "sourceRefsSha": "d445a44555633407583588cacdb7cd8848c3d3dc",
-  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme; the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
+  "sourceRefsSha": "82209ab8050ffe693991fc3c0beec0ed992930cd",
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme (theme.formulas sources re-read at sourceRefsSha on 2026-10-12, cx-jdb.2); the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive and AppTheme.derive (appearance.accent cases and the theme's own accentColor added 2026-10-12, cx-jdb.6)."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
@@ -80,8 +80,8 @@
  },
  "theme": {
   "input": {
-   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files.",
-   "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift:7-49 (ThemeInput)",
+   "description": "ThemeInput: background, foreground, ANSI palette 0-15, selection-background/foreground and cursor-color (only when the config names a color), background-opacity (0-1), background-blur (0 off, >0 radius, <0 macOS glass). Read from the Ghostty config; cmux appearance.theme overrides theme = after the config files. appearance.accent (ThemeAccent: neutral, theme, red, green, yellow, blue, magenta, cyan; default neutral) is a cmux setting, not a Ghostty key. accentColor is the theme's own accent: its appearance.themeEdits <theme>/accent edit, else the theme file's '# cmux-accent = #rrggbb' line (a comment to Ghostty); it wins over appearance.accent for that theme (ThemeInput.accentColor).",
+   "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift (ThemeInput); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)",
    "defaultTheme": {
     "value": "light:Apple System Colors Light,dark:Apple System Colors",
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultTheme.swift:11-16 (GhosttyRuntime.defaultThemeSpec)"
@@ -90,62 +90,62 @@
     "value": "Ghostty default: background #282C34, foreground #FFFFFF",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift:52-59 (ThemeInput.ghosttyDefault)"
    },
-   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:111 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
+   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
   },
   "constants": {
    "minimumTextContrast": {
     "value": 4.5,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:94 (ThemeTokens.minimumTextContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:128 (ThemeTokens.minimumTextContrast)"
    },
    "minimumMarkContrast": {
     "value": 3.0,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:96 (ThemeTokens.minimumMarkContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:130 (ThemeTokens.minimumMarkContrast)"
    }
   },
   "formulas": {
    "windowBackground": {
     "value": "alpha(bg, background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:126,138 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:169,181 (ThemeTokens.derive)"
    },
    "sidebarBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:139 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:182 (ThemeTokens.derive)"
    },
    "contentBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:183 (ThemeTokens.derive)"
    },
    "chromeBackground": {
     "value": "mix(bg, fg, dark ? 0.05 : 0.035)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:141 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:184 (ThemeTokens.derive)"
    },
    "elevatedBackground": {
     "value": "mix(bg, fg, dark ? 0.07 : 0.02)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:185 (ThemeTokens.derive)"
    },
    "stripBackground": {
-    "value": "alpha(mix(bg, black, dark ? 0.22 : 0.05), background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:143 (ThemeTokens.derive)"
+    "value": "= windowBackground: every pane's tab strip is the window ground (appearance.tabBarBackground is retired); focus and selection fills give the hierarchy",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:186 (ThemeTokens.derive)"
    },
    "sidebarStep": {
-    "value": "alpha(fg, 0.04): the sidebar's tonal step over the window backdrop",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:144 (ThemeTokens.derive)"
+    "value": "alpha(fg, 0.04): the sidebar's tonal step (the Home Chief sidebar fill and the workspace row placeholder bar draw it)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:187 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeChiefSidebar.swift:152; Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:265"
    },
    "stripStep": {
-    "value": "alpha(black, dark ? 0.22 : 0.05): the darker tab strip's step over the window backdrop; over the opaque background it composites to stripBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:145 (ThemeTokens.derive)"
+    "value": "alpha(black, dark ? 0.22 : 0.05): no strip paints it (tab strips have no tonal step since appearance.tabBarBackground retired); the sidebar's space marks soften toward it (ProfileBarView.markColor)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:190 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Marks.swift:72-80 (ProfileBarView.markColor)"
    },
    "textPrimary": {
-    "value": "readable(fg, over(pressedFill,bg), 4.5): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:119,173-183 (ThemeTokens.derive)"
+    "value": "readable(fg, worst, 4.5), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over over(pressedFill,bg)); steps of 0.01",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:120,187-195 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over worst (see textPrimary)); steps of 0.01",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
    },
    "textTertiary": {
-    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over worst (see textPrimary))",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "textPlaceholder": {
     "value": "alpha(dark ? #FFFFFF : #000000, dark ? 0.549 : 0.498)",
@@ -153,71 +153,83 @@
    },
    "hoverFill": {
     "value": "alpha(fg, dark ? 0.06 : 0.05)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:148 (ThemeTokens.derive)"
    },
    "selectionFill": {
-    "value": "alpha(fg, dark ? 0.10 : 0.08)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:115 (ThemeTokens.derive)"
+    "value": "alpha(fg, dark ? 0.10 : 0.08); with appearance.accent: alpha(accent, dark ? 0.26 : 0.16)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:150 (ThemeTokens.derive)"
    },
    "secondarySelectionFill": {
     "value": "alpha(fg, dark ? 0.07 : 0.055)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:196 (ThemeTokens.derive)"
    },
    "pressedFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.11)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:116 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
    },
    "badgeFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.10)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:198 (ThemeTokens.derive)"
    },
    "separator": {
     "value": "alpha(fg, dark ? 0.08 : 0.07); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:154 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:66 (Palette.separator)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:199 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:66 (Palette.separator)"
    },
    "paneBorder": {
     "value": "alpha(fg, dark ? 0.07 : 0.09); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:155 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:68 (Palette.paneBorder)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:200 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:68 (Palette.paneBorder)"
    },
    "focusRing": {
-    "value": "alpha(fg, 0.40). The pane ring replaces the alpha with focusRing.contrast (see components.panes.focusRing)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156 (ThemeTokens.derive)"
+    "value": "alpha(fg, 0.40); with appearance.accent: the opaque app accent. The pane ring replaces the alpha with focusRing.contrast (see components.panes.focusRing)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:201 (ThemeTokens.derive)"
    },
    "glassTint": {
     "value": "alpha(bg, dark ? 0.40 : 0.30)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:202 (ThemeTokens.derive)"
    },
    "shadow": {
     "value": "mix(bg, black, 0.85)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:158 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:203 (ThemeTokens.derive)"
    },
    "textSelection": {
-    "value": "selection-background if set, else mix(bg, fg, 0.22)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:159 (ThemeTokens.derive)"
+    "value": "terminalSelection if set, else mix(bg, fg, 0.22)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162-164,204 (ThemeTokens.derive)"
+   },
+   "terminalSelection": {
+    "value": "selection-background when the config names one and textPrimary reaches 3:1 on over(selection-background, bg); else none (an inverse-video selection keeps the derived textSelection)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162-164,205 (ThemeTokens.derive)"
+   },
+   "caret": {
+    "value": "readable(cursor-color, bg, 3.0) when the config names one, else textPrimary",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:206 (ThemeTokens.derive)"
    },
    "attention": {
     "value": "readable(ANSI 3, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:160 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:207 (ThemeTokens.derive)"
    },
    "danger": {
     "value": "readable(ANSI 1, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:161 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:208 (ThemeTokens.derive)"
    },
    "success": {
     "value": "readable(ANSI 2, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:209 (ThemeTokens.derive)"
    },
    "highlight": {
-    "value": "readable(ANSI 4, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:127,163 (ThemeTokens.derive)"
+    "value": "readable(ANSI 4, bg, 3.0); with appearance.accent: the app accent",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:170,210 (ThemeTokens.derive)"
    },
    "highlightText": {
     "value": "bg or textPrimary (opaque), whichever contrasts more with highlight, if >= 4.5; else black or white",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:128-135,164 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:171-178,211 (ThemeTokens.derive)"
    },
    "accent": {
-    "value": "= focusRing (neutral)",
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:85 (Palette.accent)"
+    "value": "textPrimary (no hue) with appearance.accent = neutral; else the app accent (AppTheme accent: the ANSI slot of the named color, the brighter-chroma of normal and bright; theme = magenta, else blue, else cyan, the first with OKLCH chroma >= 0.05; the theme's own accentColor, when set, replaces that starting color whatever appearance.accent says; fitted to 3:1 on every plain surface and 4.5:1 under onAccent). Selected and active marks: unread dots, the user's messages, Send in the agent pane. AppKit controls use Palette.accent = focusRing.",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:146,212 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.accentSeed, derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:116 (Palette.accent)"
+   },
+   "onAccent": {
+    "value": "opaque bg with appearance.accent = neutral; else the app theme onAccent (dark: the window color, light: white, else black or white, at least 4.5:1 on accent)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:213 (ThemeTokens.derive); Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift (AppTheme.derive)"
    },
    "textOnPrimary": {
     "value": "opaque contentBackground",
@@ -233,8 +245,8 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeScope.swift:1-60; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:3-15"
   },
   "windowBackdrop": {
-   "description": "One backdrop per window. opaque when background-opacity is 1 and background-blur is not a glass style, or when Reduce Transparency is on. Otherwise: translucent (tint only) when background-blur is 0, frosted (NSVisualEffectView .underWindowBackground, behindWindow, active) when it is a radius, Liquid Glass regular (-1) or clear (-2). appearance.backgroundBlur (frosted, glass, glass-clear, none) overrides the material. The theme background lies over the material at background-opacity. Panes paint nothing over a material; the sidebar and the darker strip add their steps through ChromeStepView, never a second blur. The CGS radius blur is never applied on top of a material.",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift (WindowBackdrop.init); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift (WindowMaterialView.apply, makeMaterialView); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeStepView.swift (ChromeStepView)"
+   "description": "One backdrop per window. opaque when background-opacity is 1 and background-blur is not a glass style, or when Reduce Transparency is on. Otherwise: translucent (tint only) when background-blur is 0, frosted (NSVisualEffectView .underWindowBackground, behindWindow, active) when it is a radius, Liquid Glass regular (-1) or clear (-2). appearance.backgroundBlur (frosted, glass, glass-clear, none) overrides the material. The theme background lies over the material at background-opacity. Panes, tab strips and the sidebar paint nothing over a material (one background; ChromeStepView and appearance.tabBarBackground are retired), never a second blur. The CGS radius blur is never applied on top of a material.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift (WindowBackdrop.init); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift (WindowMaterialView.apply, makeMaterialView); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice)"
   },
   "groupColors": {
    "description": "The nine group colors shared by tab groups and workspace groups. User content, so this is the one fixed palette in chrome and the one place blue may appear outside the theme. Each is one hue at low saturation so groups stay calm next to the gray chrome. New groups never get blue automatically (TabGroupOrdering.nextColor skips it).",
@@ -310,7 +322,8 @@
      "#BF5AF2",
      "#76D6FF",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#1E1E1E",
@@ -318,7 +331,7 @@
     "contentBackground": "#1E1E1E",
     "chromeBackground": "#292929",
     "elevatedBackground": "#2E2E2E",
-    "stripBackground": "#171717",
+    "stripBackground": "#1E1E1E",
     "sidebarStep": "#FFFFFF0A",
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
@@ -339,7 +352,10 @@
     "danger": "#CC372E",
     "success": "#26A439",
     "highlight": "#0869CB",
-    "highlightText": "#FFFFFF"
+    "highlightText": "#FFFFFF",
+    "accent": "#FFFFFF",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
    },
    "composited": {
     "sidebarStep": "#272727",
@@ -407,7 +423,8 @@
      "#BF5AF2",
      "#69C9F2",
      "#FFFFFF"
-    ]
+    ],
+    "cursor": "#98989D"
    },
    "tokens": {
     "windowBackground": "#FEFFFF",
@@ -415,7 +432,7 @@
     "contentBackground": "#FEFFFF",
     "chromeBackground": "#F5F6F6",
     "elevatedBackground": "#F9FAFA",
-    "stripBackground": "#F1F2F2",
+    "stripBackground": "#FEFFFF",
     "sidebarStep": "#0000000A",
     "stripStep": "#0000000D",
     "textPrimary": "#000000",
@@ -436,7 +453,10 @@
     "danger": "#CC372E",
     "success": "#26A439",
     "highlight": "#0869CB",
-    "highlightText": "#FEFFFF"
+    "highlightText": "#FEFFFF",
+    "accent": "#000000",
+    "onAccent": "#FEFFFF",
+    "caret": "#929297"
    },
    "composited": {
     "sidebarStep": "#F4F5F5",
@@ -512,7 +532,7 @@
     "contentBackground": "#282C34",
     "chromeBackground": "#33373E",
     "elevatedBackground": "#373B42",
-    "stripBackground": "#1F2229",
+    "stripBackground": "#282C34",
     "sidebarStep": "#FFFFFF0A",
     "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
@@ -533,7 +553,10 @@
     "danger": "#CC6666",
     "success": "#B5BD68",
     "highlight": "#81A2BE",
-    "highlightText": "#282C34"
+    "highlightText": "#282C34",
+    "accent": "#FFFFFF",
+    "onAccent": "#282C34",
+    "caret": "#FFFFFF"
    },
    "composited": {
     "sidebarStep": "#31343C",
@@ -609,7 +632,7 @@
     "contentBackground": "#272822",
     "chromeBackground": "#32332C",
     "elevatedBackground": "#363730",
-    "stripBackground": "#1E1F1B",
+    "stripBackground": "#272822",
     "sidebarStep": "#FDFFF10A",
     "stripStep": "#00000038",
     "textPrimary": "#FDFFF1",
@@ -630,7 +653,10 @@
     "danger": "#F92672",
     "success": "#A6E22E",
     "highlight": "#FD971F",
-    "highlightText": "#272822"
+    "highlightText": "#272822",
+    "accent": "#FDFFF1",
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
    },
    "composited": {
     "sidebarStep": "#30312A",
@@ -706,7 +732,7 @@
     "contentBackground": "#FFFFFF",
     "chromeBackground": "#F7F7F7",
     "elevatedBackground": "#FBFBFB",
-    "stripBackground": "#F2F2F2",
+    "stripBackground": "#FFFFFF",
     "sidebarStep": "#1F23280A",
     "stripStep": "#0000000D",
     "textPrimary": "#1F2328",
@@ -727,7 +753,10 @@
     "danger": "#CF222E",
     "success": "#116329",
     "highlight": "#0969DA",
-    "highlightText": "#FFFFFF"
+    "highlightText": "#FFFFFF",
+    "accent": "#1F2328",
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
    },
    "composited": {
     "sidebarStep": "#F6F6F6",
@@ -767,6 +796,914 @@
      "textSecondary": "#98999C",
      "textTertiary": "#98999C",
      "selectionFill": "#1F232800",
+     "hoverFill": "#1F23280D"
+    }
+   }
+  },
+  "appleSystemDarkRed": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = red",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF453A42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF453A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF453A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF453A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#592825",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF453A33",
+    "standard": "#FF453A8C",
+    "strong": "#FF453AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#FF453A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#FF453A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkGreen": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = green",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B3B3B3",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#32D74B42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#32D74B",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#32D74B",
+    "highlightText": "#1E1E1E",
+    "accent": "#32D74B",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#234E2A",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#32D74B33",
+    "standard": "#32D74B8C",
+    "strong": "#32D74BD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7F7F7F",
+     "textTertiary": "#696969",
+     "selectionFill": "#32D74B2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B3B3B3",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#32D74B00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemDarkBlue": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#AAAAAA",
+    "textTertiary": "#888888",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#0A84FF42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#0A84FF",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0A84FF",
+    "highlightText": "#1E1E1E",
+    "accent": "#0A84FF",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#193959",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#0A84FF33",
+    "standard": "#0A84FF8C",
+    "strong": "#0A84FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#797979",
+     "textTertiary": "#636363",
+     "selectionFill": "#0A84FF2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#888888",
+     "textTertiary": "#757575",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#AAAAAA",
+     "textSecondary": "#757575",
+     "textTertiary": "#757575",
+     "selectionFill": "#0A84FF00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "appleSystemLightRed": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = red",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "red"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#E5272229",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#E52722",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#E52722",
+    "highlightText": "#000000",
+    "accent": "#E52722",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#FADCDC",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#E5272233",
+    "standard": "#E527228C",
+    "strong": "#E52722D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#E527221B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#E5272200",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightGreen": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = green",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "green"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#008A2329",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#008A23",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#008A23",
+    "highlightText": "#000000",
+    "accent": "#008A23",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5ECDC",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#008A2333",
+    "standard": "#008A238C",
+    "strong": "#008A23D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#008A231B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#008A2300",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "appleSystemLightBlue": {
+   "name": "Apple System Colors Light (cmux default, light appearance), appearance.accent = blue",
+   "isDark": false,
+   "input": {
+    "background": "#FEFFFF",
+    "foreground": "#000000",
+    "selectionBackground": "#ABD8FF",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#E5BC00",
+     "#0A84FF",
+     "#BF5AF2",
+     "#69C9F2",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue"
+   },
+   "tokens": {
+    "windowBackground": "#FEFFFF",
+    "sidebarBackground": "#FEFFFF",
+    "contentBackground": "#FEFFFF",
+    "chromeBackground": "#F5F6F6",
+    "elevatedBackground": "#F9FAFA",
+    "stripBackground": "#FEFFFF",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#000000",
+    "textSecondary": "#616161",
+    "textTertiary": "#7F8080",
+    "hoverFill": "#0000000D",
+    "selectionFill": "#0074E529",
+    "secondarySelectionFill": "#0000000E",
+    "pressedFill": "#0000001C",
+    "badgeFill": "#0000001A",
+    "separator": "#00000012",
+    "paneBorder": "#00000017",
+    "focusRing": "#0074E5",
+    "glassTint": "#FEFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#ABD8FF",
+    "attention": "#AC9007",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#0074E5",
+    "highlightText": "#000000",
+    "accent": "#0074E5",
+    "onAccent": "#FFFFFF",
+    "caret": "#929297"
+   },
+   "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
+    "hoverFill": "#F1F2F2",
+    "selectionFill": "#D5E9FB",
+    "secondarySelectionFill": "#F0F1F1",
+    "pressedFill": "#E2E3E3",
+    "badgeFill": "#E5E6E6",
+    "separator": "#ECEDED",
+    "paneBorder": "#E7E8E8",
+    "glassTint": "#FEFFFF"
+   },
+   "focusRing": {
+    "subtle": "#0074E533",
+    "standard": "#0074E58C",
+    "strong": "#0074E5D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#595959",
+     "textSecondary": "#989898",
+     "textTertiary": "#ABACAC",
+     "selectionFill": "#0074E51B",
+     "hoverFill": "#00000008"
+    },
+    "tonal": {
+     "textPrimary": "#616161",
+     "textSecondary": "#7F8080",
+     "textTertiary": "#959696",
+     "selectionFill": "#0000000B",
+     "hoverFill": "#0000000D"
+    },
+    "quiet": {
+     "textPrimary": "#616161",
+     "textSecondary": "#959696",
+     "textTertiary": "#959696",
+     "selectionFill": "#0074E500",
+     "hoverFill": "#0000000D"
+    }
+   }
+  },
+  "monokaiClassicTheme": {
+   "name": "Monokai Classic (test fixture), appearance.accent = theme",
+   "isDark": true,
+   "input": {
+    "background": "#272822",
+    "foreground": "#FDFFF1",
+    "selectionBackground": "#57584F",
+    "palette": [
+     "#272822",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1",
+     "#6E7066",
+     "#F92672",
+     "#A6E22E",
+     "#E6DB74",
+     "#FD971F",
+     "#AE81FF",
+     "#66D9EF",
+     "#FDFFF1"
+    ],
+    "accent": "theme"
+   },
+   "tokens": {
+    "windowBackground": "#272822",
+    "sidebarBackground": "#272822",
+    "contentBackground": "#272822",
+    "chromeBackground": "#32332C",
+    "elevatedBackground": "#363730",
+    "stripBackground": "#272822",
+    "sidebarStep": "#FDFFF10A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FDFFF1",
+    "textSecondary": "#B2B4A9",
+    "textTertiary": "#92938A",
+    "hoverFill": "#FDFFF10F",
+    "selectionFill": "#AE81FF42",
+    "secondarySelectionFill": "#FDFFF112",
+    "pressedFill": "#FDFFF124",
+    "badgeFill": "#FDFFF124",
+    "separator": "#FDFFF114",
+    "paneBorder": "#FDFFF112",
+    "focusRing": "#AE81FF",
+    "glassTint": "#27282266",
+    "shadow": "#060605",
+    "textSelection": "#57584F",
+    "attention": "#E6DB74",
+    "danger": "#F92672",
+    "success": "#A6E22E",
+    "highlight": "#AE81FF",
+    "highlightText": "#272822",
+    "accent": "#AE81FF",
+    "onAccent": "#272822",
+    "caret": "#FDFFF1"
+   },
+   "composited": {
+    "sidebarStep": "#30312A",
+    "stripStep": "#1E1F1B",
+    "hoverFill": "#34352E",
+    "selectionFill": "#4A3F5B",
+    "secondarySelectionFill": "#363730",
+    "pressedFill": "#45463F",
+    "badgeFill": "#45463F",
+    "separator": "#383933",
+    "paneBorder": "#363730",
+    "glassTint": "#272822"
+   },
+   "focusRing": {
+    "subtle": "#AE81FF33",
+    "standard": "#AE81FF8C",
+    "strong": "#AE81FFD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#818379",
+     "textTertiary": "#6D6E65",
+     "selectionFill": "#AE81FF2B",
+     "hoverFill": "#FDFFF10A"
+    },
+    "tonal": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#92938A",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#FDFFF10D",
+     "hoverFill": "#FDFFF10F"
+    },
+    "quiet": {
+     "textPrimary": "#B2B4A9",
+     "textSecondary": "#7F8177",
+     "textTertiary": "#7F8177",
+     "selectionFill": "#AE81FF00",
+     "hoverFill": "#FDFFF10F"
+    }
+   }
+  },
+  "appleSystemDarkOwnAccent": {
+   "name": "Apple System Colors (cmux default, dark appearance), appearance.accent = blue, the theme's own accent #ff9f0a",
+   "isDark": true,
+   "input": {
+    "background": "#1E1E1E",
+    "foreground": "#FFFFFF",
+    "selectionBackground": "#3F638B",
+    "palette": [
+     "#1A1A1A",
+     "#CC372E",
+     "#26A439",
+     "#CDAC08",
+     "#0869CB",
+     "#9647BF",
+     "#479EC2",
+     "#98989D",
+     "#464646",
+     "#FF453A",
+     "#32D74B",
+     "#FFD60A",
+     "#0A84FF",
+     "#BF5AF2",
+     "#76D6FF",
+     "#FFFFFF"
+    ],
+    "cursor": "#98989D",
+    "accent": "blue",
+    "accentColor": "#FF9F0A"
+   },
+   "tokens": {
+    "windowBackground": "#1E1E1E",
+    "sidebarBackground": "#1E1E1E",
+    "contentBackground": "#1E1E1E",
+    "chromeBackground": "#292929",
+    "elevatedBackground": "#2E2E2E",
+    "stripBackground": "#1E1E1E",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
+    "textPrimary": "#FFFFFF",
+    "textSecondary": "#B0B0B0",
+    "textTertiary": "#919191",
+    "hoverFill": "#FFFFFF0F",
+    "selectionFill": "#FF9F0A42",
+    "secondarySelectionFill": "#FFFFFF12",
+    "pressedFill": "#FFFFFF24",
+    "badgeFill": "#FFFFFF24",
+    "separator": "#FFFFFF14",
+    "paneBorder": "#FFFFFF12",
+    "focusRing": "#FF9F0A",
+    "glassTint": "#1E1E1E66",
+    "shadow": "#050505",
+    "textSelection": "#3F638B",
+    "attention": "#CDAC08",
+    "danger": "#CC372E",
+    "success": "#26A439",
+    "highlight": "#FF9F0A",
+    "highlightText": "#1E1E1E",
+    "accent": "#FF9F0A",
+    "onAccent": "#1E1E1E",
+    "caret": "#98989D"
+   },
+   "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
+    "hoverFill": "#2C2C2C",
+    "selectionFill": "#594019",
+    "secondarySelectionFill": "#2E2E2E",
+    "pressedFill": "#3E3E3E",
+    "badgeFill": "#3E3E3E",
+    "separator": "#303030",
+    "paneBorder": "#2E2E2E",
+    "glassTint": "#1E1E1E"
+   },
+   "focusRing": {
+    "subtle": "#FF9F0A33",
+    "standard": "#FF9F0A8C",
+    "strong": "#FF9F0AD9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#696969",
+     "selectionFill": "#FF9F0A2B",
+     "hoverFill": "#FFFFFF0A"
+    },
+    "tonal": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#919191",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FFFFFF0D",
+     "hoverFill": "#FFFFFF0F"
+    },
+    "quiet": {
+     "textPrimary": "#B0B0B0",
+     "textSecondary": "#7D7D7D",
+     "textTertiary": "#7D7D7D",
+     "selectionFill": "#FF9F0A00",
+     "hoverFill": "#FFFFFF0F"
+    }
+   }
+  },
+  "githubLightOwnAccent": {
+   "name": "GitHub Light Default (test fixture), the theme's own accent #bf3989",
+   "isDark": false,
+   "input": {
+    "background": "#FFFFFF",
+    "foreground": "#1F2328",
+    "selectionBackground": null,
+    "palette": [
+     "#24292F",
+     "#CF222E",
+     "#116329",
+     "#4D2D00",
+     "#0969DA",
+     "#8250DF",
+     "#1B7C83",
+     "#6E7781",
+     "#57606A",
+     "#A40E26",
+     "#1A7F37",
+     "#633C01",
+     "#218BFF",
+     "#A475F9",
+     "#3192AA",
+     "#8C959F"
+    ],
+    "accentColor": "#BF3989"
+   },
+   "tokens": {
+    "windowBackground": "#FFFFFF",
+    "sidebarBackground": "#FFFFFF",
+    "contentBackground": "#FFFFFF",
+    "chromeBackground": "#F7F7F7",
+    "elevatedBackground": "#FBFBFB",
+    "stripBackground": "#FFFFFF",
+    "sidebarStep": "#1F23280A",
+    "stripStep": "#0000000D",
+    "textPrimary": "#1F2328",
+    "textSecondary": "#626568",
+    "textTertiary": "#7F8284",
+    "hoverFill": "#1F23280D",
+    "selectionFill": "#BF398929",
+    "secondarySelectionFill": "#1F23280E",
+    "pressedFill": "#1F23281C",
+    "badgeFill": "#1F23281A",
+    "separator": "#1F232812",
+    "paneBorder": "#1F232817",
+    "focusRing": "#BF3989",
+    "glassTint": "#FFFFFF4D",
+    "shadow": "#262626",
+    "textSelection": "#CECFD0",
+    "attention": "#4D2D00",
+    "danger": "#CF222E",
+    "success": "#116329",
+    "highlight": "#BF3989",
+    "highlightText": "#FFFFFF",
+    "accent": "#BF3989",
+    "onAccent": "#FFFFFF",
+    "caret": "#1F2328"
+   },
+   "composited": {
+    "sidebarStep": "#F6F6F6",
+    "stripStep": "#F2F2F2",
+    "hoverFill": "#F4F4F4",
+    "selectionFill": "#F5DFEC",
+    "secondarySelectionFill": "#F3F3F3",
+    "pressedFill": "#E6E7E7",
+    "badgeFill": "#E9E9EA",
+    "separator": "#EFF0F0",
+    "paneBorder": "#EBEBEC",
+    "glassTint": "#FFFFFF"
+   },
+   "focusRing": {
+    "subtle": "#BF398933",
+    "standard": "#BF39898C",
+    "strong": "#BF3989D9"
+   },
+   "inactiveTabs": {
+    "fade": {
+     "textPrimary": "#6D7073",
+     "textSecondary": "#999B9D",
+     "textTertiary": "#ACADAF",
+     "selectionFill": "#BF39891B",
+     "hoverFill": "#1F232808"
+    },
+    "tonal": {
+     "textPrimary": "#626568",
+     "textSecondary": "#7F8284",
+     "textTertiary": "#96989A",
+     "selectionFill": "#1F23280B",
+     "hoverFill": "#1F23280D"
+    },
+    "quiet": {
+     "textPrimary": "#626568",
+     "textSecondary": "#96989A",
+     "textTertiary": "#96989A",
+     "selectionFill": "#BF398900",
      "hoverFill": "#1F23280D"
     }
    }
@@ -981,7 +1918,7 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:60-61 (MetricTunables.tabMinWidth)"
   },
   "paletteRowHeight": {
-   "compact": 32,
+   "compact": 28,
    "comfortable": 40,
    "unit": "pt",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:65-66 (MetricTunables.paletteRowHeight)"
@@ -1381,13 +2318,26 @@
   },
   "appearance.tabBarBackground": {
    "value": {
-    "values": [
-     "window",
-     "darker"
-    ],
-    "default": "window"
+    "retired": "every surface draws the one window background; the key is ignored"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift:8-10 (PaneFocusSettings.tabBarBackgroundPath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicator.swift:33-53 (TabBarBackground)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Retired.swift:9"
+  },
+  "appearance.accent": {
+   "value": {
+    "values": [
+     "neutral",
+     "theme",
+     "red",
+     "green",
+     "yellow",
+     "blue",
+     "magenta",
+     "cyan"
+    ],
+    "default": "neutral",
+    "effect": "neutral: no hue (selection, focus ring and highlight are the foreground). Else selectionFill, focusRing, highlight, accent and onAccent take the app accent (see theme.formulas.accent)."
+   },
+   "source": "schemas/settings/settings-schema.json (appearance.accent); Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeAccent.swift (ThemeAccent)"
   },
   "focusRing.contrast": {
    "value": {
@@ -1832,8 +2782,7 @@
    "description": "Every pane has a tab strip. Strip edges are the content border edges.",
    "sources": [
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripMetrics.swift:103-144 (TabStripMetrics.init)",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58,183 (PaneContentView.stripStep)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)"
    ],
    "metrics": {
     "height": "tabStripHeight (28/36); resolved = pillTop + tabHeight + tabGap with pane padding",
@@ -1848,23 +2797,11 @@
    "states": {
     "default": {
      "background": {
-      "value": "token:windowBackground (tabBarBackground window)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
-     }
-    },
-    "darker": {
-     "background": {
-      "value": "token:stripBackground",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
+      "value": "token:stripBackground (= windowBackground)",
+      "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:186 (ThemeTokens.derive)"
      }
     },
     "hover": "trailing buttons reveal while the pointer is in the strip (TabStripButtonReveal)"
-   },
-   "variants": {
-    "appearance.tabBarBackground": {
-     "window": "strip = window background, no fill layer",
-     "darker": "strip painted token:stripBackground"
-    }
    }
   },
   "tabs.tab": {

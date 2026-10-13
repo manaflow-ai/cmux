@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
@@ -19,6 +20,7 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
+        bindMove(into: registry, context: context)
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
@@ -126,7 +128,7 @@ enum CloudHandlers {
 
     @MainActor
     private static func waitForPaneController(_ pane: PaneModel, _ context: AppActionContext) async -> Bool {
-        for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready {
+        for await ready in ObservationStream({ context.services.paneController(for: pane) != nil }) where ready {
             return true
         }
         return false
@@ -185,7 +187,7 @@ enum CloudHandlers {
     }
 
     @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
-        for await ready in Observations({ anchor(id: id, on: session) != nil }) where ready { return true }
+        for await ready in ObservationStream({ anchor(id: id, on: session) != nil }) where ready { return true }
         return false
     }
 

@@ -1,10 +1,15 @@
 // The Cmd-K conversation switcher, ranked by the command palette's own ranker (rankPalette) so it
-// matches the palette's fuzzy and acronym rules. Arrow keys move, Enter opens, Escape closes.
-import { useMemo, useState } from "react";
+// matches the palette's fuzzy and acronym rules. The shared primitives own the keyboard, roles and
+// focus: ui/Dialog traps focus, makes the page behind inert, closes on a press outside and returns
+// focus; ui/Combobox owns the combobox and listbox roles, the arrows and the highlighted row.
+// The best match is always highlighted; Return opens the highlighted conversation, Escape closes.
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { rankPalette, type PaletteRankEntry } from "../../palette/ranker";
+import { Combobox } from "../../ui/Combobox";
+import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
-import { conversationName } from "./model";
+import { channelIds, conversationName } from "./model";
 import type { HomeConversation } from "./types";
 
 export interface SwitcherProps {
@@ -17,8 +22,8 @@ export interface SwitcherProps {
 
 export function Switcher({ conversations, me, strings, onPick, onClose }: SwitcherProps) {
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
   const list = useMemo(() => [...conversations.values()].sort((a, b) => b.updatedAt - a.updatedAt), [conversations]);
+  const channels = useMemo(() => channelIds(conversations.values(), me), [conversations, me]);
   const entries = useMemo<PaletteRankEntry[]>(
     () =>
       list.map((c) => ({
@@ -32,64 +37,63 @@ export function Switcher({ conversations, me, strings, onPick, onClose }: Switch
     const ranked = rankPalette({ entries, query });
     return ranked.flatMap((section) => section.rows.map((row) => list[row.index]!)).slice(0, 50);
   }, [entries, list, query]);
-  const pick = (index: number) => {
-    const found = results[index];
+  const byId = useMemo(() => new Map(results.map((c) => [c.id, c])), [results]);
+  // The suggestions are conversation ids; Return without a highlighted row opens the best match.
+  const submit = (value: string) => {
+    const found = byId.get(value) ?? results[0];
     if (found) onPick(found.id);
   };
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "ArrowDown") setActive((value) => Math.min(value + 1, results.length - 1));
-    else if (event.key === "ArrowUp") setActive((value) => Math.max(value - 1, 0));
-    else if (event.key === "Enter") pick(active);
-    else if (event.key === "Escape") onClose();
-    else return;
-    event.preventDefault();
+  // Tab would complete the field to a conversation id; the switcher has nothing to complete.
+  // Option-Up/Down move the rail (useHomeKeys); they must not change the conversation behind the dialog.
+  const onCommand = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Tab" || (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")))
+      event.preventDefault();
   };
+  const label = strings.t("switcher.placeholder");
   return (
-    <div className="hc-scrim" onMouseDown={onClose}>
-      <div
-        className="hc-switcher"
-        role="dialog"
-        aria-label={strings.t("rail.jump")}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <input
-          ref={(element) => element?.focus()}
-          className="hc-switcher-input"
-          placeholder={strings.t("switcher.placeholder")}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setActive(0);
-          }}
-          onKeyDown={onKeyDown}
-          aria-label={strings.t("switcher.placeholder")}
-          aria-expanded="true"
-          aria-controls="hc-switcher-list"
-          aria-activedescendant={results[active] ? `hc-switch-${results[active].id}` : undefined}
-        />
-        <ul id="hc-switcher-list" role="listbox" className="hc-switcher-list">
-          {results.length === 0 && <li className="hc-switcher-none">{strings.t("switcher.none")}</li>}
-          {results.map((c, index) => (
-            <li
-              key={c.id}
-              id={`hc-switch-${c.id}`}
-              role="option"
-              aria-selected={index === active}
-              className={`hc-switcher-row${index === active ? " active" : ""}`}
-              onMouseEnter={() => setActive(index)}
-              onClick={() => pick(index)}
-            >
-              {c.kind === "group" ? (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      label={strings.t("rail.jump")}
+      className="hc-switcher"
+      backdropClassName="hc-scrim"
+    >
+      <Combobox
+        suggestions={results.map((c) => c.id)}
+        onQuery={setQuery}
+        onSubmit={submit}
+        onCancel={onClose}
+        label={label}
+        placeholder={label}
+        inline
+        autoHighlight="always"
+        cancelOnBlur={false}
+        onCommand={onCommand}
+        inputClassName="hc-switcher-input"
+        listClassName="hc-switcher-list"
+        itemClassName="hc-switcher-row"
+        renderItem={(id) => {
+          const c = byId.get(id);
+          if (!c) return null;
+          return (
+            <>
+              {channels.has(c.id) ? (
                 <span className="hc-hash">#</span>
               ) : (
                 <Avatar participant={c.participants.find((p) => p.id !== me)} size={16} />
               )}
               <span className="hc-rail-name">{conversationName(c, me)}</span>
               {c.unread > 0 && <span className="hc-badge subtle">{c.unread}</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+            </>
+          );
+        }}
+      />
+      {results.length === 0 && <p className="hc-switcher-none">{strings.t("switcher.none")}</p>}
+      <p className="hc-switcher-hint" aria-hidden="true">
+        {strings.t("switcher.hint")}
+      </p>
+    </Dialog>
   );
 }

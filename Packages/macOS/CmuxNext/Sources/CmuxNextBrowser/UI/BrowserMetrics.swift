@@ -33,8 +33,6 @@ enum BrowserMetrics {
     static var findCountWidth: CGFloat { Metrics.tabMinWidth * 2 }
     static var promptMinWidth: CGFloat { Metrics.paletteWidth / 2 }
     static var promptMaxWidth: CGFloat { Metrics.paletteWidth * 3 / 4 }
-    static var suggestionRowHeight: CGFloat { Metrics.sidebarRowHeight }
-    static var suggestionGap: CGFloat { Metrics.space2 }
 
     // Type
     static var bodyFont: NSFont { Typography.body }

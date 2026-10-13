@@ -45,6 +45,7 @@ export default componentEntry<Props>({
   title: "Debug Settings",
   area: "Pages",
   height: 640,
+  widths: { narrow: 360, normal: 1000, wide: 1400 },
   covers: [
     "page:cmux.debug-settings",
     "pages/debug-settings/DebugSettingsPage.tsx#DebugSettingsPage",
@@ -73,18 +74,31 @@ export default componentEntry<Props>({
       props: { selection: "browser" },
     },
     search: { note: "A search across every section.", props: { query: "omnibar" } },
-    "nothing-changed": { note: "The Changed list when every tunable has its default.", props: { selection: "changed" } },
+    "nothing-changed": {
+      note: "The Changed list when every tunable has its default.",
+      props: { selection: "changed" },
+    },
     disconnected: { note: "The app does not answer.", props: { offline: true } },
+    narrow: {
+      note: "The Browser section; at the narrow width (cx-bbe2) labels sit above their controls and the sections form a strip above the list.",
+      props: { selection: "browser" },
+    },
     "toggle-live": {
       note: "A switch click applies at once: the row shows as changed and Reset All turns on.",
       props: { selection: "browser" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('[data-testid="ds.control.browser.omnibar.glass.shadow"]'));
+        // At the narrow width the row is below the fold; a person scrolls to it first.
+        ctx.document
+          .querySelector('[data-testid="ds.control.browser.omnibar.glass.shadow"]')
+          ?.scrollIntoView({ block: "center" });
         await ctx.click({ selector: '[data-testid="ds.control.browser.omnibar.glass.shadow"]' });
         await ctx.waitFor(() =>
           ctx.document.querySelector('[data-testid="ds.row.browser.omnibar.glass.shadow"][data-changed="true"]'),
         );
-        await ctx.waitFor(() => !ctx.document.querySelector<HTMLButtonElement>('[data-testid="ds.resetAll"]')?.disabled);
+        await ctx.waitFor(
+          () => !ctx.document.querySelector<HTMLButtonElement>('[data-testid="ds.resetAll"]')?.disabled,
+        );
       },
     },
   },

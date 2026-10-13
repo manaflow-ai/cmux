@@ -31,7 +31,8 @@ extension ScreenContentView {
                 let pointer = divider.axis == .horizontal ? point.x : point.y
                 let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
                 activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
-                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB)
+                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
+                                        snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
                 let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
@@ -83,9 +84,7 @@ extension ScreenContentView {
         let style = context.style
         switch drag.kind {
         case let .split(id):
-            let pointer = drag.axis == .horizontal ? point.x : point.y
-            let ratio = SplitGeometry.ratio(forPointer: pointer, grabOffset: drag.grabOffset, container: drag.container, axis: drag.axis,
-                                            style: style, minimumA: drag.minimumA, minimumB: drag.minimumB)
+            guard let ratio = activeDrag?.splitRatio(at: point, style: style, phase: phase) else { return }
             context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
         case let .columnEdge(id):
             // Strip widths are shares of the strip's viewport; a side dock's

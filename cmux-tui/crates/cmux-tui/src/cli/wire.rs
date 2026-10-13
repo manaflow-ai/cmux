@@ -32,6 +32,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: {error}");
         return 2;
     }
+    #[cfg(unix)]
+    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
+    if let Err(error) =
+        super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
+    {
+        eprintln!("cmux: {error}");
+        return 2;
+    }
     let mut request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
@@ -47,18 +55,21 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
     let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
-    let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
+    let (socket, socket_is_derived) = match resolve_socket_or_report(&global) {
         Ok(resolved) => resolved,
-        Err(_) => {
-            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
-            return 2;
-        }
+        Err(code) => return code,
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("{}", connect_failure(&socket, &error));
-            return 3;
+            // Only this socket was tried; nothing falls back to another one.
+            let error = json!({
+                "code": "socket.unreachable",
+                "message": connect_failure(&socket, &error),
+                "details": {"socket": socket.display().to_string()},
+                "retryable": false,
+            });
+            return print_local_error(&error, global.output, 3);
         }
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
@@ -103,6 +114,14 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return failure.report(global.output);
         }
         request["params"] = plan.params.clone();
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
+    if notify_desktop::drop_unsupported(&mut reader, &mut request)
+        | super::launch_credential::attach(&mut reader, &socket, &mut request)
+    {
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
             Err(code) => return code,
@@ -291,13 +310,23 @@ fn require_server_capability(
     if supported {
         return Ok(());
     }
+    // The daemon's own CLI may serve it (another build): run that CLI
+    // (cli/skew.rs), else name the exact fix.
+    #[cfg(unix)]
+    let fix = super::skew::reexec_at_dead_end(global).err().flatten();
+    #[cfg(not(unix))]
+    let fix: Option<String> = None;
+    let mut message = crate::localization::catalog().skew.journal_unsupported.to_owned();
+    if let Some(fix) = fix {
+        message = format!("{message}\n{fix}");
+    }
     let details = json!({
         "capability":capability,
         "action":"restart_session"
     });
     let error = json!({
         "code":"operation.unsupported",
-        "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",
+        "message":message,
         "details":details,
         "retryable":false
     });
@@ -945,13 +974,17 @@ fn human_key_rank(key: &str) -> usize {
 
 mod closed_view;
 mod hints;
+mod notify_desktop;
 mod sanitize;
 mod socket;
 pub(super) use hints::connect_failure;
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+#[cfg(unix)]
+pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
 pub(super) use socket::resolve_socket_with_env;
 pub(super) use socket::resolve_socket_with_origin;
+pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or_report};
 
 #[cfg(test)]
 mod tests;

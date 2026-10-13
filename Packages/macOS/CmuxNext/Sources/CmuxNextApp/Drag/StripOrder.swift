@@ -33,11 +33,11 @@ enum StripOrder {
     }
 
     /// After a committed move: each strip shows the store's order and
-    /// drops its optimistic one.
+    /// drops its optimistic one once the store shows the move.
     static func settle(_ panes: [PaneController?]) {
         for pane in panes.compactMap(\.self) {
             pane.syncStripFromStore()
-            pane.view.stripView.discardPendingReorder()
+            pane.view.stripView.settlePendingReorder()
         }
     }
 }

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import Observation
 
 /// `DisabledFeatures` beyond the action registry (spec/enterprise.md 5.2,
@@ -15,7 +16,7 @@ struct FeaturePolicyEnforcer {
         apply(registry.disabledFeatures, to: services)
         // task-owner: app-lifetime observation of the managed policy; ends with the process
         Task { [weak services] in
-            for await disabled in Observations({ registry.disabledFeatures }) {
+            for await disabled in ObservationStream({ registry.disabledFeatures }) {
                 guard let services else { return }
                 apply(disabled, to: services)
             }

@@ -71,6 +71,8 @@ pub(super) fn create_bookmark_schema(transaction: &Transaction<'_>) -> anyhow::R
     )?;
     // P8 landing 3b: the actor of a keyed op; a row without one is legacy.
     super::mutation_ledger::add_nullable_column(transaction, "bookmark_mutations", "actor")?;
+    // `bookmark-icon-v1`: a folder's icon (the shared icon string).
+    super::mutation_ledger::add_nullable_column(transaction, "bookmarks", "icon")?;
     transaction
         .execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     Ok(())
@@ -150,6 +152,10 @@ pub struct Bookmark {
     pub created_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_ms: Option<u64>,
+    /// Folders only (`bookmark-icon-v1`): one emoji, an SF Symbol name or a
+    /// stored asset (`image:sha256-<hex>`, `svg:sha256-<hex>`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Fields of `create-bookmark`.
@@ -178,6 +184,10 @@ pub struct BookmarkUpdate {
     pub favicon_key: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_ms: Option<Option<u64>>,
+    /// Folders only. Skipped when absent, so the fingerprint of an update
+    /// without an icon is the one it had before `bookmark-icon-v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Option<String>>,
 }
 
 /// One node of `import-bookmarks`.
@@ -358,7 +368,7 @@ fn validate_import_nodes(nodes: &[BookmarkImportNode]) -> anyhow::Result<(usize,
 // MARK: Reads
 
 const COLUMNS: &str = "bookmark_id, browser_profile_id, parent_id, kind, position, title, url,
-                       favicon_key, source_key, created_ms, last_used_ms";
+                       favicon_key, source_key, created_ms, last_used_ms, icon";
 
 fn row_bookmark(row: &rusqlite::Row<'_>) -> rusqlite::Result<Bookmark> {
     Ok(Bookmark {
@@ -375,6 +385,7 @@ fn row_bookmark(row: &rusqlite::Row<'_>) -> rusqlite::Result<Bookmark> {
         last_used_ms: row
             .get::<_, Option<i64>>(10)?
             .map(|value| u64::try_from(value).unwrap_or_default()),
+        icon: row.get(11)?,
     })
 }
 

@@ -128,8 +128,6 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     // MARK: Diagnostics
 
     public var machine: Machine { core.withLock { $0.machine } }
-    /// Attach attempts whose task is still running (open or pump).
-    public var runningTasks: Int { core.withLock { $0.tasks.count } }
     public var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     // MARK: Reducer and applier

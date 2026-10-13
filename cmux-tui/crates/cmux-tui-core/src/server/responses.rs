@@ -100,6 +100,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::mux::feed_local::feed_error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
         .or_else(|| super::chief_inspect::error_code(error))
+        .or_else(|| super::icon_assets::error_code(error))
         .or_else(|| super::conversations::error_code(error))
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))
@@ -107,6 +108,8 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))
+        .or_else(|| super::tab_restart::error_code(error))
+        .or_else(|| super::conversation_tabs_wire::error_code(error))
 }
 
 /// `permanent-dock-v1`: a close, move or undo the permanent-column guard

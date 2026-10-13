@@ -11,19 +11,19 @@
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::collections::VecDeque;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::PathBuf;
 
 use super::*;
 
 /// Upper bound on concurrent host-exit waiters. Every host already received
 /// its termination request, so a waiter only observes an exit in progress.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const MAX_HOST_CLOSE_WORKERS: usize = 8;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct PendingHostClose {
     runtime: Arc<Surface>,
     step: HostCloseStep,
@@ -31,7 +31,7 @@ struct PendingHostClose {
     host_root: Option<PathBuf>,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 enum HostCloseStep {
     /// Not yet asked to exit. A worker signals it and queues the wait
     /// behind the other signals, so a batch close signals every host first.
@@ -45,9 +45,9 @@ enum HostCloseStep {
 }
 
 #[derive(Default)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 struct HostCloseState {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     queue: VecDeque<PendingHostClose>,
     workers: usize,
     /// Closes queued or in progress.
@@ -65,7 +65,7 @@ pub(crate) struct TerminalHostCloses {
 }
 
 impl TerminalHostCloses {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn enqueue(self: &Arc<Self>, close: PendingHostClose) {
         let spawn = {
             let mut state = self.state.lock().unwrap();
@@ -93,7 +93,7 @@ impl TerminalHostCloses {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn work(&self) {
         loop {
             let close = {
@@ -157,7 +157,7 @@ impl TerminalHostCloses {
 
 /// Ask one queued host to exit. Returns the close to await, or `None` when a
 /// local runtime was killed inline.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
     let termination = match close.runtime.begin_host_termination() {
         Ok(Some(termination)) => Some(termination),
@@ -188,7 +188,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
     Some(close)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
     let PendingHostClose { runtime, step, identity, host_root } = close;
     let HostCloseStep::Await(termination, deadline) = step else {
@@ -227,7 +227,7 @@ impl Mux {
         if let Some(identity) = identity.as_ref() {
             self.terminal_respawns.forget_argv(&identity.terminal_id);
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if !runtime.has_host_termination() {
                 // A local runtime: kill it inline, and end any host record
@@ -249,7 +249,7 @@ impl Mux {
                 host_root,
             });
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = identity;
             runtime.kill();
@@ -261,7 +261,7 @@ impl Mux {
     /// A batch close's reply does not wait for a hundred hosts to be
     /// signaled one after another.
     pub(super) fn terminate_terminal_runtimes_deferred(&self, runtimes: Vec<Arc<Surface>>) {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             for runtime in runtimes {
@@ -277,7 +277,7 @@ impl Mux {
                 });
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         for runtime in runtimes {
             runtime.kill();
         }

@@ -42,6 +42,36 @@ pub const SCRUBBED: &[&str] = &[
 /// reaches the harness.
 pub const UNSET_KEY: &str = "ACPMUX_ROUTE_UNSET";
 
+/// The profile-env key that names the route a profile binds by default (the
+/// `cmux` harness: the `cmux` route). A chat or workspace binding still wins;
+/// it replaces a family or global binding. Internal: never reaches the harness.
+pub const PROFILE_ROUTE_KEY: &str = "ACPMUX_PROFILE_ROUTE";
+
+/// The built-in route to the hosted cmux model router through the local relay.
+/// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
+pub const CMUX_ROUTE_ID: &str = "cmux";
+
+fn builtin_routes() -> Vec<Route> {
+    vec![Route {
+        id: CMUX_ROUTE_ID.into(),
+        file: RouteFile {
+            name: Some("cmux model router".into()),
+            kind: RouteKind::CmuxRouter,
+            families: vec![],
+            anthropic_base_url: None,
+            openai_base_url: None,
+            auth: None,
+            secret: None,
+            headers: BTreeMap::new(),
+            health_url: None,
+            fallback: vec![],
+            auto_fallback: false,
+            notes: Some("built in: open-source models through the cmux model router".into()),
+        },
+        path: PathBuf::new(),
+    }]
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RouteKind {
@@ -444,10 +474,13 @@ pub fn load(dir: Option<&Path>) -> (Vec<Route>, Vec<String>) {
 }
 
 pub fn find(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
+    // A route file wins; the built-in routes are found only by id (they are
+    // not listed, so `route list` shows the user's own routes).
     load(dir)
         .0
         .into_iter()
         .find(|r| r.id == id)
+        .or_else(|| builtin_routes().into_iter().find(|r| r.id == id))
         .ok_or_else(|| RouteError::NotFound(format!("no route {id:?}")))
 }
 
@@ -511,14 +544,13 @@ pub fn file_from_json(params: &Value) -> Result<RouteFile, RouteError> {
 }
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
-    use std::os::unix::fs::PermissionsExt;
     let text = toml::to_string_pretty(file).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    crate::router_socket::owner_only(&tmp);
     std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
 }
 
@@ -709,8 +741,8 @@ pub fn local_router_with(
     family: &str,
     need_upstream: bool,
 ) -> Result<(String, String), RouteError> {
+    use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
     let socket = home.join("router").join("router.sock");
     let unavailable = |what: String| {

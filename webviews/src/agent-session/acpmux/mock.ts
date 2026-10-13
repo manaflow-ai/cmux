@@ -14,8 +14,9 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-import { mockGitDiff, mockGitStatus } from "./mockGit";
+import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+import { loadTurn, streamedReply, streamedTool } from "./loadFixture";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -157,8 +158,14 @@ export function mockTurn(prompt: string, turn: number): Step[] {
   ];
 }
 
+/// How a load run streams its turn: text deltas of `chunkChars` every `chunkMs`, and a large
+/// tool call (a log or an edit) after every `toolEvery` deltas.
+export type LoadStreamOptions = { seconds: number; chunkChars: number; chunkMs: number; toolEvery: number };
+
 /// An in-page acpmux daemon behind the WebSocket interface the client uses.
 export class MockAcpmuxSocket {
+  /// The mock daemon the page connected to last, for `debug.agent_pane load_seed` (loadDebug.ts).
+  static live: MockAcpmuxSocket | undefined;
   readyState = 0;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -226,6 +233,7 @@ export class MockAcpmuxSocket {
     // A replayed turn starts from an empty session, as the recording did.
     if (script) this.sessions = [{ ...scriptSession }];
     else this.seed(Date.now());
+    MockAcpmuxSocket.live = this;
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
@@ -267,7 +275,58 @@ export class MockAcpmuxSocket {
     if (pending)
       this.emit(target, { mux: "permission_decision", msg: { permissionId: (pending.msg as any).permissionId } });
     this.emit(target, { mux: "turn_result", msg: { status } });
-    this.touch(target, { status: "idle", pendingPermissions: 0 });
+    this.touch(target, { status: "idle", pendingPermissions: 0, indicator: status === "completed" ? "done" : null });
+  }
+
+  /// A new session holding `turns` finished heavy turns (loadFixture.ts), recorded without
+  /// delivery; the client reads them when it attaches. Returns the session id.
+  seedLoadSession(turns: number): string {
+    const now = Date.now();
+    const id = `load-session-${this.sessions.length + 1}`;
+    const created = {
+      ...newSessionSummary(id, "~/code/cmux", now),
+      title: `Load: ${turns} turns`,
+      turnCount: turns,
+      status: "idle",
+    };
+    for (let turn = 0; turn < turns; turn += 1) {
+      const at = now - (turns - turn) * 60_000;
+      for (const step of loadTurn(turn)) this.record(id, step, at);
+    }
+    this.sessions.push(created);
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+    return id;
+  }
+
+  /// Streams one turn into `target` as fast as `options` say, as a busy agent does: text deltas
+  /// on a timer (not on frames, as a socket's arrive) with large tool calls between them.
+  async streamLoadTurn(
+    target: string,
+    options: LoadStreamOptions,
+  ): Promise<{ deltas: number; chars: number; tools: number }> {
+    const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
+    this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
+    this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: stream a long answer` } });
+    this.emit(target, { mux: "turn_started" });
+    const reply = streamedReply(turn, 400);
+    const end = performance.now() + options.seconds * 1000;
+    let at = 0;
+    let deltas = 0;
+    let tools = 0;
+    while (performance.now() < end && !this.closed) {
+      await this.delay(options.chunkMs);
+      const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
+      at += options.chunkChars;
+      this.emit(target, { update: text(chunk) });
+      deltas += 1;
+      if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
+        this.emit(target, { update: streamedTool(turn, tools) });
+        tools += 1;
+      }
+    }
+    this.emit(target, { mux: "turn_result", msg: { status: "completed" } });
+    this.touch(target, { status: "idle", indicator: "done" });
+    return { deltas, chars: at, tools };
   }
 
   send(raw: string): void {
@@ -451,9 +510,16 @@ export class MockAcpmuxSocket {
           ...(typeof params.to === "string" ? { to: params.to } : {}),
         };
       case "git.diff":
-        return mockGitDiff(target, params.scope, params.include_patch === true);
+        return mockGitDiff(target, params.scope, params.include_patch === true, {
+          paths: Array.isArray(params.paths) ? params.paths.map(String) : undefined,
+          context: typeof params.context_lines === "number" ? params.context_lines : undefined,
+        });
       case "git.status":
         return mockGitStatus(target);
+      case "git.commit":
+        return mockGitCommit(target, params);
+      case "git.push":
+        return mockGitPush(target, params);
       default:
         return {};
     }
@@ -509,6 +575,7 @@ export class MockAcpmuxSocket {
       turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1,
       unread: false,
       status: "running",
+      indicator: "working",
     });
     const running = { cancelled: false, target };
     this.running = running;
@@ -528,7 +595,7 @@ export class MockAcpmuxSocket {
       endAt !== undefined ? started + endAt : undefined,
     );
     this.running = undefined;
-    this.touch(target, { status: "idle" });
+    this.touch(target, { status: "idle", indicator: running.cancelled ? null : "done" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
   }
 

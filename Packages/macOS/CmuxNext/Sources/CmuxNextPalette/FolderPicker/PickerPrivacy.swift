@@ -30,10 +30,6 @@ public nonisolated struct PickerPrivacy {
         return nil
     }
 
-    public static func isProtected(_ path: String, home: String = NSHomeDirectory()) -> Bool {
-        area(of: path, home: home) != nil
-    }
-
     /// Home folders the listing never looks inside until the user opens
     /// them: the protected ones and the media and Library folders (a
     /// `.git` probe there could raise a prompt or wake a library).

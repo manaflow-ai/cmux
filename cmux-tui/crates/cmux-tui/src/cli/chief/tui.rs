@@ -19,7 +19,7 @@ use super::messages::messages;
 use super::{Input, Session};
 
 pub(super) fn run(mut session: Session) -> i32 {
-    let mut chat = Chat::default();
+    let mut chat = Chat { hyperlinks: super::hyperlink::enabled(), ..Chat::default() };
     let mut editor = Editor::default();
     let mut screen = match Screen::open() {
         Ok(screen) => screen,
@@ -193,11 +193,11 @@ impl Screen {
         }
         let _ = queue!(out, Clear(ClearType::FromCursorDown));
         for line in done {
-            self.line(&mut out, line);
+            self.line(&mut out, line, &chat.links);
             let _ = queue!(out, Print("\r\n"));
         }
         for (index, line) in footer.iter().enumerate() {
-            self.line(&mut out, line);
+            self.line(&mut out, line, &chat.links);
             if index + 1 < footer.len() {
                 let _ = queue!(out, Print("\r\n"));
             }
@@ -211,8 +211,9 @@ impl Screen {
         self.cursor_row = row;
     }
 
-    fn line(&self, out: &mut impl Write, (style, text): &Line) {
-        let text = clip(text, self.width.saturating_sub(1));
+    fn line(&self, out: &mut impl Write, (style, text): &Line, links: &[(String, String)]) {
+        // Clipped by display width first: the hyperlink escapes take no columns.
+        let text = super::hyperlink::mark(&clip(text, self.width.saturating_sub(1)), links);
         let _ = match style {
             Style::Plain => queue!(out, Print(text)),
             Style::Header => queue!(

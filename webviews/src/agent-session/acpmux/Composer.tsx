@@ -9,15 +9,18 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { AcpmuxSnapshot } from "./model";
+import { useEscapingList } from "../../ui/popupHost";
+import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
-  dragHasFiles,
   filesFrom,
+  installFileDropLifecycle,
   readAttachments,
+  MAX_ATTACHMENTS,
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
 } from "./attachments";
+import type { UploadResult } from "./cloudUploads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
@@ -37,8 +40,11 @@ import {
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { Icon } from "./icons/Icon";
+import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { openChipMenu } from "./composerChipMenu";
 import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
@@ -56,11 +62,17 @@ import {
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
+import { ChromeArea } from "../../ui/HideableChrome";
+import { useComposerChrome } from "./composerChrome";
+import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
+
+/// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
+const UNSENT_DRAFT_SETTLE_MS = 300;
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -69,6 +81,8 @@ export const COMPOSER_LABELS = {
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
+  attachScreenshot: "composer.attachScreenshot",
+  attachWindow: "composer.attachWindow",
   prompt: "composer.prompt",
   send: "composer.send",
   stop: "composer.stop",
@@ -92,6 +106,9 @@ export const COMPOSER_LABELS = {
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
 
+/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
+const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
+
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(COMPOSER_LABELS[error.reason], { name: error.name });
 }
@@ -100,6 +117,9 @@ function attachmentErrorText(error: AttachmentError, t: Translate): string {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
+  /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
+  attach(attachment: ComposerAttachment): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
@@ -113,12 +133,15 @@ type Props = {
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
-  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void | Promise<unknown>;
+  /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
+  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
-  /// Withdraws a queued prompt and puts its text back in the prompt.
-  onQueueEdit?(entry: AcpmuxSnapshot["queue"][number]): Promise<boolean>;
+  /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
+  onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
+  /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
+  onQueueLost?(text: string): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -138,14 +161,26 @@ type Props = {
   onEdit?(command: ComposerEditCommand): void;
   /// Handles a cmux-owned slash command after the user submits it.
   onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
+  /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
+  onUnsentDraft?(text: string): void;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
+  /// or a window, attached as an image; an error for one too large to attach (shown as the
+  /// composer's note); undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// Sends dropped or pasted files the composer can't attach to the chat's Cloud machine (a moved
+  /// chat): their machine paths go into the prompt. Undefined when this chat takes none.
+  upload?(files: File[]): Promise<UploadResult>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
+  onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
@@ -187,18 +222,23 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
-  onQueueEdit,
+  onQueueChange,
+  onQueueLost,
   draft,
   leading,
   accessory,
   prompt,
   onEdit,
   onCmuxCommand,
+  onUnsentDraft,
   onImportFile,
   searchFiles,
+  capture,
+  upload,
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   onBrowseFolder,
   onConnect,
   localName,
@@ -214,12 +254,20 @@ export function Composer({
   blocked,
 }: Props) {
   const t = useT();
+  const chrome = useComposerChrome();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
+  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  useEffect(() => {
+    if (!searchFiles) return;
+    const open = () => setFindingFiles(true);
+    window.addEventListener("cmux-acpmux-searchFiles", open);
+    return () => window.removeEventListener("cmux-acpmux-searchFiles", open);
+  }, [searchFiles]);
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
@@ -236,6 +284,9 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
+  const [mentionActive, setMentionActive] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
@@ -248,6 +299,7 @@ export function Composer({
     [prompt],
   );
   const pendingCaret = useRef<number | undefined>(undefined);
+  const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -270,28 +322,32 @@ export function Composer({
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
-  attach.current = async (files: File[]) => {
+  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
+  /// the composer can't attach to its machine (never a pick from + or a capture).
+  const attach = useRef<(files: File[], uploads?: boolean) => Promise<void>>(async () => {});
+  attach.current = async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
+    // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
+    const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
+    const sendable = files.filter((file) => refused.has(file.name || "file"));
+    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
+    if (sent && "paths" in sent) insertPaths(sent.paths);
+    const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
+    setAttachError(sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], t) : undefined);
+  };
+  /// Puts machine paths at the caret, one per line.
+  const insertPaths = (paths: string[]) => {
+    const handle = field.current;
+    if (!handle || paths.length === 0) return;
+    const { value, selectionStart, selectionEnd } = handle.text();
+    const before = value.slice(0, selectionStart);
+    const inserted = (before && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "") + paths.join("\n");
+    const caret = before.length + inserted.length;
+    handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
   useEffect(() => {
-    const over = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(true);
-    };
-    const leave = (event: DragEvent) => {
-      if (!event.relatedTarget) setDropping(false);
-    };
-    const drop = (event: DragEvent) => {
-      if (!dragHasFiles(event.dataTransfer)) return;
-      event.preventDefault();
-      setDropping(false);
-      void attach.current(filesFrom(event.dataTransfer));
-    };
     const paste = (event: ClipboardEvent) => {
       const target = event.target as Node;
       // A file pasted in shell mode is kept for the next prompt; the mode stays.
@@ -299,16 +355,13 @@ export function Composer({
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
-      void attach.current(files);
+      // A paste in shell mode keeps its files for the next prompt and uploads nothing.
+      void attach.current(files, !shellField.current?.contains(target));
     };
-    document.addEventListener("dragover", over);
-    document.addEventListener("dragleave", leave);
-    document.addEventListener("drop", drop);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files, true), setDropping);
     document.addEventListener("paste", paste);
     return () => {
-      document.removeEventListener("dragover", over);
-      document.removeEventListener("dragleave", leave);
-      document.removeEventListener("drop", drop);
+      removeFileDropLifecycle();
       document.removeEventListener("paste", paste);
     };
   }, []);
@@ -340,6 +393,12 @@ export function Composer({
             ...restoredAttachments,
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
+      },
+      attach(attachment) {
+        setAttachments((current) => {
+          const held = current.filter((chip) => chip.id !== attachment.id);
+          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+        });
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
@@ -395,6 +454,12 @@ export function Composer({
     if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
+  useEffect(() => {
+    // Once the typing settles, so the host writes its file once per pause, not per keystroke.
+    if (sessionId || !onUnsentDraft) return;
+    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
+    return () => clearTimeout(settled);
+  }, [sessionId, text, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -413,11 +478,22 @@ export function Composer({
     plan && onMode
       ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
       : undefined;
+  // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
+  const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
   const query = slashQuery(text, caret);
-  const open = query !== undefined && dismissed !== text;
+  const open = query !== undefined && dismissed !== text && !recalling;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
+  // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
+  const mentionAt =
+    !open && !recalling && searchFiles && mentionDismissed !== text
+      ? mentionQuery(text, markdownOffset(text, caret))
+      : undefined;
+  const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
+  const mentionFiles = mentionResults(mentionState);
+  const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
+  useEffect(() => setMentionActive(0), [mentionAt?.query]);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -453,12 +529,23 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
+  /// Writes `@path ` over the `@word` being typed.
+  const pickMention = (path: string) => {
+    if (!mentionAt) return;
+    const { markdown, shown } = mentionText(path);
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
+    const at = caret - 1 - mentionAt.query.length + shown.length;
+    pendingCaret.current = at;
+    edit(text.slice(0, mentionAt.start) + markdown + after, at);
+    field.current?.focus();
+  };
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     return send(false);
   };
-  const send = (force: boolean): boolean => {
+  const send = (force: boolean, steer = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -494,7 +581,7 @@ export function Composer({
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
-    const taken = onSend(prompt, sent);
+    const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -618,6 +705,84 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
+    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    const quick = Boolean(onOpenInWindow);
+    if (
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      steerable &&
+      !quick
+    ) {
+      event.preventDefault();
+      send(false, true);
+      return;
+    }
+    // The @ picker owns arrows (and Ctrl-N/P), Return and Tab while it lists files, and Esc.
+    if (mentionAt) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setMentionDismissed(text);
+        return;
+      }
+      const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+      const step =
+        (event.key === "ArrowDown" && plain) || (control && event.key === "n")
+          ? 1
+          : (event.key === "ArrowUp" && plain) || (control && event.key === "p")
+            ? -1
+            : 0;
+      if (step && mentionFiles.length > 0) {
+        event.preventDefault();
+        setMentionActive((mentionSelected + step + mentionFiles.length) % mentionFiles.length);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && plain && mentionFiles[mentionSelected]) {
+        event.preventDefault();
+        pickMention(mentionFiles[mentionSelected].path);
+        return;
+      }
+    }
+    // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      const last = rows?.[rows.length - 1];
+      if (last) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    }
+    // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts. In a
+    // recalled prompt of several lines they move the caret first, and recall from its first (↑)
+    // or last (↓) line.
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain && !open && !shell) {
+      const up = event.key === "ArrowUp";
+      const lines = recalling ? field.current?.text() : undefined;
+      const edge =
+        !lines ||
+        (up
+          ? !lines.value.slice(0, lines.selectionStart).includes("\n")
+          : !lines.value.slice(lines.selectionEnd).includes("\n"));
+      const recalled = edge ? prompts.step(up ? -1 : 1, field.current?.agentText(text) ?? text) : undefined;
+      if (recalled !== undefined) {
+        event.preventDefault();
+        if (recalled === null) return;
+        pendingCaret.current = recalled.length;
+        edit(recalled, recalled.length);
+        return;
+      }
+    }
+    // Esc on an empty prompt stops the turn, as Stop does.
+    if (event.key === "Escape" && plain && !open && stop && !quick) {
+      event.preventDefault();
+      stopTurn();
+      return;
+    }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
       onOpenInWindow &&
@@ -670,6 +835,9 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
+  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
+  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
+  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -677,6 +845,7 @@ export function Composer({
     plusDraft.current = undefined;
     if (original !== text) edit(original, original.length);
     else if (open) setDismissed(text);
+    else if (mentionAt) setMentionDismissed(text);
   };
   // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
   // need a selection in the field, read when the menu opens.
@@ -731,6 +900,7 @@ export function Composer({
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
+      onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       summary={snapshot.summary}
@@ -768,6 +938,7 @@ export function Composer({
         runShell();
       }}
       onBlur={blur}
+      onContextMenuCapture={openChipMenu}
     >
       {remote.note && (
         <p className="acpmux-composer-remote-note" role="note">
@@ -797,7 +968,15 @@ export function Composer({
           form.current.parentElement,
         )}
       <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue queue={snapshot.queue} t={t} onRemove={onQueueRemove} onEdit={onQueueEdit} />
+        <ComposerQueue
+          queue={snapshot.queue}
+          paused={snapshot.summary?.queuePaused === true}
+          t={t}
+          onRemove={onQueueRemove}
+          onChange={onQueueChange}
+          onLost={onQueueLost}
+          onLeave={() => field.current?.focus()}
+        />
         {contextFirst && context}
         <input
           ref={importInput}
@@ -822,6 +1001,9 @@ export function Composer({
             onHover={setActive}
             onPick={pick}
           />
+        )}
+        {mentionAt && (
+          <MentionMenu state={mentionState} active={mentionSelected} onHover={setMentionActive} onPick={pickMention} />
         )}
         {(attachments.length > 0 || attachError || dropping) && (
           <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
@@ -855,10 +1037,15 @@ export function Composer({
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
               "aria-multiline": "true",
-              "aria-expanded": String(open),
-              "aria-controls": open ? "acpmux-slash-menu" : undefined,
+              "aria-expanded": String(open || Boolean(mentionAt)),
+              "aria-controls": open ? "acpmux-slash-menu" : mentionAt ? "acpmux-mention-menu" : undefined,
               "aria-autocomplete": "list",
-              "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+              "aria-activedescendant":
+                open && matches.length > 0
+                  ? `acpmux-slash-${selected}`
+                  : mentionAt && mentionFiles.length > 0
+                    ? `acpmux-mention-${mentionSelected}`
+                    : undefined,
             }}
             onBeforeInput={(data, state) => {
               // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
@@ -895,94 +1082,150 @@ export function Composer({
             </div>
           )}
         </ContextMenu>
-        <div className="acpmux-composer-bar">
-          <input
-            ref={chooser}
-            className="acpmux-attach-input"
-            type="file"
-            multiple
-            hidden
-            aria-label={t(COMPOSER_LABELS.attach)}
-            onChange={(event) => {
-              const files = [...(event.currentTarget.files ?? [])];
-              // Cleared, choosing the same file again still fires change.
-              event.currentTarget.value = "";
-              void attach.current(files);
-            }}
-          />
-          {leading !== undefined ? (
-            leading
-          ) : (
-            <Picker
-              label={t(COMPOSER_LABELS.add)}
-              className="acpmux-composer-plus"
-              button={<PlusIcon />}
-              align="start"
-              returnFocus={false}
-              sections={[
-                {
-                  choices: [
-                    { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
-                    { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
-                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
-                    ...(commands?.length
-                      ? [
-                          {
-                            id: "commands",
-                            name: t(COMPOSER_LABELS.commands),
-                            icon: <SlashIcon />,
-                            hint: "/",
-                          },
-                        ]
-                      : []),
-                    ...(planChoice ? [planChoice] : []),
-                  ],
-                  onPick: (id) =>
-                    id.startsWith("plan:")
-                      ? onMode?.(
-                          planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
-                        )
-                      : id === "attach"
-                        ? chooser.current?.click()
-                        : id === "mention"
-                          ? mention()
-                          : id === "files"
-                            ? setFindingFiles(true)
-                            : openCommands(),
-                },
-              ]}
+        {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
+        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
+          <div className="acpmux-composer-bar">
+            <input
+              ref={chooser}
+              className="acpmux-attach-input"
+              type="file"
+              multiple
+              hidden
+              aria-label={t(COMPOSER_LABELS.attach)}
+              onChange={(event) => {
+                const files = [...(event.currentTarget.files ?? [])];
+                // Cleared, choosing the same file again still fires change.
+                event.currentTarget.value = "";
+                void attach.current(files);
+              }}
             />
-          )}
-          <Chips snapshot={snapshot} />
-          <span className="acpmux-composer-actions">
-            {accessory}
-            {stop ? (
-              <button
-                key="stop"
-                ref={sendButton}
-                type="button"
-                className="acpmux-send acpmux-cancel"
-                aria-label={t(COMPOSER_LABELS.stop)}
-                title={t(COMPOSER_LABELS.stop)}
-                onClick={stopTurn}
-              >
-                <StopIcon />
-              </button>
-            ) : remote.canSend ? (
-              <button
-                key="send"
-                ref={sendButton}
-                type="submit"
-                disabled={Boolean(blocked) && !shell}
-                className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                title={shell ? t("composer.shellRun") : blocked?.reason ? t(blocked.reason) : t("composer.sendTooltip")}
-              >
-                <ArrowUpIcon />
-              </button>
-            ) : null}
-          </span>
-        </div>
+            {leading !== undefined ? (
+              leading
+            ) : (
+              <Picker
+                label={t(COMPOSER_LABELS.add)}
+                className="acpmux-composer-plus"
+                button={<PlusIcon />}
+                align="start"
+                returnFocus={false}
+                sections={[
+                  {
+                    choices: [
+                      { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
+                      // A harness without images would refuse the capture after the whole pick.
+                      ...(capture && allowImages
+                        ? [
+                            {
+                              id: "screenshot",
+                              name: t(COMPOSER_LABELS.attachScreenshot),
+                              icon: <Icon name="site.permission.camera" size={18} />,
+                            },
+                            {
+                              id: "window",
+                              name: t(COMPOSER_LABELS.attachWindow),
+                              icon: <Icon name="site.permission.windowmanagement" size={18} />,
+                            },
+                          ]
+                        : []),
+                      { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
+                      ...(searchFiles
+                        ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
+                        : []),
+                      ...(commands?.length
+                        ? [
+                            {
+                              id: "commands",
+                              name: t(COMPOSER_LABELS.commands),
+                              icon: <SlashIcon />,
+                              hint: "/",
+                            },
+                          ]
+                        : []),
+                      ...(planChoice ? [planChoice] : []),
+                    ],
+                    onPick: (id) =>
+                      id.startsWith("plan:")
+                        ? onMode?.(
+                            planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
+                          )
+                        : id === "attach"
+                          ? chooser.current?.click()
+                          : id === "screenshot" || id === "window"
+                            ? // Back to the prompt either way (the + menu doesn't take focus back),
+                              // unless the person moved focus out of the composer while the capture ran.
+                              void capture?.(id === "window" ? "window" : "screen")
+                                .then(async (shot) => {
+                                  if (shot instanceof File) await attach.current([shot]);
+                                  else if (shot) setAttachError(attachmentErrorText(shot, t));
+                                })
+                                .finally(() => {
+                                  const focused = document.activeElement;
+                                  if (!focused || focused === document.body || form.current?.contains(focused))
+                                    field.current?.focus();
+                                })
+                            : id === "mention"
+                              ? mention()
+                              : id === "files"
+                                ? setFindingFiles(true)
+                                : openCommands(),
+                  },
+                ]}
+              />
+            )}
+            <Chips snapshot={snapshot} />
+            <span className="acpmux-composer-actions">
+              {accessory}
+              {stop ? (
+                <button
+                  key="stop"
+                  ref={sendButton}
+                  type="button"
+                  className="acpmux-send acpmux-cancel"
+                  aria-label={t(COMPOSER_LABELS.stop)}
+                  title={t(COMPOSER_LABELS.stop)}
+                  onClick={stopTurn}
+                >
+                  <StopIcon />
+                </button>
+              ) : remote.canSend ? (
+                <>
+                  {steerable && (
+                    <button
+                      key="steer"
+                      type="button"
+                      className="acpmux-steer"
+                      aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                      title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                      onClick={() => {
+                        send(false, true);
+                        field.current?.focus();
+                      }}
+                    >
+                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                    </button>
+                  )}
+                  <button
+                    key="send"
+                    ref={sendButton}
+                    type="submit"
+                    disabled={Boolean(blocked) && !shell}
+                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                    title={
+                      shell
+                        ? t("composer.shellRun")
+                        : blocked?.reason
+                          ? t(blocked.reason)
+                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                    }
+                  >
+                    <ArrowUpIcon />
+                  </button>
+                </>
+              ) : null}
+            </span>
+          </div>
+        </ChromeArea>
         {!contextFirst && context}
       </div>
     </form>
@@ -1028,9 +1271,27 @@ function AttachmentChip({
       </svg>
     </button>
   );
+  // Its right-click menu: Open where a click opens it, and Remove (cx-2lm4).
+  const menu = (open: (() => void) | undefined, chip: React.ReactNode) => (
+    <ContextMenu
+      className="acpmux-attachment-menu"
+      items={[
+        ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
+        {
+          id: "remove",
+          label: t(COMPOSER_LABELS.removeAttachment, { name: attachment.name }),
+          separatorBefore: Boolean(open),
+          onSelect: () => onRemove(attachment.id),
+        },
+      ]}
+    >
+      {chip}
+    </ContextMenu>
+  );
   if (image && source) {
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
-    return (
+    return menu(
+      openImage ? () => openImage(source, attachment.name) : undefined,
       <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
         {openImage ? (
           <button
@@ -1045,17 +1306,25 @@ function AttachmentChip({
           img
         )}
         {remove}
-      </div>
+      </div>,
     );
   }
   if (attachment.kind === "document" && attachment.data) {
-    return <PdfAttachmentChip attachment={attachment} remove={remove} codex={codex} />;
+    return menu(
+      undefined,
+      <PdfAttachmentChip
+        attachment={{ ...attachment, kind: "document", data: attachment.data }}
+        remove={remove}
+        codex={codex}
+      />,
+    );
   }
-  return (
+  return menu(
+    undefined,
     <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
       <span>{attachment.name}</span>
       {remove}
-    </div>
+    </div>,
   );
 }
 
@@ -1185,6 +1454,15 @@ function SlashMenu({
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const escape = useEscapingList("top", 6);
+  const setList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -1192,7 +1470,7 @@ function SlashMenu({
   if (matches.length === 0)
     return (
       <div
-        className="acpmux-slash-menu acpmux-slash-empty"
+        className="ui-popup acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
@@ -1203,8 +1481,8 @@ function SlashMenu({
     );
   return (
     <div
-      ref={list}
-      className="acpmux-slash-menu"
+      ref={setList}
+      className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

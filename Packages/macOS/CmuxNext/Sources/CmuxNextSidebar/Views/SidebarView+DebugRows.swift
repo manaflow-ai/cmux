@@ -12,7 +12,7 @@ public struct SidebarDebugRow: Sendable {
     public var viewAlpha: CGFloat?
     public var inList: Bool
     public var suppressed: Bool
-    /// The row's view paints the selection fill now.
+    /// The row's view stands for the selection now (`fill` says whether it paints).
     public var selected: Bool
     /// The workspace is muted (`notifications.mutedWorkspaces`): its row draws the mark.
     public var muted: Bool
@@ -21,6 +21,33 @@ public struct SidebarDebugRow: Sendable {
     public var activity: String? = nil
     /// The workspace row's icon kind (`symbol`, `swatch`, `emoji`, `favicon`), nil without one.
     public var icon: String? = nil
+    /// The view's frame as drawn now (its presentation, mid-animation), and
+    /// whether it clips its content (an opening or closing row).
+    public var shownFrame: CGRect? = nil
+    public var clips: Bool = false
+    /// The group the row lists in (its id), nil for a loose row.
+    public var group: String? = nil
+    /// The row paints a fill now (hover, selection or a drop), its own or a part's.
+    public var fill: Bool = false
+    /// The pointer is over the row's view now.
+    public var hovered: Bool = false
+    /// The row's disclosure chevron: the pack icon it draws, its frame in the
+    /// row and whether it shows; nil when the row has none.
+    public var disclosureIcon: String? = nil
+    public var disclosureFrame: CGRect? = nil
+    public var disclosureShown: Bool = false
+    /// The row's second line as its content draws it (`WorkspaceRowContent.detail`).
+    public var detail: String? = nil
+
+    /// The row with what its view draws now: its fill, hover and disclosure.
+    func drawn(by view: SidebarRowView?) -> SidebarDebugRow {
+        var row = self
+        let disclosure = view?.debugDisclosure
+        row.fill = view?.debugFill == true
+        row.hovered = view?.isHovered == true
+        (row.disclosureIcon, row.disclosureFrame, row.disclosureShown) = (disclosure?.icon, disclosure?.frame, disclosure?.shown == true)
+        return row
+    }
 }
 
 /// One sidebar layout item (a top or bottom region row), for
@@ -31,6 +58,9 @@ public struct SidebarDebugItem: Sendable {
     public var refKind: String
     public var ref: String
     public var region: String
+    /// The section holding the item: its id and title (nil when untitled).
+    public var section: String = ""
+    public var sectionTitle: String? = nil
     public var isActive: Bool
     /// The item in window points from the top-left (as `debug.mouse` takes them).
     public var windowFrame: CGRect?
@@ -63,9 +93,19 @@ extension SidebarView {
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
                 }
                 return SidebarDebugItem(id: item.id.rawValue, refKind: item.ref.kind, ref: item.ref.value, region: section.region.rawValue,
+                                        section: section.id.rawValue, sectionTitle: section.title,
                                         isActive: model.selectedItem == .topItem(item.id), windowFrame: frame)
             }
         }
+    }
+
+    /// The new-workspace button (+) in window points from the top-left, so a
+    /// proof clicks it (`debug.mouse`); nil while it is hidden.
+    public func debugNewButtonFrame() -> CGRect? {
+        guard !newButton.isHiddenOrHasHiddenAncestor, newButton.window != nil else { return nil }
+        let inWindow = newButton.convert(newButton.bounds, to: nil)
+        let height = window?.contentView?.bounds.height ?? 0
+        return CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
     }
 
     /// The list's rows and their views, the selection and the drag (debug).
@@ -98,7 +138,8 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon)
+                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   detail: row.content?.detail).drawn(by: view)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []

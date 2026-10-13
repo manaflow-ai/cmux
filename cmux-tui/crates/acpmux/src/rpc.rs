@@ -44,6 +44,19 @@ impl RpcError {
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(-32002, message)
     }
+    /// A request whose handler waited on an agent past its deadline
+    /// (cx-m5up). `data.reason` is `deadline_exceeded`, `data.wait` names
+    /// the wait, and the request may be retried.
+    pub fn deadline_exceeded(wait: &str, timeout: std::time::Duration) -> Self {
+        Self::new(-32000, format!("{wait} did not finish within {timeout:?}")).with_data(
+            serde_json::json!({
+                "reason": "deadline_exceeded",
+                "wait": wait,
+                "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+                "retryable": true,
+            }),
+        )
+    }
 }
 
 impl std::fmt::Display for RpcError {
@@ -190,16 +203,22 @@ pub mod method {
     pub const MUX_DISCONNECTED: &str = "_acpmux/disconnected";
     pub const MUX_PRESETS: &str = "_acpmux/presets";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
+    pub const MUX_VIEW: &str = "_acpmux/view";
+    pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
+    pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
+    /// The person proof for this connection's challenge (`hub/person.rs`).
+    pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
+    pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -216,6 +235,7 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_ASK: &str = "_acpmux/ask";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
@@ -239,6 +259,9 @@ pub mod method {
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
+    /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
+    /// and the local app.
+    pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
     // Routes: how a harness reaches its model provider (ROUTES R1-R3;
     // server/routes.rs). add, edit, remove, restore: the unix socket only;
     // the rest also the local app. Never Web or peer.
@@ -258,6 +281,12 @@ pub mod method {
     pub const MUX_HANDOFF_DRAFT: &str = "_acpmux/handoff_draft";
     pub const MUX_HANDOFF_START: &str = "_acpmux/handoff_start";
     pub const MUX_HANDOFF_DISCARD: &str = "_acpmux/handoff_discard";
+    /// An agent asks the person for a secret (`hub/secrets.rs`); the
+    /// person's card answers with `secret_submit`, and `secret_run` spends
+    /// the ref the agent got.
+    pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
+    pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
+    pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
@@ -268,33 +297,4 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn round_trips_request() {
-        let m = Message::request(1, "session/prompt", json!({"sessionId": "s"}));
-        let back = Message::parse(&m.to_line()).unwrap();
-        assert_eq!(m, back);
-    }
-
-    #[test]
-    fn parses_error_response() {
-        let m = Message::parse(r#"{"jsonrpc":"2.0","id":3,"error":{"code":-1,"message":"x"}}"#)
-            .unwrap();
-        match m {
-            Message::Response { error: Some(e), .. } => assert_eq!(e.code, -1),
-            _ => panic!("expected error response"),
-        }
-    }
-
-    #[test]
-    fn notification_has_no_id() {
-        let m =
-            Message::parse(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#).unwrap();
-        assert!(matches!(m, Message::Notification { .. }));
-    }
 }

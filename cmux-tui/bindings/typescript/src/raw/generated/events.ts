@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2bf19d19dd792ab6ce12fb52406a3928efe88c839b5e097d4a042d2dcc4158d4. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 import type * as T from "./types.js";
@@ -18,6 +18,25 @@ export type AgentChangedEvent = { event: "agent-changed" } & {
   "state": T.AgentState;
   "surface": T.Id;
   "updated_at_ms": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
+  /** What the agent is doing now; null clears the surface's presence and every other field is then null. */
+  "activity": (T.AgentPresenceActivity) | null;
+  /** Adapter identity (claude, codex, ...). */
+  "agent": (string) | null;
+  /** The 1-based line the tool call targets, when the tool input names one. */
+  "line": (bigint) | null;
+  /** The file the tool call targets, when the tool input names one. */
+  "path": (string) | null;
+  /** The agent's portable session id, a stable identity for colour. */
+  "session": (string) | null;
+  "surface": T.Id;
+  /** The native tool name of the current or last tool call. */
+  "tool": (string) | null;
+  /** When the hook observed the event; null on clear. */
+  "updated_at_ms": (bigint) | null;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -159,6 +178,13 @@ export type ConversationChangedEvent = { event: "conversation-changed" } & {
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationDraftEvent = { event: "conversation-draft" } & {
+  "conversation": string;
+  "item": T.JsonValue;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
 export type ConversationTypingEvent = { event: "conversation-typing" } & {
   "conversation": string;
   "on": boolean;
@@ -213,6 +239,18 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
   "summary"?: string;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type HistoryChangedEvent = { event: "history-changed" } & {
+  "kinds": Array<string>;
+  "revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
@@ -226,8 +264,10 @@ export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
 export type NotificationEvent = { event: "notification" } & {
   "body": string;
+  "desktop"?: boolean;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "reply"?: boolean;
   "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
@@ -281,6 +321,12 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ProgramStatusChangedEvent = { event: "program-status-changed" } & {
+  "program_status": (T.ShownProgramStatus) | null;
+  "surface": T.Id;
 };
 
 /** Protocol v7; emission: emitted; streams: attach-render. */
@@ -359,6 +405,13 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "at_bottom": boolean;
   "offset": bigint;
   "surface": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type SettingsChangedEvent = { event: "settings-changed" } & {
+  "keys": Array<string>;
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe, attach-byte, attach-render. */
@@ -571,6 +624,7 @@ export interface UnknownEvent {
 export type KnownCmuxEvent =
   | ActivityChangedEvent
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -588,6 +642,7 @@ export type KnownCmuxEvent =
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
@@ -595,6 +650,8 @@ export type KnownCmuxEvent =
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
+  | KeybindingsChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -605,6 +662,7 @@ export type KnownCmuxEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent
   | ResizedEvent
@@ -613,6 +671,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent
@@ -645,6 +704,7 @@ export type SerializedButNotEmittedEvent =
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
   | AgentChangedEvent
+  | AgentPresenceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ClientAttachedEvent
@@ -660,10 +720,13 @@ export type KnownSubscribeEvent =
   | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
+  | ConversationDraftEvent
   | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
+  | HistoryChangedEvent
+  | KeybindingsChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -673,11 +736,13 @@ export type KnownSubscribeEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
   | SurfaceExitedEvent

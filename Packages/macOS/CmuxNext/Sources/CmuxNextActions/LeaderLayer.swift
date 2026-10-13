@@ -18,6 +18,8 @@ public struct LeaderLayer {
         ("palette.newAgentChat", Shortcut("s", modifiers: [])),
         // `?` on a US layout; cmux.json writes it `shift+/`.
         ("palette.searchShortcuts", Shortcut("/", modifiers: [.shift])),
+        // Vimium's `f`: Click by Hint (a preview feature, cx-zjtn.1).
+        ("hints.show", Shortcut("f", modifiers: [])),
     ]
 
     let registry: ActionRegistry

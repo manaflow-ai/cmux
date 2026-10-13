@@ -101,13 +101,7 @@ function isSpring(value: TunableValue): value is SpringValue {
   return typeof value === "object" && value !== null && "response" in value;
 }
 
-export function TunableControlView({
-  row,
-  onChange,
-}: {
-  row: TunableRow;
-  onChange(value: TunableValue): void;
-}) {
+export function TunableControlView({ row, onChange }: { row: TunableRow; onChange(value: TunableValue): void }) {
   const control: TunableControl = row.control;
   const testId = `ds.control.${row.key}`;
   switch (control.type) {

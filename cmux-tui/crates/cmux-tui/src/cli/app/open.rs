@@ -1,12 +1,12 @@
 //! `cmux open <path|url>...` and `cmux open -`: paths, folders and URLs the
-//! app opens (`file.open`, `workspace.create`, `browser.open_split`).
+//! app opens (`file.open`, `action.run newTab`, `browser.open_split`).
 
 use std::io::{IsTerminal, Read};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::{AppCommand, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, action_origin};
+use super::{AppCommand, UsageError, WAITING_RUN_TIMEOUT, action_origin, caller_path};
 
 #[derive(Debug, PartialEq)]
 pub(in crate::cli) struct OpenRequest {
@@ -15,10 +15,10 @@ pub(in crate::cli) struct OpenRequest {
 }
 
 impl OpenRequest {
-    /// How long the app may take: `browser.open_split` runs `openBrowser`
-    /// and waits for the tab, like a waiting `action.run`.
+    /// How long the app may take: every open runs an action and waits for
+    /// it (`openBrowser`, `file.open`, `newTab`, which starts a terminal).
     pub(super) fn timeout(&self) -> Duration {
-        if self.method == "browser.open_split" { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }
+        WAITING_RUN_TIMEOUT
     }
 }
 
@@ -152,10 +152,13 @@ pub(super) fn parse_open_with(
             return;
         }
         let paths = std::mem::take(pending);
-        requests.push(OpenRequest {
-            method: "file.open",
-            params: json!({"paths": paths, "focus": focus}),
-        });
+        // The app serves `file.open` (cx-bmie): each file opens in the
+        // caller's terminal pane through the `file.open` action.
+        let mut params = json!({"paths": paths, "focus": focus, "origin": action_origin()});
+        if let Some(terminal) = &terminal {
+            params["terminal_id"] = json!(terminal);
+        }
+        requests.push(OpenRequest { method: "file.open", params });
     };
     for target in targets {
         if target.starts_with("http://")
@@ -169,12 +172,21 @@ pub(super) fn parse_open_with(
             return Err(UsageError::new("--workspace applies only to http and https URLs"));
         } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
             flush_files(&mut requests, &mut pending_files);
+            // A folder is a new workspace there (`newTab`, as `cmux
+            // workspace new --cwd`); the app names it after the folder.
             requests.push(OpenRequest {
-                method: "workspace.create",
-                params: json!({"cwd": target, "focus": focus, "activate": focus}),
+                method: "action.run",
+                params: json!({
+                    "action": "newTab",
+                    "args": {"cwd": caller_path(json!(target)), "focus": focus},
+                    "focus": focus,
+                    "wait": true,
+                    "origin": action_origin(),
+                }),
             });
         } else {
-            pending_files.push(target);
+            // The app runs elsewhere: a relative path is the caller's.
+            pending_files.push(caller_path(json!(target)).as_str().unwrap_or(&target).to_owned());
         }
     }
     flush_files(&mut requests, &mut pending_files);

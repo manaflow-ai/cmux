@@ -9,6 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
+FOCUSED_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-focused-test.sh"
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
@@ -34,10 +35,84 @@ def test_ignored_only_listing_has_no_runnable_test_names() -> None:
 
 
 def test_workflow_rejects_ignored_only_filter_from_name_difference() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+    script = FOCUSED_SCRIPT.read_text(encoding="utf-8")
 
-    assert 'comm -23 "$normal_names" "$ignored_names"' in workflow
-    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in workflow
+    assert 'comm -23 "$normal_names" "$ignored_names"' in script
+    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in script
+
+
+def test_macos_job_runs_the_focused_filter() -> None:
+    """cx-jcfoz: a filtered dispatch ran the filter on Linux only and reported macOS green."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for job_name in ("test", "macos"):
+        steps = workflow["jobs"][job_name]["steps"]
+        runs = [step for step in steps if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
+        assert len(runs) == 1, job_name
+        step = runs[0]
+        assert step["working-directory"] == "cmux-tui"
+        assert '"$TEST_FILTER"' in step["run"]
+        assert step["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
+    macos_step = next(step for step in workflow["jobs"]["macos"]["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", "")))
+    assert macos_step["if"] == "inputs.mode == 'focused'"
+
+
+def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
+    """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$*" >> "{log}"\n'
+            'case "$*" in\n'
+            f'  *"--list --ignored"*) printf "%b" "{ignored}" ;;\n'
+            f'  *"--list"*) printf "%b" "{listing}" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        cargo.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(FOCUSED_SCRIPT), "some_filter", "--test-threads=2"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), **(extra_env or {})},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls
+
+
+def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
+    code, calls = _run_focused("", "")
+    assert code == 1
+    assert "some_filter -- --test-threads=2" not in calls
+
+
+def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -> None:
+    """Linux-only test files (#![cfg(target_os = "linux")]) compile to nothing on macOS.
+
+    A focused dispatch for bring_back_journey or cloud_move_journey ran them on Linux
+    and then failed macOS with "selected no Rust tests". The macOS job allows a host
+    with no matching test; Linux stays strict, so a typo still fails the dispatch.
+    """
+    code, calls = _run_focused("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
+    assert code == 0
+    assert "some_filter -- --test-threads=2" not in calls
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for job_name, allowed in (("macos", "1"), ("test", None)):
+        step = next(
+            step
+            for step in workflow["jobs"][job_name]["steps"]
+            if "cmux-tui-focused-test.sh" in str(step.get("run", ""))
+        )
+        assert step["env"].get("CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST") == allowed, job_name
+
+
+def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
+    code, calls = _run_focused("tui::a_test: test\\n", "")
+    assert code == 0
+    assert "test --workspace --locked some_filter -- --test-threads=2" in calls
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -90,7 +165,8 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
         assert "full" not in condition
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    # fc36c16ddea8: hand-picked selections go through cargo-test-selected.sh (fails on zero tests).
+    assert "cargo-test-selected.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
@@ -139,8 +215,8 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert "cargo fmt --check" not in macos_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in macos_commands
     assert "platform::tests::" in macos_commands
-    assert "mac_process_scope" in macos_commands
-    assert "macos_pty_" in macos_commands
+    # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
+    assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
     assert "lint" in gate["needs"]
     assert "macos" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"

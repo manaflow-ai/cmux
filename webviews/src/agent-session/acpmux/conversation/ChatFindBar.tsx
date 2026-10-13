@@ -2,10 +2,12 @@
 // steps. Enter and Cmd-G go to the next match, Shift-Enter and Shift-Cmd-G to the previous one,
 // Escape closes the bar.
 import { useEffect, useRef } from "react";
+import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
-import type { ChatFind } from "./chatFind";
+import type { FindBarState } from "./chatFind";
 
-export function ChatFindBar({ find }: { find: ChatFind }) {
+/** `label` names the field (its placeholder too); Find in Chat by default. */
+export function ChatFindBar({ find, label }: { find: FindBarState; label?: string }) {
   const t = useT();
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -19,6 +21,8 @@ export function ChatFindBar({ find }: { find: ChatFind }) {
       ? t("find.count", { current: find.active + 1, total: count })
       : t("find.noResults");
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Candidate acceptance/cancellation belongs to the IME. WebKit can report only 229 on commit.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const step = event.key === "Enter" || (event.metaKey && event.key.toLowerCase() === "g");
     if (step) {
       event.preventDefault();
@@ -36,64 +40,44 @@ export function ChatFindBar({ find }: { find: ChatFind }) {
           ref={field}
           className="acpmux-find__field"
           type="search"
-          aria-label={t("find.placeholder")}
-          placeholder={t("find.placeholder")}
+          aria-label={label ?? t("find.placeholder")}
+          placeholder={label ?? t("find.placeholder")}
           value={find.query}
           spellCheck={false}
           onChange={(event) => find.setQuery(event.target.value)}
           onKeyDown={onKeyDown}
         />
-        <span className="acpmux-find__count" aria-live="polite">
+        <span className="acpmux-find__count" aria-live="polite" data-empty={find.query && !count ? "" : undefined}>
           {status}
         </span>
         <button
           type="button"
           className="acpmux-find__step"
           aria-label={t("find.previous")}
-          title={t("find.previous")}
+          title={`${t("find.previous")} (⇧↩)`}
           disabled={!count}
           onClick={find.previous}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-            <path
-              d="M2.5 7.5 6 4l3.5 3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Icon name="disclosure.expanded" size={14} className="acpmux-find__up" />
         </button>
         <button
           type="button"
           className="acpmux-find__step"
           aria-label={t("find.next")}
-          title={t("find.next")}
+          title={`${t("find.next")} (↩)`}
           disabled={!count}
           onClick={find.next}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-            <path
-              d="M2.5 4.5 6 8l3.5-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Icon name="disclosure.expanded" size={14} />
         </button>
         <button
           type="button"
           className="acpmux-find__step"
           aria-label={t("find.close")}
-          title={t("find.close")}
+          title={`${t("find.close")} (Esc)`}
           onClick={find.hide}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-            <path d="m3.5 3.5 5 5m0-5-5 5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
+          <Icon name="action.close" size={14} />
         </button>
       </div>
     </search>

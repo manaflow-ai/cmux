@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
@@ -45,13 +46,14 @@ public final class HomeSidebarView: NSView {
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
+        SystemScrollers.follow(list.scrollView)
         addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
-        compose.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: HomeConversationStrings.newMessage)
+        compose.image = NSImage.icon(.agentChatNew, size: 15)
         compose.setAccessibilityLabel(HomeConversationStrings.newMessage)
         compose.setAccessibilityIdentifier("cmux.home.sidebar.compose")
-        compose.toolTip = HomeConversationStrings.newMessage
+        compose.themedToolTip = HomeConversationStrings.newMessage
         compose.target = self
         compose.action = #selector(newMessage)
         compose.owner = self
@@ -104,7 +106,18 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned)
+                         pinned: item.isPinned, avatar: item.chiefAvatar.map(avatar))
+    }
+
+    /// The Chief's avatar as the list draws it: the picture, else its text
+    /// as a monogram (one or two letters) or on the grey disc (an emoji).
+    /// The disc draws an emoji at half its width, so two would spill past
+    /// it: a two-emoji avatar shows its first in the list.
+    static func avatar(_ chief: HomeChiefAvatar) -> CmuxSidebarEntry.Avatar {
+        switch chief {
+        case .picture(let url): return .image(url.absoluteString)
+        case .text(let text): return chief.isMonogram ? .monogram(String(text.prefix(2))) : .emoji(String(text.prefix(1)))
+        }
     }
 
     @objc func newMessage() { onNewMessage() }

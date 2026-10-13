@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -27,6 +28,8 @@ final class NotificationCenterService {
     var dismissedHighlightSession: String?
     @ObservationIgnored weak var services: AppServices?
     @ObservationIgnored let desktop = DesktopNotifier()
+    /// Pages' click handlers of their web notifications' banners.
+    @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
     /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
     @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
@@ -40,6 +43,9 @@ final class NotificationCenterService {
     @ObservationIgnored var dockBadgeLabel: String?
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
+    /// Agent permission prompts to the person's feed, while
+    /// `feed.agentPermissionPrompts` is on (cx-aocz).
+    @ObservationIgnored var permissionBridge: AcpmuxPermissionFeedBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -48,6 +54,8 @@ final class NotificationCenterService {
     @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
+    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
@@ -66,18 +74,25 @@ final class NotificationCenterService {
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.
         tasks.append(Task { [weak feed] in
-            for await signedIn in Observations({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
+            for await signedIn in ObservationStream({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
         })
         // At activation (launch, sign-in, the first install token, a daemon
         // that starts serving the capability) one pass rebuilds the queue (B3).
         tasks.append(Task {
-            for await active in Observations({ driver.isActive }) where active { driver.run() }
+            for await active in ObservationStream({ driver.isActive }) where active { driver.run() }
         })
-        desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
+        tasks.append(followPermissionBridge(services, principal: principal))
+        desktop.onOpen = { [weak self] id, surface in
+            self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
+            self?.webNotificationClicks.run(bannerID: id)
+        }
+        desktop.onReply = { [weak self] id, surface, text in
+            self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
+        }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
-            for await newest in Observations({ store.notifications.last?.notification.rawValue ?? 0 }) {
+            for await newest in ObservationStream({ store.notifications.last?.notification.rawValue ?? 0 }) {
                 guard let self, newest > self.lastSeen else { continue }
                 let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
                 self.lastSeen = newest
@@ -85,8 +100,9 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
-            for await count in Observations({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
+            for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
             }
         })
@@ -95,7 +111,7 @@ final class NotificationCenterService {
     /// Follows `notifications.*` in every loaded snapshot.
     func follow(_ settings: SettingsController) {
         tasks.append(Task { [weak self] in
-            for await prefs in Observations({ settings.snapshot.notifications }) {
+            for await prefs in ObservationStream({ settings.snapshot.notifications }) {
                 guard let self else { return }
                 if self.preferences != prefs { self.preferences = prefs }
                 self.updateDockBadge(self.currentUnreadCount())
@@ -146,6 +162,30 @@ final class NotificationCenterService {
         interacted(.open, tabID: located.tab.id)
     }
 
+    /// A reply banner's text (`notify --reply`) for the terminal of `surface`:
+    /// pasted, then Return as its own key, as the old app sent it (a full-screen
+    /// agent editor reads a pasted newline as a line break, not a submit). The
+    /// reply answered the notification, so its tab is read.
+    /// Only while the banner's notification is still the tab's unread one: a
+    /// banner left in Notification Center from an earlier launch, or one a newer
+    /// notification replaced, must not type into whatever runs there now.
+    func reply(banner: String, surface: SurfaceID?, text: String) {
+        guard let services, let surface, !text.isEmpty, let located = locate(surface: surface, in: services.daemon.store),
+              located.tab.kind == .pty, let marker = located.tab.notification, marker.unread,
+              banner == "cmux-notification-\(marker.notification.rawValue)" else {
+            note("reply refused: \(banner) is not the tab's unread notification")
+            return
+        }
+        let target = located.tab.surface
+        // The tab's own machine: a Cloud terminal's input goes over its link.
+        services.daemon(for: located.pane).send("notification-reply") { connection in
+            try await connection.send(target, text: text, paste: true)
+            try await connection.send(target, text: "\r")
+        }
+        note("reply \(located.tab.id)")
+        acknowledge(located.tab)
+    }
+
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
     func opened(_ tab: TabModel) {
         interacted(.open, tabID: tab.id)
@@ -155,7 +195,7 @@ final class NotificationCenterService {
         guard let services, let tab = Self.tab(id: tabID, in: services.daemon.store) else { return }
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
-        ProgramStatusSeenStore.shared.markSeen(tab, turns: .shared)
+        ProgramStatusSeenStore.shared.markSeen(tab)
         guard tab.hasUnread else { return }
         guard NotificationPolicy.clears(trigger, mode: preferences.dismissal(for: source(of: tab))) else { return }
         note("\(trigger.rawValue) read \(tabID)")
@@ -200,6 +240,7 @@ final class NotificationCenterService {
             return
         }
         var arrival = NotificationPolicy.Arrival(source: source)
+        arrival.bannerAllowed = notification.desktop
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
@@ -217,6 +258,7 @@ final class NotificationCenterService {
         guard let located else {
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             return
         }
         if decision.acknowledge {
@@ -246,23 +288,29 @@ final class NotificationCenterService {
         // The feed (and the iPhone push) gets only what would alert on this Mac: the
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
-        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.desktop)
+        moveToTop(located.workspace)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
             post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound,
                  subtitle: Self.bannerSubtitle(source: source, workspace: located.workspace.displayName), program: program)
         }
-        if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
+        if !decision.desktop, let sound = decision.sound {
+            notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
+        }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
                       subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
-        let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
+        // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
+        let title = program?.title(localizations: localizations)
+            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
-                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
+                     reply: notification.reply && tab?.kind == .pty)
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
     }

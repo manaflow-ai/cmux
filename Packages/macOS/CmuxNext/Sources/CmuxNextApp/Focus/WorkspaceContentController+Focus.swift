@@ -102,3 +102,15 @@ extension PaneController {
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
     }
 }
+
+extension WorkspaceContentController {
+    /// Every tab of every screen's panes, in layout order: its id and its daemon tab, looked
+    /// up in this workspace's own store (nil for a session-local browser tab).
+    func tabsInLayoutOrder() -> [(id: String, model: TabModel?)] {
+        focusTopology().panes.flatMap { pane in
+            let id = LayoutPaneID(pane.id)
+            let models = panes[id]?.pane.tabs ?? handles.panes[id].flatMap(daemon.store.pane)?.tabs ?? []
+            return pane.tabs.map { tab in (tab.id, models.first { $0.id == tab.id }) }
+        }
+    }
+}

@@ -9,9 +9,9 @@
 //   - deriveAppTheme(colors) returns opaque `#rrggbb` tokens that meet every pair.
 //
 // Colors start from the theme and move only as far as a contrast target needs: a token keeps its
-// OKLCH hue and chroma and changes lightness (color.ts). The accent is neutral: the theme
-// foreground's lightness without hue (the no-blue rule; never a palette slot such as ANSI 4).
-// No hue is hard-coded.
+// OKLCH hue and chroma and changes lightness (color.ts). By default the accent is neutral: the
+// theme foreground's lightness without hue (the no-blue rule). `appearance.accent` can give it the
+// theme's own hue instead (APP_ACCENTS): a palette slot, never a hard-coded hue.
 import {
   BLACK,
   WHITE,
@@ -32,6 +32,8 @@ export type TerminalColors = {
   foreground: string;
   /** ANSI 0-15; a missing index is null. */
   palette: ReadonlyArray<string | null>;
+  /** The theme's own accent (`<theme>/accent` edit or `# cmux-accent`); wins over `appearance.accent`. */
+  accent?: string | null;
 };
 
 export type AppTokenName =
@@ -120,6 +122,25 @@ export const APP_THEME_CONTRACT: ReadonlyArray<ContrastPair> = [
   ...STATUS_SURFACES.map((on) => ({ token: "success" as const, on, min: TEXT_MINIMUM })),
 ];
 
+/** Where the accent comes from (`appearance.accent`): `neutral` (the default) is the foreground
+ * without hue; `theme` is the palette's signature hue (magenta, else blue, else cyan, else
+ * neutral when the palette has no color); a color name is that ANSI slot. */
+export const APP_ACCENTS = ["neutral", "theme", "red", "green", "yellow", "blue", "magenta", "cyan"] as const;
+export type AppAccent = (typeof APP_ACCENTS)[number];
+
+/** The ANSI slot of each named accent (its bright variant is 8 higher). */
+const ACCENT_SLOTS: Readonly<Record<Exclude<AppAccent, "neutral" | "theme">, number>> = {
+  red: 1,
+  green: 2,
+  yellow: 3,
+  blue: 4,
+  magenta: 5,
+  cyan: 6,
+};
+
+/** A slot reads as a hue (not a gray) at this OKLCH chroma or more. */
+const HUED_CHROMA = 0.05;
+
 export type AppTheme = {
   isDark: boolean;
   tokens: Readonly<Record<AppTokenName, string>>;
@@ -198,20 +219,50 @@ function colorful(palette: ReadonlyArray<RGB>, normal: number, bright: number): 
  * surface is the background, where a passing text color always exists. */
 const TINT_SCALES = [1, 0.7, 0.45, 0.25, 0.1, 0];
 
+/** The ANSI slot of a hue (1-6) as a theme shows it: its bright variant (slot + 8) when that is
+ * clearly more colorful, else the normal slot. */
+export function colorfulSlot(palette: ReadonlyArray<RGB>, slot: number): number {
+  return colorful(palette, slot, slot + 8) === palette[slot] ? slot : slot + 8;
+}
+
+/** The slot the `theme` accent takes its hue from: magenta, else blue, else cyan, whichever first
+ * reads as a hue; null for a palette without one (the accent stays neutral). */
+export function themeAccentSlot(palette: ReadonlyArray<RGB>): number | null {
+  for (const hue of [ACCENT_SLOTS.magenta, ACCENT_SLOTS.blue, ACCENT_SLOTS.cyan]) {
+    const slot = colorfulSlot(palette, hue);
+    if (toOklch(palette[slot]!).c >= HUED_CHROMA) return slot;
+  }
+  return null;
+}
+
+/** The 16 ANSI colors of `colors`, with Ghostty's defaults for missing slots. */
+export function resolvedPalette(colors: TerminalColors): RGB[] {
+  return GHOSTTY_DEFAULT_PALETTE.map((fallback, index) => rgbOf(colors.palette[index], fallback));
+}
+
+/** The accent's starting color: the theme's own, else see APP_ACCENTS. */
+function accentSeed(accent: AppAccent, fg: RGB, palette: ReadonlyArray<RGB>, own: RGB | null): RGB {
+  if (own) return own;
+  if (accent === "neutral") return neutral(fg);
+  if (accent !== "theme") return colorful(palette, ACCENT_SLOTS[accent], ACCENT_SLOTS[accent] + 8);
+  const slot = themeAccentSlot(palette);
+  return slot === null ? neutral(fg) : palette[slot]!;
+}
+
 /** The app tokens of a terminal palette. Every pair in APP_THEME_CONTRACT meets its minimum. */
-export function deriveAppTheme(colors: TerminalColors): AppTheme {
-  let theme = derive(colors, 1);
+export function deriveAppTheme(colors: TerminalColors, accent: AppAccent = "neutral"): AppTheme {
+  let theme = derive(colors, accent, 1);
   for (const scale of TINT_SCALES.slice(1)) {
     if (contrastReport(theme).every((result) => result.pass)) break;
-    theme = derive(colors, scale);
+    theme = derive(colors, accent, scale);
   }
   return theme;
 }
 
-function derive(colors: TerminalColors, tint: number): AppTheme {
+function derive(colors: TerminalColors, accent: AppAccent, tint: number): AppTheme {
   const bg = rgbOf(colors.background, "#282c34");
   const fg = rgbOf(colors.foreground, "#ffffff");
-  const palette = GHOSTTY_DEFAULT_PALETTE.map((fallback, index) => rgbOf(colors.palette[index], fallback));
+  const palette = resolvedPalette(colors);
   const isDark = luminance(bg) < luminance(fg);
 
   const tokens = {} as Record<AppTokenName, RGB>;
@@ -225,12 +276,12 @@ function derive(colors: TerminalColors, tint: number): AppTheme {
   tokens.separator = quantized(mix(bg, fg, isDark ? 0.13 : 0.11));
   const on = (names: AppTokenName[], min: number): Constraint[] => names.map((name) => ({ on: tokens[name], min }));
 
-  // The accent: a neutral from the theme's foreground (the no-blue rule: never a palette hue such
-  // as ANSI 4), light enough (dark themes) or dark enough (light themes) to read as a mark on
-  // every surface and to carry text in the window color (dark) or white (light).
+  // The accent (accentSeed: a neutral from the foreground by default, else the theme's own hue),
+  // light enough (dark themes) or dark enough (light themes) to read as a mark on every surface
+  // and to carry text in the window color (dark) or white (light).
   const onAccentWanted = isDark ? tokens.window : WHITE;
   tokens.accent = fit(
-    neutral(fg),
+    accentSeed(accent, fg, palette, colors.accent ? parseHex(colors.accent) : null),
     [...on(PLAIN_SURFACES, UI_MINIMUM), { on: onAccentWanted, min: TEXT_MINIMUM }],
     isDark ? "lighter" : "darker",
   );

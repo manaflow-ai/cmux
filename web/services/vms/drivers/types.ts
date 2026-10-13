@@ -376,7 +376,54 @@ export type ExecOptions = {
   readonly timeoutMs?: number;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
+  /**
+   * Standard input of the command (cx-psxg: the acpmux person key). A driver
+   * sends it only in the provider call itself, never in a backgrounded call
+   * the provider stores, and never logs, traces or persists it.
+   */
+  readonly stdin?: SecretBytes;
 };
+
+const REDACTED = "[redacted]";
+
+/**
+ * Bytes that are never logged, traced, serialized or stored (cx-psxg). JSON,
+ * string conversion and Node's inspector print "[redacted]"; only
+ * {@link SecretBytes.base64} gives the bytes, for the provider request.
+ */
+export class SecretBytes {
+  #bytes: Uint8Array;
+
+  constructor(bytes: Uint8Array) {
+    this.#bytes = bytes;
+  }
+
+  get byteLength(): number {
+    return this.#bytes.byteLength;
+  }
+
+  /** The bytes as standard base64, for the provider request body only. */
+  base64(): string {
+    return Buffer.from(this.#bytes.buffer, this.#bytes.byteOffset, this.#bytes.byteLength).toString("base64");
+  }
+
+  /** Overwrites the bytes with zeros (the caller's buffer, which this object does not copy). */
+  wipe(): void {
+    this.#bytes.fill(0);
+  }
+
+  toJSON(): string {
+    return REDACTED;
+  }
+
+  toString(): string {
+    return REDACTED;
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return REDACTED;
+  }
+}
 
 export type SnapshotRef = {
   id: string;

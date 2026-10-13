@@ -7,7 +7,6 @@
 use super::MutationRequest;
 use super::frontend_shell;
 use super::get_surface;
-use super::keep_created_terminal;
 use super::paired_surface_size;
 use super::renderer_grant;
 use super::require_pty;
@@ -25,18 +24,6 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-
-pub(super) fn set_terminal_command_history(
-    mux: &Arc<Mux>,
-    client: u64,
-    enabled: bool,
-) -> anyhow::Result<Value> {
-    if !mux.control_clients.is_unix(client) {
-        anyhow::bail!("terminal command history requires a trusted local connection");
-    }
-    mux.set_terminal_command_history(enabled);
-    Ok(json!({ "enabled": enabled }))
-}
 
 pub(super) fn list_terminals(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     let snapshot = mux.terminal_registry_snapshot()?;
@@ -199,7 +186,14 @@ pub(super) fn set_terminal_keep(
         _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
     };
     mux.set_terminal_keep(&terminal_id, keep)?;
-    Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
+    // `remote-terminal-tabs-v1`: the public id an attach by identity needs
+    // (a remote-terminal reference knows only the host id).
+    let terminal_resource_id = mux.terminal_public_id_for_host(&terminal_id)?;
+    Ok(json!({
+        "terminal_id": terminal_id,
+        "terminal_resource_id": terminal_resource_id,
+        "keep": keep,
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -219,6 +213,7 @@ pub(super) fn create_terminal(
     terminal_id: Option<String>,
     env: Option<BTreeMap<String, String>>,
     keep: bool,
+    detached: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
@@ -237,6 +232,14 @@ pub(super) fn create_terminal(
         _ => anyhow::bail!("argv or command must be non-empty when provided"),
     };
     let size = paired_surface_size("create-terminal", cols, rows)?;
+    if detached {
+        anyhow::ensure!(
+            workspace.is_none() && key.is_none(),
+            "bad request: a detached terminal takes no workspace or key"
+        );
+        let request = super::detached_terminals::DetachedCreate { argv, cwd, name, size, env };
+        return super::detached_terminals::create(mux, client, request, terminal_id, mutation);
+    }
     let resolved = resolve_workspace(mux, workspace, key.as_deref());
     let (registry_id, generation) = mux.registry_identity();
     // A per-terminal environment rides the receipted path, which is
@@ -419,4 +422,31 @@ fn resolve_workspace(
         };
         Ok((workspace.id, workspace.key.clone()))
     })
+}
+
+/// The reply of a placement command: the new view and the terminal it
+/// shows, after applying `keep`.
+pub(super) fn placed_terminal_result(
+    mux: &Mux,
+    surface: &crate::Surface,
+    keep: bool,
+) -> anyhow::Result<Value> {
+    let identity = mux.resource_terminal_host_identity(surface);
+    if keep {
+        keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
+    }
+    Ok(json!({
+        "surface": surface.id,
+        "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
+        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+    }))
+}
+
+/// Apply `keep: true` from a creating command. A terminal without a durable
+/// host (an in-process test surface) has nothing to reap.
+pub(super) fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
+    match terminal_id {
+        Some(terminal_id) => mux.set_terminal_keep(terminal_id, true),
+        None => Ok(()),
+    }
 }

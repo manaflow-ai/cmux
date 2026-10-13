@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -83,7 +84,7 @@ final class ServerReachService {
         let machines = machines, signedInUser = signedInUser
         observers.append(Task { [weak self] in
             var previous: String?
-            for await user in Observations({ signedInUser() }) {
+            for await user in ObservationStream({ signedInUser() }) {
                 guard let self else { return }
                 // Servers belong to the account: any change of user closes them.
                 if previous != nil, user != previous {
@@ -105,7 +106,7 @@ final class ServerReachService {
             }
         })
         observers.append(Task { [weak self] in
-            for await records in Observations({ () -> [SessionRecord] in
+            for await records in ObservationStream({ () -> [SessionRecord] in
                 let store = machines.local.store
                 return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
             }) {
@@ -115,7 +116,7 @@ final class ServerReachService {
         // A server on this Mac connects only once the home daemon's identity
         // is known, so the admit check can refuse a route back to it.
         observers.append(Task { [weak self] in
-            for await known in Observations({ machines.local.identity != nil }) where known {
+            for await known in ObservationStream({ machines.local.identity != nil }) where known {
                 guard let self, !self.policyDisabled else { continue }
                 for server in self.machines.servers where server.autoConnect { server.connect() }
             }

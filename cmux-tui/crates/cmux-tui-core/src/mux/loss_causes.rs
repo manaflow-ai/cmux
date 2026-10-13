@@ -4,7 +4,7 @@
 //! `terminal-losses.jsonl` once, on the first dead tab that needs one.
 
 use std::collections::HashMap;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::Path;
 
 use serde_json::Value;
@@ -14,7 +14,7 @@ pub(crate) struct LossCauses {
     /// By public terminal id.
     by_public: HashMap<String, Value>,
     /// By host terminal id, from the loss log; loaded on first use.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     logged: Option<HashMap<String, Value>>,
 }
 
@@ -33,7 +33,7 @@ impl LossCauses {
 
     /// Give the dead tab of `terminal_id` (public id `public_id`) the cause
     /// its loss logged before this owner started, unless it has one.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn restore(&mut self, root: Option<&Path>, terminal_id: &str, public_id: &str) {
         if self.by_public.contains_key(public_id) {
             return;

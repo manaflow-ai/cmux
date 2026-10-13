@@ -74,7 +74,8 @@ final class AppRunMarker {
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
         recovery = LaunchRecovery.decide(previous: previous)
-        marker = PreviousRun(pid: getpid(), launched: now, recovery: recovery.isRestart, survived: false, signal: nil)
+        marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
+                             survived: false, signal: nil)
         start()
     }
 

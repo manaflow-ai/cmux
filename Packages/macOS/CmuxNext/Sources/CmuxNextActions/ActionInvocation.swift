@@ -56,6 +56,20 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// The context of the window whose key-down runs this (the key
     /// dispatcher), checked instead of the registry's process-wide context.
     public var keyContext: ActionContext?
+    /// An agent opened this beside its chat (`caller.agent_session` with no
+    /// target): the target is the column right of the chat, whose new tab is
+    /// selected there while keyboard focus stays in the chat.
+    public var besideCaller = false
+    /// No column is right of the chat: the target is the chat, and the new
+    /// tab moves into a new column right of it.
+    public var newColumnBeside = false
+    /// `caller.agent_session`: the agent chat whose CLI or cmux MCP server sent the run, nil for any
+    /// other run. Its claim, like ``origin``: an action an agent may only ask a person for (Move to
+    /// Cloud) asks in that chat instead of running.
+    public var callerAgentSession: String?
+    /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
+    /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
+    public var opensTerminal = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

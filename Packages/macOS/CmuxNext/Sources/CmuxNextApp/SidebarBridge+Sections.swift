@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextSidebar
@@ -84,7 +85,7 @@ extension SidebarBridge {
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, shortcuts, workspaces) in Observations({
+            for await (layout, unread, shortcuts, workspaces) in ObservationStream({
                 () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
                 _ = apps.apps
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),

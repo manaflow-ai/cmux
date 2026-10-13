@@ -38,11 +38,21 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        (vec!["notify", "--workspace", "current", "--desktop", "false"], "notification.create"),
+        (vec!["notify", "--workspace", "current", "--reply"], "notification.create"),
+        (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
+        (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
-        // closed.delete takes either a group (with members) or all.
+        // closed.delete takes either a group (with members) or all, and all
+        // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
+        (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
+        // layout.bulk: one case in cases.rs; the other levels and --end-terminals.
+        (vec!["workspace", WORKSPACE, "close", "--others", "--end-terminals"], "layout.bulk"),
+        (vec!["screen", "current", "close", "--to-right"], "layout.bulk"),
+        (vec!["pane", PANE, "close", "--all"], "layout.bulk"),
         (
             vec![
                 "session",
@@ -70,6 +80,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (
             vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
+            "git.commit",
+        ),
+        (
+            vec![
                 "terminal",
                 TERMINAL,
                 "mouse",
@@ -91,15 +114,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         .as_object()
         .unwrap()
         .keys()
+        .filter(|name| !cases::MULTI_REQUEST_OPERATIONS.contains(&name.as_str()))
         .filter(|name| {
-            // `agent message` and `agent inbox` send several requests
-            // per command (agent_message.rs).
             !matches!(
                 name.as_str(),
-                "agent.message.list"
-                        | "agent.message.mark"
-                        | "agent.message.send"
-                        | "browser.viewer.release"
+                "browser.viewer.release"
                         | "browser.viewer.resize"
                         | "request.cancel"
                         | "stream.cancel"
@@ -143,6 +162,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // Only the user sets where a workspace's agents run,
                         // through the verified app (gate A2).
                         | "workspace.agent_folder.set"
+                        // The app's agent pane asks where a new chat starts;
+                        // an agent already runs in its folder (cx-9aps).
+                        | "workspace.agent_start.get"
                         // Typing and live reply drafts are published by the
                         // participant's own client (the Chief's brain); the
                         // CLI's `cmux chief` only reads them.
@@ -154,6 +176,42 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Launch credentials: acpmux and owners call these
+                        // on the socket; an agent never mints or rotates.
+                        | "credential.verify"
+                        | "credential.mint"
+                        | "credential.rotate"
+                        // The daemon's settings ops (cx-9ce.10) have no
+                        // noun-first CLI verb yet, as they have no MCP tool
+                        // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
+                        | "settings.get"
+                        | "settings.list"
+                        | "settings.reset"
+                        | "settings.reset_all"
+                        | "settings.schema"
+                        | "settings.set"
+                        | "settings.snapshot"
+                        // The daemon's keybindings ops (cx-9ce.17) are the
+                        // Keyboard Shortcuts page's, with no CLI verb or MCP
+                        // tool yet, like the settings ops.
+                        | "keybindings.get"
+                        | "keybindings.remove"
+                        | "keybindings.reset"
+                        | "keybindings.set"
+                        // History ops are reached through `cmux history`
+                        // (cx-gzh.15), not the noun grammar; the page and
+                        // omnibox ops are the browser host's and the app's.
+                        | "history.entries.list"
+                        | "history.entries.remove"
+                        | "history.site.remove"
+                        | "history.clear"
+                        | "history.restore"
+                        | "history.backups.purge"
+                        | "history.visit.record"
+                        | "history.visit.title"
+                        | "history.visit.import"
+                        | "history.visit.remove"
+                        | "history.visit.summaries"
             )
         })
         .map(String::as_str)
@@ -167,6 +225,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "back"),
         ("tab.update", "forward"),
         ("client.metadata.update", "capabilities"),
+        // layout.bulk: the CLI names the anchor by its selector and has no
+        // selection; apps and MCP send anchor and ids.
+        ("layout.bulk", "anchor"),
+        ("layout.bulk", "ids"),
     ];
     for operation in &expected {
         let catalog_fields = catalog["operations"][operation]["params"]["fields"]

@@ -47,8 +47,12 @@ final class PageWKWebView: WKWebView {
 
     private var menuActionObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let menuActionObserver { NotificationCenter.default.removeObserver(menuActionObserver) }
+        }
     }
 
     /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
@@ -96,18 +100,31 @@ final class PageWKWebView: WKWebView {
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
-    override func mouseDown(with event: NSEvent) { noteUserEvent(event); super.mouseDown(with: event) }
+    override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
-    override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); super.rightMouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
 
     /// Replaces the Copy-only menu when set (``PageWebView/contextMenuEditor``).
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
 
+    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
+    private let menuAutoFill = PageMenuAutoFill()
+
+    override var inputContext: NSTextInputContext? {
+        menuAutoFill.hidesInputContext() ? nil : super.inputContext
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         openedMenu = menu
+        menuAutoFill.menuWillOpen()
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDesktopItems(in: menu) }
         super.willOpenMenu(menu, with: event)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        menuAutoFill.menuDidClose()
+        super.didCloseMenu(menu, with: event)
     }
 
     /// Removes every item but Copy (and the separators around removed items).
@@ -147,8 +164,14 @@ final class PageWKWebView: WKWebView {
         droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
     }
 
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
+    var onFilesDropped: (@MainActor () -> Void)?
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let url = droppedFile(sender), let fileDrop else { return super.performDragOperation(sender) }
+        guard let url = droppedFile(sender), let fileDrop else {
+            if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+            return super.performDragOperation(sender)
+        }
         fileDrop.open(url)
         return true
     }

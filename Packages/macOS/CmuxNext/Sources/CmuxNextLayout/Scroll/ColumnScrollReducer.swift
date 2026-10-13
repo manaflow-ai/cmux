@@ -19,6 +19,11 @@ nonisolated extension ColumnScrollState {
             guard gesture == nil, let strip, let index = strip.index(ofPane: pane) else { return effects }
             spring.target = ColumnViewOffset.center(strip.columns[index].frame, current: spring.target, strip: strip)
             finish(animated: animated, into: &effects)
+        case let .reveal(pane, animated):
+            guard gesture == nil, let strip, let index = strip.index(ofPane: pane) else { return effects }
+            spring.target = ColumnViewOffset.target(column: index, pane: pane, current: spring.target, mode: .never,
+                                                    previous: nil, strip: strip)
+            finish(animated: animated, into: &effects)
         case .gestureBegan:
             // The gesture takes over from the presented value: an automatic
             // scroll in flight stops where it is.

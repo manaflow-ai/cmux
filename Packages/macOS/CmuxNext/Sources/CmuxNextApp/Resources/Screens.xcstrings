@@ -132,137 +132,6 @@
         }
       }
     },
-    "screens.icon.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screen Icon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "أيقونة الشاشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikona ekrana"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skærmikon"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildschirmsymbol"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icono de la pantalla"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icône de l’écran"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Icona schermata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "スクリーンのアイコン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបតំណាងអេក្រង់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스크린 아이콘"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjermikon"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ikona ekranu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ícone da Tela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значок экрана"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไอคอนหน้าจอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekran Simgesi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Значок екрана"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Biểu tượng màn hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "屏幕图标"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "畫面圖示"
-          }
-        }
-      }
-    },
     "screens.group.rename.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -525,133 +394,133 @@
         }
       }
     },
-    "screens.refusal.noGroup": {
+    "screens.refusal.groupGone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no screen group %@"
+            "value": "That screen group no longer exists."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مجموعة شاشات %@"
+            "state": "translated",
+            "value": "لم تعد مجموعة الشاشات هذه موجودة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nema grupe ekrana %@"
+            "state": "translated",
+            "value": "Ta grupa ekrana više ne postoji."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen skærmgruppe %@"
+            "state": "translated",
+            "value": "Den skærmgruppe findes ikke længere."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "keine Bildschirmgruppe %@"
+            "state": "translated",
+            "value": "Diese Bildschirmgruppe gibt es nicht mehr."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ningún grupo de pantallas %@"
+            "state": "translated",
+            "value": "Ese grupo de pantallas ya no existe."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun groupe d’écrans %@"
+            "state": "translated",
+            "value": "Ce groupe d’écrans n’existe plus."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun gruppo di schermate %@"
+            "state": "translated",
+            "value": "Quel gruppo di schermate non esiste più."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "スクリーングループ %@ はありません"
+            "state": "translated",
+            "value": "その画面グループはもう存在しません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានក្រុមអេក្រង់ %@"
+            "state": "translated",
+            "value": "ក្រុមអេក្រង់នោះលែងមានទៀតហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "스크린 그룹 %@ 없음"
+            "state": "translated",
+            "value": "해당 화면 그룹은 더 이상 존재하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen skjermgruppe %@"
+            "state": "translated",
+            "value": "Den skjermgruppen finnes ikke lenger."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "brak grupy ekranów %@"
+            "state": "translated",
+            "value": "Ta grupa ekranów już nie istnieje."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum grupo de telas %@"
+            "state": "translated",
+            "value": "Esse grupo de telas não existe mais."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "нет группы экранов %@"
+            "state": "translated",
+            "value": "Этой группы экранов больше нет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกลุ่มหน้าจอ %@"
+            "state": "translated",
+            "value": "กลุ่มหน้าจอนั้นไม่มีอยู่แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ekran grubu yok"
+            "state": "translated",
+            "value": "Bu ekran grubu artık yok."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "немає групи екранів %@"
+            "state": "translated",
+            "value": "Цієї групи екранів більше немає."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "không có nhóm màn hình %@"
+            "state": "translated",
+            "value": "Nhóm màn hình đó không còn tồn tại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "没有屏幕组 %@"
+            "state": "translated",
+            "value": "该屏幕组已不存在。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有畫面群組 %@"
+            "state": "translated",
+            "value": "該畫面群組已不存在。"
           }
         }
       }
@@ -1438,137 +1307,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "需要圖示引數（SF Symbol 名稱或表情符號）"
-          }
-        }
-      }
-    },
-    "screens.refusal.noSaved": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no saved screen group %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد مجموعة شاشات محفوظة %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nema sačuvane grupe ekrana %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen gemt skærmgruppe %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "keine gesicherte Bildschirmgruppe %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ningún grupo de pantallas guardado %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aucun groupe d’écrans enregistré %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nessun gruppo di schermate salvato %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "保存したスクリーングループ %@ はありません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានក្រុមអេក្រង់ដែលបានរក្សាទុក %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "저장된 스크린 그룹 %@ 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen lagret skjermgruppe %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "brak zapisanej grupy ekranów %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhum grupo de telas salvo %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нет сохранённой группы экранов %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีกลุ่มหน้าจอที่บันทึกไว้ %@"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ kayıtlı ekran grubu yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "немає збереженої групи екранів %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "không có nhóm màn hình đã lưu %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有存储的屏幕组 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有已儲存的畫面群組 %@"
           }
         }
       }

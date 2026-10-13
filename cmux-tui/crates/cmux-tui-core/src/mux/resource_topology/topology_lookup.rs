@@ -165,7 +165,7 @@ pub(super) fn workspace_value(
     }))
 }
 
-pub(super) fn pane_value(
+pub(in crate::mux) fn pane_value(
     state: &State,
     pane: &RegistryPane,
     topology: &ResourceTopologySnapshot,

@@ -49,7 +49,8 @@ function SidebarRow({
       data-testid={testId}
     >
       <span className="ds-sidebar-label">{label}</span>
-      {changed > 0 ? <span className="ds-dot" aria-hidden="true" /> : null}
+      {/* Always laid out, shown when the section holds changes: a change never reflows the sidebar. */}
+      <span className="ds-dot" aria-hidden="true" data-visible={changed > 0 ? "true" : undefined} />
       <span className="ds-count">{count}</span>
     </button>
   );
@@ -137,7 +138,7 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
           onSelect={() => void store.select("changed")}
           testId="ds.section.changed"
         />
-        <div className="ds-sidebar-separator" role="separator" />
+        <hr className="ds-sidebar-separator" />
         {state.sections.map((entry) => (
           <SidebarRow
             key={entry.id}
@@ -157,10 +158,20 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
             <span className="ds-title-count">{fill(t("debugSettings.count"), state.visible)}</span>
           </div>
           <div className="ds-actions">
-            <button type="button" className="ds-button" onClick={() => void store.copy("json")} data-testid="ds.copyJSON">
+            <button
+              type="button"
+              className="ds-button"
+              onClick={() => void store.copy("json")}
+              data-testid="ds.copyJSON"
+            >
               {t("debugSettings.copyJSON")}
             </button>
-            <button type="button" className="ds-button" onClick={() => void store.copy("swift")} data-testid="ds.copySwift">
+            <button
+              type="button"
+              className="ds-button"
+              onClick={() => void store.copy("swift")}
+              data-testid="ds.copySwift"
+            >
               {t("debugSettings.copySwift")}
             </button>
             {section ? (
@@ -184,16 +195,14 @@ export function DebugSettingsPage({ store, strings }: { store: DebugSettingsStor
               {t("debugSettings.resetAll")}
             </button>
           </div>
-          {state.notice || snap.error ? (
-            <div className="ds-notice" role="status">
-              {snap.error ?? state.notice}
-            </div>
-          ) : null}
+          {state.notice || snap.error ? <output className="ds-notice">{snap.error ?? state.notice}</output> : null}
         </header>
         <div className="ds-scroll">
           {state.groups.length === 0 ? (
             <p className="ds-none">
-              {state.selection === "changed" && !searching ? t("debugSettings.nothingChanged") : t("debugSettings.noResults")}
+              {state.selection === "changed" && !searching
+                ? t("debugSettings.nothingChanged")
+                : t("debugSettings.noResults")}
             </p>
           ) : null}
           {state.groups.map((group) => (

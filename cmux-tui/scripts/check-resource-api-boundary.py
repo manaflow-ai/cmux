@@ -187,6 +187,11 @@ STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
 # outcome is journaled. A daemon restart must never guess that repeating one is
 # safe. Keep this set explicit so a future catalog edit cannot silently promise
 # exactly-once delivery for an effect that cmux cannot prove completed.
+# Optional `risk` of a transported operation: what it can affect beyond its
+# class. The app platform derives a permission scope from it.
+OPERATION_RISKS = frozenset(
+    {"read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"}
+)
 EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
     {
         "browser.activate",
@@ -704,14 +709,20 @@ def _runtime_operation_classes(
 
     variants, _ = enum_registry("ResourceOperation")
     local_variants, _ = enum_registry("LocalOperation")
-    class_method = _balanced_body(
-        text,
-        re.compile(
-            r"\bimpl\s+ResourceOperation\s*\{.*?"
-            r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
-            re.DOTALL,
-        ),
+    class_re = re.compile(
+        r"\bimpl\s+ResourceOperation\s*\{.*?"
+        r"\bpub\s+const\s+fn\s+class\s*\(\s*self\s*\)\s*->\s*OperationClass\s*\{",
+        re.DOTALL,
     )
+    # The class table lives in resource.rs or in its own module, resource/class.rs.
+    class_path, class_text = path, text
+    class_method = _balanced_body(text, class_re)
+    module = path.with_suffix("") / "class.rs"
+    if class_method is None and module.is_file():
+        module_text = _read(module, diagnostics)
+        if module_text is not None:
+            class_path, class_text = module, module_text
+            class_method = _balanced_body(module_text, class_re)
     if class_method is None:
         diagnostics.append(
             Diagnostic(path, 1, 1, "boundary.operation-class", "missing ResourceOperation::class")
@@ -731,8 +742,8 @@ def _runtime_operation_classes(
         if wire_class not in TRANSPORT_OPERATION_CLASSES:
             diagnostics.append(
                 _diagnostic_at(
-                    path,
-                    text,
+                    class_path,
+                    class_text,
                     body_offset + branch.start("class"),
                     "boundary.operation-class",
                     f"unsupported runtime operation class {wire_class!r}",
@@ -744,8 +755,8 @@ def _runtime_operation_classes(
             if operation is None:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"class registry references unknown ResourceOperation::{variant}",
@@ -755,8 +766,8 @@ def _runtime_operation_classes(
             if variant in assigned_variants:
                 diagnostics.append(
                     _diagnostic_at(
-                        path,
-                        text,
+                        class_path,
+                        class_text,
                         body_offset + branch.start("variants"),
                         "boundary.operation-class",
                         f"ResourceOperation::{variant} has more than one class",
@@ -768,8 +779,8 @@ def _runtime_operation_classes(
     if "OperationClass::Mutation" not in body:
         diagnostics.append(
             _diagnostic_at(
-                path,
-                text,
+                class_path,
+                class_text,
                 body_offset,
                 "boundary.operation-class",
                 "ResourceOperation::class must have a Mutation fallback",
@@ -1054,6 +1065,19 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
+                # Settings values are data the settings schema describes, not
+                # the catalog (plans/cmux-next/settings-react.md section 2).
+                "operations.settings.set.params.fields.value",
+                "operations.settings.schema.result",
+                "operations.settings.list.result.items",
+                "operations.settings.get.result",
+                "operations.settings.snapshot.result",
+                "errors.settings.invalid.details.fields.accepted",
+                "errors.settings.invalid.details.fields.value",
+                # A keybinding's args are the command's own object, passed
+                # through unchanged (keybindings.json, cx-9ce.17).
+                "types.KeybindingEntry.fields.args.value.values",
+                "operations.keybindings.set.params.fields.args.values",
                 # Sidebar layout sections and items: the reducer validates
                 # them, and a newer app's values and keys must survive a
                 # round trip (sidebar-sections.md L5), which a closed
@@ -1542,10 +1566,18 @@ def _operation_catalog(
             _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
             continue
         required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
-        allowed = required | {"stream", "constraints"}
+        allowed = required | {"stream", "constraints", "risk"}
         if not required <= set(descriptor) or set(descriptor) - allowed:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation} descriptor has a schema hole", operation
+            )
+        if "risk" in descriptor and descriptor["risk"] not in OPERATION_RISKS:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} has invalid risk {descriptor['risk']!r}",
+                operation,
             )
         operation_class = descriptor.get("class")
         classes[operation] = str(operation_class)
@@ -1929,7 +1961,28 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {"name", "initial_content", "correlation_key", "expected_revision", "ephemeral"}
+            != {
+                "name",
+                "initial_content",
+                "correlation_key",
+                "expected_revision",
+                "ephemeral",
+                "cwd",
+                "argv",
+                "shell",
+            }
+            or create_fields.get("cwd", {}).get("required") is not False
+            or create_fields.get("cwd", {}).get("type") != {"kind": "primitive", "name": "string"}
+            or create_fields.get("argv", {}).get("required") is not False
+            or create_fields.get("argv", {}).get("type")
+            != {
+                "kind": "array",
+                "items": {"kind": "primitive", "name": "string"},
+                "min_items": 1,
+            }
+            or create_fields.get("shell", {}).get("required") is not False
+            or create_fields.get("shell", {}).get("type")
+            != {"kind": "primitive", "name": "string", "min_length": 1}
             or create_fields.get("ephemeral", {}).get("required") is not False
             or create_fields.get("ephemeral", {}).get("type")
             != {"kind": "primitive", "name": "boolean"}
@@ -1948,7 +2001,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 
@@ -2470,9 +2523,14 @@ def _operation_catalog(
     if "StreamEnd" in types:
         stream_end_fields = types.get("StreamEnd", {}).get("fields", {})
         stream_error_fields = types.get("StreamError", {}).get("fields", {})
-        resource_source = path.parent.parent / "crates/cmux-tui-core/src/resource.rs"
-        resource_text = (
-            resource_source.read_text(encoding="utf-8") if resource_source.exists() else ""
+        # The stream envelopes live in resource/envelope.rs (moved out of resource.rs).
+        resource_text = "".join(
+            source.read_text(encoding="utf-8")
+            for source in (
+                path.parent.parent / "crates/cmux-tui-core/src/resource.rs",
+                path.parent.parent / "crates/cmux-tui-core/src/resource/envelope.rs",
+            )
+            if source.exists()
         )
         if (
             stream_end_fields.get("error", {}).get("type")

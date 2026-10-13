@@ -105,6 +105,7 @@ enum CoalescedEventKey {
     ConfigReload,
     Agent(SurfaceId),
     Title(SurfaceId),
+    ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
 }
@@ -241,10 +242,12 @@ impl SurfaceSessionScope {
         match event {
             MuxEvent::SurfaceOutput(surface)
             | MuxEvent::SurfaceExited(surface)
+            | MuxEvent::ProgramStatusChanged { surface, .. }
             | MuxEvent::Bell(surface) => *surface == self.surface,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
+            | MuxEvent::AgentPresenceChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. }
             | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
@@ -269,6 +272,9 @@ impl SurfaceSessionScope {
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
+            | MuxEvent::HistoryChanged { .. }
+            | MuxEvent::SettingsChanged(_)
+            | MuxEvent::KeybindingsChanged(_)
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
@@ -335,6 +341,9 @@ impl MuxEventMailbox {
             }
             event @ MuxEvent::TitleChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
+            }
+            event @ MuxEvent::ProgramStatusChanged { surface, .. } => {
+                state.push_coalesced(sequence, CoalescedEventKey::ProgramStatus(surface), event)
             }
             event @ MuxEvent::SurfaceOutput(surface) => {
                 state.push_coalesced(sequence, CoalescedEventKey::SurfaceOutput(surface), event)
@@ -425,6 +434,7 @@ impl MuxEventMailboxState {
     fn discard_surface_state(&mut self, surface: SurfaceId) {
         self.discard_coalesced(CoalescedEventKey::Agent(surface));
         self.discard_coalesced(CoalescedEventKey::Title(surface));
+        self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
     }

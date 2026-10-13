@@ -14,8 +14,8 @@ import CmuxNextTabs
 /// group record), like tab groups.
 @MainActor
 enum ScreenGroupCommands {
-    static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupColor?, daemon: DaemonService) {
-        let handles = screens.map(\.handle), color = (color ?? nextColor(in: workspace)).rawValue
+    static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupTint?, daemon: DaemonService) {
+        let handles = screens.map(\.handle), color = (color ?? .palette(nextColor(in: workspace))).wire
         change("create-screen-group", stateIDs(screens).map { .create(screens: $0, name: name, color: color) }, daemon: daemon) {
             _ = try await $0.createScreenGroup(handles, name: name, color: color)
         }
@@ -35,10 +35,12 @@ enum ScreenGroupCommands {
         }
     }
 
-    static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupColor? = nil, collapsed: Bool? = nil, daemon: DaemonService) {
-        let color = color?.rawValue
-        change("update-screen-group", .update(group: group.rawValue, name: name, color: color, collapsed: collapsed), daemon: daemon) {
-            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed)
+    /// `icon` (`screen-group-icon-v1`) changes only when set; `.clear` removes it.
+    static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupTint? = nil, collapsed: Bool? = nil,
+                       icon: FieldUpdate<String> = .unchanged, daemon: DaemonService) {
+        let color = color?.wire
+        change("update-screen-group", .update(group: group.rawValue, name: name, color: color, collapsed: collapsed, icon: icon), daemon: daemon) {
+            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed, icon: icon)
         }
     }
 
@@ -119,7 +121,6 @@ enum ScreenGroupCommands {
         if ref.daemon.supports(DaemonCapabilities.shared.stateResources) {
             return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
         }
-        for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace, daemon: ref.daemon.store) }
         let group = ref.group.id
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }
     }

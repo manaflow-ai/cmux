@@ -1,4 +1,5 @@
 import CmuxNextActions
+import AppKit
 import CmuxNextAgentPane
 import Foundation
 
@@ -39,6 +40,9 @@ struct AgentTabContent {
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
+        if view.model.newTab != nil { rememberNewTabFrame(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
+        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }
@@ -49,10 +53,51 @@ struct AgentTabContent {
     /// pane's own loading state stays off above it until the image goes.
     private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
-        if paneView.launchImageView == nil, let image = pane.services.agentTabs.launchImages.take(key) { paneView.showLaunchImage(image) }
+        let images = pane.services.agentTabs.launchImages
+        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99).
+        let newTabFrame = { view?.model.newTab == nil ? nil : images.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
+        if paneView.launchImageView == nil, let image = images.take(key) ?? newTabFrame() { paneView.showLaunchImage(image) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
-        paneView.onLaunchImageCleared = { [weak view] in view?.showsLoadingState = true }
+        paneView.onLaunchImageCleared = { [weak view] in
+            if let view, view.model.newTab == nil { view.showsLoadingState = true }
+        }
         view.model.whenPainted { [weak paneView] in paneView?.clearLaunchImage() }
+    }
+
+    /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
+    /// (2-5 frames of an empty pane after Cmd-N, cx-21zkz): the New Tab frame shows under it, and
+    /// the page stays clear, until its next frame there.
+    private func coverMove(of view: AgentPaneView) {
+        let paneView = pane.view
+        guard paneView.launchImageView == nil,
+              let image = pane.services.agentTabs.launchImages.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
+        else { return BenchSpans.mark("newTab.cover.none \(paneView.contentHost.bounds.size) \(String(describing: Self.appearance(of: paneView)))") }
+        BenchSpans.mark("newTab.cover")
+        paneView.showLaunchImage(image)
+        // The image's deadline shows the page too, should its frame never be reported.
+        paneView.onLaunchImageCleared = { [weak view] in if let view { AgentPageMoveCover.reveal(view) } }
+        AgentPageMoveCover.hide(view) { [weak paneView] in
+            BenchSpans.mark("newTab.cover.cleared")
+            paneView?.clearLaunchImage()
+        }
+    }
+
+    /// `view`'s first frame, once it paints in this pane, when there is no New Tab frame for the
+    /// pane's size and appearance yet: what the next New Tab page draws until it paints (cx-ec99).
+    private func rememberNewTabFrame(of view: AgentPaneView) {
+        let images = pane.services.agentTabs.launchImages
+        view.model.whenPainted { [weak view, weak paneView = pane.view] in
+            guard let view, let paneView, view.model.newTab != nil, view.window != nil else { return }
+            let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
+            guard size != .zero, images.newTabFrame(size: size, appearance: appearance) == nil else { return }
+            Task { @MainActor in
+                if let image = await view.pageImage() { images.rememberNewTabFrame(image, size: size, appearance: appearance) }
+            }
+        }
+    }
+
+    private static func appearance(of view: NSView) -> NSAppearance.Name? {
+        view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
     }
 }

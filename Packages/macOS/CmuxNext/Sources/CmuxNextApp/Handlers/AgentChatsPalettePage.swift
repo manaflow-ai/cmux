@@ -20,7 +20,7 @@ struct AgentChatsPalettePage {
                 id: "chat:\(chat.id)", title: chat.title ?? AgentChatsPaletteStrings.untitled,
                 subtitle: chat.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath },
                 accessory: chat.updatedAt.timeIntervalSince1970 > 0 ? formatter.localizedString(for: chat.updatedAt, relativeTo: Date()) : nil,
-                symbol: "bubble.left", brand: AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
+                symbol: "bubble.left", brand: chat.brand ?? AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
                 keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),
                 primary: PaletteCommand(id: "open", title: AgentChatsPaletteStrings.open, symbol: "return",
                                         effect: .perform { [services] in services.chatsOpener.open(chat.id) }))

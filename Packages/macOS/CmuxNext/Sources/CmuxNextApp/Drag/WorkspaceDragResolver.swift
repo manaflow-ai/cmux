@@ -62,7 +62,7 @@ enum WorkspaceDragResolver {
         switch drop {
         case let .newWorkspace(section, group, index): .position(DropPosition(section: section, group: group, index: index))
         case let .intoGroup(group): .intoGroup(group)
-        case .intoWorkspace: .window
+        case .intoWorkspace, .beforeTab: .window
         }
     }
 }

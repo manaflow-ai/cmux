@@ -9,13 +9,11 @@ extension BrowserChromeView {
     public static let forwardIdentifier = "browser.toolbar.forward"
     public static let reloadIdentifier = "browser.toolbar.reload"
     public static let omnibarIdentifier = "browser.toolbar.omnibar"
-    public static let extensionsButtonIdentifier = "browser.extensions.button"
     public static let pageGoneIdentifier = "browser.page.gone"
     public static let pageGoneReloadIdentifier = "browser.page.gone.reload"
     public static let pageUnresponsiveIdentifier = "browser.page.unresponsive"
     public static let pageUnresponsiveWaitIdentifier = "browser.page.unresponsive.wait"
     public static let pageUnresponsiveExitIdentifier = "browser.page.unresponsive.exit"
-    public static func extensionActionIdentifier(_ id: String) -> String { "browser.extension.action.\(id)" }
 
     /// Runs the Extensions menu's items (the App's action registry). Nil
     /// drives the extension store directly.

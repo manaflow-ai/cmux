@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod lock;
+use lock::{acquire_lock, wait_for_lock_release};
+
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
     pub ws_token: Option<String>,
@@ -34,11 +37,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
+    #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
     // Processes started before readiness (the login shell probe, agents)
     // must not hold the readiness pipe open.
+    #[cfg(unix)]
     if let Some(fd) = opts.ready_fd.filter(|fd| *fd > 2) {
         unsafe {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
@@ -79,8 +84,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _lock_file = acquire_lock(&lock)?;
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
     // `local-coderouter` routes read its port and mint keys from it. Opt-in
-    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1): test daemons in temporary
-    // homes must not leave detached routers behind.
+    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). The owner FIFO ties the
+    // router's life to this daemon and the agent hosts (`ensure_router`).
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
@@ -140,18 +145,36 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Bind before any slow startup work, so clients can connect and ask
     // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    let mut moved_listener = false;
     let ws_listener = match &ws {
+        // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller
+        // asked for that address). A taken configured port (an unrelated
+        // program, or a squatter) moves the daemon to a free loopback port,
+        // which it reports and saves; the app reads the port from status
+        // and checks its listener before it connects, and a proof names its
+        // transport, so a squatter on the old port relays nothing.
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
-            Err(e) if !explicit_listen => {
-                tracing::warn!("dashboard disabled: {e:#}");
-                // Report no web listener; the saved address stays in the file.
-                config.web_unbound = true;
-                None
+            Err(e) if explicit_listen => {
+                let _ = std::fs::remove_file(socket_path());
+                return Err(e.context(format!(
+                    "the WebSocket listener {listen} (--listen) is taken; free the port or choose another"
+                )));
             }
             Err(e) => {
-                let _ = std::fs::remove_file(socket_path());
-                return Err(e);
+                tracing::warn!(
+                    "websocket.listen {listen} is taken ({e:#}); listening on a free loopback port"
+                );
+                match crate::server::bind_ws("127.0.0.1:0").await {
+                    Ok(l) => {
+                        moved_listener = true;
+                        Some((l, token.clone()))
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_file(socket_path());
+                        return Err(e.context("no free loopback port for the WebSocket listener"));
+                    }
+                }
             }
         },
         None => None,
@@ -178,6 +201,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             allowed_hosts,
             token_rotated,
         });
+        // The new port is this home's port from now on.
+        if moved_listener && let Err(e) = config.save() {
+            tracing::warn!("could not save the moved web listener: {e}");
+        }
     }
     let hub = Hub::new(config, store);
     if let Some(key) = person_key {
@@ -200,26 +227,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.catalog.attach(home().join("catalog"), fetcher);
     if fetch_catalog {
         tokio::spawn(hub.catalog.clone().run());
-    }
-    // The ACP Registry (`registry.rs`): fetched once per daemon start; a copy
-    // that changes which installed agents are harnesses reloads them (and
-    // only then: a reload restarts pooled sessions).
-    // `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
-    if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
-        let hub = hub.clone();
-        tokio::spawn(async move {
-            let installed = || tokio::task::spawn_blocking(|| crate::registry::installed(&home()));
-            let before = installed().await.ok();
-            match crate::registry::refresh(&home()).await {
-                Ok(true) if installed().await.ok() != before => {
-                    if let Err(e) = hub.reload_catalog().await {
-                        tracing::warn!(error = %e.message, "harness reload after the ACP Registry refresh");
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => tracing::info!(error = %e, "ACP Registry not refreshed"),
-            }
-        });
     }
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
     // Without a home directory no file can answer, so every folder waits (fails closed).
@@ -249,6 +256,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
+    hub.start_harness_checks();
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
@@ -333,6 +342,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
     }
+    #[cfg(all(unix, debug_assertions))]
+    lock::fork_a_child_for_tests();
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
     {
@@ -378,10 +389,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(t) = ws_task {
         t.abort();
     }
-    if tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await.is_err() {
-        tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
-        hub.flush();
-    }
+    // How many hosted agents this shutdown kept running for the next
+    // daemon; unknown (a timeout) counts as kept.
+    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
+        Ok(kept) => kept,
+        Err(_) => {
+            tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
+            hub.flush();
+            usize::MAX
+        }
+    };
+    // After the agents: their model streams go through the router.
+    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
     let _ = std::fs::remove_file(home().join("daemon.pid"));
     for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);
@@ -403,6 +422,7 @@ async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
 
 /// Read the person key (one line, at most 128 bytes) from an inherited
 /// descriptor and close it. The key is never logged.
+#[cfg(unix)]
 fn read_person_key(fd: i32) -> Option<String> {
     use std::io::Read;
     use std::os::fd::FromRawFd;
@@ -410,15 +430,41 @@ fn read_person_key(fd: i32) -> Option<String> {
         tracing::warn!("--person-key-fd {fd}: not a stdio descriptor");
         return None;
     }
+    // Close the descriptor at exec too, so that no agent inherits it even
+    // if a spawn starts before the read below returns.
+    // SAFETY: fcntl on a descriptor number only sets its flags.
+    unsafe {
+        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+    if let Err(e) = not_dumpable() {
+        // An agent this daemon starts (same uid) could read the key from
+        // its memory: no key, so no allow, rather than a readable key.
+        tracing::warn!(
+            "--person-key-fd {fd}: refused, the daemon cannot be made not dumpable: {e}"
+        );
+        // SAFETY: the launcher passed this descriptor for us to close.
+        drop(unsafe { std::fs::File::from_raw_fd(fd) });
+        return None;
+    }
     // SAFETY: the launcher passed this descriptor for us to read and close;
     // `File` owns and closes it here.
     let f = unsafe { std::fs::File::from_raw_fd(fd) };
-    let mut buf = Vec::with_capacity(80);
+    // A socket (`daemon start --person-key-fd`): say that this process is
+    // not dumpable now; the launcher writes the key only after that, so a
+    // same-uid reader of /proc/<pid>/fd before this point finds no key.
+    if is_socket(&f) {
+        use std::io::Write;
+        if let Err(e) = (&f).write_all(KEY_READY) {
+            tracing::warn!("--person-key-fd {fd}: {e}");
+            return None;
+        }
+    }
+    let mut buf = zeroize::Zeroizing::new(Vec::with_capacity(80));
     if let Err(e) = f.take(128).read_to_end(&mut buf) {
         tracing::warn!("--person-key-fd {fd}: {e}");
         return None;
     }
-    let key = String::from_utf8(buf).ok()?.trim().to_owned();
+    let key = std::str::from_utf8(&buf).ok()?.trim().to_owned();
     if crate::hub::person::valid_key(&key) {
         Some(key)
     } else {
@@ -427,7 +473,104 @@ fn read_person_key(fd: i32) -> Option<String> {
     }
 }
 
+/// What a daemon writes on a socket key descriptor once it is not dumpable.
+const KEY_READY: &[u8] = b"nodump\n";
+
+/// Whether `f` is a socket.
+#[cfg(unix)]
+fn is_socket(f: &std::fs::File) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    f.metadata().is_ok_and(|m| m.file_type().is_socket())
+}
+
+/// `acpmux daemon start --person-key-fd <fd>` (cx-0q7o slice 2a, D2): the
+/// app's own ssh exec (or the VM provisioning exec) passes this launch's
+/// person key on `fd` (stdin: 0). This process makes itself not dumpable,
+/// reads one line, starts the daemon with a socket pair as its key
+/// descriptor, and writes the key only after the daemon said it is not
+/// dumpable. A daemon that already runs holds another key or none: this
+/// refuses then (a keyed restart stops it first with `daemon shutdown
+/// --keep-agents`). Returns the daemon's readiness line.
+#[cfg(unix)]
+pub async fn start_keyed(fd: i32) -> Result<String> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
+    let path = socket_path();
+    if Client::connect(&path).await.is_ok() {
+        return Err(anyhow!(
+            "a daemon already runs at {}: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+            path.display()
+        ));
+    }
+    // SAFETY: the caller passed this descriptor for this process to read;
+    // ManuallyDrop: stdin stays open for the process.
+    let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+    // Straight into one fixed buffer that is zeroed on drop: no reader
+    // buffer keeps another copy. One line: 64 hex characters and a newline.
+    let mut line = zeroize::Zeroizing::new([0u8; 129]);
+    let mut filled = 0;
+    while filled < line.len() && !line[..filled].contains(&b'\n') {
+        match (&*input).read(&mut line[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e).context("read the person key"),
+        }
+    }
+    let end = line[..filled].iter().position(|b| *b == b'\n').unwrap_or(filled);
+    let key = zeroize::Zeroizing::new(
+        std::str::from_utf8(&line[..end]).unwrap_or_default().trim().to_owned(),
+    );
+    if !crate::hub::person::valid_key(&key) {
+        return Err(anyhow!(
+            "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
+        ));
+    }
+    start_daemon_with(Some(key)).await
+}
+
+/// Makes this process not dumpable before it holds a person key (cx-0q7o):
+/// on Linux, a same-uid process (an agent the daemon starts) can then not
+/// ptrace it or read its memory through /proc, and the kernel owns its
+/// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
+#[cfg(target_os = "linux")]
+fn not_dumpable() -> std::io::Result<()> {
+    // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
+    // process's dumpable flag.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: PR_GET_DUMPABLE reads this process's flag.
+    if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::other("PR_GET_DUMPABLE is not 0 after PR_SET_DUMPABLE 0"));
+    }
+    match std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope") {
+        Ok(scope) => tracing::info!("person key: not dumpable; yama ptrace_scope {}", scope.trim()),
+        Err(_) => tracing::info!("person key: not dumpable; yama is not active"),
+    }
+    Ok(())
+}
+
+/// macOS and other Unix: no dumpable flag. A DEV daemon is unsigned and
+/// takes the key at spawn; a Release daemon is hardened-runtime signed,
+/// which refuses a debugger without the get-task-allow entitlement, and
+/// ignores the key descriptor (it enrolls the signed app instead).
+#[cfg(all(unix, not(target_os = "linux")))]
+fn not_dumpable() -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Windows: no inherited descriptors yet (the CreateProcess handle list
+/// lands with the daemon start); no person key is read.
+#[cfg(not(unix))]
+fn read_person_key(fd: i32) -> Option<String> {
+    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
+    None
+}
+
 /// Write the readiness line to an inherited descriptor and close it.
+#[cfg(unix)]
 fn write_ready(fd: i32, ready: &Value) {
     use std::io::Write;
     use std::os::fd::FromRawFd;
@@ -446,6 +589,12 @@ fn write_ready(fd: i32, ready: &Value) {
         std::mem::forget(f);
     }
 }
+/// Windows port: the readiness pipe is an inherited handle there (a later
+/// landing, with the CreateProcess handle list); nothing is written yet.
+#[cfg(not(unix))]
+fn write_ready(fd: i32, _ready: &Value) {
+    tracing::warn!("--ready-fd {fd}: {}", crate::platform::unsupported("--ready-fd"));
+}
 
 /// Whether `--allow-dev-origin` may take effect: in a debug build, or with
 /// an explicit `--dev` that release launchers never pass. A release config
@@ -455,6 +604,7 @@ pub(crate) fn dev_origins_permitted(debug_build: bool, dev_flag: bool) -> bool {
 }
 
 /// Clears the group and other bits of `path`, if it exists.
+#[cfg(unix)]
 fn narrow_to_owner(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
     let Ok(meta) = std::fs::metadata(path) else { return };
@@ -466,6 +616,10 @@ fn narrow_to_owner(path: &std::path::Path) {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }
 }
+/// Windows port: owner-only access is an ACL there
+/// (`cmux::local_socket::private_directory`, a later landing).
+#[cfg(not(unix))]
+fn narrow_to_owner(_path: &std::path::Path) {}
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
 const TOKEN_ROTATION: u32 = 1;
@@ -512,21 +666,6 @@ fn random_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn acquire_lock(path: &PathBuf) -> Result<std::fs::File> {
-    use std::os::unix::io::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if rc != 0 {
-        return Err(anyhow!("another acpmux daemon holds {}", path.display()));
-    }
-    Ok(file)
-}
-
 static DAEMON_PREFIX: std::sync::OnceLock<Vec<std::ffi::OsString>> = std::sync::OnceLock::new();
 
 /// Arguments placed before `daemon run` when a client starts the daemon, for
@@ -547,33 +686,9 @@ const START_BUDGET: Duration = Duration::from_secs(8);
 /// Wait until no daemon holds this home's lock (the running one exited),
 /// at most `SHUTDOWN_BUDGET` plus a margin. True when it was released.
 pub async fn wait_for_exit() -> bool {
-    wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(2))
+    // The agents' budget, the router's stop and kill waits, and a margin.
+    wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(8))
         .await
-}
-
-/// Polls a non-blocking `flock`, so the deadline always ends the wait: a
-/// blocking `flock` on a worker thread would outlive the timeout and hold
-/// up runtime teardown.
-async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
-        return true;
-    };
-    let deadline = tokio::time::Instant::now() + budget;
-    loop {
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return true;
-        }
-        let kind = std::io::Error::last_os_error().kind();
-        if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
-            return false;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -591,6 +706,7 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
+#[cfg(unix)]
 pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
     let path = socket_path();
     if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
@@ -602,11 +718,18 @@ pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its
 /// readiness line (empty when it exited first).
+#[cfg(unix)]
 async fn start_daemon() -> Result<String> {
+    start_daemon_with(None).await
+}
+
+/// `start_daemon`, with a person key for the daemon (`start_keyed`).
+#[cfg(unix)]
+async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
     let path = socket_path();
     // Async pipe I/O, so the timeout cancels the read; a blocking read on a
     // worker thread would keep runtime teardown waiting on a hung daemon.
-    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached()?)
+    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
         .context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
@@ -625,6 +748,12 @@ async fn start_daemon() -> Result<String> {
         )),
     }
 }
+/// Windows port: the daemon starts through CreateProcess with a handle list
+/// there (a later landing).
+#[cfg(not(unix))]
+async fn start_daemon() -> Result<String> {
+    Err(crate::platform::unsupported("starting the acpmux daemon"))
+}
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
     let why = if ready.trim().is_empty() {
@@ -642,6 +771,7 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// Open the daemon log for append, owner-only like the config file: the log
 /// can carry agent output and request details. A log left by an older build
 /// with wider bits is narrowed to 0600.
+#[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     let log = std::fs::OpenOptions::new()
@@ -658,8 +788,11 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
-/// return the read end of its readiness pipe.
-fn spawn_detached() -> Result<std::fs::File> {
+/// return the read end of its readiness pipe. With `key`, the daemon also
+/// gets `--person-key-fd M`, one end of a socket pair: the key is written
+/// only after the daemon wrote [`KEY_READY`] on it.
+#[cfg(unix)]
+fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
@@ -680,6 +813,16 @@ fn spawn_detached() -> Result<std::fs::File> {
         libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
         libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
     }
+    // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
+    let pair = match &key {
+        Some(_) => {
+            let (ours, theirs) =
+                std::os::unix::net::UnixStream::pair().context("socket pair for the person key")?;
+            Some((ours, theirs))
+        }
+        None => None,
+    };
+    let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon must use this client's state directory, including a host
@@ -688,6 +831,7 @@ fn spawn_detached() -> Result<std::fs::File> {
         .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
         .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
+        .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())
         .stdout(log)
         .stderr(log_err);
@@ -700,6 +844,9 @@ fn spawn_detached() -> Result<std::fs::File> {
                 // readiness descriptor open across exec.
                 libc::setsid();
                 libc::fcntl(write_fd, libc::F_SETFD, 0);
+                if let Some(fd) = key_fd {
+                    libc::fcntl(fd, libc::F_SETFD, 0);
+                }
                 Ok(())
             });
         }
@@ -707,7 +854,30 @@ fn spawn_detached() -> Result<std::fs::File> {
     cmd.spawn().context("spawn acpmux daemon")?;
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
+    if let (Some(key), Some((ours, theirs))) = (key, pair) {
+        drop(theirs);
+        hand_key(ours, &key);
+    }
     Ok(reader)
+}
+
+/// Write the key on the daemon's key socket after the daemon said it is
+/// not dumpable, then close it. No signal (the daemon refused the key, or
+/// exited): nothing is written, and the daemon runs without a key.
+#[cfg(unix)]
+fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
+    use std::io::{Read, Write};
+    let _ = link.set_read_timeout(Some(START_BUDGET));
+    let mut said = [0u8; KEY_READY.len()];
+    if link.read_exact(&mut said).is_err() || said != KEY_READY {
+        tracing::warn!("the daemon did not say it is not dumpable: no person key was handed over");
+        return;
+    }
+    let line = zeroize::Zeroizing::new(format!("{key}\n"));
+    if let Err(e) = link.write_all(line.as_bytes()) {
+        tracing::warn!("hand the person key to the daemon: {e}");
+    }
+    let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
 /// Run `notify_command` from the config on two transitions only: a
@@ -727,8 +897,8 @@ async fn notify_loop(hub: Arc<Hub>) {
         let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
         let Ok(session) = hub.resolve(&ev.session_id) else { continue };
         let summary = hub.session_summary(&session);
-        let attached = summary.get("attached").and_then(Value::as_u64).unwrap_or(0);
-        if kind == "turn_result" && attached > 0 {
+        // A chat some client shows needs no notification (`hub/seen.rs`).
+        if kind == "turn_result" && summary["shown"] == true {
             continue;
         }
         let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -777,41 +947,150 @@ fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     }
 }
 
-/// Start `acpmux router serve` as a detached child unless a router already
-/// answers on `<home>/router/router.sock`. It outlives a daemon restart (model
-/// streams keep running); a later daemon finds and reuses it.
-fn ensure_router() {
+/// The FIFO whose write ends own the local router: the daemon holds one,
+/// and so does every agent host (`open_router_owner`). The router stops when
+/// the last one closes, so it lives exactly as long as a process that may
+/// use it: a kept agent keeps it through a daemon restart, and a daemon that
+/// dies in any way (SIGKILL included) with no agent left takes it along.
+#[cfg(unix)]
+pub(crate) fn router_owner_fifo() -> PathBuf {
+    home().join("router").join("owner.fifo")
+}
+
+/// The owner FIFO an agent host spawned now should hold. Always the home's
+/// FIFO: with no router reading it the host's non-blocking open fails at
+/// once, and a router this daemon could not adopt still gets the new host
+/// as an owner.
+pub(crate) fn router_owner_path() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        Some(router_owner_fifo())
+    }
+    #[cfg(not(unix))]
+    None
+}
+
+/// An agent host's owner end of the local router: held for the host's
+/// whole life (close-on-exec, so the harness never inherits it). None when
+/// no router runs (no reader: the open fails at once) or there is no FIFO.
+#[cfg(unix)]
+pub(crate) fn open_router_owner(fifo: &std::path::Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
+    if !std::fs::symlink_metadata(fifo).ok()?.file_type().is_fifo() {
+        return None;
+    }
+    std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(fifo).ok()
+}
+
+/// This daemon's hold on the router: its write end of the owner FIFO, and
+/// the router process when this daemon started it (unreaped until
+/// `release_router`, so its pid stays ours).
+#[cfg(unix)]
+struct RouterHold {
+    _owner: std::fs::File,
+    child: Option<std::process::Child>,
+}
+
+#[cfg(unix)]
+static ROUTER: std::sync::Mutex<Option<RouterHold>> = std::sync::Mutex::new(None);
+
+/// How long the shutdown path waits for a router it started to exit after
+/// `shutdown`, before it kills that child.
+#[cfg(unix)]
+const ROUTER_STOP_BUDGET: Duration = Duration::from_secs(2);
+
+/// Ask the router's admin socket one line; the reply line as JSON.
+#[cfg(unix)]
+fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::net::UnixStream;
-    use std::os::unix::process::CommandExt;
     let socket = home().join("router").join("router.sock");
-    let ask = |line: &[u8]| -> std::io::Result<Value> {
-        let stream = UnixStream::connect(&socket)?;
-        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-        let mut writer = stream.try_clone()?;
-        writer.write_all(line)?;
-        let mut answer = String::new();
-        BufReader::new(stream).read_line(&mut answer)?;
-        serde_json::from_str(&answer).map_err(std::io::Error::other)
-    };
-    let build = crate::hub::BUILD;
-    if let Ok(status) = ask(b"{\"op\":\"status\"}\n") {
-        if status.get("build").and_then(Value::as_str) == Some(build) {
-            return;
+    let stream = std::os::unix::net::UnixStream::connect(socket)?;
+    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+    let mut writer = stream.try_clone()?;
+    writer.write_all(line)?;
+    let mut answer = String::new();
+    BufReader::new(stream).read_line(&mut answer)?;
+    serde_json::from_str(&answer).map_err(std::io::Error::other)
+}
+
+/// Opens the owner FIFO read-write: the daemon is a writer (an owner) and
+/// the open never waits for a reader.
+#[cfg(unix)]
+fn open_owner_rw(fifo: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::FileTypeExt;
+    if !std::fs::symlink_metadata(fifo)?.file_type().is_fifo() {
+        return Err(std::io::Error::other("the router owner path is not a FIFO"));
+    }
+    std::fs::OpenOptions::new().read(true).write(true).open(fifo)
+}
+
+/// Start the local router, or adopt the one that runs. A router answers on
+/// `<home>/router/router.sock`:
+/// - same build: this daemon opens the owner FIFO, then asks `adopt`. The
+///   router refuses only when it is already stopping; then a new one starts
+///   (it waits on router.lock for the old one).
+/// - another build: replaced (`shutdown`, then a new router) only when no
+///   kept agent host runs; while one runs, this daemon adopts it too, and a
+///   later daemon start replaces it.
+#[cfg(unix)]
+fn ensure_router() {
+    use std::os::unix::process::CommandExt;
+    let fifo = router_owner_fifo();
+    if let Ok(status) = ask_router(b"{\"op\":\"status\"}\n") {
+        let same_build = status.get("build").and_then(Value::as_str) == Some(crate::hub::BUILD);
+        let kept_hosts = crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
+            .iter()
+            .any(|host| !host.pooled);
+        if same_build || kept_hosts {
+            // `stopping`: the router refused because its owners are gone.
+            // Anything else that is not `adopted` (no FIFO, a timeout, an
+            // older router) is unclear.
+            let mut stopping = false;
+            if let Ok(owner) = open_owner_rw(&fifo) {
+                let answer = ask_router(b"{\"op\":\"adopt\"}\n").ok();
+                let flag = |name: &str| {
+                    answer.as_ref().and_then(|v| v.get(name)).and_then(Value::as_bool) == Some(true)
+                };
+                if flag("adopted") {
+                    tracing::info!("adopted the running local router");
+                    set_router(RouterHold { _owner: owner, child: None });
+                    return;
+                }
+                stopping = flag("stopping");
+            }
+            if kept_hosts && !stopping {
+                // Kept agents use it: never replaced on an unclear answer.
+                tracing::warn!("the local router could not be adopted; it stays for kept agents");
+                return;
+            }
+            if !same_build {
+                // A router of an older build that cannot be adopted (no
+                // owner FIFO) and still serves kept agents: used as it is.
+                tracing::warn!("the local router of another build serves kept agents; it stays");
+                return;
+            }
         }
-        // Another build: it stops; the new router waits on router.lock until
-        // the old one has exited, so no sleep is needed here.
-        let _ = ask(b"{\"op\":\"shutdown\"}\n");
+        // Another build that no agent uses, or a router that is stopping:
+        // the new router waits on router.lock until it has exited.
+        let _ = ask_router(b"{\"op\":\"shutdown\"}\n");
     }
     let Ok(exe) = std::env::current_exe() else { return };
+    let owner = match make_owner_fifo(&fifo).and_then(|()| open_owner_rw(&fifo)) {
+        Ok(owner) => owner,
+        Err(e) => {
+            tracing::warn!("could not start the local router (owner FIFO): {e}");
+            return;
+        }
+    };
     let mut command = std::process::Command::new(exe);
     command
         .args(["router", "serve"])
-        .env("CMUX_ROUTER_BUILD", build)
+        .env("CMUX_ROUTER_BUILD", crate::hub::BUILD)
+        .env("CMUX_ROUTER_OWNER_FIFO", &fifo)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    // Its own session: a daemon exit or a terminal hangup does not stop it.
+    // Its own session: a terminal hangup does not stop it; the owner FIFO does.
     unsafe {
         command.pre_exec(|| {
             libc::setsid();
@@ -819,79 +1098,79 @@ fn ensure_router() {
         });
     }
     match command.spawn() {
-        Ok(mut child) => {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
+        Ok(child) => set_router(RouterHold { _owner: owner, child: Some(child) }),
         Err(e) => tracing::warn!("could not start the local router: {e}"),
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_release_launch_refuses_a_dev_origin() {
-        assert!(
-            !dev_origins_permitted(false, false),
-            "a release config refuses --allow-dev-origin"
-        );
-        assert!(dev_origins_permitted(false, true), "an explicit --dev launch accepts it");
-        assert!(dev_origins_permitted(true, false), "a debug build accepts it");
+/// A fresh owner FIFO (0600) for a new router. An old router still reading
+/// the previous FIFO keeps its own inode.
+#[cfg(unix)]
+fn make_owner_fifo(fifo: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    if let Some(dir) = fifo.parent() {
+        std::fs::create_dir_all(dir)?;
     }
-
-    #[test]
-    fn only_the_shared_home_listens_on_the_fixed_port() {
-        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
-        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
-        // A tagged home that saved the fixed port moves to a free one; other choices stay.
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
-        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
-        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
+    let _ = std::fs::remove_file(fifo);
+    let path = std::ffi::CString::new(fifo.as_os_str().as_bytes())?;
+    // SAFETY: a valid NUL-terminated path.
+    if unsafe { libc::mkfifo(path.as_ptr(), 0o600) } != 0 {
+        return Err(std::io::Error::last_os_error());
     }
+    Ok(())
+}
 
-    #[test]
-    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+#[cfg(unix)]
+fn set_router(hold: RouterHold) {
+    let previous = ROUTER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).replace(hold);
+    drop(previous);
+}
 
-        let fresh = dir.join("daemon.log");
-        drop(open_daemon_log(&fresh).unwrap());
-        assert_eq!(mode(&fresh), 0o600);
-
-        let old = dir.join("old.log");
-        std::fs::write(&old, b"kept\n").unwrap();
-        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
-        {
-            use std::io::Write;
-            let mut f = open_daemon_log(&old).unwrap();
-            f.write_all(b"appended\n").unwrap();
-        }
-        assert_eq!(mode(&old), 0o600);
-        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
-        let _ = std::fs::remove_dir_all(&dir);
+/// The shutdown path. `stop`: no agent of this home is left (none was kept),
+/// so the router is told to stop and, when this daemon started it, waited
+/// for (`ROUTER_STOP_BUDGET`, then killed: it is unreaped, so the pid is
+/// still ours). Either way the daemon's owner end closes; kept agent hosts
+/// still hold theirs, so their router keeps serving them.
+#[cfg(unix)]
+fn release_router(stop: bool) {
+    use wait_timeout::ChildExt;
+    let Some(hold) = ROUTER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() else {
+        return;
+    };
+    let RouterHold { _owner: owner, child } = hold;
+    // A host this daemon did not reach (adoption failed, or it did not end)
+    // still owns the router: then it stays.
+    let stop = stop
+        && crate::agent_host::sweep::running_hosts(&crate::agent_host::hosts_dir())
+            .iter()
+            .all(|host| host.pooled);
+    if stop {
+        let _ = ask_router(b"{\"op\":\"shutdown\"}\n");
     }
-
-    #[tokio::test]
-    async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {
-        let dir = std::env::temp_dir().join(format!("acpmux-lock-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let lock = dir.join("daemon.lock");
-        let held = acquire_lock(&lock).unwrap();
-        // Held for the whole budget: not released.
-        assert!(!wait_for_lock_release(lock.clone(), Duration::from_millis(200)).await);
-        let started = std::time::Instant::now();
-        let waiter = tokio::spawn(wait_for_lock_release(lock.clone(), Duration::from_secs(10)));
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        drop(held);
-        assert!(waiter.await.unwrap());
-        assert!(started.elapsed() < Duration::from_secs(5));
-        // No lock file at all means no daemon.
-        assert!(wait_for_lock_release(dir.join("absent.lock"), Duration::from_secs(1)).await);
-        let _ = std::fs::remove_dir_all(&dir);
+    drop(owner);
+    let Some(mut child) = child else { return };
+    if !stop {
+        // Kept agents still use it; its exit is theirs to cause.
+        drop(child);
+        return;
     }
+    if matches!(child.wait_timeout(ROUTER_STOP_BUDGET), Ok(Some(_))) {
+        return;
+    }
+    tracing::warn!(
+        "the local router (pid {}) did not stop within {ROUTER_STOP_BUDGET:?}; killing it",
+        child.id()
+    );
+    let _ = child.kill();
+    let _ = child.wait_timeout(ROUTER_STOP_BUDGET);
+}
+
+#[cfg(not(unix))]
+fn release_router(_stop: bool) {}
+
+/// Windows port: the router's admin socket and its detached start come with
+/// the daemon start landing; no router is started yet.
+#[cfg(not(unix))]
+fn ensure_router() {
+    tracing::warn!("{}", crate::platform::unsupported("starting the local router"));
 }

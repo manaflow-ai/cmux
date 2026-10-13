@@ -7,6 +7,10 @@ enum RemoteStrings {
     static func placeholderReconnecting(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
     }
+    /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
+    static func sidebarConnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine)
+    }
     static func placeholderOffline(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
     }
@@ -85,13 +89,10 @@ enum RemoteStrings {
         String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination)
     }
     static var install: String { String(localized: "remote.button.install", defaultValue: "Install", table: "Remote", bundle: .module) }
-    static func forgetTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.forget.title", defaultValue: "Forget %@?", table: "Remote", bundle: .module), name)
+    /// The toast after Forget Machine (its Undo brings the machine back).
+    static func forgotToast(_ name: String) -> String {
+        String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name)
     }
-    static var forgetBody: String {
-        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
-    }
-    static var forget: String { String(localized: "remote.button.forget", defaultValue: "Forget", table: "Remote", bundle: .module) }
 
     // MARK: Failures
 
@@ -107,6 +108,10 @@ enum RemoteStrings {
             return String(localized: "remote.install.noChecksumTool", defaultValue: "The machine has no sha256sum or shasum, so the download cannot be checked.", table: "Remote", bundle: .module)
         case .downloadFailed(let detail):
             return String(format: String(localized: "remote.install.download", defaultValue: "The download failed: %@", table: "Remote", bundle: .module), detail)
+        case .treeNotPublished(let key):
+            return String(format: String(localized: "remote.install.treeNotPublished",
+                                         defaultValue: "This build's cmux-tui (tree %@) is not published, so it cannot be installed on the machine. Use a build whose cmux-tui is published.",
+                                         table: "Remote", bundle: .module), String(key.prefix(12)))
         case .unrunnable(let detail):
             return String(format: String(localized: "remote.install.unrunnable", defaultValue: "The downloaded cmux-tui does not run on this machine: %@", table: "Remote", bundle: .module), detail)
         case .notWritable(let detail):
@@ -130,6 +135,8 @@ enum RemoteStrings {
         case .connecting, .connected:
             if let failure = session.daemonFailure { return daemonFailed(failure) }
             return session.lastError
+        case .reconnecting:
+            return String(localized: "remote.status.reconnecting", defaultValue: "The connection dropped. cmux reconnects on its own; programs keep running on the machine.", table: "Remote", bundle: .module)
         case .authFailed(let message):
             return String(format: String(localized: "remote.status.authFailed", defaultValue: "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine.", table: "Remote", bundle: .module), message)
         case .hostKeyUntrusted(let message):
@@ -152,7 +159,7 @@ enum RemoteStrings {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
              .installFailed(let message), .failed(let message): message
         case .needsInstall(let need): needText(need, session)
-        case .connecting, .connected: session.daemonFailure ?? session.lastError
+        case .connecting, .connected, .reconnecting: session.daemonFailure ?? session.lastError
         case .offline, .installing: session.lastError
         }
         guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
@@ -199,6 +206,24 @@ enum RemoteStrings {
             return String(format: String(localized: "remote.need.wrongApp", defaultValue: "%@ is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module), app)
         case .unsupportedPlatform:
             return unsupportedPlatform(session.host.label)
+        case .refused(let refusal):
+            return refusalText(refusal)
+        }
+    }
+
+    /// The one table from the bundled cmux-tui's typed refusal codes to text.
+    static func refusalText(_ refusal: RemoteRefusal) -> String {
+        switch refusal {
+        case .protocolOlder:
+            String(localized: "remote.refusal.protocolOlder", defaultValue: "The cmux-tui there is too old for this connection. Install cmux-tui to update it.", table: "Remote", bundle: .module)
+        case .protocolNewer:
+            String(localized: "remote.refusal.protocolNewer", defaultValue: "The cmux-tui there is newer than this app. Update cmux on this Mac to connect.", table: "Remote", bundle: .module)
+        case .wrongApp:
+            String(localized: "remote.refusal.wrongApp", defaultValue: "Another program is at the cmux-tui path there. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .distributionMismatch:
+            String(localized: "remote.refusal.distributionMismatch", defaultValue: "The cmux-tui there is a different release than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
+        case .buildMismatch:
+            String(localized: "remote.refusal.buildMismatch", defaultValue: "The cmux-tui there is a different build than this app uses. Install cmux-tui to replace it.", table: "Remote", bundle: .module)
         }
     }
 }

@@ -65,7 +65,7 @@ impl Mux {
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
-        let reserved_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
+        let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
             "workspace_key":Self::new_workspace_key()?,

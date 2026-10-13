@@ -5,7 +5,11 @@
 // the next page loads when its loader row scrolls into view. One click opens the chat in a new
 // workspace with the agent pane (the host's Open Chat path); Open in terminal is in the row's
 // right-click menu. The row look follows the TEMPORARY design picker (`sidebar.allChats.design`).
+// With `onBring` (the History page, cx-zlnl) rows also select: Cmd/Ctrl-click toggles one,
+// Shift-click a range, Enter opens the selection, and the menu brings it into active sessions.
+// Projects (cx-ncc.66, Claude parity) shows the same chats grouped under their project folder.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { subscribeDeviceChats } from "./deviceChats";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
@@ -14,6 +18,15 @@ import { useNt } from "./strings";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
+/// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
+/// its state where the age would be.
+export type ActiveChat = {
+  id: string;
+  title: string;
+  harness?: string;
+  state: "input" | "running" | "error" | "unread" | "idle";
+  label: string;
+};
 
 export type AllChatsPage = {
   chats: AllChatsRow[];
@@ -31,7 +44,7 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
-const ROW_HEIGHT = 32;
+const ROW_HEIGHT = 30;
 
 type State = {
   query: string;
@@ -41,10 +54,23 @@ type State = {
   loaded: boolean;
   /// The daemon's index has finished its first scan (`ready`); before that an empty page is not "No chats".
   ready: boolean;
+  /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
+  failed: boolean;
+  /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
+  rowsQuery: string;
   design: AllChatsDesign;
 };
 
-const initial: State = { query: "", rows: [], loading: false, loaded: false, ready: false, design: "age" };
+const initial: State = {
+  query: "",
+  rows: [],
+  loading: false,
+  loaded: false,
+  ready: false,
+  failed: false,
+  rowsQuery: "",
+  design: "age",
+};
 
 function design(value: unknown): AllChatsDesign | undefined {
   return value === "quiet" || value === "age" || value === "project" ? value : undefined;
@@ -53,6 +79,50 @@ function design(value: unknown): AllChatsDesign | undefined {
 function rowsOf(page: AllChatsPage | undefined): AllChatsRow[] {
   if (!page || !Array.isArray(page.chats)) return [];
   return page.chats.filter((row) => row && typeof row.key === "string" && typeof row.harness === "string");
+}
+
+/// A first page read again (a push from the chat index) over the loaded rows: its rows lead, and
+/// the loaded rows it does not name keep their order below (they are older than all of it).
+export function mergeFirstPage(fresh: AllChatsRow[], rows: AllChatsRow[]): AllChatsRow[] {
+  const named = new Set(fresh.map((row) => row.key));
+  return [...fresh, ...rows.filter((row) => !named.has(row.key))];
+}
+
+/// A project of the Projects view: the chats of one folder (`cwd` unset: chats in no project).
+export type ChatProject = { key: string; cwd?: string; label?: string; rows: AllChatsRow[] };
+
+/// The loaded chats by folder, each project where its newest chat stands (the rows come newest
+/// first), its chats in their own order.
+export function projectGroups(rows: AllChatsRow[]): ChatProject[] {
+  const groups = new Map<string, ChatProject>();
+  for (const row of rows) {
+    const key = row.cwd ?? "";
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        rows: [],
+        ...(row.cwd ? { cwd: row.cwd, label: row.cwd.split("/").filter(Boolean).pop() || row.cwd } : {}),
+      };
+      groups.set(key, group);
+    }
+    group.rows.push(row);
+  }
+  return [...groups.values()];
+}
+
+/// One row of the list: a project's header (Projects only) or a chat.
+type ListEntry = { kind: "project"; project: ChatProject; open: boolean } | { kind: "chat"; row: AllChatsRow };
+
+function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: ReadonlySet<string>): ListEntry[] {
+  if (view === "chats") return rows.map((row) => ({ kind: "chat", row }));
+  return projectGroups(rows).flatMap((project): ListEntry[] => {
+    const open = !folded.has(project.key);
+    return [
+      { kind: "project", project, open },
+      ...(open ? project.rows.map((row): ListEntry => ({ kind: "chat", row })) : []),
+    ];
+  });
 }
 
 /// The pages of one query: a new query starts over at the first page (its old cursor is dropped
@@ -79,7 +149,15 @@ function useChatPages(load: LoadChatsPage) {
         if (inFlight.current === marker) inFlight.current = undefined;
         setState((s) => {
           // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
-          if (!page) return { ...s, loading: false, loaded: true, ...(cursor ? { nextCursor: cursor } : {}) };
+          if (!page)
+            return {
+              ...s,
+              loading: false,
+              loaded: true,
+              ...(cursor
+                ? { nextCursor: cursor }
+                : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
+            };
           const fresh = rowsOf(page);
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
@@ -90,6 +168,8 @@ function useChatPages(load: LoadChatsPage) {
             loading: false,
             loaded: true,
             ready: page.ready !== false,
+            failed: false,
+            rowsQuery: query,
             design: design(page.design) ?? s.design,
           };
         });
@@ -99,18 +179,113 @@ function useChatPages(load: LoadChatsPage) {
   useEffect(() => {
     fetchPage("", undefined);
   }, [fetchPage]);
+  // A loaded list reads its first page again when the index pushes a change and puts it on top of
+  // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
+  // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
+  const refreshing = useRef<"idle" | "busy" | "again">("idle");
+  const refreshFirstPage = useCallback(() => {
+    if (refreshing.current !== "idle") {
+      refreshing.current = "again";
+      return;
+    }
+    refreshing.current = "busy";
+    const ticket = generation.current;
+    void latestLoad
+      .current({ limit: PAGE })
+      .catch(() => undefined)
+      .then((page) => {
+        if (page && ticket === generation.current) {
+          setState((s) => {
+            if (s.query) return s;
+            const rows = mergeFirstPage(rowsOf(page), s.rows);
+            // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
+            const same =
+              rows.length === s.rows.length &&
+              rows.every(
+                (row, i) =>
+                  row === s.rows[i] ||
+                  (row.key === s.rows[i]?.key &&
+                    row.updatedAt === s.rows[i]?.updatedAt &&
+                    row.title === s.rows[i]?.title &&
+                    row.cwd === s.rows[i]?.cwd),
+              );
+            return same ? s : { ...s, rows };
+          });
+        }
+        const again = refreshing.current === "again";
+        refreshing.current = "idle";
+        if (again) refreshFirstPage();
+      });
+  }, []);
+  // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
+  // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
+  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
+  const latest = useRef(state);
+  latest.current = state;
+  useEffect(
+    () =>
+      subscribeDeviceChats(() => {
+        const current = latest.current;
+        if (current.query) return;
+        if (!current.ready || current.rows.length === 0) fetchPage("", undefined);
+        else refreshFirstPage();
+      }),
+    [fetchPage, refreshFirstPage],
+  );
   return { state, fetchPage };
+}
+
+/// Selection by Cmd/Ctrl-click (toggle) and Shift-click (the range from the last clicked row),
+/// in list order. A new query starts with nothing selected.
+function useSelection(rows: AllChatsRow[], query: string) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const anchor = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setSelected([]);
+    anchor.current = undefined;
+  }, [query]);
+  /// True when the click selected (a modifier was held); false leaves it to open.
+  const click = (event: React.MouseEvent, key: string): boolean => {
+    if (event.shiftKey) {
+      const from = rows.findIndex((row) => row.key === anchor.current);
+      const to = rows.findIndex((row) => row.key === key);
+      if (from < 0 || to < 0) {
+        anchor.current = key;
+        setSelected([key]);
+      } else {
+        setSelected(rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((row) => row.key));
+      }
+      return true;
+    }
+    if (event.metaKey || event.ctrlKey) {
+      anchor.current = key;
+      setSelected((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]));
+      return true;
+    }
+    anchor.current = key;
+    setSelected([]);
+    return false;
+  };
+  const clear = useCallback(() => setSelected([]), []);
+  return { selected, click, clear };
 }
 
 export function AllChatsList({
   load,
   onOpen,
+  active = [],
+  onOpenActive,
   onOpenInTerminal,
+  onBring,
   now = Date.now(),
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
+  active?: ActiveChat[];
+  onOpenActive?(id: string): void;
   onOpenInTerminal?(key: string): void;
+  /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
+  onBring?(keys: string[]): void;
   now?: number;
 }) {
   const t = useT();
@@ -119,7 +294,38 @@ export function AllChatsList({
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
-  const count = rows.length + (nextCursor ? 1 : 0);
+  const [view, setView] = useState<"chats" | "projects">("chats");
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const entries = listEntries(rows, view, folded);
+  // A Shift-click range runs over the chats as the list shows them.
+  const shown = entries.flatMap((entry) => (entry.kind === "chat" ? [entry.row] : []));
+  const selection = useSelection(shown, state.query);
+  // The menu acts on the selection when the clicked row is in it, else on that row.
+  const menuKeys = menuTarget ? (selection.selected.includes(menuTarget) ? selection.selected : [menuTarget]) : [];
+  // While rows are selected, Enter opens them and Escape clears them. The page listens, not the
+  // rows: WebKit does not focus a button on click, so after Cmd/Shift-click no row has focus.
+  const { selected, clear } = selection;
+  useEffect(() => {
+    if (!onBring || selected.length === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.defaultPrevented || target?.closest("input, textarea, [role=menu]")) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onBring(selected);
+        clear();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        clear();
+      }
+    };
+    // ui-allow: page-wide Enter/Escape for a selection; WebKit leaves no row focused after a click
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onBring, selected, clear]);
+  // With every project folded nothing scrolls the loader away: it would fetch page after page.
+  const pages = view === "chats" || entries.some((entry) => entry.kind === "chat");
+  const count = entries.length + (nextCursor && pages ? 1 : 0);
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
       if (element && nextCursor) fetchPage(state.query, nextCursor);
@@ -127,12 +333,53 @@ export function AllChatsList({
     [fetchPage, nextCursor, state.query],
   );
   const renderRow = (index: number, style: React.CSSProperties) => {
-    const row = rows[index];
-    if (!row) return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
+    const entry = entries[index];
+    if (!entry)
+      return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
+    if (entry.kind === "project") {
+      const { project, open } = entry;
+      const label = project.label ?? nt("noProject");
+      return (
+        <div
+          key={`project-${project.key}`}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a virtualized row (absolute, transformed), not a flow <li>
+          role="listitem"
+          className="nt-all-item"
+          style={style}
+          aria-posinset={index + 1}
+          aria-setsize={count}
+        >
+          <button
+            type="button"
+            className="nt-all-group"
+            data-focus-ring="row"
+            aria-expanded={open}
+            title={project.cwd ?? label}
+            onClick={() => {
+              // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
+              selection.clear();
+              setFolded((current) => {
+                const next = new Set(current);
+                if (open) next.add(project.key);
+                else next.delete(project.key);
+                return next;
+              });
+            }}
+          >
+            <svg className="nt-all-group-chevron" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+              <path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span className="nt-all-group-name">{label}</span>
+            <span className="nt-all-group-count">{project.rows.length}</span>
+          </button>
+        </div>
+      );
+    }
+    const row = entry.row;
     const title = row.title ?? t("sidebar.newChat");
+    // The project names an untitled chat apart from the others ("New chat · cmux").
     const project = row.cwd ? row.cwd.split("/").filter(Boolean).pop() : undefined;
-    const meta =
-      state.design === "age" ? ageLabel(row.updatedAt, now, t) : state.design === "project" ? project : undefined;
+    const age = state.design === "quiet" ? undefined : ageLabel(row.updatedAt, now, t);
     return (
       <div
         key={row.key}
@@ -144,45 +391,129 @@ export function AllChatsList({
         aria-setsize={count}
         onContextMenuCapture={() => (menuKey.current = row.key)}
       >
-        <button type="button" className="nt-all-row" title={row.cwd ?? title} onClick={() => onOpen(row.key)}>
-          {state.design === "quiet" && (
-            <span className="nt-all-glyph">
-              <AgentMark harness={row.harness} />
-            </span>
-          )}
+        <button
+          type="button"
+          className="nt-all-row"
+          data-focus-ring="row"
+          data-untitled={row.title ? undefined : true}
+          data-selected={selection.selected.includes(row.key) ? true : undefined}
+          title={row.cwd ? `${title}\n${row.cwd}` : title}
+          onClick={(event) => {
+            if (onBring && selection.click(event, row.key)) return;
+            onOpen(row.key);
+          }}
+        >
+          <span className="nt-all-glyph">
+            <AgentMark harness={row.harness} />
+          </span>
           <span className="nt-all-title">{title}</span>
-          {meta && <span className="nt-all-meta">{meta}</span>}
+          {project && state.design !== "quiet" && view === "chats" && <span className="nt-all-project">{project}</span>}
+          {age && <span className="nt-all-meta">{age}</span>}
         </button>
       </div>
     );
   };
-  const items = onOpenInTerminal
-    ? [
-        {
-          id: "terminal",
-          label: t("shell.openInTerminal"),
-          disabled: !menuTarget,
-          onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
-        },
-      ]
-    : [];
+  const items = [
+    ...(onBring
+      ? [
+          {
+            id: "bring",
+            label: nt("bringIntoActive"),
+            disabled: menuKeys.length === 0,
+            onSelect: () => {
+              onBring(menuKeys);
+              selection.clear();
+            },
+          },
+        ]
+      : []),
+    ...(onOpenInTerminal
+      ? [
+          {
+            id: "terminal",
+            label: t("shell.openInTerminal"),
+            disabled: !menuTarget,
+            onSelect: () => menuTarget && onOpenInTerminal(menuTarget),
+          },
+        ]
+      : []),
+  ];
   return (
-    <section className="nt-all" aria-label={nt("allChats")}>
+    <section className="nt-all" aria-label={nt("chats")}>
       <header className="nt-chats-head">
-        <span className="nt-chats-tab is-selected">{nt("allChats")}</span>
-        <input
-          className="nt-all-search"
-          type="search"
-          value={state.query}
-          placeholder={t("sidebar.searchPlaceholder")}
-          aria-label={t("sidebar.search")}
-          onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
-        />
+        {(["chats", "projects"] as const).map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            className={`nt-chats-tab${view === choice ? " is-selected" : ""}`}
+            aria-pressed={view === choice}
+            onClick={() => {
+              selection.clear();
+              setView(choice);
+            }}
+          >
+            {nt(choice)}
+          </button>
+        ))}
+        <label className="nt-all-search">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+            <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={state.query}
+            placeholder={t("sidebar.searchPlaceholder")}
+            aria-label={t("sidebar.search")}
+            onChange={(event) => fetchPage(event.currentTarget.value, undefined)}
+          />
+        </label>
       </header>
+      {!state.query && active.length > 0 && (
+        <ul className="nt-all-active" aria-label={t("sidebar.active")}>
+          {active.map((chat) => (
+            <li key={chat.id}>
+              {/* Its right-click menu: Open, as its click (cx-2lm4). */}
+              <ContextMenu
+                className="nt-row-host"
+                items={[{ id: "open", label: nt("row.open"), onSelect: () => onOpenActive?.(chat.id) }]}
+              >
+                <button
+                  type="button"
+                  className="nt-all-row"
+                  data-focus-ring="row"
+                  data-state={chat.state}
+                  onClick={() => onOpenActive?.(chat.id)}
+                >
+                  <span className="nt-all-glyph">
+                    <AgentMark harness={chat.harness} />
+                  </span>
+                  <span className="nt-all-title">{chat.title}</span>
+                  <span className="nt-all-state">{chat.label}</span>
+                </button>
+              </ContextMenu>
+            </li>
+          ))}
+        </ul>
+      )}
       {state.loaded && rows.length === 0 ? (
-        state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+        state.failed ? (
+          <output className="nt-chats-empty nt-chats-failed">
+            {nt("chatsLoadFailed")}
+            <button
+              type="button"
+              className="nt-chats-retry"
+              disabled={state.loading}
+              onClick={() => fetchPage(state.query, undefined)}
+            >
+              {t("picker.tryAgain")}
+            </button>
+          </output>
+        ) : (
+          state.ready && <p className="nt-chats-empty">{state.query ? t("sidebar.noMatches") : nt("noChats")}</p>
+        )
       ) : (
-        <ContextMenu items={items} onOpen={() => setMenuTarget(menuKey.current)}>
+        <ContextMenu className="nt-all-host" items={items} onOpen={() => setMenuTarget(menuKey.current)}>
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"

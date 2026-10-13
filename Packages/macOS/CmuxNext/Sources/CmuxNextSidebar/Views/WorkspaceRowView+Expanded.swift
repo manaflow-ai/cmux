@@ -1,0 +1,52 @@
+import AppKit
+import CmuxNextDesign
+
+/// Expanded rows (`sidebar.density`, cx-13w3; T3 Code / Codex style): the
+/// text lines stack centered in the head, and an expanded row's icon and
+/// trailing marks center on the title's line instead of on the head. The
+/// age of the last change sits on that line at rest (the hover actions draw
+/// over it), and the second and meta lines run under the marks to the row's end.
+extension WorkspaceRowView {
+    /// The title and line heights, the flipped y the stack starts at, and the
+    /// y the icon and trailing marks center on.
+    func textMetrics(head b: NSRect) -> (title: CGFloat, line: CGFloat, top: CGFloat, center: CGFloat) {
+        let th = ceil(title.intrinsicContentSize.height), sh = ceil(subtitle.intrinsicContentSize.height)
+        let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
+        let top = (b.height - th - CGFloat(lines) * (Metrics.space1 + sh)) / 2
+        return (th, sh, top, isExpanded ? top + th / 2 : b.height / 2)
+    }
+
+    var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
+
+    /// Lays out the age left of `trailing` and returns the new trailing edge.
+    func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
+        timeLabel.isHidden = timeText == nil || isShowingPlaceholder
+        guard !timeLabel.isHidden else { return trailing }
+        let w = ceil(timeLabel.intrinsicContentSize.width)
+        timeLabel.frame = NSRect(x: trailing - w, y: cy - height / 2, width: w, height: height)
+        return trailing - w - Metrics.space2
+    }
+
+    /// The pin button of an expanded row, with the menu button (hover, not
+    /// renaming): left of it, Pin or Unpin by the row's section. Returns its
+    /// minX while it shows.
+    func layoutPin(showClose: Bool, showMore: Bool, control: CGFloat) -> CGFloat? {
+        let pinned = showMore && isExpanded ? isPinned?() : nil
+        pinButton.isHidden = pinned == nil
+        guard let pinned else { return nil }
+        (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
+        pinButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
+        return pinButton.frame.minX
+    }
+
+    /// The title, the second line and the meta line, top to bottom from `top`.
+    func layoutTextLines(x: CGFloat, inset: CGFloat, titleWidth: CGFloat, width: CGFloat, head b: NSRect,
+                         top: CGFloat, title th: CGFloat, line sh: CGFloat) {
+        title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
+        let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        subtitle.isHidden = !hasSubtitle
+        subtitle.frame = NSRect(x: x, y: top + th + Metrics.space1, width: lineWidth, height: sh)
+        metaLabel.isHidden = !hasMeta
+        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + Metrics.space1, width: lineWidth, height: sh)
+    }
+}

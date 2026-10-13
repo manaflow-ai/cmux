@@ -25,7 +25,9 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     @concurrent
     public func notes(for build: String) async -> ReleaseNotes? {
         guard Self.isSafeName(build), let data = await verified("\(build).json"),
-              let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+              var notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+        // Older notes carry only commit subjects: readers (the changelog page) get titles with PRs.
+        notes.items = notes.changeItems
         return notes
     }
 
@@ -65,6 +67,12 @@ nonisolated public struct ReleaseNotesStore: Sendable {
               ContentSignature.verify(data, signature: sig.trimmingCharacters(in: .whitespacesAndNewlines), publicKey: publicKey)
         else { return nil }
         return data
+    }
+
+    /// The checked media of these notes (cx-urd.61.1), cached beside them, fetched with a short
+    /// deadline; `bundledDirectories` hold the app's reviewed What's New media.
+    public func media(bundledDirectories: [URL]) -> ReleaseMediaStore {
+        ReleaseMediaStore(cache: cache.appending(path: "media", directoryHint: .isDirectory), bundledDirectories: bundledDirectories)
     }
 
     /// Build numbers only: never a path.

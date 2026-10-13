@@ -11,6 +11,7 @@ fn wire_name_round_trips_through_serde() {
         "terminal.output_read",
         "browser.close",
         "git.diff",
+        "git.files.list",
         "git.files.search",
         "stream.cancel",
         "origin.confirmation.issue",

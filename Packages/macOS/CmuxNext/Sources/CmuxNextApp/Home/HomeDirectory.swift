@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Foundation
 import Observation
 
@@ -28,6 +29,9 @@ final class HomeDirectory {
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived Chiefs' agent ids: the page hides their conversations.
     private(set) var archivedChiefs: Set<String> = []
+    /// The Chief's avatar for its list tile, the one its header shows: read
+    /// by `HomeService.refreshChiefAvatar()`, set by the header's avatar picker.
+    var chiefAvatar: HomeChiefAvatar?
     @ObservationIgnored private let call: Call
     /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?

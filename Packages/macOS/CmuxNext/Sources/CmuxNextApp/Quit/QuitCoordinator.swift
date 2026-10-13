@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextSettings
 import os
 

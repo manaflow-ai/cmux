@@ -54,7 +54,7 @@ final class WindowOverlayLayer {
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
     /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
-    private var layoutDepth = 0
+    private(set) var layoutDepth = 0
     /// Interactive rects changed during the layout pass: applied after it.
     private var rectsChangedInLayout = false
     /// Placement and child order checks asked for during the layout pass.
@@ -373,7 +373,7 @@ final class WindowOverlayLayer {
     private func recordRingLag(_ plane: OverlayPlane) {
         guard let root = plane.home as? LayoutRootView else { return }
         ringLayoutPasses += 1
-        guard let lag = root.overlayRings.first(where: { $0.showsRing && $0.ringInWindow != $0.contentInWindow }) else { return }
+        guard let lag = root.overlayRings.first(where: { $0.showsRing && !$0.ringInSync }) else { return }
         ringLagPasses += 1
         lastRingLag = "\(lag.pane): ring \(lag.ringInWindow), content \(lag.contentInWindow), placement \(placement.rawValue)"
     }

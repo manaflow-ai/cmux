@@ -5,6 +5,7 @@ import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
+import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
@@ -44,9 +45,13 @@ export interface Env {
   readonly SSO_DISCOVER_LIMIT?: RateLimit
   /** GET /v1/cloud/keyset per client IP (namespaces 1161-1163). */
   readonly CLOUD_KEYSET_LIMIT?: RateLimit
+  /** POST /v1/wire/ticket per user (namespaces 1191-1193, 60 per minute; wire-ticket.ts). */
+  readonly WIRE_TICKET_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
+  /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
+  readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**

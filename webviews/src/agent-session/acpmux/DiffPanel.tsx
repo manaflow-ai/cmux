@@ -4,27 +4,35 @@
 // filterable @pierre/trees file tree.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
-import type { TurnFile } from "./diff";
+import type { DiffHunk, TurnFile } from "./diff";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
+import { addressPrompt, threadId, type AddressState, type ReviewThread } from "./changes/reviewThreads";
+import { ReviewThread as ReviewThreadView } from "./changes/ReviewThread";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
+import { PullRequestButton } from "./changes/PullRequestButton";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
+import { useDiffFind, type DiffFindHandle } from "./changes/diffFind";
+import { ChatFindBar } from "./conversation/ChatFindBar";
 import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { useT } from "./i18n";
+import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
+import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
+import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -78,6 +86,11 @@ export function DiffPanel({
   review,
   reviewFiles,
   turn,
+  gitIntent,
+  onGitIntentHandled,
+  writeKeys,
+  onAddressThread,
+  findHandle,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -92,13 +105,80 @@ export function DiffPanel({
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
+  /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
+  /// pushes, as the toolbar's buttons do.
+  gitIntent?: { op: GitWriteOp; nonce: number };
+  /// The view took `gitIntent`; the page clears it so a later view never replays it.
+  onGitIntentHandled?: () => void;
+  /// The session's idempotency keys, kept by the page across a close and reopen of the view.
+  writeKeys?: WriteKeys;
+  /// Address on a review thread (cx-ncc.77.3): sends the agent a prompt to address it; resolves
+  /// once the chat took the prompt (not when the turn ends), rejects when it refused it.
+  onAddressThread?: (prompt: string) => Promise<unknown>;
+  /// Where the page reaches this view's find (Cmd-F and the Edit menu's Find commands).
+  findHandle?: React.MutableRefObject<DiffFindHandle | undefined>;
 }) {
   const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry, branch } = useScopeChanges(source, scope);
+  const { load, retry, branch, threads } = useScopeChanges(source, scope);
+  const [commitOpen, setCommitOpen] = useState(false);
+  // A commit closes the form and reloads the scope; a push changes only the branch state.
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    writeKeys,
+  );
+  const commitMessage = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (commitOpen) commitMessage.current?.focus();
+  }, [commitOpen]);
+  const handledIntent = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!gitIntent || handledIntent.current === gitIntent.nonce) return;
+    handledIntent.current = gitIntent.nonce;
+    if (gitIntent.op === "push") void git.push();
+    else if (commitOpen) commitMessage.current?.focus();
+    else setCommitOpen(true);
+    onGitIntentHandled?.();
+  }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
+  const threadsByPath = useMemo(() => {
+    const byPath = new Map<string, ReviewThread[]>();
+    for (const thread of threads ?? []) byPath.set(thread.path, [...(byPath.get(thread.path) ?? []), thread]);
+    return byPath;
+  }, [threads]);
+  // Address's state per thread lives here, above the scope's reloads and Pierre's annotation
+  // slots, so a thread sent once stays sent and never offers a second send.
+  const [addressStates, setAddressStates] = useState<ReadonlyMap<string, AddressState>>(() => new Map());
+  const addressing = useRef(new Set<string>());
+  const runAddress = useStableCallback((thread: ReviewThread) => {
+    const id = threadId(thread);
+    if (!onAddressThread || addressing.current.has(id)) return;
+    addressing.current.add(id);
+    const mark = (state: AddressState) => setAddressStates((current) => new Map(current).set(id, state));
+    mark({ state: "sending" });
+    onAddressThread(addressPrompt(thread)).then(
+      () => mark({ state: "sent" }),
+      (error: unknown) => {
+        addressing.current.delete(id);
+        mark({
+          state: "failed",
+          message: error instanceof Error && error.message ? error.message : t("review.sendFailed"),
+        });
+      },
+    );
+  });
+  const address = onAddressThread ? { states: addressStates, run: runAddress } : undefined;
+  /// Threads on files the scope does not list (reverted here, or outside its diff), shown first.
+  const elsewhere = useMemo(() => {
+    const listed = new Set(files.map((file) => file.displayPath));
+    return (threads ?? []).filter((thread) => !listed.has(thread.path));
+  }, [threads, files]);
   /// A git scope's body before its files: loading, failed or empty.
   const scopeState =
     scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
@@ -122,7 +202,10 @@ export function DiffPanel({
   const totals = useMemo(
     () =>
       files.reduce(
-        (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+        (sum, file) => ({
+          additions: sum.additions + file.additions,
+          deletions: sum.deletions + file.deletions,
+        }),
         { additions: 0, deletions: 0 },
       ),
     [files],
@@ -169,14 +252,36 @@ export function DiffPanel({
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => {
     back.current?.focus();
+    // Another file opened in the open view: later paints keep it in view, not the first one.
+    revealing.current = initialPath;
     if (initialPath) reveal(initialPath);
   }, [initialPath]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
+  const find = useDiffFind(body);
+  useEffect(() => {
+    if (!findHandle) return undefined;
+    findHandle.current = {
+      find,
+      owns: () => {
+        const node = panel.current;
+        if (!node) return false;
+        if (node.contains(node.ownerDocument.activeElement)) return true;
+        // A narrow pane's view covers the transcript (hidden beneath it).
+        const transcript = node.ownerDocument.querySelector(".acpmux-scroll");
+        return !transcript || getComputedStyle(transcript).visibility === "hidden";
+      },
+    };
+  }, [findHandle, find]);
+  useEffect(
+    () => () => {
+      if (findHandle) findHandle.current = undefined;
+    },
+    [findHandle],
+  );
   // j/k move between files as picking them in the tree does; n/p between changes.
   const selectedFile = useStableCallback(() => selected);
-  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const node = panel.current;
     return node ? bindDiffPanelEscape(node, onClose) : undefined;
@@ -194,9 +299,69 @@ export function DiffPanel({
       setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.openFailed"));
     });
   });
+  // Stage or Unstage a file (cx-tcwj): Unstaged and Uncommitted stage it, Staged unstages it,
+  // and the scope reloads. A failure says why where a failed open does. The view names a file by
+  // its absolute path; git.stage takes it from the repository's top, as git.diff listed it. A
+  // rename is both of its paths, or half of it would stay behind.
+  const unstages = scope === "staged" ? true : scope === "unstaged" || scope === "uncommitted" ? false : undefined;
+  // Stage hunk and Unstage hunk (cx-ncc.74): Unstaged stages a hunk, Staged unstages it. Uncommitted
+  // has none: its hunks are HEAD against the worktree, part of which may be staged already.
+  const hunkUnstages = scope === "staged" ? true : scope === "unstaged" ? false : undefined;
+  const withPrevious = (
+    path: string,
+    changeSet: { root?: string; files: { path: string; previousPath?: string }[] },
+  ) => {
+    const top = changeSet.root?.replace(/\/+$/, "");
+    const named = top && path.startsWith(`${top}/`) ? path.slice(top.length + 1) : path;
+    const previous = changeSet.files.find((file) => file.path === named)?.previousPath;
+    return previous ? [named, previous] : [named];
+  };
+  const changeIndex = (asked: Promise<unknown>) => {
+    latestOpen.current += 1;
+    setOpenFailure(undefined);
+    asked.then(retry, (error: unknown) =>
+      setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.stageFailed")),
+    );
+  };
+  const stageFile = useStableCallback((path: string) => {
+    if (!source?.stage || unstages === undefined || load.state !== "loaded") return;
+    changeIndex(source.stage(withPrevious(path, load.changeSet), unstages));
+  });
+  const stageHunk = useStableCallback((path: string, hunk: DiffHunk) => {
+    if (!source?.stageHunk || hunkUnstages === undefined || load.state !== "loaded") return;
+    const lines = hunk.lines.map((line) => (line.type === "add" ? "+" : line.type === "del" ? "-" : " ") + line.text);
+    changeIndex(source.stageHunk(withPrevious(path, load.changeSet), lines, hunkUnstages));
+  });
+  // Show more lines (cx-ncc.85): each file is read whole once per load of the scope, when it
+  // comes into view; a rename's old name would be lost from a one-path read, so it isn't.
+  const wholeReads = useRef<{
+    load: typeof load;
+    reads: Map<string, ReturnType<NonNullable<FileActions["wholeFile"]>>>;
+  }>(undefined);
+  const wholeFile = useStableCallback((path: string) => {
+    if (!source?.wholeFile || scope === "lastTurn" || load.state !== "loaded") return Promise.resolve(undefined);
+    const named = withPrevious(path, load.changeSet);
+    if (named.length !== 1) return Promise.resolve(undefined);
+    if (wholeReads.current?.load !== load) wholeReads.current = { load, reads: new Map() };
+    const { reads } = wholeReads.current;
+    let read = reads.get(path);
+    if (!read) {
+      const name = named[0]!;
+      read = source.wholeFile(scope, name).then((value) => ({ named: name, value }));
+      reads.set(path, read);
+    }
+    return read;
+  });
+  const canStage = source?.stage !== undefined && unstages !== undefined;
+  const canStageHunk = source?.stageHunk !== undefined && hunkUnstages !== undefined;
+  const hunkKey = canStageHunk ? (hunkUnstages ? "u" : "s") : undefined;
+  useDiffKeys(panel, body, revealFromTree, selectedFile, hunkKey);
   const on = useMemo<FileActions>(
     () => ({
       openFile,
+      stage: canStage ? { unstage: unstages === true, run: stageFile } : undefined,
+      stageHunk: canStageHunk ? { unstage: hunkUnstages === true, run: stageHunk } : undefined,
+      wholeFile: source?.wholeFile && scope !== "lastTurn" ? wholeFile : undefined,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -220,7 +385,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile],
+    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk, source, scope, wholeFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -246,7 +411,12 @@ export function DiffPanel({
       pressed: allCollapsed,
     },
     { id: "wrap", label: t("changes.wrapLines"), icon: <Wrap />, pressed: wrap },
-    { id: "split", label: t("changes.splitView"), icon: <SplitView />, pressed: layout === "split" },
+    {
+      id: "split",
+      label: t("changes.splitView"),
+      icon: <SplitView />,
+      pressed: layout === "split",
+    },
     { id: "tree", label: t("changes.fileTree"), icon: <Panels />, pressed: showTree },
   ];
   // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
@@ -263,7 +433,10 @@ export function DiffPanel({
   const options: OptionsRow[] = [
     { label: t("changes.refresh"), disabled: scope === "lastTurn", run: retry },
     { label: wrap ? t("changes.disableWrap") : t("changes.wordWrap"), run: () => press("wrap") },
-    { label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"), run: () => press("split") },
+    {
+      label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"),
+      run: () => press("split"),
+    },
     {
       label: allCollapsed ? t("changes.expandAllDiffs") : t("changes.collapseAllDiffs"),
       disabled: files.length === 0,
@@ -302,6 +475,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
+          <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -322,41 +496,84 @@ export function DiffPanel({
       </header>
       {openFailure && (
         <div className="acpmux-diff-notice" role="alert">
-          {openFailure}
+          <span className="acpmux-diff-notice-text">{openFailure}</span>
+          <button
+            type="button"
+            className="acpmux-git-secondary"
+            aria-label={t("git.dismiss")}
+            onClick={() => setOpenFailure(undefined)}
+          >
+            ×
+          </button>
         </div>
       )}
       {(branch || skipped > 0 || turnNote) && (
         <div className="acpmux-diff-notes">
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
-          {branch && <BranchPill branch={branch.branch} base={branch.base} />}
+          {branch && (
+            <div className="acpmux-branch-row">
+              <BranchPill branch={branch.branch} base={branch.base} />
+              {/* Keyed by branch: another checkout starts over, never showing the last pull request. */}
+              {source?.pullRequest && <PullRequestButton key={branch.branch} open={source.pullRequest} />}
+            </div>
+          )}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      <GitWriteBar
+        git={git}
+        formOpen={commitOpen}
+        onCloseForm={() => setCommitOpen(false)}
+        messageRef={commitMessage}
+        reloadKey={load.state === "loaded" ? load.changeSet : load.state}
+      />
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
+          {find.open && <ChatFindBar find={find} label={t("changes.findPlaceholder")} />}
           {scopeState ? (
             <LoadState state={scopeState} onRetry={refresh} />
           ) : files.length === 0 ? (
             <div className="acpmux-muted">{t("changes.noTurnChanges")}</div>
           ) : (
-            files.flatMap((file) =>
-              file.edits.map((edit, index) => (
-                <EditBlock
-                  key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
-                  file={file}
-                  edit={edit}
-                  index={index}
-                  layout={layout}
-                  wrap={wrap}
-                  view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
-                  on={on}
-                  onPainted={onPainted}
-                  review={file.outside ? undefined : hunkReview}
-                  focusAfter={focusAfter}
-                />
-              )),
-            )
+            [
+              elsewhere.length > 0 && (
+                <section key="\u0000review" className="acpmux-review-unplaced" aria-label={t("review.otherFiles")}>
+                  <h3 className="acpmux-review-heading">{t("review.otherFiles")}</h3>
+                  {elsewhere.map((thread) => (
+                    <ReviewThreadView
+                      key={threadId(thread)}
+                      thread={thread}
+                      address={
+                        address && {
+                          state: address.states.get(threadId(thread)) ?? { state: "idle" },
+                          run: () => address.run(thread),
+                        }
+                      }
+                    />
+                  ))}
+                </section>
+              ),
+              ...files.flatMap((file) =>
+                file.edits.map((edit, index) => (
+                  <EditBlock
+                    key={`${file.path}\u0000${edit.toolId}\u0000${index}`}
+                    file={file}
+                    edit={edit}
+                    index={index}
+                    layout={layout}
+                    wrap={wrap}
+                    view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
+                    on={on}
+                    onPainted={onPainted}
+                    review={file.outside ? undefined : hunkReview}
+                    focusAfter={focusAfter}
+                    threads={threadsByPath.get(file.displayPath)}
+                    address={address}
+                  />
+                )),
+              ),
+            ]
           )}
         </div>
         {showTree && (
@@ -368,7 +585,7 @@ export function DiffPanel({
       {hunkReview && (
         <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
       )}
-      {files.length > 0 && !scopeState && <DiffKeyHints />}
+      {files.length > 0 && !scopeState && <DiffKeyHints hunkKey={hunkKey} />}
     </section>
   );
 }

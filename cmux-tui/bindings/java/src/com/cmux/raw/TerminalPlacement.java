@@ -23,6 +23,7 @@ public final class TerminalPlacement implements WireValue {
     private final UInt64 surface;
     private final String terminalId;
     private final String terminalIncarnation;
+    private final Field<String> terminalResourceId;
     private final UInt64 terminalRevision;
     private final UInt64 workspace;
 
@@ -51,6 +52,7 @@ public final class TerminalPlacement implements WireValue {
         this.terminalId = Wire.nonNull(builder.terminalId, "terminal_id");
         if (!builder.terminalIncarnationSet) throw new IllegalArgumentException("terminal_incarnation is required");
         this.terminalIncarnation = builder.terminalIncarnation;
+        this.terminalResourceId = builder.terminalResourceId;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
         if (!builder.workspaceSet) throw new IllegalArgumentException("workspace is required");
@@ -71,6 +73,7 @@ public final class TerminalPlacement implements WireValue {
     public UInt64 surface() { return surface; }
     public String terminalId() { return terminalId; }
     public String terminalIncarnation() { return terminalIncarnation; }
+    public Field<String> terminalResourceId() { return terminalResourceId; }
     public UInt64 terminalRevision() { return terminalRevision; }
     public UInt64 workspace() { return workspace; }
 
@@ -101,6 +104,10 @@ public final class TerminalPlacement implements WireValue {
         builder.terminalId(Wire.string(rawTerminalId, "TerminalPlacement.terminal_id"));
         Object rawTerminalIncarnation = Wire.required(object, "terminal_incarnation");
         builder.terminalIncarnation(rawTerminalIncarnation == null ? null : Wire.string(rawTerminalIncarnation, "TerminalPlacement.terminal_incarnation"));
+        Object rawTerminalResourceId = Wire.optional(object, "terminal_resource_id");
+        if (!Wire.isMissing(rawTerminalResourceId)) {
+            builder.terminalResourceId(Wire.string(rawTerminalResourceId, "TerminalPlacement.terminal_resource_id"));
+        }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "TerminalPlacement.terminal_revision"));
         Object rawWorkspace = Wire.required(object, "workspace");
@@ -123,6 +130,7 @@ public final class TerminalPlacement implements WireValue {
         Wire.put(object, "surface", surface);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
+        Wire.put(object, "terminal_resource_id", terminalResourceId);
         Wire.put(object, "terminal_revision", terminalRevision);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
@@ -131,11 +139,11 @@ public final class TerminalPlacement implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TerminalPlacement that)) return false;
-        return Objects.equals(alreadyExited, that.alreadyExited) && Objects.equals(exit, that.exit) && Objects.equals(generation, that.generation) && Objects.equals(key, that.key) && Objects.equals(lifecycle, that.lifecycle) && Objects.equals(pane, that.pane) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(alreadyExited, that.alreadyExited) && Objects.equals(exit, that.exit) && Objects.equals(generation, that.generation) && Objects.equals(key, that.key) && Objects.equals(lifecycle, that.lifecycle) && Objects.equals(pane, that.pane) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(screen, that.screen) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(alreadyExited, exit, generation, key, lifecycle, pane, registryId, replayed, screen, surface, terminalId, terminalIncarnation, terminalRevision, workspace); }
+    public int hashCode() { return Objects.hash(alreadyExited, exit, generation, key, lifecycle, pane, registryId, replayed, screen, surface, terminalId, terminalIncarnation, terminalResourceId, terminalRevision, workspace); }
 
     @Override
     public String toString() { return "TerminalPlacement" + toWire(); }
@@ -165,6 +173,7 @@ public final class TerminalPlacement implements WireValue {
         private boolean terminalIdSet;
         private String terminalIncarnation;
         private boolean terminalIncarnationSet;
+        private Field<String> terminalResourceId = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
         private UInt64 workspace;
@@ -228,6 +237,10 @@ public final class TerminalPlacement implements WireValue {
         public Builder terminalIncarnation(String value) {
             this.terminalIncarnation = value;
             this.terminalIncarnationSet = true;
+            return this;
+        }
+        public Builder terminalResourceId(String value) {
+            this.terminalResourceId = Field.of(value);
             return this;
         }
         public Builder terminalRevision(UInt64 value) {

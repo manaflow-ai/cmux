@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One grant: its symbol, name and one line on what it lets computer use
 /// do, then Allow with its key (pressing it is the same as clicking), or a
@@ -27,8 +28,7 @@ final class PermissionRow: NSView {
         names.orientation = .vertical
         names.alignment = .leading
         names.spacing = 2
-        let check = NSImageView(image: NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) ?? NSImage())
-        check.symbolConfiguration = .init(pointSize: 14, weight: .medium)
+        let check = NSImageView(image: NSImage.icon(.statusComplete, size: 16))
         check.contentTintColor = Palette.success
         done.setViews([check, OnboardingLabel.make(OnboardingStrings.computerUseDone, color: Palette.textSecondary)], in: .leading)
         done.spacing = 5

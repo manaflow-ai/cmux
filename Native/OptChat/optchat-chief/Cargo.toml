@@ -44,5 +44,22 @@ sha2 = "0.10"
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 
+# The acpmux socket peer's Team signature (acpmux_peer, cx-ggai).
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8"
+
+[features]
+# Only the tests' in-process fake acpmux daemons: a socket peer that is this
+# process passes the peer check (acpmux_peer). Never in a shipped build; the
+# tests turn it on through the self dev-dependency below.
+test-in-process-peer = []
+
 [dev-dependencies]
+optchat-chief = { path = ".", features = ["test-in-process-peer"] }
 tempfile = "3"
+
+# The Chief ships in the app bundle (Resources/bin): fat LTO with one codegen
+# unit, like the cmux-tui client, keeps it small.
+[profile.release]
+lto = "fat"
+codegen-units = 1

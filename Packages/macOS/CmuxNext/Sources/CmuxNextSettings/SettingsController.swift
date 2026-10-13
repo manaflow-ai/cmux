@@ -25,6 +25,11 @@ public final class SettingsController {
     public private(set) var snapshot: CmuxConfigSnapshot = .empty
     /// The dotted key the palette previews now (`preview`), or nil.
     public internal(set) var previewingKey: String?
+    /// The snapshot a preview shows, or nil while none does (`preview`).
+    public internal(set) var previewSnapshot: CmuxConfigSnapshot?
+    /// The settings in effect: a preview's snapshot while one shows, else the loaded one. Live
+    /// appearance the applier does not own (themes, the accent) follows this, so a preview shows.
+    public var applied: CmuxConfigSnapshot { previewSnapshot ?? snapshot }
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
     /// Keys an MDM profile or the team policy manages (dotted key -> manager).
@@ -38,6 +43,10 @@ public final class SettingsController {
     /// The app's native confirmation for a socket write of a user-only key (`cmux settings set
     /// --confirm`): it shows a sheet that names the key and value and needs a real click or key.
     @ObservationIgnored public var userOnlyConfirmation: (@MainActor (String, JSONValue?) async -> Bool)?
+    /// The Ghostty config files' own `background-blur` (C encoding), before cmux.json's: an
+    /// opacity write with Material unset names the material it gives, and an opacity reset drops
+    /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
+    @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
@@ -198,33 +207,6 @@ public final class SettingsController {
         try await setSetting(at: ["appearance", "density"], to: .string(density.rawValue), by: .currentRun())
     }
 
-    /// Writes `layout.panePadding` in points; nil removes it (density default).
-    public func setPanePadding(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "panePadding"], to: points.map(JSONValue.number), by: .currentRun())
-    }
-
-    /// Writes `layout.paneCornerRadius` in points; nil removes it.
-    public func setPaneCornerRadius(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "paneCornerRadius"], to: points.map(JSONValue.number), by: .currentRun())
-    }
-
-    /// Writes `layout.paneBorder`; nil removes it (subtle).
-    public func setPaneBorder(_ border: PaneBorderStyle?) async throws {
-        try await setSetting(at: ["layout", "paneBorder"], to: border.map { .string($0.rawValue) }, by: .currentRun())
-    }
-
-    /// Writes `layout.paneBorderWidth` in points; nil removes it (one device pixel).
-    public func setPaneBorderWidth(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "paneBorderWidth"], to: points.map(JSONValue.number), by: .currentRun())
-    }
-
-    /// Removes `layout.paneBorderColor` (the theme's color) or writes "#RRGGBB[AA]".
-    /// Like every typed setter, it goes through `setSetting`, so a removal
-    /// takes an emptied `layout` object with it and a bad value is refused.
-    public func setPaneBorderColor(_ hex: String?) async throws {
-        try await setSetting(at: ["layout", "paneBorderColor"], to: hex.map(JSONValue.string), by: .currentRun())
-    }
-
     // MARK: - Loading
 
     /// Applies a completed controller write before returning to its caller.
@@ -324,6 +306,7 @@ public final class SettingsController {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
             previewingKey = nil
+            previewSnapshot = nil
             diagnostics = applier.apply(loaded.snapshot)
             let effective = loaded.effective
             snapshot = loaded.snapshot

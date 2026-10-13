@@ -186,9 +186,7 @@ jobs:
             scripts/select-ci-xcode.sh
             scripts/ci/xcode-pins.txt
             scripts/ci/frame-pacing
-            scripts/ci/run-in-console-session.sh
-            scripts/ci/run-and-capture.sh
-            scripts/ci/app-host-isolation.sh
+            scripts/lib/stop-cmux-tui-owners.sh
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -224,13 +222,13 @@ jobs:
         timeout-minutes: 15
         env:
           FLINGS: ${{ inputs.flings || '3' }}
-        run: scripts/ci/run-in-console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
+        run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
 
       # bench.sh tears both down on exit; this covers a step killed by its timeout.
       - name: Remove the virtual display and the app
         if: always() && steps.gui.outputs.taken == 'true'
         continue-on-error: true
-        run: scripts/ci/run-in-console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
+        run: scripts/ci/frame-pacing/console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
 
       - name: Summary
         if: always() && steps.gui.outputs.taken == 'true'

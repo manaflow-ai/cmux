@@ -109,6 +109,7 @@ name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -648,7 +649,9 @@ dependencies = [
  "cmux-conversation",
  "cmux-sdk",
  "cmux-server-core",
+ "core-foundation-sys",
  "libc",
+ "optchat-chief",
  "optchat-core",
  "optchat-host",
  "ring",

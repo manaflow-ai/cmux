@@ -1,4 +1,4 @@
-// `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `package` and `plusMinus` are
+// `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `package`, `plusMinus` and `worktree` are
 // custom stroke icons drawn for the diff toolbar and its menus (20px grid). The
 // `pill*` icons redraw the classic viewer's toolbar pill glyphs (wrap, collapse
 // or expand all, layout, files).
@@ -49,6 +49,7 @@ export type IconName =
   | "split"
   | "unified"
   | "word"
+  | "worktree"
   | "wrap";
 
 const octiconPaths: Partial<Record<IconName, readonly string[]>> = {
@@ -142,7 +143,7 @@ export function Icon({ name }: { name: IconName }) {
   const paths = octiconPaths[name];
   if (paths) {
     return (
-      <svg viewBox="0 0 16 16" aria-hidden="true" data-icon-fill="true">
+      <svg viewBox="0 0 16 16" aria-hidden="true" data-icon={name} data-icon-fill="true">
         {paths.map((d) => (
           <path key={d} d={d} />
         ))}
@@ -150,7 +151,7 @@ export function Icon({ name }: { name: IconName }) {
     );
   }
   return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
+    <svg viewBox="0 0 20 20" aria-hidden="true" data-icon={name}>
       <StrokeIconPaths name={name} />
     </svg>
   );
@@ -190,6 +191,16 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <circle cx="14" cy="6.5" r="1.8" />
           <path d="M6 6.8v6.4" />
           <path d="M14 8.3c0 3.2-8 2.4-8 4.9" />
+        </>
+      );
+    case "worktree":
+      // A branch inside a folder: another checkout of the repo (the agent pane's git.worktree).
+      return (
+        <>
+          <path d="M2.5 6.25c0-1.15.93-2.08 2.08-2.08h3.13l1.67 1.87h6.04c1.15 0 2.08.93 2.08 2.08v6.46c0 1.15-.93 2.08-2.08 2.08H4.58c-1.15 0-2.08-.93-2.08-2.08Z" />
+          <circle cx="12.9" cy="9.6" r="1.45" />
+          <path d="M7.1 9v6.2" />
+          <path d="M12.9 11.05c0 2.9-5.8 1.65-5.8 4.15" />
         </>
       );
     case "chevronRight":

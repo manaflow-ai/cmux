@@ -1,13 +1,13 @@
-// The message timeline: a virtualized window of compact rows (only the rows near the viewport are
-// in the DOM), measured after render because messages differ in height. Scrolling near the top
-// asks the store for one older page.
-import { useMemo, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+// The message timeline: a virtual window of rows (useTimelineWindow renders only the rows near the
+// viewport, measured after render because messages differ in height), day lines with a centered
+// date pill, message rows and the running reply. Scrolling near the top asks the store for one
+// older page.
+import { useMemo } from "react";
 import type { Strings } from "../shared/i18n";
-import { MessageRow } from "./MessageRow";
+import { DraftRow, MessageRow } from "./MessageRow";
 import type { TimelineRow } from "./model";
 import type { HomeMessage, HomeParticipant } from "./types";
-import { useStickToBottom } from "./useStickToBottom";
+import { useTimelineWindow } from "./useTimelineWindow";
 
 export interface TimelineProps {
   conversation?: string;
@@ -16,11 +16,22 @@ export interface TimelineProps {
   me?: string;
   strings: Strings;
   loadingOlder: boolean;
+  /** The message whose inline editor is open. */
+  editing?: string;
   onLoadOlder(): void;
   onOpenThread?(root: string): void;
   onReact(message: HomeMessage, value: string): void;
+  onEditStart?(message: HomeMessage): void;
+  onEditEnd?(): void;
+  onEdit?(message: HomeMessage, text: string): Promise<boolean>;
+  onRetract?(message: HomeMessage): void;
   className?: string;
+  /** What the empty timeline says. */
+  empty?: string;
 }
+
+const estimate = (row: TimelineRow) =>
+  row.kind === "day" || row.kind === "replies" ? 44 : row.kind === "new" ? 24 : row.head ? 64 : 28;
 
 export function Timeline({
   conversation,
@@ -29,12 +40,17 @@ export function Timeline({
   me,
   strings,
   loadingOlder,
+  editing,
   onLoadOlder,
   onOpenThread,
   onReact,
+  onEditStart,
+  onEditEnd,
+  onEdit,
+  onRetract,
   className,
+  empty,
 }: TimelineProps) {
-  const scroller = useRef<HTMLDivElement | null>(null);
   const timeFormat = useMemo(
     () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
     [strings.language],
@@ -43,51 +59,68 @@ export function Timeline({
     () => new Intl.DateTimeFormat(strings.language, { weekday: "long", month: "long", day: "numeric" }),
     [strings.language],
   );
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scroller.current,
-    estimateSize: (index) =>
-      rows[index]?.kind === "day" ? 32 : rows[index]?.kind === "message" && rows[index].head ? 52 : 24,
-    getItemKey: (index) => rows[index]?.key ?? index,
-    overscan: 8,
-  });
-  const firstMessage = rows.find((row) => row.kind === "message")?.key;
-  const stick = useStickToBottom(virtualizer, scroller, conversation, rows.length, firstMessage);
-  const onScroll = () => {
-    if (stick.onScroll()) onLoadOlder();
-  };
+  const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
+  // Destructured: `scroller` alone is the ref; the rest are plain render values.
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation);
   if (rows.length === 0)
-    return <div className={`hc-timeline-empty ${className ?? ""}`}>{strings.t("timeline.empty")}</div>;
+    return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (
     <div className={`hc-timeline-frame ${className ?? ""}`}>
       {loadingOlder && <div className="hc-older">{strings.t("timeline.loadingOlder")}</div>}
-      <div ref={scroller} className="hc-timeline" onScroll={onScroll} role="log" aria-live="polite">
-        <div className="hc-timeline-space" style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map((item) => {
+      <div
+        ref={scroller}
+        className="hc-timeline"
+        onScroll={() => {
+          if (onScroll()) onLoadOlder();
+        }}
+        role="log"
+        aria-live="polite"
+      >
+        <div className="hc-timeline-space" style={{ height: total }}>
+          {items.map((item) => {
             const row = rows[item.index]!;
             return (
               <div
                 key={item.key}
-                data-index={item.index}
-                ref={virtualizer.measureElement}
+                data-key={item.key}
+                ref={measure}
                 className="hc-timeline-row"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "day" ? (
-                  <div className="hc-day" role="separator">
-                    <span>{dayLabel(row.at, strings, dayFormat)}</span>
+                  <div className="hc-day">
+                    <span className="hc-day-pill">{dayLabel(row.at, strings, dayFormat)}</span>
                   </div>
+                ) : row.kind === "new" ? (
+                  <div className="hc-new-line">
+                    <span>{strings.t("timeline.new")}</span>
+                  </div>
+                ) : row.kind === "replies" ? (
+                  <div className="hc-replies-line">
+                    <span>
+                      {row.count === 1
+                        ? strings.t("thread.replies.one")
+                        : strings.format("thread.replies.many", String(row.count))}
+                    </span>
+                  </div>
+                ) : row.kind === "draft" ? (
+                  <DraftRow draft={row.draft} head={row.head} people={people} strings={strings} />
                 ) : (
                   <MessageRow
                     message={row.message}
                     head={row.head}
                     thread={row.thread}
-                    author={people.get(row.message.author)}
+                    people={people}
                     me={me}
                     strings={strings}
                     timeFormat={timeFormat}
+                    editing={row.message.id === editing}
                     onOpenThread={onOpenThread}
                     onReact={onReact}
+                    onEditStart={onEditStart}
+                    onEditEnd={onEditEnd}
+                    onEdit={onEdit}
+                    onRetract={onRetract}
                   />
                 )}
               </div>

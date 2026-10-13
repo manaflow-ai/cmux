@@ -1,4 +1,6 @@
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextRemote
 import Foundation
 
@@ -12,7 +14,7 @@ extension HomeService {
         let chief = chief
         // task-owner: one wait for the owner's first connection, then one row add
         Task { [weak self] in
-            for await connected in Observations({ chief.connection != nil }) where connected {
+            for await connected in ObservationStream({ chief.connection != nil }) where connected {
                 guard let path = await chief.socketPath(), let self else { return }
                 let homeID = String(ChiefHomeAcpmux.host(muxHome: chief.home.muxHome).dropFirst("chief:".count))
                 guard let reach = try? ServerReach.localChief(homeID: homeID, socket: path, name: HomeStrings.chiefName) else {

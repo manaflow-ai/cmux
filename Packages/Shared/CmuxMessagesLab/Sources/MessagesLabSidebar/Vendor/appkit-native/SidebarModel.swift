@@ -282,7 +282,7 @@ struct SidebarMetrics: Equatable {
     /// 3 at normal widths, 2 when 3 do not fit, 1 in the compact list.
     var columns: Int {
         if compact { return 1 }
-        return max(1, min(Self.pinColumns, CrashGuard.int((width - 2 * Self.pinInsetX) / Self.minTileWidth))) // cmux: no trap on NaN
+        return max(1, min(Self.pinColumns, CrashGuard.int((width - 2 * Self.pinInsetX) / Self.minTileWidth))) // no trap on NaN
     }
     var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
     /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
@@ -338,14 +338,14 @@ struct SidebarPalette: Equatable {
     /// taken only as a CGColor resolved in `appearance` (no component of an NSColor is read, so
     /// catalog, pattern and gray colors are safe).
     static func resolve(_ appearance: NSAppearance, unreadColor: NSColor? = nil, selectionColor: NSColor? = nil) -> SidebarPalette {
-        // cmux: no IUO (crash program). The block runs synchronously, so `palette` is set;
+        // no IUO . The block runs synchronously, so `palette` is set;
         // without it the palette resolves in the current appearance.
         var palette: SidebarPalette?
         func build() -> SidebarPalette {
             let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColor {
                 CGColor(colorSpace: SidebarDraw.p3, components: [r / 255, g / 255, b / 255, a])
-                    ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // cmux: no force unwrap
+                    ?? CGColor(red: r / 255, green: g / 255, blue: b / 255, alpha: a) // no force unwrap
             }
             return SidebarPalette(
                 dark: dark,

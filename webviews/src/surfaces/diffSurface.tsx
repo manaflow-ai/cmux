@@ -1,7 +1,12 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
-import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
+import {
+  applyDiffViewerAppearance,
+  followHostTerminalTheme,
+  resolveDiffViewerAppearance,
+  setDiffChangeColors,
+} from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
@@ -10,8 +15,13 @@ import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
+import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
 import type { DiffViewerConfig } from "../types";
+import { sanitizeViewerPrefs } from "../viewer-prefs";
 import { installWebviewStyles } from "./installWebviewStyles";
+
+/** The empty state's theme listener, stopped when the viewer renders. */
+let stopFollowingEmpty: (() => void) | undefined;
 
 /** The config the classic host (and the dev server) embeds in the page, or null. */
 function readEmbeddedConfig(): DiffViewerConfig | null {
@@ -52,7 +62,10 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
       const empty = await import("../viewer-empty/emptySurface");
       installWebviewStyles("viewer-empty", empty.viewerEmptyStyles);
       installWebviewStyles("ui", empty.uiStyles);
-      applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+      stopFollowingEmpty?.();
+      stopFollowingEmpty = followHostTerminalTheme(() =>
+        applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)),
+      );
       installSolidBackdrop();
       return empty.pickDiffConfig(rootElement, page, { labels: config.payload?.labels });
     },
@@ -67,8 +80,15 @@ export async function renderDiffSurface(
 ): Promise<void> {
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
+  installWebviewStyles("git", gitStyles);
   installDiffLanguageHostAPI(languages);
-  applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
+  // Code and diff colors follow the terminal theme in place (appearance.ts); the empty state's
+  // listener stops first.
+  stopFollowingEmpty?.();
+  stopFollowingEmpty = undefined;
+  // Diff Colors seeds with the other display prefs; the stored prefs re-sync it after boot.
+  setDiffChangeColors(sanitizeViewerPrefs(config.payload?.viewerOptions).colors);
+  followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;

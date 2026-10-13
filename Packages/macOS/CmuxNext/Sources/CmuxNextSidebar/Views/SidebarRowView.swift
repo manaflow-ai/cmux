@@ -16,6 +16,8 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             fadesNextFill = false
             needsDisplay = true
+            // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
+            needsLayout = true
         }
     }
 
@@ -61,11 +63,13 @@ class SidebarRowView: NSView {
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
-        layer?.removeAnimation(forKey: "backgroundColor")
+        // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
+        layer?.removeAllAnimations()
+        clipsToBounds = false
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
-        toolTip = nil
+        themedToolTip = nil
     }
 
     /// Buttons that receive clicks directly.
@@ -82,16 +86,34 @@ class SidebarRowView: NSView {
     }
 
     /// The next fill change came from hover, so it fades
-    /// (`MotionFade.hover`); reloads and theme changes apply at once.
+    /// (`ChromeHover.fade`: eases in, clears at once); reloads and theme
+    /// changes apply at once.
     var fadesNextFill = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
+        paintsFill = color != nil
         guard let layer else { return }
         ChromeHover.paint(layer, color, animated: fadesNextFill)
         fadesNextFill = false
     }
+
+    /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
+    private(set) var paintsFill = false
+    /// Any fill the row shows now, its own or a part's (debug).
+    var debugFill: Bool { paintsFill }
+    /// The row's disclosure chevron for debug.sidebar_rows: the pack icon it
+    /// draws, its frame in the row and whether it shows; nil without one.
+    var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { nil }
+
+    /// Counts the times this row started opening its slot (clipped): an
+    /// earlier open's completion, run early when a later update reopens the
+    /// row, leaves the later open's clip alone (cx-ai79).
+    var opens = 0
+
+    /// The frame as drawn now: the presentation mid-animation (debug).
+    var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }
 
     /// Size the row is animating toward. Content lays out for the final size
     /// up front, so an animated frame change never shows a stale layout.

@@ -121,10 +121,20 @@ case "$(cd "$package_path" && pwd -P)" in
       (
         cd "$script_dir/../.." || exit 0
         export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
-        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
-        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
-          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
-            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        pin="${CMUX_PIN_CMUX_TUI:-scripts/cmux-next/pin-cmux-tui.sh}"
+        tree_path="$(bash "$pin" path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+          # The head's own tree publishes late (or never, for an unmerged PR head).
+          # A head that changes no cmux-tui input tests the newest published tree,
+          # as PR CI does; one that does change it skips the live-daemon suites.
+          if key="$(bash "$pin" fallback-key)" && [ -n "$key" ] \
+              && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+            tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || exit 0
+            printf '%s' "$key" > "$evidence_dir/tui-tree-key"
+            echo "This head changes no cmux-tui input and its tree is not published; the live-daemon suites use the newest published tree $key." >&2
+          else
+            echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+          fi
         fi
         printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
       ) &
@@ -190,6 +200,9 @@ if [ -n "${tree_path_job:-}" ]; then
   wait "$tree_path_job" || true
   tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
   [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  # Suites that ask pin-cmux-tui.sh for acpmux or the daemon get the same tree.
+  tree_key="$(cat "$evidence_dir/tui-tree-key" 2>/dev/null || true)"
+  [ -z "$tree_key" ] || export CMUX_TUI_TREE_KEY="$tree_key"
 fi
 if [ "$direct" -eq 1 ]; then
   # Everything else the suites need from the toolchain, resolved once: the

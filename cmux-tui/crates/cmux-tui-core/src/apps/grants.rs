@@ -98,7 +98,11 @@ impl ScopeTable {
         if external && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
-        let granted = match scope.as_str() {
+        // A workspace created with a command runs it, as `workspace.run` does.
+        let launches = op == "workspace.create"
+            && (params.get("argv").is_some() || params.get("shell").is_some());
+        let scope = if launches { "workspace:execute" } else { scope.as_str() };
+        let granted = match scope {
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
             "integration:<provider>" => match params.get("provider").and_then(Value::as_str) {
                 Some(provider) => {
@@ -323,6 +327,25 @@ mod tests {
             ),
             Decision::ScopeMissing(_)
         ));
+    }
+
+    #[test]
+    fn workspace_create_with_a_command_needs_the_execute_scope() {
+        let table = ScopeTable::get();
+        let write = grant(&["workspace:write"]);
+        let execute = grant(&["workspace:write", "workspace:execute"]);
+        let plain = json!({ "initial_content": "terminal", "cwd": "/tmp" });
+        assert!(matches!(table.check("workspace.create", &plain, &write), Decision::Allow(_)));
+        for command in [json!({ "argv": ["sh"] }), json!({ "shell": "true" })] {
+            assert!(matches!(
+                table.check("workspace.create", &command, &write),
+                Decision::ScopeMissing(_)
+            ));
+            assert!(matches!(
+                table.check("workspace.create", &command, &execute),
+                Decision::Allow(_)
+            ));
+        }
     }
 
     #[test]

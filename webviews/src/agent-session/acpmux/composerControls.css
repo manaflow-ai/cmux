@@ -5,10 +5,10 @@
   min-width: 140px;
   max-width: min(240px, calc(100vw - 24px));
   padding: 5px;
-  border: 0;
+  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
   border-radius: 10px;
-  background: var(--acpmux-menu-bg);
-  box-shadow: inset 0 0 0 .5px var(--acpmux-composer-edge), 0 10px 30px var(--agent-shadow, rgb(0 0 0 / .35));
+  background-color: var(--surface-popup);
+  box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
@@ -75,6 +75,25 @@
   pointer-events: none;
   transition: left 160ms ease;
 }
+/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
+   the recommended level on its own centred line under them: a narrow panel never cuts it. */
+.acpmux-effort-ends {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 8px;
+  margin-top: 6px;
+  direction: ltr;
+  font-size: var(--text-detail);
+  line-height: 16px;
+  color: var(--agent-muted);
+}
+.acpmux-effort-recommended {
+  order: 3;
+  flex-basis: 100%;
+  text-align: center;
+  direction: initial;
+}
 .acpmux-effort-range {
   position: absolute;
   inset: 0;
@@ -103,3 +122,17 @@
   color: var(--agent-muted);
   white-space: normal;
 }
+/* A control the session has not reported yet keeps its place: the chip's box, inert, with one
+   quiet bar where its label goes (ComposerPickers ChipSkeleton, cx-ncc.58). */
+.acpmux-chip-skeleton { pointer-events: none; }
+.acpmux-chip-skeleton .acpmux-chip-skeleton-face { justify-content: center; }
+.acpmux-effort.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 48px; }
+.acpmux-mode.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 34px; padding: 0 3px; }
+.acpmux-chip-skeleton-bar {
+  display: block;
+  width: 60%;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-muted) 22%, transparent);
+}
+.acpmux-chip-skeleton .acpmux-chip-skeleton-face:hover { background: none; }

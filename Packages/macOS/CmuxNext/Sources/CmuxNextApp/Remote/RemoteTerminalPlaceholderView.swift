@@ -18,7 +18,7 @@ final class RemoteTerminalPlaceholderView: NSView {
 
     private let icon = NSImageView()
     private let status = NSTextField(labelWithString: "")
-    private let connect = NSButton()
+    private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
     private let scroll = NSScrollView()
     private(set) var state: State = .reconnecting

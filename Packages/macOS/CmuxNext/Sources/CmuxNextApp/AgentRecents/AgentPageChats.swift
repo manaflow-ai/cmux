@@ -10,8 +10,13 @@ import CmuxNextSidebar
 @MainActor
 final class AgentPageChats {
     private(set) var chats: [AgentPaneDeviceChat] = []
+    /// The Recently Closed section's newest items (NewTabClosed).
+    var closed: [AgentPaneClosedItem] = []
     private(set) var open: (@MainActor (String) -> Void)?
     private(set) var openInTerminal: (@MainActor (String) -> Void)?
+    /// A row of the New Tab page's All chats: the chat opens in that page's tab, which becomes the
+    /// chat (`(chat key, page tab key)`, Lawrence 2026-10-11: "like a browser link").
+    private(set) var openHere: (@MainActor (String, String) -> Void)?
     private(set) var page: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)?
 
     /// Follows `feed` for every page of `tabs`; cards open through `opener`.
@@ -27,6 +32,7 @@ final class AgentPageChats {
         let chats = tabs.pageChats
         if chats.open == nil { chats.open = { [weak opener] key in opener?.open(key) } }
         chats.openInTerminal = { [weak opener] key in opener?.openInTerminal(key) }
+        chats.openHere = { [weak opener] key, page in opener?.open(key, replacing: page) }
         guard let environment else { return }
         chats.page = { query in
             // One bounded page (<= AgentPaneChatsQuery.maximumLimit rows), read and decoded off the main actor.
@@ -40,11 +46,17 @@ final class AgentPageChats {
         self.open = open
         let push = { [weak self, weak feed] in
             guard let self, let feed else { return }
-            chats = Self.deviceChats(feed.chats)
+            chats = Self.deviceChats(feed.newest(AgentPaneDeviceChat.maximumPushed))
             for view in views() { view.deviceChats = chats }
         }
         feed.observe(self) { push() }
         push()
+    }
+
+    /// A new page starts with the current chats and closed items.
+    func seed(_ view: AgentPaneView) {
+        view.deviceChats = chats
+        view.recentlyClosed = closed
     }
 
     /// The newest chats, as the page cards take them.

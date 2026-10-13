@@ -667,6 +667,7 @@ impl ClientRegistry {
                     || browser_runtime_capability(capability)
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
+                    || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

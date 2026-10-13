@@ -59,6 +59,22 @@ import CmuxNextCompat
     public let permissionOptions = AcpmuxPermissionOptions()
     /// The sessions this pane started or shows.
     public let sessions = AcpmuxPaneSessions()
+    /// Each shown prompt's decision nonce and daemon run, for a relayed allow's proof (cx-0q7o).
+    public let decisions = AcpmuxDecisionContexts()
+    /// The keyed restart the chat's machine offers, when it runs on another machine.
+    private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
+    /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
+    /// its own folder trust, cx-k21v).
+    private(set) var remoteWire = false
+    /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
+    /// first `session/prompt` on that connection goes with it, however long the start took.
+    var remoteStartCredit: (connection: Int, at: TimeInterval)?
+    /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
+    static let remoteStartCreditLifetime: TimeInterval = 120
+    /// Told when an allow went to another daemon run without the person's proof: that daemon
+    /// holds no key of this app for that run, so it refuses the allow.
+    public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
@@ -73,6 +89,11 @@ import CmuxNextCompat
     public var homeFolder: String? = NSHomeDirectory()
     /// Folders the user added or picked by a gesture: roots from then on.
     public internal(set) var addedRoots: [String] = []
+
+    /// Makes `folder` (canonical) a root: the user's answer to a folder question (`workspace.useFolder`).
+    func grant(_ folder: String) {
+        if !addedRoots.contains(folder) { addedRoots.append(folder) }
+    }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
@@ -85,16 +106,27 @@ import CmuxNextCompat
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
-    /// sha256, over the unix socket); nil when the daemon cannot give one (refused, not found).
-    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async -> AgentPaneHarnessEnablePrompt? = { _, _ in nil }
+    /// sha256, over the unix socket); throws when the daemon cannot give one (its refusal, as
+    /// ``AcpmuxRPCError``, says why).
+    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async throws -> AgentPaneHarnessEnablePrompt = { _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
     /// Shows the native Enable harness sheet for `prompt`; Cancel answers false.
     public var requestHarnessEnable: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The current socket's request ids (relay-owned, mapped back on the reply).
     var requestIds: AcpmuxRequestIds?
-    private var socketPath: String?
+    private(set) var socketPath: String?
+    /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
+    /// are refused here: the pane says so).
+    public var onOtherInstall: (@MainActor (Bool) -> Void)?
     /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
     /// Archive). Replaced in tests.
     public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
+
+    /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
+    public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
     }
 
@@ -114,9 +146,13 @@ import CmuxNextCompat
             guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
             try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
+        markUnread = { [weak self] session in
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            try await AcpmuxStatusClient.markUnread(socketPath: path, sessionId: session)
+        }
         harnessEnablePrompt = { [weak self] folder, id in
-            guard let path = self?.socketPath else { return nil }
-            return await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            return try await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
         }
     }
 
@@ -135,15 +171,25 @@ import CmuxNextCompat
         let id = current
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
+        remoteApprovals = connection.remote?.approvals
+        remoteWire = connection.remote != nil
+        remoteStartCredit = nil
+        decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
-                                      options: permissionOptions, sessions: sessions, ids: ids) { [weak self] in
+                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
+           !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
+            if self.socket === socket { self.socket = nil; localAppToken = nil }
+            throw .connectFailed
+        }
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -152,6 +198,17 @@ import CmuxNextCompat
             throw .connectFailed
         }
         guard self.socket === socket else { throw .staleConnection }
+        // cx-fcaq: the accepted end of this connection is the acpmux this app runs too (or another
+        // cmux install's, under AcpmuxServerPeer's rules; its allows stay with that app).
+        if connection.remote == nil, let executable = connection.executable, let port = connection.url.port {
+            guard let match = await AcpmuxServerPeer.verifyAccepted(port: port, executable: executable) else {
+                close(connection: id)
+                throw .connectFailed
+            }
+            onOtherInstall?(match == .foreign)
+        } else {
+            onOtherInstall?(false)
+        }
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
@@ -199,6 +256,15 @@ import CmuxNextCompat
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
+        // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
+        // pane was shown, and only for an option that prompt offers as an allow. Page script can
+        // still turn a click into an allow of such a prompt (cx-ocdz: a native person-input gate
+        // for the permission card is the fix).
+        if intent.method == "_acpmux/permission_respond" {
+            guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
+                  case .string(let option)? = intent.params["optionId"], sessions.contains(session),
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+        }
         return gestures.reserve(connection: current, intent: intent)
     }
 

@@ -7,8 +7,8 @@ extension SidebarListView {
     /// Applies `layout` keeping what the user sees (the anchor stays put,
     /// rows and offset shift together so nothing jumps), then reveals the
     /// active workspace when it changed or was fully visible; the reveal
-    /// animates with `Motion` (instant under Reduce Motion) and is the only
-    /// scroll this change makes.
+    /// animates with `Motion` (instant under Reduce Motion, and to a new row,
+    /// Cmd-N's, cx-evo3q) and is the only scroll this change makes.
     func applyKeepingViewport(_ layout: SidebarLayout, animated: Bool) {
         let active = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
         let previousActive = revealedActive
@@ -38,6 +38,7 @@ extension SidebarListView {
                 if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
                 for view in rowViews.values { view.frame.origin.y += delta }
                 decorations.shift(by: delta)
+                groupLineViews.shift(by: delta)
                 // Rows are realized by `apply` from the new layout, not from
                 // the old one while the offset moves.
                 isShiftingViewport = true
@@ -48,7 +49,7 @@ extension SidebarListView {
         apply(layout, animated: animated)
         let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
                                   padding: SidebarLayout.revealPadding)
-        if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated) }
+        if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && active.map { before.item($0) == nil } != true) }
     }
     func scrollClip(to y: CGFloat, animated: Bool) {
         enclosingScrollView?.scrollContent(toY: y, animated: animated) { [weak self] in self?.realizeVisibleRows() }

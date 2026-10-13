@@ -78,6 +78,30 @@ await requireBrowserLane("chat-find.test.ts", async () => {
     });
   }
 
+  /** Waits (up to 5 s) for the current match to sit in the transcript's viewport: a match in a
+   * closed fold opens it first, and its rows measure before the scroll lands. */
+  async function settleInView(page: Page) {
+    await page
+      .waitForFunction(
+        () => {
+          const active = [
+            ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ?? []),
+          ];
+          const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+          return (
+            active.length > 0 &&
+            active.every((range) => {
+              const box = range.getBoundingClientRect();
+              return box.top >= view.top && box.bottom <= view.bottom;
+            })
+          );
+        },
+        null,
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined);
+  }
+
   async function openChat(page: Page) {
     await page.goto(`${base}/?mock`);
     // The seeded worked turn's reply is drawn.
@@ -120,6 +144,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.keyboard.press("Shift+Enter");
       await page.keyboard.press("Shift+Enter");
+      await settleInView(page);
       const last = await state(page);
       expect(last.count).toBe(`${total} of ${total}`);
       expect(last.inView).toBe(true);
@@ -146,6 +171,83 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       expect((await state(page)).count).toBe(`${Math.min(2, total)} of ${total}`);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.command?.("hideFind"));
       expect((await state(page)).open).toBe(false);
+      await page.close();
+    });
+
+    // Codex desktop app parity (cx-ncc.70): Find reads the work too. The seeded turn has ended, so
+    // its commands and edits sit in a closed "Worked for" fold; a match there opens what holds it
+    // and scrolls it into view.
+    test("finds command output and edit diffs inside a closed Worked for fold", async () => {
+      if (!installed) return;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+      await openChat(page);
+      // A loaded machine (#19761 CI): the fold the match opens and the rows above it measure long
+      // after the match is first drawn, and Find still lands it in view.
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 40 });
+      // Only in the test command's output: found, its group opened, highlighted and in view.
+      await page.evaluate((text) => window.cmuxAcpmuxActions?.["chat.find"]?.({ text }), "1504.40ms");
+      await page.waitForSelector(".acpmux-find__field");
+      const activeIs = (text: string) =>
+        page
+          .waitForFunction(
+            (needle) =>
+              [
+                ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                  []),
+              ]
+                .map(String)
+                .some((range) => range.toLowerCase() === needle.toLowerCase()),
+            text,
+            { timeout: 10_000 },
+          )
+          .catch(() => undefined);
+      await activeIs("1504.40ms");
+      await settleInView(page);
+      const output = await state(page);
+      expect(output.count).toBe("1 of 1");
+      expect(output.active).toEqual(["1504.40ms"]);
+      expect(output.inView).toBe(true);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+
+      // Only in the edit of upload.test.ts: found, and its edits group opens on the diff. (The diff
+      // draws in @pierre/diffs' shadow root, where the page's highlights do not reach.)
+      await page.fill(".acpmux-find__field", "failNext");
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll<HTMLElement>(".acpmux-scroll button[aria-expanded]")].some(
+            (button) =>
+              (button.textContent ?? "").startsWith("Edited 3 files") &&
+              button.getAttribute("aria-expanded") === "true",
+          ),
+        null,
+        { timeout: 10_000 },
+      );
+      expect((await state(page)).count).toBe("1 of 1");
+
+      // The counter and the highlight agree: each step through a command's matches lands on a
+      // different drawn match (a group's summary line and a call's title are not counted).
+      await page.fill(".acpmux-find__field", "bun test");
+      const total = Number(/of (\d+)/.exec((await state(page)).count)?.[1] ?? 0);
+      expect(total).toBeGreaterThan(1);
+      const seen = new Set<string>();
+      for (let step = 0; step < total; step += 1) {
+        await settleInView(page);
+        seen.add(
+          await page.evaluate(() => {
+            const range = [
+              ...((CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights.get("acpmux-find-active") ??
+                []),
+            ][0];
+            const box = range?.getBoundingClientRect();
+            const scroller = document.querySelector(".acpmux-scroll")!;
+            return box ? `${Math.round(box.top + scroller.scrollTop)}:${Math.round(box.left)}` : "none";
+          }),
+        );
+        await page.keyboard.press("Enter");
+      }
+      expect(seen.has("none")).toBe(false);
+      expect(seen.size).toBe(total);
       await page.close();
     });
   });

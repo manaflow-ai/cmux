@@ -126,7 +126,8 @@ final class AppsService {
             return nil
         }
         if let reason = client.unavailableReason { throw .unavailable(reason) }
-        guard let app = client.app(appID), app.isActive else { throw .unknownApp }
+        guard let app = client.app(appID), app.installed else { throw .unknownApp }
+        guard app.enabled else { throw .disabled }
         guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
         guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
         guard let command else { return nil }
@@ -198,6 +199,8 @@ extension AppsService: InternalPageProvider {
 
 enum AppsServiceError: Error {
     case unknownApp, noPage, noWindow, unknownCommand
+    /// Installed but turned off.
+    case disabled
     /// The supervisor cannot be reached (an older daemon, not connected yet, or turned off).
     case unavailable(AppsUnavailableReason)
 }

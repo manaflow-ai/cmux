@@ -30,6 +30,8 @@ public final class WindowMaterialView: NSView {
     /// that was never key (opening, tests, snapshots) shows the glass alone.
     private var resignedKey = false
     private let artView = NSView()
+    /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
+    private var artOpacity: Float = 1
     private var loadedSelection: BackdropSelection?
     private var loadedArt: BackdropArt?
     private var loadedTexture: BackdropTexture?
@@ -79,9 +81,6 @@ public final class WindowMaterialView: NSView {
         updateArtCrop()
     }
 
-    /// Waits until the art the last `apply` asked for has loaded (tests).
-    func artLoaded() async { await artLoad?.value }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -97,7 +96,6 @@ public final class WindowMaterialView: NSView {
     /// Glass drops its `tintColor` then and draws the system's grey, so the
     /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
     var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
-    var inactiveTintColor: CGColor? { inactiveTintView.isHidden ? nil : inactiveTintView.layer?.backgroundColor }
 
     /// Classic's wash over inactive glass: strong over a dark theme, light
     /// over a light one, none while the window is key or for other materials.
@@ -166,11 +164,15 @@ public final class WindowMaterialView: NSView {
                     let image = await images.image(shown, texture: texture)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
-                    if fades { self.artView.layer?.add(Self.fadeIn(), forKey: "fadeIn") }
+                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
                 }
             }
         }
         artView.isHidden = hidesArt || artImage == nil
+        // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
+        // flight runs on to it.
+        artOpacity = Float(backdrop.artOpacity)
+        if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -198,14 +200,6 @@ public final class WindowMaterialView: NSView {
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
         updateArtCrop()
-    }
-
-    private static func fadeIn() -> CABasicAnimation {
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0
-        fade.toValue = 1
-        fade.duration = 0.2
-        return fade
     }
 
     private func updateArtCrop() {

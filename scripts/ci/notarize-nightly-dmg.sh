@@ -21,17 +21,20 @@ VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
-# Release channel of the app being packaged: `nightly` (default), `rc`, or
-# `stable`. It selects the entitlements file and the bundle-metadata check; the
-# packaging, notarization, and stapling steps are identical for all three.
+# Release channel of the app being packaged: `nightly` (default), `next`
+# (nightly-next's cmux NEXT), `rc`, or `stable`. It selects the entitlements
+# file and the bundle-metadata check; the packaging, notarization, and stapling
+# steps are identical for all of them.
 # `stable` is used only by the nightly-next production-identity notary probe
 # (nightly.yml input notary_probe_production_identity), which publishes nothing.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
   nightly|rc) ENTITLEMENTS_NAME="cmux.${CHANNEL}.entitlements" ;;
+  # nightly-next's cmux NEXT (cx-x7hwx): signed without a provisioning profile.
+  next) ENTITLEMENTS_NAME="cmux.next-dev.entitlements" ;;
   stable) ENTITLEMENTS_NAME="cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, rc or stable)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, next, rc or stable)" >&2
     exit 2
     ;;
 esac
@@ -43,6 +46,8 @@ APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/$ENTITLEMENTS_NAME}"
 CONTINUE_STATE="${CMUX_NOTARY_CONTINUE_STATE:-}"
 # shellcheck source=lib/notary-auth.sh
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
+# shellcheck source=lib/notarization-ticket.sh
+source "$ROOT_DIR/scripts/ci/lib/notarization-ticket.sh"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed app not found: $APP_PATH" >&2
@@ -95,8 +100,14 @@ if [ "$SKIP_NOTARIZATION" != true ]; then
   notary_auth_init "$NOTARY_DIR"
 fi
 
-# cmux-next ships no nested Computer Use helper; only a bundle that carries
-# one needs its separate notarization and host reseal.
+# A bundle that carries the nested Computer Use helper (the cmux-next nightly
+# does, cx-urd.6) needs its separate notarization and host reseal. A helper
+# Apple still holds after its bounded wait exits 75 (cx-urd.68): it stays
+# unstapled and the run goes on to the DMG. Codesign kept the helper's
+# submitted signature, so the DMG ticket covers its slices; that is checked
+# below before anything is stapled, here or in a continuing run.
+COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
+helper_exit=0
 if [ -n "$CONTINUE_STATE" ]; then
   echo "Continuing Apple submission $CONTINUE_SUBMISSION_ID for $DMG_RELEASE"
 elif [ "$SKIP_NOTARIZATION" = true ]; then
@@ -108,12 +119,19 @@ elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
     --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \
     "$APP_PATH" \
     "$APP_ENTITLEMENTS" \
-    "$APPLE_SIGNING_IDENTITY"
+    "$APPLE_SIGNING_IDENTITY" || helper_exit=$?
 else
+  # The synchronous run re-signs the helper after the host was sealed and
+  # reseals only once stapled, so a pending exit there is a failure.
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     "$APP_PATH" \
     "$APP_ENTITLEMENTS" \
     "$APPLE_SIGNING_IDENTITY"
+fi
+if [ "$helper_exit" -eq 75 ]; then
+  echo "::warning title=Computer Use helper not stapled::Apple still holds the helper's own submission; the DMG ticket must cover it."
+elif [ "$helper_exit" -ne 0 ]; then
+  exit "$helper_exit"
 fi
 
 if [ -z "$CONTINUE_STATE" ]; then
@@ -318,6 +336,17 @@ if [ "$DMG_STATUS" != "Accepted" ]; then
   save_notary_output
   echo "DMG notarization failed for $DMG_RELEASE with status: $DMG_STATUS (submission $DMG_SUBMIT_ID); details: $NOTARY_OUTPUT_FILE" >&2
   exit 1
+fi
+# An unstapled helper (still in Apple's queue above, here or in the run that
+# submitted this DMG) is notarized only through the DMG ticket: every slice
+# must be in it.
+if [ -d "$COMPUTER_USE_HELPER" ] && ! "$XCRUN_TOOL" stapler validate "$COMPUTER_USE_HELPER" >/dev/null 2>&1; then
+  helper_ticket_log="$NOTARY_DIR/dmg-ticket.json"
+  "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" > "$helper_ticket_log"
+  if ! verify_ticket_contents_cover_slices "$helper_ticket_log" "$COMPUTER_USE_HELPER"; then
+    echo "The DMG ticket does not cover the unstapled Computer Use helper; refusing to staple" >&2
+    exit 1
+  fi
 fi
 # A DMG submission scans nested code and issues a ticket for the exact signed
 # app. Require that independently usable ticket before accepting the artifact.

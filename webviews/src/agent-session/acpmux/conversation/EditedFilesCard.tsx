@@ -18,7 +18,7 @@ import { turnCounts } from "../changes/turnCheckpoint";
 import { useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
-import { SessionRowsContext, isEditRow } from "../turnChanges/sessionRows";
+import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
@@ -34,13 +34,14 @@ export function EditedFilesCard({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const settings = useEditedFilesSettings();
-  const sessionRows = useContext(SessionRowsContext);
+  const sessionEdits = useContext(SessionEditsContext);
   // Session scope: the latest edited-files row draws one card for the session; earlier ones draw
   // their plain tool rows.
-  const latest = useMemo(() => sessionRows && [...sessionRows].reverse().find(isEditRow)?.id, [sessionRows]);
-  if (settings.show === "never" || (settings.scope === "session" && sessionRows && latest !== row.id))
+  const latest = sessionEdits?.at(-1)?.id;
+  const own = useMemo(() => [row], [row]);
+  if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
     return <ToolRows row={row} />;
-  const rows = settings.scope === "session" && sessionRows ? sessionRows.filter(isEditRow) : [row];
+  const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
   return <Card row={row} rows={rows} onOpenDiff={onOpenDiff} />;
 }
 
@@ -102,18 +103,7 @@ function Card({
         <div className="acpmux-edited-title">
           <div>{title}</div>
           <div className="acpmux-edited-sub">
-            {reviewable ? (
-              <button
-                type="button"
-                className="acpmux-edited-link"
-                onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-              >
-                {t("edited.view")}
-                <ArrowUpRight />
-              </button>
-            ) : (
-              files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />
-            )}
+            {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
         </div>
@@ -158,7 +148,7 @@ function Card({
           return (
             <div className="acpmux-edited-file" key={entry.key}>
               {path ? (
-                <span className="acpmux-edited-path" title={path}>
+                <span className="acpmux-edited-path" title={path} data-path={path}>
                   <DirPart dir={path.slice(0, cut + 1)} />
                   <span className="acpmux-edited-base">{path.slice(cut + 1)}</span>
                 </span>
@@ -172,7 +162,7 @@ function Card({
         const slash = file.displayPath.lastIndexOf("/");
         const label = (
           <>
-            <span className="acpmux-edited-path" title={file.path}>
+            <span className="acpmux-edited-path" title={file.path} data-path={file.path}>
               <DirPart dir={file.displayPath.slice(0, slash + 1)} />
               <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
             </span>
@@ -375,21 +365,5 @@ const PlusMinus = () => (
     aria-hidden="true"
   >
     <path d="M8 2.5v6M5 5.5h6M5 12.5h6" />
-  </svg>
-);
-
-const ArrowUpRight = () => (
-  <svg
-    width={12}
-    height={12}
-    viewBox="0 0 12 12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.3}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3.5 8.5l5-5M4.5 3.5h4v4" />
   </svg>
 );

@@ -3,6 +3,9 @@
 //! `_acpmux/watch` connections as `_acpmux/harnesses_changed`, without a
 //! request and without polling.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

@@ -11,13 +11,7 @@ extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
         let registry = services.registry
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
-        registry.bind("closeWorkspace", invoke: { invocation in
-            guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
-            let terminals = WorkspaceClose.closing(workspace, on: services.activeDaemon)
-            services.activeDaemon.send("close-workspace") { connection in
-                try await WorkspaceClose.close(key, terminals: terminals, on: connection)
-            }
-        })
+        registry.bind("closeWorkspace", invoke: { closeWorkspace(services, $0) })
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
@@ -34,6 +28,10 @@ extension AppActions {
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
         })
+        // The native Home as a pane tab (HomePageTab), next to any other tab. Registered at
+        // launch so a restored Home tab finds its provider.
+        services.pages.register(HomePageTab(services: services))
+        registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
         // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
         // window shows it, from any origin (a focus action). With no window,
         // the store's home workspace opens one; else refused with why.
@@ -104,9 +102,31 @@ extension AppActions {
                 _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
+            } catch is CancellationError {
+                return nil // a close took it before it started (WorkspaceLanes)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
+            }
+        })
+    }
+
+    /// Close Workspace. With no target, a close pressed while the window's
+    /// creates are outstanding takes the newest of them (the workspace the
+    /// person just asked for, not yet shown), never the one the window still
+    /// shows (cx-7cit9). Otherwise it closes the scoped workspace after the
+    /// window's earlier creates and closes (`WorkspaceLanes`).
+    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        let window = services.windows.active?.state.id
+        let lanes = WorkspaceLanes.shared
+        if invocation.target == nil, invocation["workspace"] == nil, let window,
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
+        guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
+        let daemon = services.activeDaemon
+        let terminals = WorkspaceClose.closing(workspace, on: daemon)
+        services.registry.track(lanes.run(in: window) {
+            await daemon.failure("close-workspace") { connection in
+                try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
         })
     }

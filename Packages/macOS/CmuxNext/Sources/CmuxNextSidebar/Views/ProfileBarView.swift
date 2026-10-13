@@ -20,6 +20,8 @@ final class ProfileBarView: NSView {
     private(set) var hovered: Int?
     private var pressed: Int?
     private var swipeTracker = ProfileSwipeTracker()
+    private var wheel = SpaceWheelPager()
+    private var paging = false
     static let plusIndex = -1
 
     /// The current space's chip; it slides on a switch.
@@ -29,6 +31,12 @@ final class ProfileBarView: NSView {
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
     var onHorizontalSwipe: ((Int) -> Void)?
+    /// A horizontal trackpad gesture over the bar, 1:1 like over the list
+    /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
+    /// one-step swipe.
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    /// A mouse wheel notch over the bar, either axis: -1 or +1.
+    var onWheelPage: ((Int) -> Void)?
 
     init(model: SidebarModel) {
         self.model = model
@@ -89,7 +97,10 @@ final class ProfileBarView: NSView {
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
 
-    /// One rect per space (in order), then the "+" rect.
+    /// One rect per space (in order), then the "+" rect. History is not in the
+    /// strip (Lawrence 2026-10-11: "history should not show up down here");
+    /// cmux://history opens from the palette and the Window menu (Show
+    /// History) and with Cmd-Y in a browser.
     func slotRects() -> [NSRect] {
         let strip = strip
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
@@ -142,10 +153,6 @@ final class ProfileBarView: NSView {
         guard rects.indices.contains(active) else { return nil }
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
     }
-
-    /// The current space's chip fill: the row selection token (never the
-    /// system blue).
-    var indicatorFill: NSColor { performWithTheme { Palette.selectionFill } }
 
     // theme-scoped: indicator.draw runs inside the bar's theme scope
     private func drawIndicator() {
@@ -220,14 +227,13 @@ final class ProfileBarView: NSView {
     }
 
     private func rebuildToolTips() {
-        removeAllToolTips()
         let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() {
+        var regions: [(rect: NSRect, text: String)] = model.profiles.enumerated().map { offset, profile in
             // The emoji is shown here, not on the dot.
-            let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
-            addToolTip(rects[offset], owner: tip as NSString, userData: nil)
+            (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        if isPointerInside { addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil) }
+        if isPointerInside { regions.append((rects[model.profiles.count], Strings.newProfile)) }
+        setThemedToolTipRegions(regions)
     }
 
     // MARK: Mouse
@@ -289,12 +295,29 @@ final class ProfileBarView: NSView {
         activate(pressed)
     }
 
+    /// The bar is the pager's dots: a trackpad pages over it like over the
+    /// list, and a mouse wheel pages on either axis (nothing here scrolls).
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
+            if let onWheelPage, !event.hasPreciseScrollingDeltas {
+                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
+                case .pass, .hold: return
+                case .page(let step): return onWheelPage(step)
+                }
+            }
             super.scrollWheel(with: event)
             return
         }
-        if let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase) {
+        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
+        if let onHorizontalScroll {
+            if phase == .ended || phase == .momentum {
+                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
+                paging = false
+            } else if swipeTracker.isHorizontal {
+                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
+                paging = true
+            }
+        } else if let step {
             onHorizontalSwipe?(step)
         }
         if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
@@ -317,7 +340,7 @@ final class ProfileBarView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let index = index(at: convert(event.locationInWindow, from: nil)), index != Self.plusIndex else { return nil }
+        guard let index = index(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 

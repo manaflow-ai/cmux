@@ -7,7 +7,9 @@ import os
 ///
 /// Params: `action` (id or CLI name; with `cli: true` only a CLI name of an
 /// action marked for the CLI), `target`, `args`, `wait` (default true),
-/// `idempotency_key`, `confirm` via args, `after` (read barrier).
+/// `idempotency_key`, `confirm` via args, `after` (read barrier), `caller`
+/// (the agent session or terminal that sent it: an agent's browser or diff
+/// with no target opens beside its chat, ControlCaller).
 ///
 /// With `wait`, the reply comes after every daemon command the action sent
 /// has replied, the store applied their echoes, and the control snapshot
@@ -22,8 +24,11 @@ extension ControlRouter {
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
-        let given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
+        var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        // The caller is part of the fingerprint; where it places is resolved
+        // per run (`execute`), so a retry with the key replays, never conflicts.
+        given.callerAgentSession = try ControlCaller(call.params)?.agentSession
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -74,7 +79,9 @@ extension ControlRouter {
     }
 
     private func execute(_ action: ControlActionInfo, _ given: ControlActionRequest, key: String?, call: ControlCall) async throws -> JSONValue {
-        let request = try await resolvedTargets(given, snapshot: call.snapshot, deadline: call.deadline)
+        var placed = given
+        Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
                 "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
@@ -92,7 +99,8 @@ extension ControlRouter {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin() else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }
-            return ControlCommandScope.$current.withValue(scope) { executor.performActionTracked(request) }
+            // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
+            return ControlCommandScope.$current.withValueInTask(scope) { executor.performActionTracked(request) }
         }
         do {
             try Self.check(run.outcome, action: action.id)
@@ -114,7 +122,7 @@ extension ControlRouter {
         // wait) answers while the run keeps settling, and the key stays
         // pending until settlement records the final reply for a retry.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
+            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline, replyBy: call.deadline)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
@@ -144,7 +152,7 @@ extension ControlRouter {
     /// Waits for the run's work, then for a snapshot that reflects it.
     /// Returns that snapshot or the first failure.
     private func settle(_ run: ControlActionRun, scope: ControlCommandScope, action: String, method: String,
-                        deadline: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
+                        deadline: ContinuousClock.Instant, replyBy: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
         defer { scope.close() }
         let failure: ActionWorkFailure?
         do {
@@ -161,12 +169,12 @@ extension ControlRouter {
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
         let barriers = scope.barriers
-        guard !barriers.isEmpty else { return .success(snapshots.current) }
+        guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy)) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
-        return .success(snapshot)
+        return .success(await snapshots.showing(scope.created, after: snapshot, replyBy: replyBy))
     }
 
     /// The scope's per-machine barriers as snapshot sequences: the local

@@ -38,6 +38,10 @@ public final class MarqueeLabel: NSView {
 
     public var leadingPadding: CGFloat = 0 { didSet { if oldValue != leadingPadding { needsLayout = true } } }
     public var fadeWidth: CGFloat = Metrics.space6 { didSet { if oldValue != fadeWidth { needsLayout = true } } }
+    /// Trailing points that something draws over (a sidebar row's hover
+    /// actions, cx-qno.22): the title stays where it is, fades out before
+    /// them, and its marquee ends there. The frame never changes.
+    public var trailingOcclusion: CGFloat = 0 { didSet { if oldValue != trailingOcclusion { needsLayout = true } } }
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -62,11 +66,6 @@ public final class MarqueeLabel: NSView {
     /// The whole title does not fit.
     public var isTruncated: Bool { fade.geometry?.isTruncated ?? false }
     public var isMarqueeActive: Bool { fade.isMarqueeActive }
-    /// The motion policy the marquee follows; tests pin it.
-    public var motionPolicy: () -> MotionPolicy {
-        get { fade.policy }
-        set { fade.policy = newValue }
-    }
 
     /// Starts the hover marquee (after its delay). False when the title
     /// fits or motion is reduced or off.
@@ -86,7 +85,7 @@ public final class MarqueeLabel: NSView {
     public override func layout() {
         super.layout()
         let geometry = TitleFadeGeometry(
-            textWidth: text.textWidth, span: bounds.width, visibleWidth: bounds.width,
+            textWidth: text.textWidth, span: bounds.width, visibleWidth: max(0, bounds.width - trailingOcclusion),
             leadingPadding: leadingPadding, trailingPadding: 0, fadeWidth: fadeWidth
         )
         CATransaction.begin()

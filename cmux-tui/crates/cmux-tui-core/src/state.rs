@@ -15,15 +15,20 @@ pub(crate) mod agent_folder;
 mod agent_folder_tests;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
+pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
+#[cfg(test)]
+mod closed_browser_history_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
+pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
 #[cfg(test)]
 mod closed_relaunch_tests;
+pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
@@ -45,6 +50,9 @@ pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
 mod last_tab_closes_workspace_tests;
+pub(crate) mod layout_bulk;
+#[cfg(test)]
+mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
 pub(crate) mod palette_usage;
@@ -60,20 +68,28 @@ pub(crate) mod project_sources;
 pub(crate) mod projects;
 pub(crate) mod projects_ops;
 pub(crate) mod projects_store;
+pub(crate) mod remote_terminal_tabs;
+pub(crate) mod remote_terminal_tabs_store;
 pub(crate) mod room_delete;
 #[cfg(test)]
 mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
 pub(crate) mod router;
+#[cfg(test)]
+mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
-pub(crate) mod sidebar_layout;
+pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod status_meta;
+pub(crate) mod status_owners;
 pub(crate) mod store;
+#[cfg(test)]
+mod tab_group_icon_tests;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;
 #[cfg(test)]

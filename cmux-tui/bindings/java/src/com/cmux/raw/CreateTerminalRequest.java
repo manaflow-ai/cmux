@@ -16,6 +16,7 @@ public final class CreateTerminalRequest implements WireValue {
     private final Field<Integer> cols;
     private final Field<String> command;
     private final Field<String> cwd;
+    private final Field<Boolean> detached;
     private final Field<Map<String, String>> env;
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
@@ -34,6 +35,7 @@ public final class CreateTerminalRequest implements WireValue {
         this.cols = builder.cols;
         this.command = builder.command;
         this.cwd = builder.cwd;
+        this.detached = builder.detached;
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
@@ -54,6 +56,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Field<Integer> cols() { return cols; }
     public Field<String> command() { return command; }
     public Field<String> cwd() { return cwd; }
+    public Field<Boolean> detached() { return detached; }
     public Field<Map<String, String>> env() { return env; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
@@ -85,6 +88,10 @@ public final class CreateTerminalRequest implements WireValue {
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "CreateTerminalRequest.cwd"));
+        }
+        Object rawDetached = Wire.optional(object, "detached");
+        if (!Wire.isMissing(rawDetached)) {
+            builder.detached(Wire.bool(rawDetached, "CreateTerminalRequest.detached"));
         }
         Object rawEnv = Wire.optional(object, "env");
         if (!Wire.isMissing(rawEnv)) {
@@ -144,6 +151,7 @@ public final class CreateTerminalRequest implements WireValue {
         Wire.put(object, "cols", cols);
         Wire.put(object, "command", command);
         Wire.put(object, "cwd", cwd);
+        Wire.put(object, "detached", detached);
         Wire.put(object, "env", env);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
@@ -162,11 +170,11 @@ public final class CreateTerminalRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateTerminalRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(detached, that.detached) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, command, cwd, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
+    public int hashCode() { return Objects.hash(argv, cols, command, cwd, detached, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
 
     @Override
     public String toString() { return "CreateTerminalRequest" + toWire(); }
@@ -176,6 +184,7 @@ public final class CreateTerminalRequest implements WireValue {
         private Field<Integer> cols = Field.omitted();
         private Field<String> command = Field.omitted();
         private Field<String> cwd = Field.omitted();
+        private Field<Boolean> detached = Field.omitted();
         private Field<Map<String, String>> env = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
@@ -203,6 +212,10 @@ public final class CreateTerminalRequest implements WireValue {
         }
         public Builder cwd(String value) {
             this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder detached(Boolean value) {
+            this.detached = Field.of(value);
             return this;
         }
         public Builder env(Map<String, String> value) {

@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// The server's side of pairing: what it shows while it waits for a
@@ -23,9 +24,9 @@ struct ServerPairingView: View {
                 PillButton(title: ServerStrings.pairThisServer, prominent: true, action: model.showPairingCode)
                     .padding(.vertical, 20)
             case .pairing?:
-                PairedBadge(symbol: "link", title: ServerStrings.pairing, detail: nil)
+                PairedBadge(icon: .devicePairing, title: ServerStrings.pairing, detail: nil)
             case let .paired(info)?:
-                PairedBadge(symbol: "checkmark.seal", title: ServerStrings.paired, detail: "\(info.team) · \(info.owner)")
+                PairedBadge(icon: .devicePaired, title: ServerStrings.paired, detail: "\(info.team) · \(info.owner)")
             case nil:
                 EmptyView()
             }
@@ -36,14 +37,14 @@ struct ServerPairingView: View {
 }
 
 struct PairedBadge: View {
-    let symbol: String
+    let icon: IconName
     let title: String
     let detail: String?
     @Environment(\.serverColors) private var colors
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 30, weight: .light)).foregroundStyle(colors.secondary)
+            Icon(icon, size: 30).foregroundStyle(colors.secondary)
             Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(colors.primary)
             if let detail { Text(verbatim: detail).font(.system(size: 12)).foregroundStyle(colors.secondary) }
         }

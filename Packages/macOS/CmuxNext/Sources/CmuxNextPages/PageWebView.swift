@@ -38,6 +38,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
+    /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
+    var popupHost: WebPopupHost?
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private var uiScaleObservation: Task<Void, Never>?
@@ -78,6 +80,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var fileDrop: PageFileDrop? {
         get { (webView as? PageWKWebView)?.fileDrop }
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
+    }
+    /// Called when files are dropped on the page itself (not a ``fileDrop`` the host opens): a real
+    /// gesture page script can't make.
+    public var onFilesDropped: (@MainActor () -> Void)? {
+        get { (webView as? PageWKWebView)?.onFilesDropped }
+        set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
     }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
@@ -205,8 +213,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         PageRegistry.add(self)
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
-        router.didClose = { scripts.reset() }
+        router.didClose = { [weak self] in
+            scripts.reset()
+            self?.popupHost?.hide()
+        }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
+        router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
         router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
@@ -232,8 +244,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    deinit {
-        uiScaleObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            uiScaleObservation?.cancel()
+        }
     }
 
     private func observeUIScale() {
@@ -272,6 +288,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        // Not while the claim is pending: a refused document reloads, and its paint would end the
+        // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
+        if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
+            repaintsAtNextLayout = false
+            webView.evaluateJavaScript(PagePaintProbe.script, completionHandler: nil)
+        }
     }
 
     /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
@@ -317,6 +339,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
+    /// A claimed spare painted while parked at its window's full size: it counts as painted again
+    /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
+    var repaintsAtNextLayout = false
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -352,12 +377,20 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Its tab or window closed: the page's popup ends with it.
+        if window == nil { popupHost?.dismiss() }
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
             shouldFocusOnAttach = false
             focusPage()
         }
+    }
+
+    /// Another tab took the pane: the page's popup ends.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        popupHost?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {

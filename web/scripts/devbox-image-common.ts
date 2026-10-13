@@ -1484,6 +1484,40 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
 }
 
 /**
+ * Source digests that landed without their bake: the defaults still run the
+ * sources before them. Each entry excuses exactly one drift, the defaults
+ * baked from `baked` against this checkout's `current`, so any further source
+ * change or another ladder still fails; tests/vm-image-manifest.test.ts fails
+ * once an entry is not needed. Promotion stays strict (promote-devbox-image.ts
+ * calls devboxSourceDriftProblems directly). The desktop sources moved in
+ * 0174c116d4db, 0c91f5f55662 and 219015401324 (cx-6so.49 L1, the devbox
+ * metadata service) after the freestyle-cmux-devbox-20261003-130941 ladder
+ * was baked: delete the entry with the promotion that bakes them.
+ */
+export const DEVBOX_AWAITING_REBAKE = [
+  {
+    layers: "desktop",
+    schema: 2,
+    baked: "082484bccc9a",
+    current: "4b22f8bbeb1b8dcf1b86077ae1e2730144569615203b49fbd14d93b431bf7d76",
+  },
+] as const;
+
+export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+
+/** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
+export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {
+  return problem.includes(
+    `baked from devbox sources ${pending.baked}… (schema ${pending.schema}), this checkout's ${pending.layers} sources are ${pending.current.slice(0, 12)}…;`,
+  );
+}
+
+/** Whether DEVBOX_AWAITING_REBAKE excuses a devboxSourceDriftProblems message (the checked-in manifest's checks). */
+export function devboxDriftAwaitingRebake(problem: string): boolean {
+  return DEVBOX_AWAITING_REBAKE.some((pending) => isAwaitingRebake(problem, pending));
+}
+
+/**
  * The invariant that makes the checked-in manifest describe the machine
  * users get: every default of `provider` was baked at the Dockerfile's
  * current CMUX_IMAGE_EPOCH (a bumped epoch without a promotion, or a

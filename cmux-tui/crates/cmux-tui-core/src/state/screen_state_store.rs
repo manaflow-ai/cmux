@@ -8,9 +8,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
-use crate::workspace_registry::presentation_store::{
-    validate_presentation_color, validate_presentation_icon,
-};
+use crate::workspace_registry::presentation_store::validate_presentation_color;
 use crate::workspace_registry::screen_store::ScreenPresentationState;
 
 /// A partial screen metadata update: `None` keeps a field, `Some(None)`
@@ -28,7 +26,7 @@ impl ScreenMetaUpdate {
             validate_presentation_color(color)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            validate_presentation_icon(icon)?;
+            crate::workspace_registry::presentation_store::validate_icon_value(icon)?;
         }
         Ok(())
     }
@@ -68,9 +66,9 @@ pub(crate) fn screen_group_snapshot(
     connection: &Connection,
     group_id: &str,
 ) -> anyhow::Result<Option<Value>> {
-    let Some((workspace_id, name, color, collapsed, saved_id)) = connection
+    let Some((workspace_id, name, color, collapsed, saved_id, icon)) = connection
         .query_row(
-            "SELECT w.public_id, g.name, g.color, g.collapsed, g.saved_id
+            "SELECT w.public_id, g.name, g.color, g.collapsed, g.saved_id, g.icon
              FROM screen_groups AS g
              JOIN resource_workspaces AS w ON w.workspace_key = g.workspace_key
              WHERE g.group_id = ?1 AND w.deleted_revision IS NULL",
@@ -82,6 +80,7 @@ pub(crate) fn screen_group_snapshot(
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)? != 0,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
@@ -100,6 +99,7 @@ pub(crate) fn screen_group_snapshot(
         "color": color,
         "collapsed": collapsed,
         "screen_ids": screens,
+        "icon": icon,
     });
     if let Some(saved_id) = saved_id {
         snapshot["saved_id"] = json!(saved_id);

@@ -1,7 +1,7 @@
 //! Adopting a harness's own session (`session/new` with
-//! `_meta.acpmux.adopt = {harness, agentSessionId}`): a Claude Code or Codex
-//! conversation started outside acpmux becomes an acpmux session that
-//! resumes it (`claude --resume <id>`, or ACP `session/load` for Codex).
+//! `_meta.acpmux.adopt = {harness, agentSessionId}`): a Claude Code, Codex
+//! or OpenCode conversation started outside acpmux becomes an acpmux session
+//! that resumes it (`claude --resume <id>`, or ACP `session/load`).
 //!
 //! The id comes from a client, so it is checked before it names a file: a
 //! bare id only, found in the harness's own store, or the request fails.
@@ -113,19 +113,73 @@ pub fn is_bare_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Finds `id` in the store of harness `family` (`claude` or `codex`).
+/// Finds `id` in the store of harness `family` (`claude`, `codex` or
+/// `opencode`). OpenCode's store is its data dir, where the chat index looks.
 pub fn find(family: &str, id: &str, homes: &HarnessHomes) -> Result<Adoptable, String> {
     if !is_bare_id(id) {
         return Err(format!("agentSessionId {id:?} is not a session id"));
     }
-    let file = match family {
-        "claude" => find_claude(&homes.claude, id),
-        "codex" => find_codex(&homes.codex, id),
+    let stores = match family {
+        "claude" => vec![homes.claude.clone()],
+        "codex" => vec![homes.codex.clone()],
+        "opencode" => opencode_stores(),
         other => return Err(format!("adopt is not supported for {other} sessions")),
-    }
-    .ok_or_else(|| format!("no {family} session {id}"))?;
+    };
+    stores
+        .iter()
+        .find_map(|store| find_in(family, id, store))
+        .ok_or_else(|| format!("no {family} session {id}"))
+}
+
+/// `id` in the one store `store` of `family`.
+fn find_in(family: &str, id: &str, store: &Path) -> Option<Adoptable> {
+    let file = match family {
+        "claude" => find_claude(store, id)?,
+        "codex" => find_codex(store, id)?,
+        "opencode" => {
+            // One DB holds every OpenCode chat; it records the folder in the session row.
+            let (db, cwd) = cmux_chat_index::find_opencode_session(store, id)?;
+            return Some(Adoptable { file: db, cwd: cwd.map(PathBuf::from) });
+        }
+        _ => return None,
+    };
     let cwd = recorded_cwd(family, &file);
-    Ok(Adoptable { file, cwd })
+    Some(Adoptable { file, cwd })
+}
+
+/// OpenCode's data dirs, as the chat index finds them (`$XDG_DATA_HOME/opencode`, then the
+/// platform's defaults).
+fn opencode_stores() -> Vec<PathBuf> {
+    let home = dirs::home_dir().unwrap_or_default();
+    cmux_chat_index::default_roots(
+        cmux_chat_index::AdapterKind::OpenCode,
+        cmux_chat_index::Platform::current(),
+        &home,
+        &crate::chats::login_var,
+    )
+    .into_iter()
+    .map(|(root, _)| root)
+    .collect()
+}
+
+/// `find` in `homes`, else in one of `others`: the stores acpmux's own chat
+/// index holds the chat in (cx-vx54), never a path from a request. The
+/// second value names the other store the session was found in.
+pub fn find_any(
+    family: &str,
+    id: &str,
+    homes: &HarnessHomes,
+    others: &[PathBuf],
+) -> Result<(Adoptable, Option<PathBuf>), String> {
+    match find(family, id, homes) {
+        Ok(found) => Ok((found, None)),
+        // `find` refused an id that is not bare before it named a file; so do the others.
+        Err(error) if !is_bare_id(id) => Err(error),
+        Err(error) => others
+            .iter()
+            .find_map(|store| find_in(family, id, store).map(|found| (found, Some(store.clone()))))
+            .ok_or(error),
+    }
 }
 
 /// Whether the Claude store at `root` (a CLAUDE_CONFIG_DIR) has session `id`.
@@ -134,7 +188,7 @@ pub fn claude_session_exists(root: &Path, id: &str) -> bool {
 }
 
 /// `<claude>/projects/<project>/<id>.jsonl`.
-fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
     let name = format!("{id}.jsonl");
     std::fs::read_dir(root.join("projects"))
         .ok()?
@@ -144,7 +198,7 @@ fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// `<codex>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`.
-fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
     let suffix = format!("-{id}.jsonl");
     let mut dirs = vec![(root.join("sessions"), 0)];
     while let Some((dir, depth)) = dirs.pop() {
@@ -183,107 +237,4 @@ fn recorded_cwd(family: &str, file: &Path) -> Option<PathBuf> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    /// A fresh pair of harness homes with no sessions.
-    fn homes() -> HarnessHomes {
-        let root = std::env::temp_dir().join(format!("acpmux-adopt-{}", uuid::Uuid::now_v7()));
-        HarnessHomes { claude: root.join("claude"), codex: root.join("codex") }
-    }
-
-    fn write(path: &Path, lines: &[Value]) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
-        std::fs::write(path, text).unwrap();
-    }
-
-    const CLAUDE_ID: &str = "8f2c7a5e-1b3d-4c6e-9f00-112233445566";
-    const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-
-    #[test]
-    fn adopt_meta_reads_harness_and_id() {
-        let meta = json!({"adopt": {"harness": "claude", "agentSessionId": CLAUDE_ID}});
-        let req = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
-        assert_eq!(
-            req,
-            AdoptRequest {
-                harness: Some("claude".into()),
-                agent_session_id: CLAUDE_ID.into(),
-                if_live: IfLive::Refuse,
-            }
-        );
-        assert_eq!(AdoptRequest::from_meta(Some(&json!({}))).unwrap(), None);
-        assert!(AdoptRequest::from_meta(Some(&json!({"adopt": {"harness": "claude"}}))).is_err());
-        let fork = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "fork"}});
-        assert_eq!(AdoptRequest::from_meta(Some(&fork)).unwrap().unwrap().if_live, IfLive::Fork);
-        let bad = json!({"adopt": {"agentSessionId": CLAUDE_ID, "ifLive": "steal"}});
-        assert!(AdoptRequest::from_meta(Some(&bad)).is_err());
-    }
-
-    #[test]
-    fn adopt_finds_a_claude_session_and_its_cwd() {
-        let homes = homes();
-        let file = homes.claude.join("projects/-Users-me-app").join(format!("{CLAUDE_ID}.jsonl"));
-        write(
-            &file,
-            &[
-                json!({"type": "summary"}),
-                json!({"type": "user", "cwd": "/Users/me/app", "sessionId": CLAUDE_ID}),
-            ],
-        );
-        let found = find("claude", CLAUDE_ID, &homes).unwrap();
-        assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/app".into()) });
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
-
-    #[test]
-    fn adopt_finds_a_codex_rollout_and_its_cwd() {
-        let homes = homes();
-        let file = homes
-            .codex
-            .join(format!("sessions/2026/10/02/rollout-2026-10-02T09-00-00-{CODEX_ID}.jsonl"));
-        write(
-            &file,
-            &[json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/Users/me/api"}})],
-        );
-        let found = find("codex", CODEX_ID, &homes).unwrap();
-        assert_eq!(found, Adoptable { file, cwd: Some("/Users/me/api".into()) });
-        let _ = std::fs::remove_dir_all(homes.codex.parent().unwrap());
-    }
-
-    /// Fails closed: an unknown id, another harness's id, a path-shaped id
-    /// and an unsupported harness are all refused.
-    #[test]
-    fn adopt_refuses_what_it_cannot_find_or_trust() {
-        let homes = homes();
-        let file = homes.claude.join("projects/p").join(format!("{CLAUDE_ID}.jsonl"));
-        write(&file, &[json!({"cwd": "/tmp"})]);
-        assert!(
-            find("claude", "8f2c7a5e-0000-0000-0000-000000000000", &homes)
-                .unwrap_err()
-                .contains("no claude session")
-        );
-        assert!(find("codex", CLAUDE_ID, &homes).is_err());
-        let long = "a".repeat(129);
-        for bad in ["../p/x", "a/b", "..", "", "x.jsonl", long.as_str()] {
-            assert!(!is_bare_id(bad), "{bad:?}");
-            assert!(find("claude", bad, &homes).unwrap_err().contains("not a session id"));
-        }
-        assert!(find("gemini", CLAUDE_ID, &homes).unwrap_err().contains("not supported"));
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
-
-    #[test]
-    fn adopt_tolerates_a_session_without_a_recorded_cwd() {
-        let homes = homes();
-        let file = homes.claude.join("projects/p").join(format!("{CLAUDE_ID}.jsonl"));
-        write(&file, &[json!({"type": "summary"})]);
-        assert_eq!(find("claude", CLAUDE_ID, &homes).unwrap().cwd, None);
-        let _ = std::fs::remove_dir_all(homes.claude.parent().unwrap());
-    }
 }

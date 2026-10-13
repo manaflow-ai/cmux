@@ -17,9 +17,22 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         }
     }
 
+    /// The conversation's own avatar, drawn instead of its people's (the
+    /// Home Chief's picture, emoji or initials).
+    public enum Avatar: Hashable, Sendable {
+        /// One or two letters on Messages' grey gradient.
+        case monogram(String)
+        /// A picture file (a `file:` URL string).
+        case image(String)
+        /// An emoji on the grey disc.
+        case emoji(String)
+    }
+
     public var id: String
     public var title: String
     public var people: [Person]
+    /// Drawn instead of the people's avatars; nil draws theirs.
+    public var avatar: Avatar?
     public var preview: String
     /// The newest message's sender in a group (nil: me, or a 1:1).
     public var previewSender: String?
@@ -37,7 +50,8 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil) {
+        self.avatar = avatar
         self.knownSender = knownSender
         self.spam = spam
         self.deletedAt = deletedAt
@@ -57,8 +71,14 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// conversation gets a new bitmap and an unchanged one keeps its own.
     var summary: ConversationSummary {
         let members = people.map { SummaryParticipant(id: $0.id, displayName: $0.name, avatar: .monogram($0.initials)) }
-        let avatar: AvatarSpec = members.count > 1 ? .group(members.prefix(4).map(\.avatar))
-            : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased())
+        let own: AvatarSpec? = switch self.avatar {
+        case .monogram(let text): .monogram(text)
+        case .image(let path): .image(path)
+        case .emoji(let text): .emoji(text)
+        case nil: nil
+        }
+        let avatar: AvatarSpec = own ?? (members.count > 1 ? .group(members.prefix(4).map(\.avatar))
+            : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased()))
         var s = ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
                                     previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
                                     muted: muted, typing: typing, lastReaction: nil, version: hashValue)
@@ -103,6 +123,8 @@ public final class CmuxSidebarView: NSView {
 
     let controller = SidebarController()
     private let link = SidebarLink()
+    /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
+    public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
     public private(set) var pinnedOrder: [String] = []
 

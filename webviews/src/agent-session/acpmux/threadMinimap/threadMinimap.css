@@ -51,6 +51,11 @@
 .acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
+/* The turn being read: longer (ThreadMinimap TICK_CURRENT_WIDTH) and in the accent (cx-f7c). */
+.acpmux-minimap__tick[data-current] .acpmux-minimap__bar {
+  background: var(--agent-accent);
+  opacity: 1;
+}
 .acpmux-minimap__tick:focus-visible .acpmux-minimap__bar {
   opacity: 1;
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 45%, transparent);

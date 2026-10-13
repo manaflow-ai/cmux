@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The right side of the manager: rows with icon, title, URL and folder
@@ -27,6 +28,7 @@ struct BookmarkManagerList: View {
                         row(node)
                             .tag(node.id)
                             .listRowBackground(Color.clear)
+                            .thinScrollers()
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -44,8 +46,7 @@ struct BookmarkManagerList: View {
 
     private func row(_ node: BookmarkNode) -> some View {
         HStack(spacing: Metrics.space4) {
-            Image(systemName: node.isFolder ? "folder" : "globe")
-                .foregroundStyle(colors.secondary)
+            BookmarkNodeIcon(node: node, source: model.source, color: colors.secondary)
                 .frame(width: Metrics.iconSize)
             Text(node.displayTitle).lineLimit(1)
             if let url = node.url, !node.title.isEmpty {
@@ -85,6 +86,7 @@ struct BookmarkManagerList: View {
                     model.source?.openAll(in: node.id)
                 }
                 Button(BookmarkStrings.rename) { model.startEdit(node) }
+                BookmarkFolderIconMenuItems(node: node, source: model.source)
             } else {
                 Button(BookmarkStrings.open) { model.source?.open(node, disposition: .currentTab) }
                 Button(BookmarkStrings.openInNewTab) { model.source?.open(node, disposition: .newTab) }

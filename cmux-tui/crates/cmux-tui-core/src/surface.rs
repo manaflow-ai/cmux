@@ -15,6 +15,7 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+mod host_state;
 mod input;
 mod metadata;
 mod mouse_input;
@@ -30,6 +31,7 @@ mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
+pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -41,7 +43,7 @@ pub(crate) use clear_history::{
     CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryTransition,
     apply_clear_history_transition, write_clear_history_fallback,
 };
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 use color_overrides::{
     terminal_color_override_delta, terminal_color_override_full_state,
     terminal_color_overrides_match_applied,
@@ -50,9 +52,9 @@ use frame_producer::spawn_frame_producer;
 use scrolling::{
     broadcast_render_scroll_locked, set_terminal_scroll_offset, terminal_scroll_position,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod hosted_stager;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
 #[cfg(test)]
 use options::child_term_for;
@@ -60,17 +62,18 @@ use options::configure_agent_browser_session;
 pub(crate) use options::replace_ghostty_cursor_defaults;
 pub use options::{DefaultColors, SurfaceOptions, TerminalColors, default_child_term};
 use pending_bells::PendingBells;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod reconnect_backoff;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use exit_state::mark_hosted_runtime_exited;
 use exit_state::{close_local_terminal_master_after_exit, publish_local_exit_if_ready};
 #[cfg(all(unix, test))]
 use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use reconnect_backoff::{
     TERMINAL_HOST_HEALTHY_CONNECTION, TERMINAL_HOST_RECONNECT_MAX_DELAY,
-    TerminalHostReconnectBackoff, wait_for_reconnect_after_geometry_failure,
+    TerminalHostReconnectBackoff, publish_host_link_state,
+    wait_for_reconnect_after_geometry_failure,
 };
 #[cfg(test)]
 use render_tap::FrameProducerTestHook;
@@ -93,29 +96,29 @@ use test_pty::FdMasterPty;
 use test_pty::{
     StartupChild, StartupChildState, TestChildKiller, TestMasterPty, TestMasterPtyControl,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod clipboard_read;
 #[cfg(all(unix, test))]
 pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod host_frames;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod hosted_callbacks;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod hosted_reader;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use hosted_callbacks::hosted_terminal_callbacks;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use hosted_reader::HostedReader;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod host_kitty_limits;
 #[cfg(all(test, unix))]
 mod journal_failure_tests;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod journal_reconnect;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod prelaunch;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod rehost;
 use directory::PublishedDirectory;
 
@@ -160,9 +163,9 @@ use crate::browser::{
     BrowserMouseDispatch, BrowserPointerOwner, BrowserResizeWaiter, BrowserSurface,
     PendingBrowserResize,
 };
-#[cfg(all(unix, test))]
+#[cfg(all(any(unix, windows), test))]
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, Frame, MessageKind, decode_terminal_exit,
 };
@@ -240,7 +243,7 @@ pub enum PointerSnapshotProbe {
 
 /// A hosted terminal that was asked to exit and has not yet been observed
 /// exiting.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct HostTermination {
     identity: crate::terminal_host_runtime::TerminalHostIdentity,
     path: PathBuf,
@@ -325,26 +328,6 @@ pub(crate) mod snapshot_attach;
 pub enum SurfaceKind {
     Pty,
     Browser,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TerminalHostConnectionState {
-    Connected = 0,
-    Reconnecting = 1,
-    Exited = 2,
-    Failed = 3,
-}
-
-impl TerminalHostConnectionState {
-    fn from_u8(value: u8) -> Self {
-        match value {
-            1 => Self::Reconnecting,
-            2 => Self::Exited,
-            3 => Self::Failed,
-            _ => Self::Connected,
-        }
-    }
 }
 
 impl SurfaceKind {
@@ -501,7 +484,7 @@ pub(crate) enum PtyLifetime {
 
 /// When a new terminal surface takes its share of the Kitty image budget.
 #[derive(Clone, Copy)]
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg_attr(not(any(unix, windows)), allow(dead_code))]
 enum KittyQuota {
     /// Before its host launches, waiting for other surfaces to shrink.
     AtLaunch,
@@ -511,7 +494,7 @@ enum KittyQuota {
 
 /// A launched terminal host whose surface is not built yet
 /// ([`Surface::prelaunch_hosted`]).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) struct PrelaunchedHost {
     id: SurfaceId,
     terminal_id: crate::terminal_host::TerminalId,
@@ -522,7 +505,7 @@ pub(crate) struct PrelaunchedHost {
     resource_identity: TabResourceIdentity,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl PrelaunchedHost {
     pub(crate) fn terminal_id(&self) -> crate::terminal_host::TerminalId {
         self.terminal_id
@@ -536,7 +519,7 @@ impl PrelaunchedHost {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
@@ -545,6 +528,9 @@ struct HostedSurfaceLaunch {
     lifetime: PtyLifetime,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
+    /// The host's program was already running (an adopted session), so its
+    /// shell may be mid-command when the mirror starts reading.
+    adopted: bool,
 }
 
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
@@ -635,7 +621,7 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     fn spawn_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -650,6 +636,7 @@ impl Surface {
             lifetime,
             terminal_public_id,
             resource_identity,
+            adopted,
         } = launch;
         anyhow::ensure!(
             lifetime == PtyLifetime::SessionOwned,
@@ -665,6 +652,9 @@ impl Surface {
                 "terminal runtime identity does not match its placement"
             );
         }
+        let host_fallback = attachment
+            .launch_ends_with_daemon_job()
+            .then_some(TerminalHostFallback::BreakawayDenied);
         let initial_defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         attachment.send_default_colors(initial_defaults)?;
         let reader = attachment.take_reader()?;
@@ -708,6 +698,12 @@ impl Surface {
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
+        }
+        // After the replay: the host's records are what the programs last
+        // reported. (The replay carries no OSC 133 marks today, so it cannot
+        // end them; test `a_prompt_mark_in_the_reconnect_replay_keeps_a_waiting_programs_record`.)
+        if let Some(program_status) = snapshot.program_status.clone() {
+            terminal_metadata.restore_program_status(program_status);
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
@@ -790,6 +786,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", title),
                 directory_reported: AtomicBool::new(pwd.is_some()),
@@ -872,6 +869,11 @@ impl Surface {
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
+            shell_marks: if adopted {
+                crate::prompt_mode_reset::ShellMarks::joined_midway()
+            } else {
+                crate::prompt_mode_reset::ShellMarks::default()
+            },
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),

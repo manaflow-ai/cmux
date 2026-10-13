@@ -67,6 +67,10 @@ pub struct Lease {
     pub on_behalf_of: Option<String>,
     pub origin: String,
     pub label: String,
+    /// The holder's cmux terminal (`term_…`) when its client named one: the
+    /// app draws the lease in that agent's presence colour. Display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
     pub since_ms: u64,
     /// The lease state machine's state (plans/cmux-next/automation-lease.md).
     pub state: LeaseState,

@@ -45,10 +45,23 @@ extension CEFTab {
             // Extensions finish loading after the first window exists and
             // badges are per page; refresh cheaply on each document load.
             refreshExtensionActions()
-        case .loadError(_, let code, let text, let url):
+        case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             guard let navigation else { return }
-            machine.apply(.failed(navigation, Self.loadError(code: code, text: text, url: url)))
+            let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
+            machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
+                // The failed address is the tab's document now (Chrome's
+                // omnibox shows it), even when Chromium sends no address
+                // change for its error page, as after a New Tab page. After
+                // `.failed` the machine also takes it as the committed URL,
+                // so a later cancelled load does not revert to the New Tab.
+                machine.apply(.urlChanged(failing))
+                committedURL = failing
+                // Chromium's interstitial commits with no OnLoadStart: it ends
+                // the New Tab page's hole, as a committed page does (cx-2nfi).
+                if error.engineShowsPage { reachedFirstRealPage() }
+            }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
@@ -66,9 +79,9 @@ extension CEFTab {
             findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
-        case .navigationReroute(_, let url, _):
-            if let url = URL(string: url) { emit(.rerouteStore(url)) }
+        case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
+        case .externalURL(_, let url, true): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, ask: enqueuePrompt) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)
@@ -79,10 +92,9 @@ extension CEFTab {
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
-        case .renderUnresponsive:
-            machine.apply(.unresponsiveChanged(true))
-        case .renderResponsive:
-            machine.apply(.unresponsiveChanged(false))
+        case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
+        case .renderResponsive: machine.apply(.unresponsiveChanged(false))
+        case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:
@@ -90,12 +102,16 @@ extension CEFTab {
         }
     }
 
-    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load.
-    static func loadError(code: Int, text: String, url: String) -> BrowserLoadError {
+    /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
+    /// a replacing navigation, a download, a rerouted URL). Every other
+    /// main-frame failure shows cmux's error page or certificate warning
+    /// (`ChromiumNetError`), over the error page Chromium commits under it,
+    /// unless `chromiumInterstitial` (Chromium's own certificate page shows).
+    static func loadError(code: Int, text: String, url: String, chromiumInterstitial: Bool = false) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return BrowserLoadError(domain: "net", code: code, message: text.isEmpty ? "net::\(code)" : text, failingURL: URL(string: url))
+        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumInterstitial)
     }
 
     private func loadFavicon(_ url: URL?) {
@@ -105,12 +121,23 @@ extension CEFTab {
             favicon = nil
             return
         }
-        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
+            let image = await self?.fetchFavicon(url)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
+    }
+
+    /// Through this tab's own request context first (its cookies and profile, Chromium's
+    /// cache; cx-d0d.8), kept in the shared loader's cache, else the app's cookieless fetch.
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        let loader = BrowserFaviconLoader.shared
+        if let cached = loader.cachedFavicon(at: url, profile: profileID) { return cached }
+        if let browserID, let png = await runtime.favicon(browserID, url: url, maxPixels: BrowserFaviconLoader.maximumPixels),
+           let image = loader.store(png, at: url, profile: profileID) {
+            return image
+        }
+        return await loader.favicon(at: url, profile: profileID)
     }
 
     // MARK: Scripts

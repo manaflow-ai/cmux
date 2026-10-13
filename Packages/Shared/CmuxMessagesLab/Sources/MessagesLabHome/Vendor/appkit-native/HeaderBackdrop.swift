@@ -39,7 +39,7 @@ final class HeaderBackdropView: NSView {
         static func fromArguments() -> Params {
             var p = Params()
             let args = ProcessInfo.processInfo.arguments
-            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { args.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } /* cmux: no index math */ }
+            func v(_ k: String) -> CGFloat? { args.firstIndex(of: k).flatMap { args.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } /* no index math */ }
             if let x = v("--hb-height") { p.height = x }
             if let x = v("--hb-r1") { p.r1 = x }
             if let x = v("--hb-r2") { p.r2 = x }

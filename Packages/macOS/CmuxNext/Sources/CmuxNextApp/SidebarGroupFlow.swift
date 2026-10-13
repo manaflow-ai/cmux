@@ -46,12 +46,14 @@ struct SidebarGroupFlow {
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
     /// A person's new group gets the next palette color and its editor
-    /// opens on it (the Chrome flow).
-    func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool) {
+    /// opens on it (the Chrome flow). `index` places the group
+    /// (`SidebarIntent.createGroup`), else it forms at its first member.
+    func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool, index: Int? = nil) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
         let id = CmuxNextSidebar.GroupID.make()
         let used = Set(bridge.services.machines.local.store.personal.groups.compactMap(\.color))
-        bridge.handle(.createGroup(id, name: name, color: byUser ? GroupColor.automatic(used: used) ?? .grey : .grey, workspaces: ids))
+        bridge.handle(.createGroup(id, name: name, color: byUser ? GroupColor.automatic(used: used) ?? .grey : .grey, workspaces: ids,
+                                   index: index))
         if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
@@ -150,7 +152,7 @@ struct SidebarGroupFlow {
     /// `.renameGroup` / `.setGroupColor`. The editor opens on a new group at
     /// once, under the sidebar's own id: an edit before the daemon made the
     /// group waits for it, and later ones go to the daemon's id.
-    func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupColor? = nil, _ intent: SidebarIntent) {
+    func edit(_ group: CmuxNextSidebar.GroupID, name: String? = nil, color: GroupTint? = nil, _ intent: SidebarIntent) {
         // A pending edit until the store holds it, so a recompute (or the
         // pending new group's own edit) never shows the old name or color.
         let token = bridge.rows.add(intent)
@@ -162,8 +164,8 @@ struct SidebarGroupFlow {
         send(editor.created[id] ?? id, name: name, color: color, edit: token)
     }
 
-    private func send(_ id: WorkspaceGroupID, name: String?, color: GroupColor?, edit: SidebarPendingEdits.Token) {
-        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .unchanged
+    private func send(_ id: WorkspaceGroupID, name: String?, color: GroupTint?, edit: SidebarPendingEdits.Token) {
+        let v2 = bridge.statePersonal, bridge = bridge, colorUpdate: FieldUpdate<String> = color.map { .set($0.wire) } ?? .unchanged
         bridge.rows.send("update-personal-group", edit: edit, on: bridge.services.machines.local, resync: { bridge.resync() }) { connection in
             if v2 { return try await connection.state.updateWorkspaceGroup(id.rawValue, name: name, color: colorUpdate) }
             try await connection.updatePersonalGroup(id, name: name, color: colorUpdate)
@@ -202,11 +204,12 @@ struct SidebarGroupFlow {
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
         let local = WorkspaceGroupID(rawValue: group.rawValue)
-        if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, "workspaceGroup.delete", "workspaceGroup.ungroup",
-            "workspaceGroup.closeWorkspaces"].contains(item) {
+        // The emoji picker (Set Icon) and the color panel edit it after the editor closes.
+        if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, SidebarContainerView.keepGroupItem,
+            "workspaceGroup.setIcon", "workspaceGroup.delete", "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces"].contains(item) {
             editor.explicit.remove(local)
         }
-        guard item != SidebarContainerView.moreActionsItem else { return }
+        guard item != SidebarContainerView.moreActionsItem, item != SidebarContainerView.keepGroupItem else { return }
         // The daemon's id for a group the sidebar made under its own.
         let target = editor.created[local] ?? local
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: target.rawValue), origin: .user)

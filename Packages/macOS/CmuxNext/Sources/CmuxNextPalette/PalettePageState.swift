@@ -10,6 +10,11 @@ final class PageState {
     var levelID = 0
     /// The level's generation this page last searched for.
     var generation = 0
+
+    // A palette reset (Tab Search, Cmd-Shift-P reopen) releases this inside an
+    // action's task-local scope; teardown must not need a main-actor hop (cx-t7hu).
+    nonisolated deinit {}
+
     /// Created while another level was on top: load its providers when it
     /// is first shown.
     var needsLoad = true
@@ -94,6 +99,9 @@ final class PageState {
                                                   sectionIndex: sectionIndex))
             }
         }
+        // The empty query's Pinned section (the user's pins, `PaletteRankSettings`): the searcher
+        // finds it by its order, since the pins can change while the rows stay.
+        if page.showsRecent { sections.append(.pinned) }
         // The empty query's Suggested section (rows with a suggestion rank);
         // appended after the item sections, like the typing section.
         if page.showsRecent, entries.contains(where: { $0.suggestedRank != nil }) {

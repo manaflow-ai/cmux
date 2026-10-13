@@ -20,6 +20,15 @@ use crate::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// `remote-probe` capability: `remote-link --mux-socket` attaches to that
+/// daemon socket. A remote without it (protocol 5 before 2026-10-10) ignores
+/// the flag and attaches to its default session daemon (cx-z3zh).
+pub const REMOTE_LINK_MUX_SOCKET_CAPABILITY: &str = "remote-link-mux-socket";
+
+/// `remote-probe` capability: `remote-link` refuses any flag it does not
+/// know, so a client that passes a newer flag fails loudly, never silently.
+pub const REMOTE_LINK_STRICT_FLAGS_CAPABILITY: &str = "remote-link-strict-flags";
+
 #[derive(Debug, Clone)]
 pub struct SshProviderConfig {
     pub ssh_binary: String,
@@ -49,6 +58,24 @@ impl Default for SshProviderConfig {
             maximum_frame_bytes: 65_535,
             agent_hooks: Vec::new(),
         }
+    }
+}
+
+impl SshProviderConfig {
+    /// The `remote-probe` capabilities the remote must advertise before
+    /// `remote-link` runs there with this configuration. A remote without
+    /// one is older than this client: the bootstrap refuses it with
+    /// `remote-protocol-older` instead of a link that drops the flag.
+    ///
+    /// Rule: a new `remote-link` flag whose absence changes what the link
+    /// reaches adds its capability here and in `remote_link_command`, in the
+    /// same change, and the remote advertises it in `remote-probe`.
+    pub fn required_remote_capabilities(&self) -> Vec<String> {
+        let mut required = Vec::new();
+        if self.remote_mux_socket.is_some() {
+            required.push(REMOTE_LINK_MUX_SOCKET_CAPABILITY.to_owned());
+        }
+        required
     }
 }
 

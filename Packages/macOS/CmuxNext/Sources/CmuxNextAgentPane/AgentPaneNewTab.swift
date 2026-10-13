@@ -10,22 +10,6 @@ public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendabl
 /// An agent choice stays in the page and starts the chat; a terminal or
 /// browser choice asks the App to replace the tab (`tab.open`).
 public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
-    /// A host action shown as a New Tab tool card.
-    public struct Tool: Codable, Sendable, Equatable {
-        public var id: String
-        public var title: String
-        public var symbol: String
-        public var shortcut: String?
-        public var menu: [String]
-
-        public init(id: String, title: String, symbol: String, shortcut: String? = nil, menu: [String] = []) {
-            self.id = id
-            self.title = title
-            self.symbol = symbol
-            self.shortcut = shortcut
-            self.menu = menu
-        }
-    }
     /// The kind selected when the page opens: the kind of the tab it was
     /// opened from, so ⌘T keeps making what the user was using.
     public var kind: AgentPaneTabKind
@@ -49,26 +33,32 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
-    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, cx-7qqu);
-    /// nil hides them until the switcher is styled.
+    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default
+    /// since cx-l1jv); nil hides them.
     public var templateSwitcher: Bool?
     /// The agent last picked.
     public var lastAgent: String?
+    /// The harness and model picked last, anywhere and per folder; nil when none was.
+    public var lastPicks: AgentPaneLastPicks?
     /// The home folder, so the field reads `~/path` as a folder.
     public var home: String?
-    /// Actions available from the New Tab page's Tools section.
-    public var tools: [Tool]
     /// Identifies the opening whose focused field must acknowledge readiness.
     public var inputToken: String?
     /// false: the page leaves its field unfocused (Cmd-L opened it for the omnibar, cx-e2aa);
     /// nil focuses it.
     public var focusesField: Bool?
+    /// The workspace's tabs to move into this page's pane (`tab.jump` `here`): set when a split
+    /// opened the page (cx-jfo7); nil shows no Open Tabs list.
+    public var openTabs: [AgentPaneOmnibar.Tab]?
+    /// true: the page is agent history (the sidebar's History dot, cx-zlnl), every chat on this
+    /// device with nothing to type; nil is the New Tab page.
+    public var history: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
-                lastAgent: String? = nil, home: String? = nil, tools: [Tool] = [], template: String? = nil,
-                templateSwitcher: Bool? = nil) {
+                lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
+                template: String? = nil, templateSwitcher: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -82,8 +72,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.template = template
         self.templateSwitcher = templateSwitcher
         self.lastAgent = lastAgent
+        self.lastPicks = lastPicks
         self.home = home
-        self.tools = tools
         self.inputToken = nil
     }
 }
@@ -98,13 +88,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var title: String
         public var detail: String?
         public var workspace: String?
+        /// A browser tab's favicon as a `data:image/png` URL (the page allows only inline images).
+        public var icon: String?
 
-        public init(id: String, kind: AgentPaneTabKind, title: String, detail: String? = nil, workspace: String? = nil) {
+        public init(id: String, kind: AgentPaneTabKind, title: String, detail: String? = nil, workspace: String? = nil,
+                    icon: String? = nil) {
             self.id = id
             self.kind = kind
             self.title = title
             self.detail = detail
             self.workspace = workspace
+            self.icon = icon
         }
     }
 
@@ -123,10 +117,13 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public struct Page: Codable, Sendable, Equatable {
         public var url: String
         public var title: String?
+        /// The page's site favicon as a `data:image/png` URL.
+        public var icon: String?
 
-        public init(url: String, title: String? = nil) {
+        public init(url: String, title: String? = nil, icon: String? = nil) {
             self.url = url
             self.title = title
+            self.icon = icon
         }
     }
 
@@ -192,7 +189,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         return [
             "tabs": tabs.map {
                 optional([("id", $0.id), ("kind", $0.kind.rawValue), ("title", $0.title), ("detail", $0.detail),
-                          ("workspace", $0.workspace)])
+                          ("workspace", $0.workspace), ("icon", $0.icon)])
             },
             "workspaces": workspaces.map { optional([("id", $0.id), ("name", $0.name), ("detail", $0.detail)]) },
             "folders": folders,
@@ -202,7 +199,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
                     .merging(["keywords": $0.keywords]) { left, _ in left }
             },
             "commands": commands,
-            "history": history.map { optional([("url", $0.url), ("title", $0.title)]) },
+            "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
         ]
     }
 }

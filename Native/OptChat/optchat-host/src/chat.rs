@@ -398,7 +398,12 @@ impl OptChat {
         {
             let fresh = done.fresh.iter().filter(|f| **f).count();
             debug_assert_eq!(
-                done.ids.iter().zip(&done.fresh).filter(|(_, f)| **f).map(|(i, _)| *i).next_back(),
+                done.ids
+                    .iter()
+                    .zip(&done.fresh)
+                    .filter(|(_, f)| **f)
+                    .map(|(i, _)| *i)
+                    .next_back(),
                 (fresh > 0).then(|| after[fresh].len() - 1)
             );
             st.memory = after.swap_remove(fresh);
@@ -493,8 +498,11 @@ impl OptChat {
     /// (section 6; an imported line does not hold a turn), woken on every
     /// change. False if canceled, timed out, shut down or stopped by a failed write.
     /// A view line whose node is stuck (its call fails with a request error
-    /// that repeats on every try) does not hold the turn: the turn reads it
-    /// unbuilt (`PLACEHOLDER`, which `zoom` opens) rather than wait forever.
+    /// that repeats on every try, or a setup error such as a missing preset)
+    /// does not hold the turn: the turn reads it unbuilt (`PLACEHOLDER`,
+    /// which `zoom` opens) rather than wait forever. Chief 2026-10-10: a user
+    /// turn never waits more than 10 s on compaction, so a caller passes a
+    /// bound and starts the turn with lines still building when it expires.
     pub fn settle(&self, cancel: Option<&Cancel>, timeout: Option<Duration>) -> bool {
         self.wait(cancel, timeout, State::turn_ready)
     }

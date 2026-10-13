@@ -354,7 +354,8 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-background": "transparent",
   "--cmux-editor-foreground": "var(--cmux-editor-terminal-foreground, var(--page-text))",
   "--cmux-editor-line-highlight": "color-mix(in srgb, var(--cmux-editor-foreground) 5%, transparent)",
-  "--cmux-editor-selection": "var(--cmux-editor-terminal-selection, color-mix(in srgb, #0a84ff 30%, transparent))",
+  "--cmux-editor-selection":
+    "var(--cmux-editor-terminal-selection, color-mix(in srgb, var(--cmux-accent, currentColor) 28%, transparent))",
   "--cmux-editor-cursor": "var(--cmux-editor-foreground)",
   "--cmux-editor-line-number": "color-mix(in srgb, var(--cmux-editor-foreground) 40%, transparent)",
   "--cmux-editor-line-number-active": "color-mix(in srgb, var(--cmux-editor-foreground) 80%, transparent)",
@@ -363,7 +364,7 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-ruler": "color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent)",
   "--cmux-editor-scrollbar": "color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent)",
   "--cmux-editor-scrollbar-hover": "color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent)",
-  "--cmux-editor-widget-background": "var(--page-elevated)",
+  "--cmux-editor-widget-background": "var(--surface-popup)",
   "--cmux-editor-widget-border": "var(--page-separator)",
   "--cmux-editor-chrome-font-size": "12px",
   "--cmux-editor-toolbar-height": "30px",

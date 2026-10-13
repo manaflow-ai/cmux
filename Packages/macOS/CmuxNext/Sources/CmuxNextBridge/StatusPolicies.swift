@@ -28,31 +28,4 @@ public struct TerminalVisibility: Hashable, Sendable {
 
 /// The client-side rules for status facts the daemon publishes raw.
 extension StatusBehaviorSettings {
-    /// Whether a shell command running since `sinceMs` shows as busy at
-    /// `nowMs` (`status.inferCommandBusy`, `status.inferCommandBusyAfter`).
-    public func showsCommandBusy(sinceMs: UInt64, nowMs: UInt64) -> Bool {
-        guard inferCommandBusy else { return false }
-        return nowMs >= sinceMs &+ commandBusyThresholdMs
-    }
-
-    /// When a command that is not shown yet will be (the client arms one
-    /// one-shot timer for it, never a poll). Nil when it shows already or
-    /// never will.
-    public func commandBusyDeadlineMs(sinceMs: UInt64, nowMs: UInt64) -> UInt64? {
-        guard inferCommandBusy else { return nil }
-        let deadline = sinceMs &+ commandBusyThresholdMs
-        return nowMs < deadline ? deadline : nil
-    }
-
-    /// Whether a finished `cmux status run` posts a notification: it took
-    /// at least `status.runNotifyMinimumSeconds` and its terminal is not
-    /// visible (unless `status.runNotifyWhenVisible`).
-    public func notifiesFinishedRun(durationMs: UInt64, visibility: TerminalVisibility) -> Bool {
-        guard Double(durationMs) >= runNotifyMinimumSeconds * 1000 else { return false }
-        return runNotifyWhenVisible || !visibility.isVisible
-    }
-
-    var commandBusyThresholdMs: UInt64 {
-        UInt64(max(0, inferCommandBusyAfter) * 1000)
-    }
 }

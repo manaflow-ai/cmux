@@ -14,9 +14,6 @@ enum LayoutStrings {
     static var stripScrollbarAccessibility: String {
         String(localized: "layout.stripScrollbar.accessibility", defaultValue: "Column Strip Scroll Bar", bundle: .module)
     }
-    static func screenFallbackName(_ number: Int) -> String {
-        String(localized: "layout.screen.fallbackName", defaultValue: "Screen \(number)", bundle: .module)
-    }
     static var dropNewColumn: String {
         String(localized: "layout.drop.newColumn", defaultValue: "New Column", bundle: .module)
     }

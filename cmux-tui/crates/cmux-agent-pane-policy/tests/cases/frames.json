@@ -181,13 +181,7 @@
    "refuse": "transport.invalid_frame",
    "method": null,
    "id": "3"
-  },
-  "swift_expect": {
-   "refuse": "transport.method_refused",
-   "method": null,
-   "id": null
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+  }
  },
  {
   "name": "junk",
@@ -1324,11 +1318,7 @@
    "refuse": "transport.invalid_frame",
    "method": "session/new",
    "id": "1"
-  },
-  "swift_expect": {
-   "send": "unchanged"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)"
+  }
  },
  {
   "name": "string id",
@@ -1381,10 +1371,6 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "send": "unchanged"
   }
  },
  {
@@ -1396,10 +1382,6 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "send": "unchanged"
   }
  },
  {
@@ -1411,10 +1393,6 @@
    "refuse": "transport.invalid_frame",
    "method": "_acpmux/harnesses",
    "id": "30"
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "send": "unchanged"
   }
  }
 ]

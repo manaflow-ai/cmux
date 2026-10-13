@@ -1,0 +1,62 @@
+name: cmux-next crash-class rules
+
+# The crash classes found by the socket action sweep (cx-t7hu, cx-bpcj,
+# cx-050n): isolated deinits, task locals bound outside a task, and
+# synchronous NSWorkspace opens. The cmux-next checks job, which runs the full
+# check-concurrency.sh without blocking, is skipped for feat-cmux-next, so this
+# blocking Linux check runs on every pull request and push that touches
+# CmuxNext Sources or the rules (about ten seconds, no build).
+on:
+  pull_request:
+    paths:
+      - "Packages/macOS/CmuxNext/Sources/**"
+      - "Packages/macOS/CmuxNext/Package.swift"
+      - "scripts/cmux-next/check-concurrency.sh"
+      - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
+      - ".github/workflows/cmux-next-crash-class.yml"
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "Packages/macOS/CmuxNext/Sources/**"
+      - "Packages/macOS/CmuxNext/Package.swift"
+      - "scripts/cmux-next/check-concurrency.sh"
+      - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
+      - ".github/workflows/cmux-next-crash-class.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-next-crash-class-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  crash-class:
+    name: cmux-next crash-class rules
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A pull request's merge commit with its parents: the gate fails the
+          # PR only for findings in the files it changes.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          persist-credentials: false
+          sparse-checkout: |
+            Packages/macOS/CmuxNext/Sources
+            Packages/macOS/CmuxNext/Package.swift
+            scripts/cmux-next
+            scripts/ci/crash-class-gate.sh
+            scripts/ci/pr_owned_findings.py
+          sparse-checkout-cone-mode: false
+
+      - name: Crash-class concurrency rules
+        env:
+          GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
+        run: scripts/ci/crash-class-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}

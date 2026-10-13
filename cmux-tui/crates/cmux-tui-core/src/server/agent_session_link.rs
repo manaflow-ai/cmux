@@ -32,18 +32,19 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Why a call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum LinkError {
+pub(crate) enum LinkError {
     /// The socket is gone or never connected.
     Closed,
     Timeout,
     /// Too many calls wait already.
     Busy,
-    /// acpmux answered with an error (its message, for the daemon log only).
-    Rpc(String),
+    /// acpmux answered with an error: its message (for the daemon log
+    /// only) and its `data` (`Null` without one).
+    Rpc(String, Value),
 }
 
 /// What the reader thread hands the link's owner.
-pub(super) enum Inbound {
+pub(crate) enum Inbound {
     /// A JSON-RPC notification: method and params.
     Notification(String, Value),
     /// The socket ended (EOF, an IO error, or an over-long line).
@@ -52,7 +53,7 @@ pub(super) enum Inbound {
 
 type Pending = Mutex<HashMap<u64, SyncSender<Result<Value, LinkError>>>>;
 
-pub(super) struct AcpmuxLink {
+pub(crate) struct AcpmuxLink {
     stream: Mutex<UnixStream>,
     pending: Arc<Pending>,
     next_id: AtomicU64,
@@ -62,7 +63,7 @@ pub(super) struct AcpmuxLink {
 impl AcpmuxLink {
     /// Connects and starts the reader thread, which calls `on_inbound` for
     /// every notification and once for the close.
-    pub(super) fn connect(
+    pub(crate) fn connect(
         socket: &Path,
         on_inbound: impl FnMut(Inbound) + Send + 'static,
     ) -> std::io::Result<Arc<Self>> {
@@ -85,7 +86,7 @@ impl AcpmuxLink {
     }
 
     /// Sends a request and waits up to `timeout` for its result.
-    pub(super) fn call(
+    pub(crate) fn call(
         &self,
         method: &str,
         params: Value,
@@ -184,6 +185,7 @@ fn read_loop(
             let outcome = match message.remove("error") {
                 Some(error) => Err(LinkError::Rpc(
                     error.get("message").and_then(Value::as_str).unwrap_or("error").to_string(),
+                    error.get("data").cloned().unwrap_or(Value::Null),
                 )),
                 None => Ok(message.remove("result").unwrap_or(Value::Null)),
             };

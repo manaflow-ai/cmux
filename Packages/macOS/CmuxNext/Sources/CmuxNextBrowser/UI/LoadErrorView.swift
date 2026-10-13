@@ -89,6 +89,11 @@ final class LoadErrorView: NSView {
         }
     }
 
+    #if DEBUG
+    /// The title and message shown (`debug.browser.page_status`).
+    var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)" }
+    #endif
+
     @objc private func retry() { onRetry?() }
     @objc private func goBack() { onBack?() }
     @objc private func proceed() { onProceed?() }

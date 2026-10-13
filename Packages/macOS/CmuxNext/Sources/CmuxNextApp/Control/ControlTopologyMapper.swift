@@ -95,6 +95,12 @@ enum ControlTopologyMapper {
                 var info = ControlScreenInfo(id: screen.id, handle: screen.handle.description, name: screen.name,
                                              zoomedPaneID: screen.zoomedPane.flatMap { handle in screen.pane(handle)?.id },
                                              panes: screen.panes.map { pane(from: $0, selectedTab: selectedTab, pages: pages) })
+                let placed = columns(of: screen)
+                for index in info.panes.indices {
+                    let handle = screen.panes[index].handle
+                    info.panes[index].column = placed.isEmpty ? 0 : placed.firstIndex { $0.panes.contains(handle) }
+                    info.panes[index].dock = placed.first { $0.panes.contains(handle) }?.dock
+                }
                 info.defaultPaneID = screen.defaultPane.flatMap { handle in screen.pane(handle)?.id }
                 return info
             }
@@ -102,6 +108,23 @@ enum ControlTopologyMapper {
         info.resourceID = model.resourceID?.rawValue
         info.kind = model.kind
         return info
+    }
+
+    /// `screen`'s columns as the window draws them, left to right: left
+    /// docks, the scrolling strip, right docks. Top and bottom bands span the
+    /// screen and are no column. Empty for a screen stored as one split tree.
+    static func columns(of screen: ScreenModel) -> [(panes: Set<PaneID>, dock: String?)] {
+        let order: (ColumnSnapshot) -> Int? = { column in
+            switch column.dock?.edge {
+            case .left: 0
+            case nil: 1
+            case .right: 2
+            case .top, .bottom: nil
+            }
+        }
+        let placed = screen.columns.compactMap { column in order(column).map { (rank: $0, column: column) } }
+        return placed.enumerated().sorted { ($0.element.rank, $0.offset) < ($1.element.rank, $1.offset) }
+            .map { (panes: Set($0.element.column.layout.paneIDs), dock: $0.element.column.dock?.edge.rawValue) }
     }
 
     static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?,

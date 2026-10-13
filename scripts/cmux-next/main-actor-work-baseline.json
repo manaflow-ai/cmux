@@ -11,9 +11,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel+Replies.swift": {
   "JSON / property-list decode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift": {
-  "JSON / property-list decode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneShell.swift": {
   "process launch": 1
  },
@@ -75,12 +72,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService.swift": {
   "JSON / property-list decode": 2
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeMentions.swift": {
-  "string scan inside a loop": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeSidebarSource.swift": {
-  "JSON / property-list decode": 2
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserImportOfferState.swift": {
   "JSON / property-list decode": 1
  },
@@ -125,6 +116,12 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift": {
   "line split of a whole input": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMentions.swift": {
+  "string scan inside a loop": 1
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeSidebarSource.swift": {
+  "JSON / property-list decode": 2
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Gallery/GalleryReviewStore.swift": {
   "JSON / property-list decode": 2

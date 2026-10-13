@@ -1,7 +1,9 @@
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Foundation
 import Observation
 import os
@@ -42,6 +44,12 @@ final class HomeService {
     @ObservationIgnored var activationObserver: (any NSObjectProtocol)?
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
+    /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
+    /// show the new home workspace before its kind row, so launch waits for
+    /// the answer before it decides on a first workspace (`FirstWorkspace`).
+    var homeEnsureInFlight = false
+    /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
+    @ObservationIgnored var homeEnsureGeneration = 0
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
@@ -115,7 +123,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in Observations({
+            for await (connection, _) in ObservationStream({
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
             }) {
                 guard let self, let connection else { continue }
@@ -126,7 +134,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
-            for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
+            for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
@@ -225,6 +233,11 @@ final class HomeService {
         case .conversationTyping(let typing):
             sessions[typing.conversation]?.setTyping(typing.participant, on: typing.on)
             homeSource.publish(.typing(ConversationID(typing.conversation), ParticipantID(typing.participant), on: typing.on))
+        case .conversationDraft(let draft):
+            homeSource.publish(.draft(HomeDraftUpdate(
+                conversation: ConversationID(draft.conversation), participant: ParticipantID(draft.participant),
+                turn: IdempotencyKey(draft.item.turn), segment: draft.item.segment, seq: draft.item.seq,
+                isTalk: draft.item.kind == "talk", text: draft.item.text, fresh: draft.item.fresh, done: draft.item.done)))
         case .cloudConversations(let event):
             handleCloud(event)
         default:

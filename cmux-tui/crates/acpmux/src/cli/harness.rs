@@ -27,6 +27,7 @@ use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
+mod program;
 pub(crate) mod wire;
 use wire::{TempFolder, Wire};
 
@@ -337,10 +338,14 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
             path.display()
         );
     }
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     }
+    // Windows port: owner-only is an ACL there (a later landing).
+    #[cfg(not(unix))]
+    std::fs::DirBuilder::new().recursive(true).create(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes())?;
     let diagnostics =
         match profiles::parse_profile_toml(&text, &path, Some(&id), ProfileSource::UserFile) {
@@ -569,12 +574,12 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     match folder_profiles::resolve_program(profile, workdir) {
         Some(path) => r.push("command", StepStatus::Pass, &path.to_string_lossy(), None),
         None => {
-            r.push(
-                "command",
-                StepStatus::Fail,
-                &format!("`{program}` is not on PATH"),
-                Some(install_hint(cfg, id, &program)),
-            );
+            let file = match &folder_target {
+                Some(Ok(target)) => Some(target.path.as_str()),
+                _ => None,
+            };
+            let (detail, fix) = program::problem(cfg, id, &program, workdir, file);
+            r.push("command", StepStatus::Fail, &detail, Some(fix));
             return r.done();
         }
     }
@@ -790,6 +795,7 @@ async fn acp_steps(
     let outcome = handshake(r, &mut wire, folder, opts).await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
+    #[cfg(unix)]
     if let Some(pid) = pid {
         unsafe {
             libc::killpg(pid as libc::pid_t, libc::SIGKILL);
@@ -922,6 +928,6 @@ async fn handshake(r: &mut Report, wire: &mut Wire, folder: &Path, opts: &Doctor
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "harness_tests.rs"]
 mod tests;

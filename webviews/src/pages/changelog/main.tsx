@@ -7,7 +7,8 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { MockChangelogProvider } from "./mockProvider";
-import { ChangelogStore } from "./store";
+import { ChangelogStore, parseDesign, parseSpan } from "./store";
+import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
 import "./styles.css";
 
@@ -16,8 +17,17 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("changelog.page.title");
-  createRoot(root).render(<ChangelogPage store={store} strings={strings} />);
-  void store.start();
+  const react = createRoot(root);
+  const render = () =>
+    react.render(<ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />);
+  render();
+  void store.start(parseSpan(location.hash));
+  // The host moves an open page to a new update's span (`PageWebView.open(route:)`), and the
+  // route carries the Debug Settings design.
+  window.addEventListener("hashchange", () => {
+    render();
+    void store.setSpan(parseSpan(location.hash));
+  });
   return store;
 }
 
@@ -27,4 +37,9 @@ function defaultClient(): PageClient | null {
 }
 
 const root = document.getElementById("root");
-if (root && document.documentElement.dataset.cmuxPage === "changelog") mountChangelogPage(root);
+if (root && document.documentElement.dataset.cmuxPage === "changelog") {
+  // The sidebar's update surfaces open this bundle on `#/surface/<kind>` (surface.tsx).
+  const surface = parseSurface(location.hash);
+  if (surface) mountUpdateSurface(root, surface, defaultClient());
+  else mountChangelogPage(root);
+}

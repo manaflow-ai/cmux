@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextTerminalFind
 import Observation
 
@@ -9,7 +10,8 @@ import Observation
 /// key and click to it.
 final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
-    private let field = NSTextField()
+    /// Themes its caret, selection and placeholder in the bar's scope, focused or not.
+    private let field = ThemedTextField()
     private let countLabel = NSTextField(labelWithString: "")
     private let icon = NSImageView()
     private var buttons: [NSButton] = []
@@ -29,6 +31,7 @@ final class TerminalFindBarView: NSView {
         field.setAccessibilityLabel(Self.placeholder)
         field.isBordered = false
         field.drawsBackground = false
+        field.fill = { .clear }
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
@@ -40,11 +43,11 @@ final class TerminalFindBarView: NSView {
         countLabel.setContentHuggingPriority(.required, for: .horizontal)
         countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        icon.image = Self.symbol("magnifyingglass")
+        icon.image = Self.icon(.search)
         buttons = [
-            button("chevron.up", label: Self.previousLabel, action: #selector(previousClicked)),
-            button("chevron.down", label: Self.nextLabel, action: #selector(nextClicked)),
-            button("xmark", label: Self.closeLabel, action: #selector(closeClicked)),
+            button(.navPreviousMatch, label: Self.previousLabel, action: #selector(previousClicked)),
+            button(.disclosureExpanded, label: Self.nextLabel, action: #selector(nextClicked)),
+            button(.actionClose, label: Self.closeLabel, action: #selector(closeClicked)),
         ]
 
         let stack = NSStackView(views: [icon, field, countLabel] + buttons)
@@ -167,18 +170,17 @@ final class TerminalFindBarView: NSView {
     @objc private func nextClicked() { find.navigate(.next) }
     @objc private func closeClicked() { find.close() }
 
-    private func button(_ symbol: String, label: String, action: Selector) -> NSButton {
-        let button = NSButton(image: Self.symbol(symbol) ?? NSImage(), target: self, action: action)
+    private func button(_ icon: IconName, label: String, action: Selector) -> NSButton {
+        let button = NSButton(image: Self.icon(icon), target: self, action: action)
         button.isBordered = false
         button.bezelStyle = .accessoryBarAction
-        button.toolTip = label
+        button.themedToolTip = label
         button.setAccessibilityLabel(label)
         return button
     }
 
-    private static func symbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: Metrics.smallIconSize - 1, weight: .semibold))
+    private static func icon(_ name: IconName) -> NSImage {
+        NSImage.icon(name, size: Metrics.smallIconSize - 1)
     }
 
     private static func command(for event: NSEvent) -> TerminalFindKeyCommand? {

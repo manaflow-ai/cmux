@@ -122,6 +122,16 @@ public final class InMemoryBrowserHistory: BrowserHistoryStore {
         notify(.remove([url]))
     }
 
+    /// Forgets the pages of `host` without telling `persistence` (the caller
+    /// removes the site from the durable log itself, as one removal).
+    public func forget(host: String) {
+        let host = host.lowercased()
+        let gone = byKey.filter { $0.value.url.host()?.lowercased() == host }
+        guard !gone.isEmpty else { return }
+        for key in gone.keys { byKey[key] = nil }
+        notify(.remove(gone.values.map(\.url)))
+    }
+
     /// Forgets entries visited at or after `since` (nil: all) without
     /// telling `persistence` (the caller clears the durable log itself).
     public func forget(since: Date?) {

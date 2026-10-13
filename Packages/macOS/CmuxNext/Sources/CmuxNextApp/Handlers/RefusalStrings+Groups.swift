@@ -2,7 +2,7 @@ import Foundation
 
 // Tab group, closed-tab, terminal, workspace, and settings refusals.
 nonisolated extension RefusalStrings {
-    static func noOpenTabGroup(_ id: String) -> String { format("handlers.refusal.noOpenTabGroup", "no open tab group %@", id) }
+    static func noOpenTabGroup(_ id: String) -> String { text("handlers.refusal.tabGroupGone", "That tab group is no longer open.") }
     static var tabNotInGroup: String { text("handlers.refusal.tabNotInGroup", "the tab is not in a group") }
     static var pinnedCannotGroup: String { text("handlers.refusal.pinnedCannotGroup", "pinned tabs cannot be grouped") }
     static var groupArgumentRequired: String { text("handlers.refusal.groupArgumentRequired", "a group argument is required") }
@@ -10,8 +10,8 @@ nonisolated extension RefusalStrings {
     static var colorArgumentRequired: String { text("handlers.refusal.colorArgumentRequired", "a color argument (grey, blue, ...) is required") }
     static var groupNotSaved: String { text("handlers.refusal.groupNotSaved", "the group is not saved") }
     static var savedGroupAlreadyOpen: String { text("handlers.refusal.savedGroupAlreadyOpen", "the saved group is already open") }
-    static func noSavedTabGroup(_ id: String) -> String { format("handlers.refusal.noSavedTabGroup", "no saved tab group %@", id) }
-    static func workspaceHasNoPane(_ id: String) -> String { format("handlers.refusal.workspaceHasNoPane", "workspace %@ has no pane", id) }
+    static func noSavedTabGroup(_ id: String) -> String { text("handlers.refusal.savedTabGroupGone", "That saved tab group no longer exists.") }
+    static func workspaceHasNoPane(_ id: String) -> String { text("handlers.refusal.workspaceEmpty", "That workspace has no panes.") }
     static var otherMachine: String { text("handlers.refusal.groupOtherMachine", "the group and the target are on different machines") }
     static var groupAtEdge: String { text("handlers.refusal.groupAtEdge", "the group is already at the edge") }
     static var closedTabPaneGone: String { text("handlers.refusal.closedTabPaneGone", "the closed tab's pane is gone and no pane is focused") }
@@ -29,11 +29,15 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.resourceCardNotShown", "the tab or workspace is not shown in a window, so its resource card cannot open")
     }
     static var workspaceHasNoDirectory: String { text("handlers.refusal.workspaceHasNoDirectory", "the workspace has no working directory") }
+    static var sectionTakesNoWorkspaces: String { text("handlers.refusal.sectionTakesNoWorkspaces", "that section cannot hold workspaces") }
+    static var groupCannotJoinSection: String { text("handlers.refusal.groupCannotJoinSection", "the group's workspaces cannot be added to a section yet") }
+    static var groupAlreadyInSection: String { text("handlers.refusal.groupAlreadyInSection", "every workspace in the group is already in that section") }
     static var workspaceNotInSidebar: String { text("handlers.refusal.workspaceNotInSidebar", "the workspace is not in the sidebar") }
     static var noWorkspaceToActOn: String { text("handlers.refusal.noWorkspaceToActOn", "no workspace to act on") }
-    static func noWorkspaceGroup(_ id: String) -> String { format("handlers.refusal.noWorkspaceGroup", "no workspace group %@", id) }
+    /// `id` is for call sites and logs only, never shown.
+    static func noWorkspaceGroup(_ id: String) -> String { text("handlers.refusal.workspaceGroupGone", "That workspace group no longer exists.") }
     static var workspaceNotInGroup: String { text("handlers.refusal.workspaceNotInGroup", "the workspace is not in a group") }
-    static func noWindow(_ id: String) -> String { format("handlers.refusal.noWindow", "no window %@", id) }
+    static func noWindow(_ id: String) -> String { text("handlers.refusal.windowGone", "That window is no longer open.") }
     static func couldNotOpen(_ url: String) -> String { format("handlers.refusal.couldNotOpen", "could not open %@", url) }
     static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux-next.json is not loaded yet") }
     static var debugSettingsUnavailable: String {
@@ -51,4 +55,7 @@ nonisolated extension RefusalStrings {
         format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
     }
     static var groupRequired: String { text("handlers.refusal.groupRequired", "group is required") }
+    static var groupOnAnotherMachine: String {
+        text("handlers.refusal.groupOnAnotherMachine", "a group holds workspaces of one machine; this workspace is on another machine")
+    }
 }

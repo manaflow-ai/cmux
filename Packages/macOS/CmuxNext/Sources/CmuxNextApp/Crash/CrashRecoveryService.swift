@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import os
+import CmuxNextCompat
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
 /// the run marker, the restart notice, crash reports for app and Chromium
@@ -93,10 +94,13 @@ final class CrashRecoveryService {
     /// The notice's Report button: the previous crash as a prefilled GitHub
     /// issue in the default browser. The user reads it and sends it, or not.
     @discardableResult
-    func reportCrash(open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) -> URL? {
+    func reportCrash() -> URL? {
         guard let previous = recovery.previous,
               let url = CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID).url else { return nil }
-        if !open(url) { logger.error("crash report page did not open") }
+        let logger = logger
+        NSWorkspace.shared.openInBackground(url) { opened in
+            if !opened { logger.error("crash report page did not open") }
+        }
         return url
     }
 

@@ -265,7 +265,7 @@ final class TabDragSession: NSObject {
     /// The window's sidebar and layout drop adapters, cached for the drag.
     func adapters(for controller: WindowController, drag: Drag) -> (sidebar: SidebarTabDropTarget, layout: LayoutTabDropTarget) {
         let key = ObjectIdentifier(controller)
-        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar), LayoutTabDropTarget(window: controller))
+        let adapters = drag.adapters[key] ?? (SidebarTabDropTarget(bridge: controller.sidebar, window: controller), LayoutTabDropTarget(window: controller))
         drag.adapters[key] = adapters
         return adapters
     }

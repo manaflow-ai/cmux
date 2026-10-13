@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentCursor
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -117,7 +118,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func observeRoom() {
         let state = state
         roomObservation = Task { [weak self] in
-            for await _ in Observations({ state.profileID }) {
+            for await _ in ObservationStream({ state.profileID }) {
                 guard let self else { return }
                 services.themes.windowDidChange(self)
             }
@@ -133,7 +134,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in Observations({ () -> [String] in
+            for await _ in ObservationStream({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
                 [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
                     + windows.registry.members(of: state.id)
@@ -185,7 +186,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard startupObservation == nil else { return }
         let daemon = services.daemon
         startupObservation = Task { [weak self, weak view] in
-            for await startup in Observations({ daemon.startup }) {
+            for await startup in ObservationStream({ daemon.startup }) {
                 view?.apply(startup)
                 if self?.content != nil { return }
             }
@@ -225,7 +226,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         connectingView = nil
         titleObservation?.cancel()
         titleObservation = Task { [weak self] in
-            for await title in Observations({ workspace.displayName }) { self?.root.titlebar.title = title }
+            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and,
         // now that the content is installed, re-applies it.
@@ -329,7 +330,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
+    CursorRectHoldHosting {
+    /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
+    weak var cursorRectHold: (any CursorRectHoldPolicy)?
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
@@ -342,17 +346,6 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-    }
-
-    /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
-    /// mouse-down in the band is delivered as usual, then moves the window
-    /// (or runs the double-click action) only when the policy says so.
-    override func sendEvent(_ event: NSEvent) {
-        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
-            return super.sendEvent(event)
-        }
-        super.sendEvent(event)
-        WindowTitlebar.handleMouseDown(event, in: self)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -386,7 +379,29 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     override func layoutIfNeeded() {
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
+        // The outermost pass only, and before the overlay layer's own
+        // after-pass work, so an occluder change it causes joins that work.
+        if overlayLayer.layoutDepth == 1 {
+            (contentView as? WindowRootView)?.windowDidLayout()
+            let blocks = pendingAfterLayout
+            pendingAfterLayout.removeAll()
+            for block in blocks { block() }
+        }
         overlayLayer.windowDidLayout()
+    }
+
+    /// Inside `layoutIfNeeded` (views defer cross-window work to its end).
+    /// The overlay layer's depth resets itself on the next event cycle if an
+    /// exception AppKit caught skipped the end of a pass.
+    var isInLayoutPass: Bool { overlayLayer.layoutDepth > 0 }
+
+    private var pendingAfterLayout: [() -> Void] = []
+
+    /// Runs `block` after the window's current layout pass, or now when no
+    /// pass runs: for a view that must ask an ancestor for another layout
+    /// from inside its own `layout()`.
+    func afterLayoutPass(_ block: @escaping () -> Void) {
+        if isInLayoutPass { pendingAfterLayout.append(block) } else { block() }
     }
 
     // MARK: OverlayPlaneHosting
@@ -404,11 +419,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
     }
 
+    /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
+    var editTeardown = (depth: 0, pending: false)
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)
-        if accepted, let controller = windowController as? WindowController {
-            controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
-        }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
         return accepted
     }
 }

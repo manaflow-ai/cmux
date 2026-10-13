@@ -3,6 +3,11 @@ name: cmux-tui build package
 on:
   workflow_call:
     inputs:
+      retention_days:
+        description: Days the uploaded build artifacts are kept. Every in-run consumer reads them within the run; release callers pass more for tui-publish-npm/pypi, which download by run id.
+        required: false
+        default: 3
+        type: number
       version:
         description: "npm package version, or the shared stable X.Y.Z version"
         required: true
@@ -33,7 +38,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
+        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
         required: false
         default: all
         type: string
@@ -100,6 +105,11 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # A crates.io or index DNS blip must not fail a publish build (run
+  # 37211512775 failed on index.crates.io); the same budget as the daemon
+  # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_TIMEOUT: "120"
 
 jobs:
   plan-build:
@@ -193,6 +203,11 @@ jobs:
               selected = [
                   target for target in targets
                   if target["target"] == "aarch64-apple-darwin"
+              ]
+          elif target_set == "macos-x86_64":
+              selected = [
+                  target for target in targets
+                  if target["target"] == "x86_64-apple-darwin"
               ]
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")
@@ -581,6 +596,7 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: cmux-tui-${{ matrix.target }}
           path: dist/cmux-tui-*${{ matrix.ext }}
           if-no-files-found: error
@@ -588,6 +604,7 @@ jobs:
       - name: Upload relay binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: cmux-relay-${{ matrix.target }}
           path: dist/cmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
@@ -595,6 +612,7 @@ jobs:
       - name: Upload chatmux relay binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: chatmux-relay-${{ matrix.target }}
           path: dist/chatmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
@@ -603,6 +621,7 @@ jobs:
         if: inputs.build_agent_plugin && runner.os != 'Windows'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: cmux-agent-screen-detection-${{ matrix.target }}
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
@@ -703,6 +722,12 @@ jobs:
       - name: Test Windows long-path state handling
         working-directory: cmux-tui
         shell: bash
+        env:
+          # The test binary needs release optimization, not fat LTO in one codegen unit: with the
+          # release profile as is, compiling these cmux-tui-core unit tests took 13 of the job's
+          # 33 min (run 38259768770, 2026-10-12) and the Windows leg ends every tree publication.
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           cargo test --release --locked --target x86_64-pc-windows-gnu \
             -p cmux-tui-core --lib normalize_long_windows
@@ -760,6 +785,7 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: cmux-tui-x86_64-pc-windows-gnu
           path: |
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
@@ -858,6 +884,7 @@ jobs:
       - name: Upload the third-party notices
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: package-notices
           path: dist/package-notices
           if-no-files-found: error
@@ -1021,6 +1048,7 @@ jobs:
         if: inputs.package_npm
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: npm-packages
           path: dist/npm-packages.tar.gz
           if-no-files-found: error
@@ -1029,6 +1057,7 @@ jobs:
         if: inputs.package_pypi
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          retention-days: ${{ inputs.retention_days }}
           name: pypi-wheels
           path: dist/pypi-wheels/*.whl
           if-no-files-found: error

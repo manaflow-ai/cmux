@@ -178,7 +178,3 @@ fn edge(bind: Option<SocketAddr>, facts: Facts, carrier: Carrier) -> Result<Remo
     }
     Ok(RemoteEntry::TrustedCarrier { bind, carrier })
 }
-
-#[cfg(test)]
-#[path = "remote_entry_tests.rs"]
-mod tests;

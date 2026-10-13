@@ -6,6 +6,24 @@ Spec: cmux-next-spec `spec/keybindings-and-palette.md` (R59). Scope: one key dis
 a binding table with `when` clauses, then the customization slices. Default bindings do
 not change (K1). Paths are under `Packages/macOS/CmuxNext/Sources/` unless noted.
 
+## 0. Window creation differs from browser defaults
+
+cmux uses `Cmd-N` for a workspace because the workspace is the unit users
+switch between in a window. The window shortcuts are separate, so browser
+muscle memory does not accidentally split a workspace across windows:
+
+| Shortcut | cmux action | Result |
+| --- | --- | --- |
+| `Cmd-N` | New Workspace (`newTab`) | Adds a workspace in the current window. |
+| `Cmd-Shift-N` | New Window (`newWindow`) | Opens a new window with its first workspace. |
+| `Cmd-Opt-Shift-N` | New Incognito Window (`newIncognitoWindow`) | Opens an isolated incognito window; its browser data is discarded when the last incognito window closes. |
+
+These bindings are also available from the File/Window menus, the command
+palette and the action registry, and can be rebound through the normal
+shortcut settings. In a browser, `Cmd-Shift-N` traditionally means a private
+window; in cmux the explicit three-modifier shortcut keeps that action distinct
+from New Window.
+
 ## 1. Every key-down path today
 
 A key-down passes these owners in this order. Each row says who decides and where.
@@ -256,6 +274,13 @@ wherever its tier allows).
 - K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
+  Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
+  Leo 2026-10-12 these keys select sidebar items, not pane tabs. cmux-next (DEV build of
+  8f408161, `scripts/cmux-next/chrome-tab-keys-e2e.py --real --tidy`): Ctrl-Tab, Ctrl-Shift-Tab,
+  Cmd-Shift-] and Cmd-Shift-[, pressed and as Leo's Karabiner sequences, pass from a terminal,
+  terminal copy mode, a web page, Settings and Home (40/40). Classic (main a5cb091d): the same four
+  keys pass from a terminal, copy mode, a browser page and the Markdown page (16/16); classic
+  has no Home.
 - R85 (Lawrence, 2026-10-04): Ctrl-1...9 = Select Tab N (the common editor default), Spaces on
   Ctrl-Opt-1...9, Cmd-1...9 Select Workspace N; all rebindable. #17182 had given Ctrl-digits to
   Spaces, so with one Space they did nothing. macOS Mission Control "Switch to Desktop N" uses

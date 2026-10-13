@@ -323,5 +323,32 @@ class CmuxNextWiring(unittest.TestCase):
         self.assertFalse(marked(self.push("101")))
 
 
+class FeedReplyFullText(unittest.TestCase):
+    """The feed workflow's package tests need no secrets, so they take the owned side lane
+    on attempt 1 like the cmux-tui legs, instead of always queuing on Blacksmith."""
+
+    def runs_on(self, job: str) -> str:
+        workflow = yaml.safe_load((WORKFLOWS / "test-feed-reply-providers.yml").read_text(encoding="utf-8"))
+        return workflow["jobs"][job]["runs-on"]
+
+    def context(self, attempt: str = "1", owned: str = "1", owner: str = "manaflow-ai") -> dict:
+        context = github_context("workflow_dispatch", CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+        context["vars"].pop("MACOS_RUNNER_PR")
+        context["github"].update(run_attempt=attempt, repository_owner=owner)
+        return context
+
+    def test_full_text_takes_the_side_lane_on_attempt_1(self):
+        runs_on = self.runs_on("full-text")
+        self.assertEqual(evaluate(runs_on, self.context()), SIDE)
+        # A re-run, owned pools off, or another owner keeps a hosted runner.
+        self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
+        self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+        self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
+
+    def test_verify_stays_hosted(self):
+        # verify waits up to 30 min on another run and drives a GUI app; it keeps Blacksmith.
+        self.assertEqual(evaluate(self.runs_on("verify"), self.context()), FALLBACK)
+
+
 if __name__ == "__main__":
     unittest.main()

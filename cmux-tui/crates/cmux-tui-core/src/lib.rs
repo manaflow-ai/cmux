@@ -16,6 +16,7 @@ mod apps;
 pub use cmux_tui_util::backoff;
 mod browser;
 pub mod browser_host;
+mod browser_host_history;
 mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
@@ -32,6 +33,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
@@ -42,12 +44,14 @@ mod journal_ingress;
 mod journal_kernel;
 mod journal_plugin;
 mod journal_reducers;
+pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod program_status;
+mod prompt_mode_reset;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
@@ -72,12 +76,13 @@ mod state;
 pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 mod surface;
+mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;
 mod terminal_end;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod terminal_loss_cause;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod terminal_loss_log;
 mod terminal_metadata;
 pub use cmux_tui_util::terminal_respawn_text;
@@ -125,10 +130,11 @@ pub use model::{
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
+    AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
+    CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
@@ -144,6 +150,7 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
     BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
     RelayLock, RelayStateError, RevocationClock,

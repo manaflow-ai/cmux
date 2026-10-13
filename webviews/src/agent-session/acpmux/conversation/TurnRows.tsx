@@ -1,6 +1,7 @@
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
+import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
@@ -8,11 +9,14 @@ import { MessageCard } from "./MessageCard";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
+import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 
@@ -58,9 +62,7 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <div className="cv-tool cv-thought" key={index}>
-          <span className="cv-tool__text">{group.item.text}</span>
-        </div>
+        <ThoughtRow key={index} item={group.item} />
       );
   }
 }
@@ -72,14 +74,18 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
   const nodes = groups.map(groupNode);
+  // Find opens what holds its current match in this row only (chatFind.ts).
+  const reveal = useContext(FindReveal);
   return (
-    <div className="cv-tools">
-      {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
-        <ToolRun items={items ?? []}>{nodes}</ToolRun>
-      ) : (
-        nodes
-      )}
-    </div>
+    <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+      <div className="cv-tools">
+        {row.settled && groups.length > 1 && isFoldedRun(items ?? []) ? (
+          <ToolRun items={items ?? []}>{nodes}</ToolRun>
+        ) : (
+          nodes
+        )}
+      </div>
+    </FindReveal.Provider>
   );
 }
 
@@ -92,7 +98,8 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const { fork, forkSeq, retry, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
+  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
+    useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -126,17 +133,23 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={t("turn.retry")}
             title={t("turn.retryLabel")}
-            onClick={() => retry(prompt)}
+            onClick={() => retry(row.retryRowId ?? "", prompt)}
           >
             <Retry size={14} />
           </button>
+        )}
+        {retry && prompt && retryWith && retryWith.models.length > 1 && (
+          <RetryModelMenu
+            retryWith={retryWith}
+            onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+          />
         )}
         {authenticationFailed && reauthenticate && (
           <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
             {t("turn.signInAgain")}
           </button>
         )}
-        {fork && seq !== undefined && seq === forkSeq && (
+        {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
           <button
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"
@@ -156,9 +169,40 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   );
 }
 
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+function RetryModelMenu({
+  retryWith,
+  onPick,
+}: {
+  retryWith: NonNullable<TurnActions["retryWith"]>;
+  onPick(model: string): void;
+}) {
+  const t = useT();
+  return (
+    <Menu>
+      <MenuButton
+        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
+        label={t("turn.retryWith")}
+        title={t("turn.retryWith")}
+      >
+        <ChevronDown size={12} />
+      </MenuButton>
+      <MenuPopup label={t("turn.retryWith")} align="start">
+        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+          {retryWith.models.map((model) => (
+            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
+              {model.name}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
 /// A failed turn's note (cx-w10a): the cause in plain words, naming the harness and the proxy or endpoint
 /// when the error names one, never a generic "sign-in expired"; the agent's own message under Details;
-/// Switch model for capacity, network, key and proxy failures; Copy error always.
+/// Switch model for capacity, network, key, proxy and sign-in failures; Copy error always.
 function TurnFailure({
   message,
   route,
@@ -172,7 +216,10 @@ function TurnFailure({
   const [copied, setCopied] = useState(false);
   const kind = failureKind(message, route);
   const sentence = failureCopy(t, message, route);
-  const offersSwitch = switchModel && ["rate-limited", "unreachable", "invalid-key", "proxy-auth"].includes(kind);
+  // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
+  const offersSwitch =
+    switchModel &&
+    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
   return (
     <span className="cv-turn-note" data-failure-kind={kind}>
       <span className="text-fg">{sentence}</span>

@@ -386,6 +386,7 @@ async fn web_starts_asking(
     let controls = matches!(
         m,
         method::SESSION_PROMPT
+            | method::MUX_QUEUE_EDIT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
@@ -547,7 +548,7 @@ async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::Path
 /// component, so a case-different or differently normalized spelling of a
 /// path compares equal to its root. Elsewhere `realpath` already returns
 /// the stored names.
-async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
+pub(crate) async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
     let canonical = tokio::fs::canonicalize(path).await.ok()?;
     #[cfg(target_os = "macos")]
     if let Some(stored) = stored_path(&canonical) {

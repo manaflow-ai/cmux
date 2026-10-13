@@ -18,6 +18,14 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Fired when the queue's head may have changed (a prompt left the queue,
+    /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
+    pub(super) queue_moved: Notify,
+    /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
+    /// and starts nothing queued until the move commits (it closes) or aborts.
+    pub(super) moving: StdMutex<Option<String>>,
+    /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
+    pub(super) restored: StdMutex<Vec<(String, String)>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
@@ -44,6 +52,8 @@ pub struct Session {
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
+    /// Of those, the ones that do not show the chat (`hub/seen.rs`).
+    pub(super) hidden: std::sync::atomic::AtomicUsize,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
@@ -76,6 +86,13 @@ impl Session {
     }
     pub fn queue(&self) -> Vec<QueuedPrompt> {
         self.queue.lock().unwrap().clone()
+    }
+    pub fn moving(&self) -> Option<String> {
+        self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    pub fn queue_paused(&self) -> bool {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions

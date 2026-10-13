@@ -1,7 +1,7 @@
 import type { SlashCommand } from "./slashCommands";
 
 /** Commands owned by cmux and available in every harness chat. */
-export type CmuxCommand = SlashCommand & { source: "cmux"; action: "import" | "continue" | "fork" };
+export type CmuxCommand = SlashCommand & { source: "cmux"; action: "import" | "continue" | "fork" | "btw" };
 
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
@@ -22,6 +22,13 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     description: "",
     source: "cmux",
     action: "fork",
+  },
+  {
+    name: "btw",
+    description: "",
+    hint: "<question>",
+    source: "cmux",
+    action: "btw",
   },
 ];
 

@@ -136,11 +136,6 @@ public final class ActionRegistry {
         shortcutIndex = nil
     }
 
-    /// Maps legacy IDs to their canonical ID.
-    public func addAliases(_ newAliases: [ActionID: ActionID]) {
-        aliases.merge(newAliases) { _, new in new }
-    }
-
     public func canonicalID(for id: ActionID) -> ActionID {
         aliases[id] ?? id
     }

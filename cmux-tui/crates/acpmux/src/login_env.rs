@@ -166,22 +166,3 @@ pub(crate) fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) 
     }
     (vars, login_path)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_env0_and_drops_noise() {
-        let text = "fnm: using node 22\nANTHROPIC_BASE_URL=http://x\0PATH=/a:/b\0PWD=/tmp\0XPC_SERVICE_NAME=svc\0BAD KEY=1\0MULTI=a\nb\0";
-        let (vars, path) = parse_env0(text);
-        assert_eq!(path.as_deref(), Some("/a:/b"));
-        assert_eq!(
-            vars,
-            vec![
-                ("ANTHROPIC_BASE_URL".to_owned(), "http://x".to_owned()),
-                ("MULTI".to_owned(), "a\nb".to_owned())
-            ]
-        );
-    }
-}

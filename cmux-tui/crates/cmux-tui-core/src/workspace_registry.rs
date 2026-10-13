@@ -32,6 +32,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod detached_terminals;
+pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
+use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 mod idle_policy_store;
@@ -101,8 +104,7 @@ pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_presentation_icon, validate_tab_group_color, validate_tab_group_name,
-    validate_workspace_group_id,
+    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -167,8 +169,10 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 64;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
+// A fresh test registry is already close to 1 MiB (one page per table and
+// index); the test bound leaves room for new tables.
 #[cfg(test)]
-const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
+const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 2 * 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(test)]
@@ -736,8 +740,8 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
-    _lease: Option<SessionLease>,
-    _session_guard: Option<SessionLease>,
+    pub(crate) lease: Option<SessionLease>,
+    pub(crate) session_guard: Option<SessionLease>,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2340,6 +2344,40 @@ impl std::fmt::Debug for WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    /// The registry id stored for `session_name` under the state root `root`,
+    /// read without the session's locks (its owner may be running). `None`:
+    /// no registry exists there, so no owner of that state dir is running.
+    pub fn stored_registry_id(root: &Path, session_name: &str) -> anyhow::Result<Option<String>> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let db_path = platform::normalize_filesystem_path(
+            persistent_session_state_dir(&root, session_name).join(WORKSPACE_REGISTRY_FILE),
+        );
+        if !db_path.is_file() {
+            return Ok(None);
+        }
+        let connection = open_registry_database_read_only(&db_path)?;
+        connection.busy_timeout(std::time::Duration::from_millis(500))?;
+        meta_value(&connection, "registry_id")
+    }
+
+    /// Fails with `UnsupportedWorkspaceRegistrySchema` when the session's
+    /// saved registry needs a newer build, without opening it for writing.
+    /// The owner checks this before it binds its socket (cx-n3bs), so the
+    /// recovery text still sees whether another server holds the socket.
+    pub fn check_supported_schema(root: &Path, session_name: &str) -> anyhow::Result<()> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
@@ -2787,8 +2825,8 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            _session_guard: session_guard,
-            _lease: lease,
+            session_guard,
+            lease,
         })
     }
 
@@ -4535,20 +4573,6 @@ fn validate_terminal_transition(
     Ok(())
 }
 
-fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
-    let live = connection
-        .query_row(
-            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
-            [workspace_key],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if live.is_none() {
-        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
-    }
-    Ok(())
-}
-
 type StoredTerminal = (String, String, Option<String>, String, String, Option<String>, String);
 
 fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
@@ -5207,7 +5231,7 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
         })
 }
 
-struct SessionLease {
+pub(crate) struct SessionLease {
     file: File,
     path: PathBuf,
     coordinator_waiter_dir: Option<PathBuf>,

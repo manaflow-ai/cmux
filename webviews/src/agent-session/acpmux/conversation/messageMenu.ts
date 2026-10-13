@@ -4,10 +4,12 @@
 // links) and the selected transcript text under the pointer to the host's `cmuxAgentContextMenu`
 // handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
-// one report for one menu.
+// one report for one menu. On a code block, a command, a path or a link the report adds that
+// `part` (menuParts.ts), even outside a prompt or reply (a tool row).
 import { lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
+import { menuPartAt, type MenuPart } from "./menuParts";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
@@ -23,7 +25,7 @@ export type MessageMenuTarget = {
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
-export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true };
+export type MessageMenuReport = Partial<MessageMenuTarget> & { selection?: string; openImage?: true; part?: MenuPart };
 
 /// Whether a turn can be forked now: acpmux serves forks, the pane is connected, no turn is
 /// running and the chat is on this computer (acpmux refuses the rest). The turn footer's Fork
@@ -35,8 +37,12 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
-/// The one turn a fork can go through: the latest completed turn's summary event. acpmux forks a
-/// chat at its end (`acp.session.fork` refuses an earlier turn), so no earlier turn offers it.
+/// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
+/// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
+export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+
+/// The latest completed turn's summary event: the one turn a fork goes through unless the chat
+/// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
 export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
@@ -54,7 +60,10 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
   const turnSeq = canFork(snapshot)
     ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
     : undefined;
-  const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
+  const forkSeq =
+    turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
+      ? turnSeq
+      : undefined;
   const target: MessageMenuTarget =
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
@@ -169,9 +178,15 @@ export function installMessageMenuReporter(
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
     const selection = selectionAt(doc, target);
+    const part = selection ? undefined : menuPartAt(target);
     const body: MessageMenuReport | null =
-      message || selection || reportedImage
-        ? { ...message, ...(selection ? { selection } : {}), ...(reportedImage ? { openImage: true as const } : {}) }
+      message || selection || reportedImage || part
+        ? {
+            ...message,
+            ...(selection ? { selection } : {}),
+            ...(reportedImage ? { openImage: true as const } : {}),
+            ...(part ? { part } : {}),
+          }
         : null;
     handler()?.postMessage(body);
   };
