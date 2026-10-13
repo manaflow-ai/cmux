@@ -77,7 +77,16 @@ struct PasswordCSVFiles {
         return lines
     }
 
+    /// The prefix of every password CSV toast's id.
     static let toastID = "password-csv-imported"
+
+    /// One toast per file (the prefix and a hash of its path), so a second import's toast stands
+    /// beside the first file's offer instead of replacing it (cx-dwg.8).
+    static func fileToastID(_ url: URL) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV-1a: stable across launches, unlike Hasher
+        for byte in url.standardizedFileURL.path.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        return "\(toastID)-\(String(hash, radix: 16))"
+    }
 
     /// The counts, and the file's fate: it holds every password in plain
     /// text, so when every row is in the store (or was there already) it goes
@@ -107,7 +116,7 @@ struct PasswordCSVFiles {
     /// Move to Trash.
     private static func offerReplace(_ url: URL, _ summary: [String], _ hold: PasswordConflictHold, othersMissing: Int,
                                      in window: NSWindow, windowLookup: @escaping @MainActor () -> NSWindow?) {
-        let toast = CmuxToast(id: toastID, message: summary.joined(separator: " "),
+        let toast = CmuxToast(id: fileToastID(url), message: summary.joined(separator: " "),
                               action: CmuxToast.Action(title: PasswordCSVStrings.replace), duration: .seconds(20))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = {
@@ -134,9 +143,9 @@ struct PasswordCSVFiles {
             // After the toast center ends this one (a dismiss can come from inside its show).
             Task { @MainActor in
                 guard let window = windowLookup() else { return }
-                // A newer password CSV toast took the slot and says what happened next;
-                // unrelated toasts that pushed this one out do not.
-                if reason == .replaced, CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == toastID }) { return }
+                // A newer toast for this file took the slot and says what happened next; other
+                // files' toasts and unrelated ones that pushed this one out do not.
+                if reason == .replaced, CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == fileToastID(url) }) { return }
                 offerTrash(url, summary, in: window)
             }
         }
@@ -149,7 +158,7 @@ struct PasswordCSVFiles {
                 // Looked up again on the main actor: a window is not Sendable.
                 guard let window = windowLookup() else { return }
                 guard error == nil, let trashed = moved[url] else { return offerTrash(url, summary, in: window) }
-                let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
+                let toast = CmuxToast(id: fileToastID(url), message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
                                       action: .undo(), duration: .seconds(12))
                 CmuxToastCenter.shared.show(toast, in: window).onAction = {
                     do { try FileManager.default.moveItem(at: trashed, to: url) } catch {
@@ -161,7 +170,7 @@ struct PasswordCSVFiles {
     }
 
     private static func offerTrash(_ url: URL, _ summary: [String], in window: NSWindow) {
-        let toast = CmuxToast(id: toastID, message: (summary + [PasswordCSVStrings.plaintextWarning]).joined(separator: " "),
+        let toast = CmuxToast(id: fileToastID(url), message: (summary + [PasswordCSVStrings.plaintextWarning]).joined(separator: " "),
                               action: CmuxToast.Action(title: PasswordCSVStrings.moveToTrash), duration: .seconds(20))
         CmuxToastCenter.shared.show(toast, in: window).onAction = { NSWorkspace.shared.recycle([url]) }
     }

@@ -96,17 +96,28 @@ enum RowDraw {
     /// original recording (HEVC 4:2:0), has no still multi-line outgoing balloon, and with the inset its flying
     /// bubble's bottom edge error got worse (motion-gate capture26 parity: edge_B_rms 1.36 -> 1.67 px).
     static func balloon(_ body: CGRect, row p: PartRow) -> CGRect {
+        insetApplies(p) ? insetBalloon(body) : body
+    }
+
+    /// An outgoing text part on macOS 27 (Catalyst / AppKit): its balloon is drawn inside its frame (`balloon`) and its
+    /// cell masks the fill with Messages' soft edge (SoftBalloon).
+    static func insetApplies(_ p: PartRow) -> Bool {
 #if os(iOS) && !targetEnvironment(macCatalyst)
-        return body
+        return false
 #else
-        guard p.outgoing, case .text = p.part, !ComposeMetrics.macOS26 else { return body }
+        guard p.outgoing, case .text = p.part, !ComposeMetrics.macOS26 else { return false }
+        return true
+#endif
+    }
+
+    /// `balloon`'s measured rule without the part check.
+    static func insetBalloon(_ body: CGRect) -> CGRect {
         let s = Fixture.renderScale
         let multi = body.height > 38 // 30 pt for 1 line, 46 for 2
         let out: CGFloat = multi ? 0.04 : 0.023, inset: CGFloat = multi ? 0.419 : 0.106
         let left = floor(body.minX * s + 0.001) / s
         return CGRect(x: left - out, y: body.minY - out,
                       width: body.maxX - inset - (left - out), height: body.height + out - inset)
-#endif
     }
 
     /// Outgoing shapes whose fill is the window-position gradient (a layer).
