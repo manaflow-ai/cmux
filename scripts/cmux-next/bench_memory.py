@@ -24,7 +24,7 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--out FILE.json]
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -285,7 +285,14 @@ def wait_gone(pid: int, seconds: float) -> bool:
     return False
 
 
-def launch(bundle: str):
+def merged(base: dict, extra: dict) -> dict:
+    out = dict(base)
+    for key, value in extra.items():
+        out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def launch(bundle: str, config: dict):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
@@ -309,7 +316,7 @@ def launch(bundle: str):
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
-        json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+        json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
     subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -345,6 +352,8 @@ def main():
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--config", default="{}",
+                        help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--out")
     args = parser.parse_args()
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
@@ -359,7 +368,7 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        launched, socket_path, scratch = launch(bundle)
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config))
         app_pid = launched
     app = App(bundle, socket_path)
     recipes = args.mix.split(",")
