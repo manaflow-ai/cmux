@@ -248,6 +248,11 @@ private extension AccountSignInModel.LoadingStage {
             return String(localized: "account.signIn.loading.waitingSlow", defaultValue: "Still waiting for sign-in…")
         case .finishing:
             return String(localized: "account.signIn.loading.finishing", defaultValue: "Finishing sign-in…")
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.loading.rateLimited",
+                defaultValue: "Too many sign-in requests from this network"
+            )
         }
     }
 
@@ -272,6 +277,11 @@ private extension AccountSignInModel.LoadingStage {
             return String(
                 localized: "account.signIn.loading.finishing.instructions",
                 defaultValue: "cmux is verifying your account. Keep this pane open."
+            )
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.loading.rateLimited.instructions",
+                defaultValue: "cmux retries automatically. Keep this pane open."
             )
         }
     }
@@ -302,6 +312,11 @@ private extension AccountSignInModel.Failure {
             return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "cmux couldn’t authorize this sign-in")
         case .rejected:
             return String(localized: "account.signIn.error.rejected.title", defaultValue: "cmux couldn’t complete the sign-in")
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.error.rateLimited.title",
+                defaultValue: "Too many sign-in requests from this network"
+            )
         case .unknown:
             return String(localized: "account.signIn.error.unknown.title", defaultValue: "Couldn’t finish sign-in")
         }
@@ -353,6 +368,11 @@ private extension AccountSignInModel.Failure {
             return String(
                 localized: "account.signIn.error.rejected.recovery",
                 defaultValue: "Check the account details in the browser and try again."
+            )
+        case .rateLimited:
+            return String(
+                localized: "account.signIn.error.rateLimited.recovery",
+                defaultValue: "cmux retried automatically. Wait a minute, then try again. Your account and existing cmux workspaces are unchanged."
             )
         case .unknown:
             return String(
