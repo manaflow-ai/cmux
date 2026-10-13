@@ -122,13 +122,15 @@ export function DaemonGate({
 
   // The first connect: a credential this tab (or the host) already holds reconnects at once.
   useEffect(() => {
-    live.current.mounted = true;
+    // One object for the component's life (only its fields change), so the cleanup's copy is it.
+    const state = live.current;
+    state.mounted = true;
     resume();
     return () => {
-      live.current.mounted = false;
-      clearTimeout(live.current.timer);
-      live.current.daemon?.close();
-      live.current.daemon = null;
+      state.mounted = false;
+      clearTimeout(state.timer);
+      state.daemon?.close();
+      state.daemon = null;
     };
     // Runs once per endpoint.
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
