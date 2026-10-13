@@ -189,6 +189,33 @@ fn peer_or_local(mux: &Mux, client: u64, transport: ClientTransport, local: Acto
     }
 }
 
+/// What the daemon knows about a connection for the hosting-app check
+/// (`crate::apps::hosting_app_connection`, the door of origin `user`).
+pub(super) struct AppConnection {
+    /// Bound to an agent's conversation; switches to the identity lane's
+    /// terminal/acp_session actor with `agent` once it lands.
+    pub(super) agent: bool,
+    /// Proved, never declared: the install-key hello or the app's code
+    /// signature (P8, server/app_trust.rs). `set-client-info kind` and a
+    /// page relay never count.
+    pub(super) verified_app: bool,
+}
+
+pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
+    let verified_app = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.origin.derive() == RequestOrigin::User)
+    };
+    AppConnection {
+        agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
+        verified_app,
+    }
+}
+
 #[cfg(unix)]
 /// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
 /// origin `user` (a verified cmux app connection).

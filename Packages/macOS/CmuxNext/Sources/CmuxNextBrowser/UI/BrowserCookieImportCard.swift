@@ -146,7 +146,8 @@ final class BrowserCookieImportCard: NSView {
 /// A borderless text button drawn as a quiet link (tertiary text, an
 /// underline while hovered): the card's least likely answer.
 final class CookieCardLinkButton: NSButton {
-    var color: NSColor = .secondaryLabelColor { didSet { applyTitle() } }
+    /// The card sets it on every theme pass; until then the app theme's tertiary ink.
+    var color: NSColor = ThemeTokens.unresolved.textTertiary.nsColor { didSet { applyTitle() } }
     var textFont: NSFont = BrowserMetrics.captionFont { didSet { applyTitle() } }
     private var text = ""
     private var isHovering = false { didSet { applyTitle() } }

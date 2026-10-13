@@ -1037,7 +1037,9 @@ name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-local-auth",
  "cmux-sdk",
+ "getrandom 0.3.4",
  "libc",
  "log",
  "serde",

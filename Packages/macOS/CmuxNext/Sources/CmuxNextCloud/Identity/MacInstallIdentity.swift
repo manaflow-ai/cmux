@@ -61,6 +61,10 @@ public actor MacInstallIdentity {
     /// The owner refused the current token (401): the next call mints again.
     public func invalidate() async { await client?.invalidate() }
 
+    /// The registered install's id (`inst_…`), or nil before the first
+    /// registration of the signed-in user. `cmux link` runs as this install.
+    public func installID() async -> String? { await client?.currentRecord?.install }
+
     /// The session ended without a sign-out here (expired, or signed out
     /// elsewhere): stop minting. The key and record stay, so a sign-in of the
     /// same user reuses the install and a later sign-out can still revoke it.

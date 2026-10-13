@@ -34,6 +34,7 @@ pub struct PersonalWorkspaceUpdate {
     pub group: Option<Option<String>>,
     pub browser_profile_id: Option<Option<String>>,
     pub theme: Option<Option<String>>,
+    pub remote_localhost: Option<Option<bool>>,
 }
 
 /// Result of `delete-profile`.

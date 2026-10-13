@@ -53,8 +53,8 @@ nonisolated final class TerminalLinkFilter: Sendable {
         }
     }
 
-    /// The folder the shell last reported, read on each main-thread ask; the renderer
-    /// thread's asks use the last one.
+    /// The folder the shell last reported. The surface view sets it on each pwd report and
+    /// when a session swaps in a fresh surface; every ask uses the last one.
     func setWorkingDirectory(_ cwd: String?) {
         state.withLock { $0.cwd = cwd }
     }
@@ -92,9 +92,7 @@ nonisolated final class TerminalLinkFilter: Sendable {
 /// `ghostty_surface_link_filter_cb`: userdata is the surface's ``SurfaceBridge``.
 nonisolated func ghosttyLinkFilter(_ userdata: UnsafeMutableRawPointer?, _ text: UnsafePointer<CChar>?, _ length: UInt) -> Bool {
     guard let bridge = SurfaceBridge.from(userdata), let text else { return true }
-    if Thread.isMainThread {
-        MainActor.assumeIsolated { bridge.linkFilter.setWorkingDirectory(bridge.view?.session?.model.workingDirectory) }
-    }
+    // The folder comes from the view, which pushes it on every pwd report and surface swap.
     let bytes = UnsafeRawBufferPointer(start: UnsafeRawPointer(text), count: Int(length))
     return bridge.linkFilter.isLink(String(decoding: bytes, as: UTF8.self))
 }

@@ -19,6 +19,7 @@ mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
 mod lines;
+mod machine_gate;
 mod mesh;
 mod mesh_cloud;
 mod process_exit;
@@ -158,6 +159,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             )
         }
         "stop" => ensure::run_stop(&flags(rest, &["--state-dir"])?),
+        "archive" => ensure::run_archive(&flags(rest, &["--state-dir"])?),
         "status" => ensure::run_status(&flags(rest, &["--state-dir"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),

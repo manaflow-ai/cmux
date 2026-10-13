@@ -3,9 +3,11 @@ public import Foundation
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
 /// sits inset in the window chrome as one rounded card, as in Edge, instead
-/// of reaching the sidebar and the window edges. The chrome around the card
+/// of reaching the sidebar and the window edges. Under
+/// `appearance.sidebarSurface` separate, the chrome around the card
 /// (sidebar, gutter, titlebar) is shaded a little darker so the curve reads
-/// on the one surface. On by default to try; these are Debug Settings
+/// on the one surface; by default it shares the card's surface
+/// (`SidebarSurface`). On by default to try; these are Debug Settings
 /// tunables until a cmux.json key gets a settings slot.
 nonisolated extension ChromeTunables {
     public static let mainPaneCurved = Tunable<Bool>.toggle(
@@ -54,10 +56,15 @@ extension Metrics {
         }
         return max(0, windowCornerRadius - mainPaneGutter)
     }
-    /// Black's alpha over the chrome around the main pane; 0 when it is
-    /// edge to edge.
+    /// Black's alpha over the chrome around the main pane: the shade of the
+    /// separate look only under `appearance.sidebarSurface` separate (the
+    /// default shares the pane's surface, `SidebarSurface`); 0 when the pane
+    /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
-        return CGFloat(isDark ? ChromeTunables.mainPaneShadeDark.value : ChromeTunables.mainPaneShadeLight.value)
+        let separate = CGFloat(isDark ? ChromeTunables.mainPaneShadeDark.value : ChromeTunables.mainPaneShadeLight.value)
+        // A pane outline or the sidebar's edge line parts them; both are already 0 under borders none.
+        let lineSeparates = paneBorder != .none || sidebarBorderWidth > 0
+        return DesignSettings.shared.sidebarSurface.chromeShade(separateShade: separate, lineSeparates: lineSeparates)
     }
 }
