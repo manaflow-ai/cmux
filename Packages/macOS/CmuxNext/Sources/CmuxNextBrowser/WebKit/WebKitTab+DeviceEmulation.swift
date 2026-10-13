@@ -26,7 +26,9 @@ extension WebKitTab: BrowserEmulating {
 
     /// 0 clears the override (the window's backing scale again).
     private func setOverrideDeviceScaleFactor(_ factor: CGFloat) {
+        // crash-allow: WebKit private selector, only checked with responds(to:) (no unknown-selector exception).
         guard webView.responds(to: NSSelectorFromString("_setOverrideDeviceScaleFactor:")) else { return }
-        webView.setValue(factor, forKey: "overrideDeviceScaleFactor") // KVC finds _setOverrideDeviceScaleFactor:
+        // crash-allow: KVC write of the private setter confirmed above (KVC finds _setOverrideDeviceScaleFactor:).
+        webView.setValue(factor, forKey: "overrideDeviceScaleFactor")
     }
 }
