@@ -4,8 +4,11 @@ import Foundation
 
 extension ContentView {
     static let commandPaletteProUpgradeCommandId = "palette.pro.upgrade"
+    static let commandPalettePersonalProActiveKey = CommandPaletteContextKeys(rawValue: "auth.personalProActive")
+    static let commandPaletteMaxActiveKey = CommandPaletteContextKeys(rawValue: "auth.maxActive")
     static let commandPaletteProWelcomeChecklistCommandId = "palette.pro.welcomeChecklist"
 
+    @MainActor
     static func commandPaletteProCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -20,9 +23,14 @@ extension ContentView {
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteProUpgradeCommandId,
-                title: constant(String(localized: "command.pro.upgrade.title", defaultValue: "Upgrade to cmux Pro")),
+                title: { context in
+                    ProUpgradePresenter.upgradeMenuTitle(
+                        isPersonalProActive: context.bool(commandPalettePersonalProActiveKey),
+                        isMaxActive: context.bool(commandPaletteMaxActiveKey)
+                    ).replacingOccurrences(of: "…", with: "")
+                },
                 subtitle: constant(String(localized: "command.auth.subtitle", defaultValue: "Account")),
-                keywords: ["pro", "upgrade", "subscription", "billing", "plan", "pricing", "cloud", "purchase", "buy"]
+                keywords: ["pro", "max", "upgrade", "subscription", "billing", "plan", "pricing", "cloud", "purchase", "buy"]
             ),
         ]
     }

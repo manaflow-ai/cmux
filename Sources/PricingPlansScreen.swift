@@ -4,7 +4,7 @@ import Bonsplit
 import Foundation
 import SwiftUI
 
-/// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
+/// Shared entrypoint for every personal-plan upgrade surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
 /// the app-specific pricing page in a dedicated browser workspace in the
 /// current window, falling back through the older in-window browser paths if
@@ -12,6 +12,35 @@ import SwiftUI
 /// ``ProUpgradeSource`` so the resulting checkout is attributable.
 enum ProUpgradePresenter {
     static let intentEvent = "cmux_upgrade_entrypoint_opened"
+
+    /// The upgrade entrypoints name the next plan for a paid account. Max is
+    /// the product's upgrade from Pro; a Max account has no higher plan.
+    @MainActor
+    static var upgradeMenuTitle: String {
+        upgradeMenuTitle(
+            isPersonalProActive: AppDelegate.shared?.auth?.accountFlow.isPersonalProActive == true,
+            isMaxActive: AppDelegate.shared?.auth?.accountFlow.isMaxActive == true
+        )
+    }
+
+    nonisolated static func upgradeMenuTitle(isPersonalProActive: Bool, isMaxActive: Bool) -> String {
+        if isMaxActive {
+            return String(localized: "menu.help.viewMax", defaultValue: "View cmux Max…")
+        }
+        if isPersonalProActive {
+            return String(localized: "menu.help.upgradeToMax", defaultValue: "Upgrade to cmux Max…")
+        }
+        return String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
+    }
+
+    @MainActor
+    private static var pricingWorkspaceTitle: String {
+        let flow = AppDelegate.shared?.auth?.accountFlow
+        if flow?.isPersonalProActive == true || flow?.isMaxActive == true {
+            return String(localized: "pricing.max.workspace.title", defaultValue: "cmux Max")
+        }
+        return String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
+    }
 
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
@@ -53,6 +82,8 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
+        // BrowserPanel owns native session bootstrap for every app-pricing
+        // navigation, including reused workspaces and the fallback browser tab.
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -97,7 +128,7 @@ enum ProUpgradePresenter {
             workspaceReuseState.clear()
         }
 
-        let title = String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
+        let title = pricingWorkspaceTitle
         guard let workspace = appDelegate.performProUpgradeWorkspaceAction(
             title: title,
             url: url,

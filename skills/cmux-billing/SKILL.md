@@ -43,7 +43,7 @@ Pro and Max sell yearly: `interval=year&plan=pro` checks out `cmux-pro-yearly-48
 
 ## Feature flags
 
-Pro upgrade entrypoints and public pricing navigation no longer use a rollout flag. The sidebar badge still respects its local dismissal preference. Public Pro and Team pricing CTAs always route through `/api/billing/checkout`, never the download confirmation page. `cmux __internal_flags`, once merged, inspects and overrides flags locally.
+Pro upgrade entrypoints and public pricing navigation no longer use a rollout flag. The sidebar badge still respects its local dismissal preference. Public Pro and Team pricing CTAs always route through `/api/billing/checkout`, never the download confirmation page. `cmux __internal_flags` remains available for the other runtime flags.
 
 ## Prod runbook
 

@@ -211,7 +211,9 @@ function PricingContent({
   const canManageBilling = snapshot.billingManagement === "stripe";
   // The current plan's one action: Resume while a cancellation is scheduled,
   // otherwise the billing portal.
-  const currentPlanAction = (plan: string) => snapshot.cancelScheduled ? (
+  const currentPlanAction = (plan: string) => !canManageBilling ? (
+    <DisabledButton>{t("currentPlan")}</DisabledButton>
+  ) : snapshot.cancelScheduled ? (
     <ResumePlanButton>{t("resumePlan", { plan })}</ResumePlanButton>
   ) : (
     <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink>
@@ -251,15 +253,10 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // Max has the same monthly/yearly choices as Pro. A Pro subscriber is sent
-  // to the portal switch flow, so Stripe owns the interval selector there.
-  const maxPortalSwitch = snapshot.authenticated && snapshot.isPro && !isMax;
-  const maxCheckoutHref = withCheckoutAttribution(
-    maxPortalSwitch
-      ? "/api/billing/portal?flow=switch_plan&plan=max"
-      : MAX_CHECKOUT_URL,
-    attribution,
-  );
+  // The checkout endpoint decides whether this is a new purchase or an
+  // existing-subscription plan switch. Pro entitlement alone does not imply
+  // that a Stripe customer exists (for example, manually granted Pro access).
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const proAnnualLabelSet = {
     billingPeriod: t("billingPeriod"),
@@ -397,7 +394,7 @@ function PricingContent({
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
-        monthlyOnly={maxPortalSwitch}
+        monthlyOnly={false}
         initialInterval={query.interval === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{

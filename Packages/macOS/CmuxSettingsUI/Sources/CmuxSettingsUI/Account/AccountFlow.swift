@@ -74,13 +74,19 @@ public protocol AccountFlow: AccountTeamManagement {
     /// Opens the hosted Stripe customer portal in the user's default browser.
     func openBillingPortal()
 
-    /// Whether the Pro upgrade row should render. The host backs this with
-    /// a remotely toggleable feature flag; `true` when flags are
-    /// unavailable only in explicit dogfood builds whose flag default is on.
-    var isProUpgradeAvailable: Bool { get }
-
     /// Whether the current account has an active Pro entitlement.
     var isProActive: Bool { get }
+
+    /// Whether the personal plan is exactly Pro. This is separate from
+    /// ``isProActive`` because team access and Max also include Pro access.
+    var isPersonalProActive: Bool { get }
+
+    /// Whether the current account's exact personal plan is Max.
+    ///
+    /// Hosts that only expose the older Pro entitlement can use the default
+    /// value. Max-aware hosts override it so upgrade copy can name the next
+    /// plan without changing the Cloud access gate.
+    var isMaxActive: Bool { get }
 
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
@@ -89,4 +95,27 @@ public protocol AccountFlow: AccountTeamManagement {
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+    public var isPersonalProActive: Bool { false }
+    public var isMaxActive: Bool { false }
+}
+
+/// The account action exposed by the Settings plan row.
+public enum AccountPlanAction: Equatable, Sendable {
+    case upgradeToPro
+    case upgradeToMax
+    case manageBilling
+}
+
+public extension AccountFlow {
+    /// Resolves the single action that can be shown for the current plan.
+    /// Max access without a hosted billing portal has no self-serve action.
+    var planAction: AccountPlanAction? {
+        if canManageBilling, isProActive {
+            return .manageBilling
+        }
+        if isMaxActive {
+            return nil
+        }
+        return isPersonalProActive ? .upgradeToMax : .upgradeToPro
+    }
 }

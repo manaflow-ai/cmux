@@ -8,6 +8,20 @@ public struct BillingPlanState: Sendable, Equatable {
     public let isPro: Bool
     /// Whether the known account can manage billing through the hosted portal.
     public let canManageBilling: Bool
+    /// The exact personal plan when the service reports one (for example,
+    /// `pro` or `max`). This is kept separate from ``isPro`` because Max
+    /// includes Pro access.
+    public let planID: String?
+
+    /// Whether the account's personal plan is Max.
+    public var isMax: Bool {
+        planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "max"
+    }
+
+    /// Whether the personal plan is Pro, independently of team or Go access.
+    public var isPersonalPro: Bool {
+        planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pro"
+    }
 
     /// Creates an entitlement snapshot.
     ///
@@ -15,18 +29,24 @@ public struct BillingPlanState: Sendable, Equatable {
     ///   - accountID: The account owning the snapshot, or `nil` when unknown.
     ///   - isPro: Whether the account includes Cloud access.
     ///   - canManageBilling: Whether billing can be managed in the hosted portal.
-    public init(accountID: String?, isPro: Bool, canManageBilling: Bool) {
+    public init(accountID: String?, isPro: Bool, canManageBilling: Bool, planID: String? = nil) {
         self.accountID = accountID
         self.isPro = isPro
         self.canManageBilling = canManageBilling
+        self.planID = planID
     }
 
     /// An unknown entitlement that must not be treated as a free plan.
     public static var unknown: Self { Self(accountID: nil, isPro: false, canManageBilling: false) }
 
     /// Applies a successful response to the account that requested it.
-    public func applyingSuccess(for accountID: String, isPro: Bool, canManageBilling: Bool) -> Self {
-        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling)
+    public func applyingSuccess(
+        for accountID: String,
+        isPro: Bool,
+        canManageBilling: Bool,
+        planID: String? = nil
+    ) -> Self {
+        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling, planID: planID)
     }
 
     /// Retains an existing answer for the same account and clears other answers.
@@ -41,11 +61,14 @@ public struct BillingPlanDetails: Sendable, Equatable {
     public let isPro: Bool
     /// Whether the account can manage billing through the hosted portal.
     public let canManageBilling: Bool
+    /// The exact personal plan when available from the billing endpoint.
+    public let planID: String?
 
     /// Creates decoded billing details.
-    public init(isPro: Bool, canManageBilling: Bool) {
+    public init(isPro: Bool, canManageBilling: Bool, planID: String? = nil) {
         self.isPro = isPro
         self.canManageBilling = canManageBilling
+        self.planID = planID
     }
 }
 
@@ -79,6 +102,10 @@ public struct BillingPlanClient: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+        return try Self.decode(data)
+    }
+
+    static func decode(_ data: Data) throws -> BillingPlanDetails {
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
@@ -89,7 +116,10 @@ public struct BillingPlanClient: Sendable {
             || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
         let canManageBilling = decoded.billingManagement == "stripe"
             || decoded.teamBillingManagement == "stripe"
-        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling)
+        let planID = decoded.subscriptionPlanId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+            ?? decoded.planId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, planID: planID)
     }
 
     private let session: URLSession
@@ -98,7 +128,12 @@ public struct BillingPlanClient: Sendable {
         let isPro: Bool?
         let planId: String?
         let billingManagement: String?
+        let subscriptionPlanId: String?
         let teamPlanId: String?
         let teamBillingManagement: String?
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

@@ -7332,6 +7332,8 @@ struct ContentView: View {
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
+            snapshot.setBool(Self.commandPalettePersonalProActiveKey, auth.accountFlow.isPersonalProActive)
+            snapshot.setBool(Self.commandPaletteMaxActiveKey, auth.accountFlow.isMaxActive)
         }
 
         let focusedDock = AppDelegate.shared?.focusedDockStoreForShortcut(
@@ -15890,7 +15892,7 @@ private struct SidebarHelpMenuButton: View {
                 isExternalLink: false
             )
             helpOptionButton(
-                title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                title: ProUpgradePresenter.upgradeMenuTitle,
                 action: .upgrade,
                 accessibilityIdentifier: "SidebarHelpMenuOptionUpgrade",
                 isExternalLink: false,

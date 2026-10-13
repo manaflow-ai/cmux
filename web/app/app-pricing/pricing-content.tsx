@@ -138,21 +138,11 @@ export function AppPricingContent({
     "month",
     attribution,
   );
-  const maxPortalSwitch = snapshot.isPro && !isMax;
-  const maxCheckoutHref =
-    maxPortalSwitch
-      ? withExternalBrowserIntent(
-          `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
-        )
-      : appPricingCheckoutURL(
-          "max",
-          requestOrigin,
-          cmuxScheme,
-          "month",
-          attribution,
-        );
+  // The checkout endpoint decides whether this is a new purchase or an
+  // existing-subscription plan switch. Pro entitlement alone does not imply
+  // that a Stripe customer exists (for example, manually granted Pro access).
   const maxCheckoutHrefs = {
-    month: maxCheckoutHref,
+    month: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "month", attribution),
     year: appPricingCheckoutURL("max", requestOrigin, cmuxScheme, "year", attribution),
   };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
@@ -301,7 +291,7 @@ export function AppPricingContent({
         plan="max"
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
-        monthlyOnly={maxPortalSwitch}
+        monthlyOnly={false}
         initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
