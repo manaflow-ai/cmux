@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4b9bc99896a9c6585d4e2de8475a1e113c24647f97621137f5dbd1b95c4df84f",
-      "size": 68630
+      "sha256": "f56dea5e97329246d3207ce776fb41dcb84cc39eb8355d0c635d8cf816fad682",
+      "size": 68739
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9128da12e32e4df9e51e0cf4008ea48046024510ad70d89c0c729006a0220a25",
+      "sha256": "bdecbae58f8e1d0e5d40429389a843e664fe8642c17e0f641c0ab59e01475111",
       "size": 6393
     },
     {
@@ -2237,8 +2237,8 @@
     },
     {
       "path": "SetPersonalWorkspaceRequest.java",
-      "sha256": "88d2e4bb172507add225cd5cbce9b6f1c00a5a0259dd32890fef5c2edd77e4cd",
-      "size": 5707
+      "sha256": "80cbd34d585964edf70dde0cbba78d687adb623f050ad80597ce88284aa472da",
+      "size": 6531
     },
     {
       "path": "SetProfileFollowsRequest.java",
@@ -3012,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "f850a4916cbca6e8f4aa52405f0158f7b84f3eccedcb12d07d4e37dfb15f0548",
+  "ir_sha256": "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

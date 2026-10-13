@@ -924,8 +924,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
-            local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
-                local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
+            owner_arg if local_owner::is_owner_arg(owner_arg) => {
+                local_owner::claim_owner_arg(&arg, &mut args, &mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -2300,7 +2300,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
-    local_owner::install_key_from_fd(&mux, args.owner_install_key_fd);
+    local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it
     // only to fill unspecified config values before any surface is created.

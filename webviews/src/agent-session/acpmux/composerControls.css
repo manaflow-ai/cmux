@@ -132,7 +132,7 @@
   display: block;
   width: 60%;
   height: 8px;
-  border-radius: 4px;
+  border-radius: 2px;
   background: color-mix(in srgb, var(--agent-muted) 22%, transparent);
 }
 .acpmux-chip-skeleton .acpmux-chip-skeleton-face:hover { background: none; }

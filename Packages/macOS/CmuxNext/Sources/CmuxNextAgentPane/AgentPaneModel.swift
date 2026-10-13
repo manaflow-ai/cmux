@@ -40,8 +40,6 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// The new tab page's "default: X" toggle and template dots (`tab.setDefaultKind`, `newTab.setTemplate`).
-    @ObservationIgnored public var onNewTabSetting: ((AgentPaneNewTabSetting) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
@@ -257,8 +255,6 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
-        case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
-        case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
