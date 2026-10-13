@@ -190,10 +190,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   opacity: 1;
 }
-/* Focus in the composer: its rounded edge takes one tonal step, as the New Tab box does
-   (newtab/screen.css). The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+/* Focus in the composer: its rounded edge takes one step toward the theme accent (the text color
+   under the default neutral accent), as the New Tab box does (newtab/screen.css). The prompt
+   itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer-box:focus-within {
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 28%, var(--acpmux-composer-edge));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 40%, var(--acpmux-composer-edge));
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
