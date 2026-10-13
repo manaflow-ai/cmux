@@ -181,6 +181,8 @@ func mutableCString<R>(_ text: String, _ body: (UnsafeMutablePointer<CChar>) -> 
 final class WireGuardLog: Sendable {
     static let logger = Logger(subsystem: "com.cmux.wireguard", category: "device")
     private static let installed = OSAllocatedUnfairLock(initialState: false)
+    /// `CMUX_WG_LOG_STDERR=1` mirrors device logs to stderr (tests, debugging).
+    static let mirrorToStderr = ProcessInfo.processInfo.environment["CMUX_WG_LOG_STDERR"] == "1"
 
     static func install() {
         let first = installed.withLock { done -> Bool in
@@ -191,6 +193,7 @@ final class WireGuardLog: Sendable {
         cmuxwg_set_logger({ _, level, message in
             guard let message else { return }
             let text = String(cString: message)
+            if WireGuardLog.mirrorToStderr { FileHandle.standardError.write(Data("cmuxwg: \(text)\n".utf8)) }
             if level > 0 {
                 WireGuardLog.logger.error("\(text, privacy: .public)")
             } else {

@@ -11,21 +11,22 @@ private final class FakeDaemonSocket: @unchecked Sendable {
     private let fd: Int32
 
     init() throws {
-        path = NSTemporaryDirectory() + "wg-fake-\(UUID().uuidString.prefix(8)).sock"
-        fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        let path = NSTemporaryDirectory() + "wg-fake-\(UUID().uuidString.prefix(8)).sock"
+        self.path = path
+        let sock = socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            _ = path.utf8CString.withUnsafeBytes { raw.copyMemory(from: $0.prefix(raw.count)) }
+            _ = path.utf8CString.withUnsafeBytes { raw.copyMemory(from: UnsafeRawBufferPointer(rebasing: $0.prefix(raw.count))) }
         }
         let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(sock, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0, listen(fd, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
-        let fd = fd
+        guard bound == 0, listen(sock, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
+        fd = sock
         Thread.detachNewThread {
             while true {
-                let client = accept(fd, nil, nil)
+                let client = accept(sock, nil, nil)
                 guard client >= 0 else { return }
                 Thread.detachNewThread { Self.serve(client) }
             }
