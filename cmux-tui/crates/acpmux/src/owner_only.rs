@@ -206,6 +206,17 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// `daemon.rs` `narrow_to_owner`: an existing file or folder that is not
+/// owner-only already gets the owner-only access list; a failure is logged.
+pub(crate) fn narrow(path: &Path) {
+    if !path.exists() || only_owner_reads(path).unwrap_or(false) {
+        return;
+    }
+    if let Err(e) = restrict(path) {
+        tracing::warn!("could not make {} owner-only: {e}", path.display());
+    }
+}
+
 /// Replaces `path`'s access list with the owner-only one (and its owner
 /// with our user).
 pub(crate) fn restrict(path: &Path) -> io::Result<()> {

@@ -620,14 +620,7 @@ fn narrow_to_owner(path: &std::path::Path) {
 }
 /// Windows: replaces a wider access list with the owner-only one.
 #[cfg(windows)]
-fn narrow_to_owner(path: &std::path::Path) {
-    if !path.exists() || crate::owner_only::only_owner_reads(path).unwrap_or(false) {
-        return;
-    }
-    if let Err(e) = crate::owner_only::restrict(path) {
-        tracing::warn!("could not make {} owner-only: {e}", path.display());
-    }
-}
+use crate::owner_only::narrow as narrow_to_owner;
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
 const TOKEN_ROTATION: u32 = 1;
