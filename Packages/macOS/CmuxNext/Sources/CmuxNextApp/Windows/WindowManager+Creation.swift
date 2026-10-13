@@ -13,10 +13,12 @@ extension WindowManager {
     /// daemon), placed in window `windowID` when given (see `claimNew`).
     /// Returns its id.
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil, into windowID: String? = nil,
-                         frame: CGRect? = nil, newTabPage: Bool = false) async -> String? {
+                         frame: CGRect? = nil, newTabPage: Bool = false, inputToken: String? = nil) async -> String? {
         let daemon = daemon ?? services.daemon
+        var spawn = WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage)
+        spawn.inputToken = inputToken
         do {
-            return try await createWorkspace(WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage), on: daemon, into: windowID, frame: frame)
+            return try await createWorkspace(spawn, on: daemon, into: windowID, frame: frame)
         } catch {
             daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -42,21 +44,13 @@ extension WindowManager {
     /// New window with a new workspace. Returns the window id right away;
     /// the window opens once the daemon reports the workspace.
     @discardableResult
-    /// `inputToken`: the key hold of the Cmd-Shift-N that asked (NewTabInputCoordinator); the new
-    /// workspace's first New Tab page carries it, and the creation's end closes it when no page came.
-    func newWindow(frame: CGRect? = nil, inputToken: String? = nil) -> String {
-        let windowID = UUID().uuidString.lowercased()
+    /// `holdingKeysFrom`: Cmd-Shift-N's window; keys typed there meanwhile go to the new page (cx-kql5h).
+    func newWindow(frame: CGRect? = nil, holdingKeysFrom keyWindow: NSWindow? = nil) -> String {
+        let windowID = UUID().uuidString.lowercased(), input = services.keyRouter.newTabInputCoordinator
+        let keys = input.beginIncoming(in: keyWindow, followsNewWindow: true)
         Task { [services] in
-            var spawn = WorkspaceSpawn(newTabPage: true)
-            spawn.inputToken = inputToken
-            var pageMade = false
-            defer { services.keyRouter.newTabInputCoordinator.endIncoming(inputToken, pageMade: pageMade) }
-            do {
-                _ = try await createWorkspace(spawn, on: services.daemon, into: windowID, frame: frame)
-                pageMade = true
-            } catch {
-                services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
-            }
+            let made = await createWorkspace(into: windowID, frame: frame, newTabPage: true, inputToken: keys)
+            input.endIncoming(keys, pageMade: made != nil); withExtendedLifetime(services) {}
         }
         return windowID
     }

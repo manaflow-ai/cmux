@@ -78,12 +78,10 @@ final class NewTabInputCoordinator {
     final class IncomingPage {
         var key: String?
         var claimed = false
-        /// New Window (Cmd-Shift-N): the page shows in a window that does not exist yet, so the
-        /// hold takes the keys of whatever window is key until then and follows the page there.
+        /// New Window: the hold takes every window's keys and follows the page to its new window.
         var followsNewWindow = false
         weak var pageWindow: NSWindow?
-        /// The page's view, taken when it reported ready: a split's provisional tab key stops
-        /// resolving once the store's tab replaces it, the view does not.
+        /// The page's view at readiness (a split's provisional key stops resolving later).
         weak var view: AgentPaneView?
     }
 
@@ -126,14 +124,12 @@ final class NewTabInputCoordinator {
         target.followsNewWindow = followsNewWindow
         let services = router.services
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak services, weak window] in
-            // The page shows in this window (its workspace joined it; FirstTabHold), or in the new
-            // window of a New Window, before it takes keys.
+            // The page shows in this window (FirstTabHold), or a New Window's, before it takes keys.
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
                   view.model.newTab != nil, let shown = view.window,
                   shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
-            // A Chromium page window, or the old window, may be key: the page's window takes it, so
-            // later keys follow.
+            // A Chromium page window or the old window may be key: the page's window takes it.
             if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
             target.pageWindow = shown
             return shown.makeFirstResponder(view.webView)
@@ -196,9 +192,7 @@ final class NewTabInputCoordinator {
         buffers[window.windowNumber] ?? buffers.values.first { $0.incoming?.followsNewWindow == true }
     }
 
-    private func remove(_ entry: Entry) {
-        for (number, held) in buffers where held === entry { buffers[number] = nil }
-    }
+    private func remove(_ entry: Entry) { buffers = buffers.filter { $0.value !== entry } }
 
     private func deliver(in window: NSWindow) -> (NSEvent) -> Void {
         { [weak router, weak window] event in
@@ -260,8 +254,7 @@ final class NewTabInputCoordinator {
             release(entry, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
             return false
         }
-        // Never the characters: this log reaches desync reports (InputJournal's rule).
-        note("hold key #\(entry.buffer.count + 1)", entry)
+        note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log
         return entry.buffer.capture(event)
     }
 
