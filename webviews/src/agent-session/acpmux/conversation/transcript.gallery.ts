@@ -518,12 +518,16 @@ export default agentPaneEntry({
         await ctx
           .waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.sideChat"))
           .catch((error: unknown) => {
-            throw new Error(`${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`);
+            throw new Error(
+              `${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`,
+            );
           });
         const order = page.cmuxGalleryLog.map(({ method }) => method);
         const side = page.cmuxGalleryLog.find(({ method }) => method === "acpmux _acpmux/side");
         if (!side?.params?.sessionId || order.indexOf("acpmux _acpmux/side") > order.indexOf("chat.sideChat"))
-          throw new Error(`acpmux did not tag the side chat before the app opened it: ${JSON.stringify(order.slice(-8))}`);
+          throw new Error(
+            `acpmux did not tag the side chat before the app opened it: ${JSON.stringify(order.slice(-8))}`,
+          );
       },
     },
     "thought-row": {
