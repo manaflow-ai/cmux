@@ -23,6 +23,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { reportError } from "../../../../services/observability/report";
+import { markTeamPlanRequired } from "../../../../services/billing/teamResolution";
 import { getStackServerApp } from "../../../lib/stack";
 import {
   billingCatalogTeams,
@@ -63,6 +64,16 @@ export async function POST(request: Request): Promise<Response> {
         displayName,
         creatorUserId: user.id,
       });
+      // An unflagged extra team would run machines on the creator's personal
+      // plan, so a team that cannot be flagged is removed again.
+      try {
+        await markTeamPlanRequired(team);
+      } catch (error) {
+        await team.delete().catch(() => {
+          console.error("subrouter team create rollback failed", { teamId: team.id });
+        });
+        throw error;
+      }
       const stackUser = await getStackServerApp().getUser(user.id);
       if (!stackUser) return unauthorized();
       await stackUser.update({ selectedTeamId: team.id });

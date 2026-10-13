@@ -71,6 +71,11 @@
       "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
       "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
     },
+    "requiresTeamPlan": {
+      "title": "Forfait cmux Team requis",
+      "message": "Cette équipe a besoin du forfait cmux Team pour exécuter des VM cloud. Les forfaits personnels s'appliquent uniquement à votre équipe personnelle.",
+      "action": "Un administrateur de l'équipe peut passer cette équipe à Team sur {upgradeUrl}, ou passez à votre équipe personnelle."
+    },
     "displayName": {
       "title": "Nom de machine non valide",
       "message": "Le nom d’une machine doit être un texte imprimable d’au plus {maxLength} caractères.",

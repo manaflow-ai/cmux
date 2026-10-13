@@ -1,4 +1,5 @@
 import { hasActiveTeamSubscriptionForTeam } from "../billing/pro";
+import { markTeamPlanRequired } from "../billing/teamResolution";
 import type { TeamAccess } from "./access";
 import { TeamApiError, TeamServiceUnavailableError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
@@ -28,8 +29,9 @@ export async function grantTeamAdmin(
 export type CreateTeamDependencies = { readonly stack?: TeamStackApp };
 
 /**
- * Create a team owned by `userId`, grant them admin, and select it. A team
- * whose admin grant failed is deleted again rather than left unmanageable.
+ * Create a team owned by `userId`, flag it as needing its own plan for Cloud
+ * machines, grant them admin, and select it. A team whose flag or admin grant
+ * failed is deleted again rather than left unmanageable or unflagged.
  */
 export async function createTeamForUser(
   userId: string,
@@ -39,6 +41,9 @@ export async function createTeamForUser(
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const team = await withStackDeadline(() => stack.createTeam({ displayName, creatorUserId: userId }));
   try {
+    // Flag first: an unflagged extra team would run machines on the
+    // creator's personal plan, so a team that cannot be flagged is removed.
+    await withStackDeadline(() => markTeamPlanRequired(team));
     await withStackDeadline(() => grantTeamAdmin(stack, userId, team));
   } catch (error) {
     await withStackDeadline(() => team.delete()).catch(() => {

@@ -71,6 +71,11 @@
       "message": "云端虚拟机需要 cmux Pro 套餐。",
       "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
     },
+    "requiresTeamPlan": {
+      "title": "需要 cmux Team 套餐",
+      "message": "此团队需要 cmux Team 套餐才能运行云虚拟机。个人套餐仅适用于你的个人团队。",
+      "action": "团队管理员可以在 {upgradeUrl} 将此团队升级到 Team，或切换到你的个人团队。"
+    },
     "displayName": {
       "title": "机器名称无效",
       "message": "机器名称必须是不超过 {maxLength} 个字符的可打印文本。",

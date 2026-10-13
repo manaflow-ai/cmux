@@ -71,6 +71,11 @@
       "message": "Cloud VM wymagają planu cmux Pro.",
       "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     },
+    "requiresTeamPlan": {
+      "title": "Wymagany plan cmux Team",
+      "message": "Ten zespół potrzebuje planu cmux Team, aby uruchamiać maszyny wirtualne w chmurze. Plany osobiste dotyczą tylko Twojego zespołu osobistego.",
+      "action": "Administrator zespołu może zmienić plan tego zespołu na Team pod adresem {upgradeUrl} albo przełącz się na swój zespół osobisty."
+    },
     "displayName": {
       "title": "Nieprawidłowa nazwa maszyny",
       "message": "Nazwa maszyny musi być tekstem drukowalnym o długości co najwyżej {maxLength} znaków.",

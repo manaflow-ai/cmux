@@ -71,6 +71,11 @@
       "message": "Cloud VM ต้องใช้แผน cmux Pro",
       "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     },
+    "requiresTeamPlan": {
+      "title": "ต้องใช้แพ็กเกจ cmux Team",
+      "message": "ทีมนี้ต้องใช้แพ็กเกจ cmux Team เพื่อเรียกใช้ Cloud VM แพ็กเกจส่วนตัวใช้ได้กับทีมส่วนตัวของคุณเท่านั้น",
+      "action": "ผู้ดูแลทีมสามารถอัปเกรดทีมนี้เป็น Team ได้ที่ {upgradeUrl} หรือสลับไปใช้ทีมส่วนตัวของคุณ"
+    },
     "displayName": {
       "title": "ชื่อเครื่องไม่ถูกต้อง",
       "message": "ชื่อเครื่องต้องเป็นข้อความที่พิมพ์ได้และมีความยาวไม่เกิน {maxLength} อักขระ",

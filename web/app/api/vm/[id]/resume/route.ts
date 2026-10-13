@@ -1,8 +1,10 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  vmRequiresTeamPlanResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
+import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resumeVm } from "../../../../../services/vms/workflows";
@@ -29,6 +31,9 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
+      if (account.entitlements.teamPlanRequired) {
+        return vmRequiresTeamPlanResponse(account.entitlements.billingTeamId, vmRequestLocale(request));
+      }
       setSpanAttributes(span, { "cmux.vm.id": id });
       const run = await runVmRoute(resumeVm({
         userId: user.id,

@@ -220,6 +220,11 @@
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     },
+    "requiresTeamPlan": {
+      "title": "cmux Team プランが必要です",
+      "message": "このチームで Cloud VM を実行するには cmux Team プランが必要です。個人プランは個人チームにのみ適用されます。",
+      "action": "チーム管理者は {upgradeUrl} でこのチームを Team にアップグレードできます。または個人チームに切り替えてください。"
+    },
     "displayName": {
       "title": "マシン名が無効です",
       "message": "マシン名は {maxLength} 文字以内の表示可能なテキストにしてください。",

@@ -1,8 +1,10 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  vmRequiresTeamPlanResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
+import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resizeVm } from "../../../../../services/vms/workflows";
 import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/machineSpec";
@@ -23,6 +25,9 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
+      if (account.entitlements.teamPlanRequired) {
+        return vmRequiresTeamPlanResponse(account.entitlements.billingTeamId, vmRequestLocale(request));
+      }
       let body: unknown;
       try {
         body = await request.json();

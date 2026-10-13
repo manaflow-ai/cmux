@@ -35,7 +35,7 @@ export type StackTeam = {
   removeUser(userId: string): Promise<void>;
   inviteUser(options: { email: string; callbackUrl?: string }): Promise<void>;
   listInvitations(): Promise<readonly StackSentInvitation[]>;
-  update(update: { displayName?: string; profileImageUrl?: string | null }): Promise<void>;
+  update(update: { displayName?: string; profileImageUrl?: string | null; clientReadOnlyMetadata?: unknown }): Promise<void>;
   delete(): Promise<void>;
 };
 

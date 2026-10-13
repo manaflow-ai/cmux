@@ -27,6 +27,7 @@ import {
   billingSeatsFromMetadata,
   billingTeamFromUnknown,
   resolveBillingTeam,
+  teamPlanRequiredFromMetadata,
   type BillingTeamLike,
 } from "../billing/teamResolution";
 import {
@@ -55,6 +56,12 @@ export type AuthedTeam = {
   displayName: string | null;
   billingPlanId: string | null;
   billingSeats: number | null;
+  /**
+   * True for a team cmux created after sign-up: its Cloud machines need its
+   * own plan and never fall back to a member's personal plan. Absent means
+   * false (the sign-up team and older teams).
+   */
+  teamPlanRequired?: boolean;
 };
 
 export class SubrouterAuthorizationConfigurationError extends Error {
@@ -921,9 +928,12 @@ async function authedUserFromStackUser(
   const userBillingPlanId = developmentPro
     ? PRO_PLAN_ID
     : billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  // A team cmux created after sign-up bills only its own plan; the sign-up
+  // team (and older teams) fall back to the user's personal plan.
   const billingPlanId = developmentPro
     ? PRO_PLAN_ID
-    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ??
+      (teamPlanRequiredFromMetadata(billingTeam?.clientReadOnlyMetadata) ? null : userBillingPlanId);
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const authedTeams = teams.map((team) => ({
     id: team.id,
@@ -932,6 +942,7 @@ async function authedUserFromStackUser(
       ? PRO_PLAN_ID
       : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
+    ...(teamPlanRequiredFromMetadata(team.clientReadOnlyMetadata) ? { teamPlanRequired: true } : {}),
   }));
 
   return {

@@ -71,6 +71,11 @@
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
     },
+    "requiresTeamPlan": {
+      "title": "cmux Team-abonnement påkrævet",
+      "message": "Dette team skal have cmux Team-abonnementet for at køre Cloud VM'er. Personlige abonnementer gælder kun for dit personlige team.",
+      "action": "En teamadministrator kan opgradere dette team til Team på {upgradeUrl}, eller skift til dit personlige team."
+    },
     "displayName": {
       "title": "Ugyldigt maskinnavn",
       "message": "Maskinnavne skal være læsbar tekst på højst {maxLength} tegn.",

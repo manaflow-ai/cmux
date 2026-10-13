@@ -217,6 +217,23 @@ export async function vmRequiresProCopy(
   };
 }
 
+/** Load and translate the `vm_requires_team_plan` response copy for the request locale. */
+export async function vmRequiresTeamPlanCopy(
+  locale: Locale,
+  values: { readonly upgradeUrl: string },
+): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.requiresTeamPlan",
+  }) as unknown as (key: string, values?: Record<string, string>) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action", { upgradeUrl: values.upgradeUrl }),
+  };
+}
+
 /** Copy returned when a create or rename carries an unusable `displayName`. */
 export async function vmDisplayNameCopy(
   locale: Locale,

@@ -71,6 +71,11 @@
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
     },
+    "requiresTeamPlan": {
+      "title": "Se requiere el plan cmux Team",
+      "message": "Este equipo necesita el plan cmux Team para ejecutar máquinas virtuales en la nube. Los planes personales solo se aplican a tu equipo personal.",
+      "action": "Un administrador del equipo puede pasar este equipo a Team en {upgradeUrl}, o cambia a tu equipo personal."
+    },
     "displayName": {
       "title": "Nombre de máquina no válido",
       "message": "El nombre de la máquina debe ser texto imprimible de como máximo {maxLength} caracteres.",

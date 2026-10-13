@@ -71,6 +71,11 @@
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
     },
+    "requiresTeamPlan": {
+      "title": "需要 cmux Team 方案",
+      "message": "此團隊需要 cmux Team 方案才能執行雲端虛擬機器。個人方案僅適用於你的個人團隊。",
+      "action": "團隊管理員可以在 {upgradeUrl} 將此團隊升級為 Team，或切換到你的個人團隊。"
+    },
     "displayName": {
       "title": "機器名稱無效",
       "message": "機器名稱必須是不超過 {maxLength} 個字元的可列印文字。",

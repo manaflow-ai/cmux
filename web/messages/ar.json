@@ -71,6 +71,11 @@
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     },
+    "requiresTeamPlan": {
+      "title": "خطة cmux Team مطلوبة",
+      "message": "يحتاج هذا الفريق إلى خطة cmux Team لتشغيل الأجهزة الافتراضية السحابية. تنطبق الخطط الشخصية على فريقك الشخصي فقط.",
+      "action": "يمكن لمسؤول الفريق ترقية هذا الفريق إلى Team عبر {upgradeUrl}، أو انتقل إلى فريقك الشخصي."
+    },
     "displayName": {
       "title": "اسم الجهاز غير صالح",
       "message": "يجب أن يكون اسم الجهاز نصًا قابلًا للطباعة لا يزيد عن {maxLength} حرفًا.",

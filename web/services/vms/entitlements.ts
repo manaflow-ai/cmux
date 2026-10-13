@@ -50,6 +50,12 @@ export type VmEntitlements = {
   readonly maxActiveVms: number | null;
   /** vCPUs and memory the active machines share; null when the plan has no pool. */
   readonly resourcePool: VmComputeResources | null;
+  /**
+   * True when the billing team is one cmux created after sign-up and has no
+   * paid plan of its own. Such a team gets no machines from a member's
+   * personal plan; it needs the Team plan.
+   */
+  readonly teamPlanRequired?: boolean;
 };
 
 export type VmEntitlementOptions = {
@@ -105,8 +111,9 @@ export function resolveVmEntitlements(
   const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
     ? TEAM_PLAN_ID : billingPlanId;
   // Max belongs to the caller. It does not grant Max to other team members
-  // or replace the team's seat-based machine allowance.
-  const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
+  // or replace the team's seat-based machine allowance. A team cmux created
+  // after sign-up never takes a personal plan, Max included.
+  const planId = !billing.teamPlanRequired && normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
   const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
   return {
@@ -115,6 +122,7 @@ export function resolveVmEntitlements(
     billingTeamId: billing.billingTeamId,
     maxActiveVms,
     resourcePool: resourcePoolForPlan(planId, maxActiveVms),
+    ...(billing.teamPlanRequired && !isPaidVmPlan(planId) ? { teamPlanRequired: true } : {}),
   };
 }
 
@@ -130,6 +138,8 @@ function resolveBillingContext(
   readonly billingTeamId: string;
   readonly billingPlanId: string | null;
   readonly billingSeats: number | null;
+  /** The team is one cmux created after sign-up: only its own plan counts. */
+  readonly teamPlanRequired?: boolean;
 } {
   const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
   if (requestedTeamId) {
@@ -144,12 +154,23 @@ function resolveBillingContext(
     return {
       billingCustomerType: "team",
       billingTeamId: team.id,
-      billingPlanId: team.billingPlanId ?? user.userBillingPlanId,
+      billingPlanId: team.teamPlanRequired ? team.billingPlanId : team.billingPlanId ?? user.userBillingPlanId,
       billingSeats: team.billingSeats,
+      teamPlanRequired: team.teamPlanRequired === true,
     };
   }
 
   if (user.billingCustomerType === "team") {
+    const team = user.teams.find((candidate) => candidate.id === user.billingTeamId);
+    if (team?.teamPlanRequired) {
+      return {
+        billingCustomerType: "team",
+        billingTeamId: team.id,
+        billingPlanId: team.billingPlanId,
+        billingSeats: team.billingSeats,
+        teamPlanRequired: true,
+      };
+    }
     return {
       billingCustomerType: "team",
       billingTeamId: user.billingTeamId,

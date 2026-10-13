@@ -71,6 +71,11 @@
       "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
       "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     },
+    "requiresTeamPlan": {
+      "title": "cmux Team 플랜 필요",
+      "message": "이 팀에서 Cloud VM을 실행하려면 cmux Team 플랜이 필요합니다. 개인 플랜은 개인 팀에만 적용됩니다.",
+      "action": "팀 관리자가 {upgradeUrl}에서 이 팀을 Team으로 업그레이드하거나, 개인 팀으로 전환하세요."
+    },
     "displayName": {
       "title": "잘못된 머신 이름",
       "message": "머신 이름은 {maxLength}자 이하의 표시 가능한 텍스트여야 합니다.",

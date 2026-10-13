@@ -70,6 +70,7 @@ import {
   vmNetworkRuleCapacityCopy,
   vmRequestLocale,
   vmRequiresProCopy,
+  vmRequiresTeamPlanCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
   vmActiveLimitCountedCopy,
@@ -83,6 +84,7 @@ import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 import { reportError } from "../observability/report";
+import { TEAM_PLAN_ID } from "../billing/pro";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -420,7 +422,13 @@ export async function resolveVmProvisioningAccountScope(
   const scope = resolveVmAccountScope(user, request, options);
   if (!scope.ok) return scope;
   if (isVmProGateBlocked(scope.entitlements)) {
-    return { ok: false, response: await vmRequiresProResponse(vmRequestLocale(request)) };
+    const locale = vmRequestLocale(request);
+    return {
+      ok: false,
+      response: scope.entitlements.teamPlanRequired
+        ? await vmRequiresTeamPlanResponse(scope.entitlements.billingTeamId, locale)
+        : await vmRequiresProResponse(locale),
+    };
   }
   return scope;
 }
@@ -538,6 +546,30 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
     action: copy.action,
     displayTitle: copy.title,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
+
+/** Billing page where a team admin buys the Team plan for `teamId`. */
+export function vmTeamPlanUpgradeUrl(teamId: string): string {
+  return `https://cmux.com/dashboard/billing?team=${encodeURIComponent(teamId)}`;
+}
+
+/**
+ * The paid-plan gate for a team cmux created after sign-up: it has no Team
+ * plan of its own, and a member's personal plan does not cover it.
+ */
+export async function vmRequiresTeamPlanResponse(teamId: string, locale: Locale = "en"): Promise<Response> {
+  const upgradeUrl = vmTeamPlanUpgradeUrl(teamId);
+  const copy = await vmRequiresTeamPlanCopy(locale, { upgradeUrl });
+  return vmErrorResponse({
+    error: "vm_requires_team_plan",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: "billing",
+    retryable: false,
+    extra: { upgradeRequired: true, upgradeUrl, upgradePlanId: TEAM_PLAN_ID, teamId },
   });
 }
 

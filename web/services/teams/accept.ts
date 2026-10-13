@@ -4,6 +4,7 @@ import { createInvitationCodeClient, type InvitationCodeClient, type InvitationC
 import { normalizeInviteEmail } from "./invitations";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { databaseTeamInviteStore, type TeamInviteStore } from "./repository";
+import { assertSeatsAvailable } from "./seats";
 import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import {
   defaultTeamStackApp,
@@ -62,7 +63,16 @@ export async function acceptTeamInvitationCode(
   ]);
   if (!team || !user) throw new TeamApiError("invitation_invalid", 410);
   const verifiedEmails = await userVerifiedEmails(user);
-  const before = addressedTo(await withStackDeadline(() => team.listInvitations()), verifiedEmails);
+  const [invitations, currentMembers] = await Promise.all([
+    withStackDeadline(() => team.listInvitations()),
+    withStackDeadline(() => team.listUsers()),
+  ]);
+  // A Stack invitation code adds the member itself, so the roster cap is
+  // checked before the code is used, as the link and email paths do.
+  if (!currentMembers.some((member) => member.id === userId)) {
+    assertSeatsAvailable({ team, occupied: currentMembers.length, adding: 1 });
+  }
+  const before = addressedTo(invitations, verifiedEmails);
 
   const accepted = await codes.accept(code, accessToken);
   if (!accepted.ok) throw codeFailure(accepted.failure);

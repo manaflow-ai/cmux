@@ -71,6 +71,11 @@
       "message": "Cloud VM'ler için cmux Pro planı gerekir.",
       "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
     },
+    "requiresTeamPlan": {
+      "title": "cmux Team planı gerekli",
+      "message": "Bu ekibin Cloud VM çalıştırması için cmux Team planı gerekir. Kişisel planlar yalnızca kişisel ekibiniz için geçerlidir.",
+      "action": "Bir ekip yöneticisi bu ekibi {upgradeUrl} adresinden Team planına yükseltebilir veya kişisel ekibinize geçin."
+    },
     "displayName": {
       "title": "Geçersiz makine adı",
       "message": "Makine adı en fazla {maxLength} karakterden oluşan yazdırılabilir metin olmalıdır.",
