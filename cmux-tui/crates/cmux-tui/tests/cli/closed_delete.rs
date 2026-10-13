@@ -358,8 +358,12 @@ fn split_close_and_restore_survive_a_daemon_restart() {
 
     let after_restart = state_cli_topology(&server);
     assert_eq!(workspace_of_terminal(&after_restart, &source_terminal), workspace);
-    assert_eq!(pane_ids(&after_restart), [source_pane.clone()], "{after_restart}");
-    assert_eq!(tab_ids(&server), [source_tab.clone()], "{after_restart}");
+    let panes_after_restart = pane_ids(&after_restart);
+    assert_eq!(panes_after_restart.len(), 1, "{after_restart}");
+    assert_eq!(panes_after_restart[0], source_pane, "{after_restart}");
+    let tabs_after_restart = tab_ids(&server);
+    assert_eq!(tabs_after_restart.len(), 1, "{after_restart}");
+    assert_eq!(tabs_after_restart[0], source_tab, "{after_restart}");
     let restored_groups = state_cli(&server, None, &["closed", "list"]);
     assert_eq!(restored_groups[0]["id"], closed_id.as_str(), "{restored_groups}");
     assert!(
