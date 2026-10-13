@@ -60,11 +60,11 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 4 s and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 4\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
@@ -97,8 +97,8 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         panic!("daemon exited without a readiness line");
     });
     let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
-    // Bound and ready well before the 4 s login shell finishes.
-    assert!(started.elapsed() < Duration::from_secs(3), "ready after {:?}", started.elapsed());
+    // Bound and ready before the 2 s login shell finishes.
+    assert!(started.elapsed() < Duration::from_secs(2), "ready after {:?}", started.elapsed());
     assert_eq!(ready["pid"], pid);
     assert_eq!(ready["socket"], socket.to_string_lossy().as_ref());
     let listen = ready["listen"].as_str().unwrap().to_owned();
@@ -111,7 +111,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
 
     let mut rpc = Rpc::connect(&socket).await;
     let status = rpc.call("_acpmux/status", json!({})).await;
-    assert!(started.elapsed() < Duration::from_secs(4), "status after {:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(2), "status after {:?}", started.elapsed());
     assert_eq!(status["ready"], false);
     assert_eq!(status["loginEnv"], "pending");
     assert_eq!(status["listen"], listen);
@@ -302,7 +302,7 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
         .env("ACPMUX_SOCKET", &socket)
         .env("TMPDIR", &dir)
         .env_remove("XPC_SERVICE_NAME")
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())

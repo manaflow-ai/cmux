@@ -190,6 +190,8 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
+    // Startup files changed since the last read: refresh in the background.
+    crate::login_env::refresh_if_changed();
     crate::login_env::apply_tokio(&mut cmd);
     crate::config::scrub_nested_claude_env_tokio(&mut cmd);
     // Caller context, herdr-style: the agent knows which session it is.
@@ -237,6 +239,12 @@ pub(crate) fn harness_command(
     // port: a job object there (a later landing).
     #[cfg(unix)]
     cmd.process_group(0);
+    // A Claude agent's sign-in inputs, for a clear message if it has none.
+    let claude_family = profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || profile.family.as_deref() == Some("claude");
+    if let (true, Some((id, _))) = (claude_family, session) {
+        crate::claude_auth::remember(id, &command_env(&cmd));
+    }
     Ok(cmd)
 }
 

@@ -33,6 +33,7 @@ pub mod harness_admin;
 pub mod harness_health;
 pub mod hub;
 pub mod live_models;
+pub mod claude_auth;
 pub mod login_env;
 pub mod native;
 pub mod peer;

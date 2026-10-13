@@ -737,12 +737,22 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
-A remote daemon needs a working harness. launchd starts the daemon with a bare environment, so
-the daemon reads the login shell's environment once at start (`zsh -lic env`) and fills in
-what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `claude` that works
-in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
-`=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
-so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
+A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
+daemon with a bare environment, so every daemon reads the login shell's environment
+(`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and fills in what its own environment lacks:
+PATH (login PATH first), `ANTHROPIC_*` routes and keys, `CLAUDE_CONFIG_DIR`, Bedrock and Vertex
+switches, proxies, tool settings. The same `claude` that works in a terminal then works under the
+daemon. A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+`ANTHROPIC_*` keys from its agents and gives them the login shell's values instead. Precedence:
+profile, preset and session env, then the daemon's own environment, then the login shell's.
+`<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
+files: non-secret values and the names of secret ones (their values stay in memory), so a start
+with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
+shell (at most 3 s) only when Claude has no sign-in without it. `ACPMUX_LOGIN_ENV=0` turns this
+off. Claude Code keeps its login in the macOS keychain, so on a headless Mac without an API proxy
+run `claude` once in a terminal and log in. A Claude turn that fails because Claude is not signed
+in says what the agent had, how the terminal signs in (the Claude home, keys, settings files,
+keychain) and the fix, ending with Claude's own words. A
 discovered `claude-cr` or `claude-sr` launcher is checked at daemon start (`--version`) and
 dropped, with a log line, when the installed CLI cannot run it; `claude` then has no
 fallback instead of failing over into a launcher that dies at once. When a subrouter server is
@@ -901,7 +911,7 @@ newMessageId}` before the redelivery. Other harnesses send no such signal.
 
 The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
 imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
-for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
+for the import only when it must (see above), at most 3 s. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
 to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.

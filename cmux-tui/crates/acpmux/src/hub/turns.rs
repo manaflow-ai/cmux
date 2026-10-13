@@ -528,6 +528,14 @@ impl Hub {
             Err(e) => self.route_failure(session, &e.message).await,
             Ok(_) => None,
         };
+        // A Claude agent that is not signed in: say what it had, how the
+        // person's terminal signs in, and the fix (`claude_auth.rs`).
+        if let Err(e) = &mut result
+            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
+        {
+            tracing::warn!(session = %session.id, "Claude agent is not signed in");
+            e.message = text;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
                 Some(Value::Object(data)) => data.extend(info.clone()),
