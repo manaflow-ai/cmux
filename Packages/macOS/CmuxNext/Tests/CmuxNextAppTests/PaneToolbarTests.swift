@@ -3,9 +3,9 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import Testing
 
-/// A pane's top-right corner (Leo 2026-10-12): one "…", shown on hover, whose menu opens a tab in
-/// the pane (the strip plus's menu) and then runs the shown tab's own actions; no split buttons
-/// (splits stay on keys and drag). A zoomed pane keeps "…" shown and lit.
+/// A pane's top-right corner (Leo 2026-10-12): one "…", shown on hover, in place of the row of
+/// buttons. Its menu opens a tab in the pane (the strip plus's menu), then splits the pane and runs
+/// the shown tab's own actions. A zoomed pane keeps "…" shown and lit.
 @MainActor
 struct PaneToolbarTests {
     final class Bar {
@@ -47,14 +47,14 @@ struct PaneToolbarTests {
         }
     }
 
-    @Test func aTerminalPaneHasOnlyMoreWithWhatOpensThenItsActions() {
+    @Test func aTerminalPaneHasOnlyMoreWithWhatOpensThenSplitsAndItsActions() {
         let bar = Bar()
         bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [])
         #expect(bar.controls == ["More"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Open Diff Viewer", "Open File…", "Toggle Pane Zoom"])
+        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open Diff Viewer", "Open File…", "Toggle Pane Zoom"])
 
-        bar.choose("Open Diff Viewer")
-        #expect(bar.runs.map(\.id) == ["openDiffViewer"])
+        bar.choose("Split Down")
+        #expect(bar.runs.map(\.id) == ["splitDown"])
         #expect(bar.runs.last?.invocation.target == ActionTargetRef(kind: .tab, id: "surface:7"))
     }
 
@@ -62,11 +62,11 @@ struct PaneToolbarTests {
         let bar = Bar()
         bar.toolbar.update(target: "surface:1", kind: .newTab, hidden: [])
         #expect(bar.controls == ["More"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Open Diff Viewer", "Open File…",
+        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open Diff Viewer", "Open File…",
                              "Search Agent Chats", "Toggle Pane Zoom"])
         bar.toolbar.update(target: "surface:2", kind: .browser, hidden: [])
         #expect(bar.controls == ["More"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Toggle Pane Zoom"])
+        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Toggle Pane Zoom"])
         bar.toolbar.update(target: "surface:3", kind: nil, hidden: [])
         #expect(bar.controls.isEmpty)
         #expect(bar.view.intrinsicContentSize.width == 0)
@@ -94,7 +94,7 @@ struct PaneToolbarTests {
     @Test func aHiddenActionIsLeftOutOfMore() {
         let bar = Bar()
         bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: ["openDiffViewer"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Open File…", "Toggle Pane Zoom"])
+        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open File…", "Toggle Pane Zoom"])
     }
 
     /// "…" opens its menu on press, like a pop-up button (POLISH: press-drag-release): press, drag
@@ -109,6 +109,6 @@ struct PaneToolbarTests {
             windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
         ))
         bar.view.moreButton.mouseDown(with: press)
-        #expect(presented == [["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Toggle Pane Zoom"]])
+        #expect(presented == [["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Toggle Pane Zoom"]])
     }
 }
