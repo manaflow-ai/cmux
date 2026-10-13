@@ -609,14 +609,18 @@ pub fn apply_tokio(cmd: &mut tokio::process::Command) {
     cmd.envs(pairs_for(None, None));
 }
 
-/// The allow-listed login environment for a harness of `family`.
-/// `profile` is the harness profile's own env (its Bedrock/Vertex switch).
+/// The allow-listed login environment for a harness of `family`, with
+/// [`agent_path`] as its PATH. `profile` is the harness profile's own env
+/// (its Bedrock/Vertex switch).
 pub fn apply_tokio_for(
     cmd: &mut tokio::process::Command,
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) {
     cmd.envs(pairs_for(family, profile));
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
 }
 
 /// Same, for std's process builder.
@@ -626,6 +630,9 @@ pub fn apply_std_for(
     profile: Option<&BTreeMap<String, String>>,
 ) {
     cmd.envs(pairs_for(family, profile));
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
