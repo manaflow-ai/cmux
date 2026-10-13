@@ -64,6 +64,9 @@ parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
+parser.add_argument("--foreground", action="store_true",
+                    help="relaunch activating (no `open -g`, no CMUX_NEXT_NO_ACTIVATE), as a person's launch "
+                         "is; on a whole mini only, never a shared capture slot")
 parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -205,8 +208,10 @@ class App:
             return False
         if os.path.exists(opts.socket):
             os.unlink(opts.socket)
-        args = ["/usr/bin/open", "-g", "-n", "-a", self.bundle]
+        args = ["/usr/bin/open", "-n", "-a", self.bundle] if opts.foreground else ["/usr/bin/open", "-g", "-n", "-a", self.bundle]
         for key, value in self.env.items():
+            if opts.foreground and key == "CMUX_NEXT_NO_ACTIVATE":
+                continue
             args += ["--env", f"{key}={value}"]
         subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and (lambda r: isinstance(r, dict) and r.get("pid"))(rpc("system.identify", timeout=5)), 60, 0.5)
@@ -669,6 +674,11 @@ def snapshot(label):
     focus = topo.get("focus", {})
     items["focus.workspace"] = ws_by_id.get(focus.get("workspace"), {}).get("name")
     items["focus.window"] = next((names.get(w.get("key")) for w in rj_windows if w.get("id") == focus.get("window")), focus.get("window"))
+    # The most recent window is the focused one (cx-ppw2w): a window opened
+    # behind, never key, must not lead the recency the next launch restores.
+    front = items["windows.recency"][0] if items["windows.recency"] else None
+    RESULTS.append((f"{label}: windows.recency front is focus.window", front == items["focus.window"],
+                    f"recency front {json.dumps(front)}, focus {json.dumps(items['focus.window'])}", "windows"))
     terms = {}
     for ws in topo.get("workspaces", []):
         name = ws.get("name")
