@@ -1,4 +1,5 @@
 import CmuxVNC
+import CmuxVNCWebRTC
 import Foundation
 
 /// Launch arguments for unattended runs (simulator screenshots, demos):
@@ -19,6 +20,11 @@ struct Autopilot {
     @MainActor
     func session() -> RemoteSession? {
         if opensDemo { return RemoteSession(demoPreferences: SessionPreferences()) }
+        if let raw = value("-autoLink"), let url = URL(string: raw), let pairing = VNCPairing(link: url) {
+            return RemoteSession(title: pairing.name, pairing: pairing,
+                                 credentials: VNCCredentials(username: value("-autoUser"), password: value("-autoPassword")),
+                                 preferences: SessionPreferences())
+        }
         guard let address = value("-autoHost"), let parsed = VNCEndpoint.parse(address) else { return nil }
         let credentials = VNCCredentials(username: value("-autoUser") ?? parsed.credentials.username,
                                          password: value("-autoPassword") ?? parsed.credentials.password)

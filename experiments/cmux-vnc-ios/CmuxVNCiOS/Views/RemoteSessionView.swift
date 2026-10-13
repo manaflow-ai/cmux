@@ -16,7 +16,13 @@ struct RemoteSessionView: View {
         ZStack(alignment: .top) {
             RemoteScreen(session: session, fitToDisplay: session.preferences.fitToDisplay, keyboardVisible: $keyboardVisible)
                 .ignoresSafeArea()
-            if chromeVisible { topBar.transition(.move(edge: .top).combined(with: .opacity)) }
+            if chromeVisible {
+                VStack(spacing: 6) {
+                    topBar
+                    if case .connected = session.phase { MacShortcutsBar(session: session) }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
             stateCard
         }
         .background(.black)
@@ -83,7 +89,7 @@ struct RemoteSessionView: View {
     private var stats: some View {
         let s = session.stats
         let latency = s.latencyMs.map { String(format: "%.0f ms", $0) } ?? "–"
-        return Text(String(format: "%.0f fps · %.0f KB/s · ", s.fps, s.kilobytesPerSecond) + latency + " · " + s.encoding)
+        return Text(session.pathLabel + String(format: " · %.0f fps · %.0f KB/s · ", s.fps, s.kilobytesPerSecond) + latency + " · " + s.encoding)
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)

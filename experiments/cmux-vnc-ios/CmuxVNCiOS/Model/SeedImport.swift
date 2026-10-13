@@ -1,3 +1,4 @@
+import CmuxVNCWebRTC
 import Foundation
 
 /// A one-time setup file: `Documents/seed-hosts.json`, copied into the app's
@@ -10,6 +11,8 @@ struct SeedImport {
         var address: String
         var username: String?
         var password: String?
+        /// A `cmux-vnc://pair` link: the host is reached over WebRTC.
+        var link: String?
     }
 
     @MainActor
@@ -20,6 +23,12 @@ struct SeedImport {
         defer { try? FileManager.default.removeItem(at: file) }
         guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return }
         for entry in entries {
+            if let raw = entry.link, let url = URL(string: raw), let pairing = VNCPairing(link: url) {
+                var paired = store.pair(pairing, username: entry.username ?? "", password: entry.password)
+                paired.name = entry.name
+                store.upsert(paired, password: nil)
+                continue
+            }
             var host = store.hosts.first { $0.address == entry.address } ?? SavedHost(name: entry.name, address: entry.address, username: "")
             host.name = entry.name
             host.username = entry.username ?? ""

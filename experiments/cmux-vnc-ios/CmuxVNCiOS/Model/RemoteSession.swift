@@ -1,5 +1,6 @@
 import CmuxVNC
 import CmuxVNCDemoServer
+import CmuxVNCWebRTC
 import CoreGraphics
 import Foundation
 import Observation
@@ -44,6 +45,8 @@ final class RemoteSession {
     @ObservationIgnored private var client: VNCClient?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private let endpoint: VNCEndpoint?
+    /// Set for a Mac paired over WebRTC.
+    @ObservationIgnored private let pairing: VNCPairing?
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
@@ -56,7 +59,20 @@ final class RemoteSession {
         self.endpoint = endpoint
         self.credentials = credentials
         self.preferences = preferences
+        pairing = nil
     }
+
+    /// A Mac paired over WebRTC (its cmux-vnc-host).
+    init(title: String, pairing: VNCPairing, credentials: VNCCredentials, preferences: SessionPreferences) {
+        self.title = title
+        endpoint = VNCEndpoint(host: "webrtc", port: 1)
+        self.pairing = pairing
+        self.credentials = credentials
+        self.preferences = preferences
+    }
+
+    /// "WebRTC" or "Direct", for the stats line.
+    var pathLabel: String { pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct") }
 
     /// The built-in demo desktop on a loopback server in this app.
     init(demoPreferences: SessionPreferences) {
@@ -64,6 +80,7 @@ final class RemoteSession {
         endpoint = nil
         credentials = VNCCredentials()
         preferences = demoPreferences
+        pairing = nil
     }
 
     var isDemo: Bool { endpoint == nil }
@@ -84,7 +101,8 @@ final class RemoteSession {
                 target = VNCEndpoint(host: "127.0.0.1", port: port)
             }
             guard let target else { return }
-            start(VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)))
+            let options = VNCSessionOptions(credentials: credentials, localCursor: preferences.localCursor)
+            start(VNCClient(endpoint: target, options: options, transport: pairing.map { WebRTCRFBTransport(pairing: $0) }))
         })
     }
 

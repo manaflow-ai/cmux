@@ -4,7 +4,7 @@ import Security
 /// What a viewer needs to reach a host over WebRTC: the signaling Worker,
 /// the room, and the room secret. Shared as
 /// `cmux-vnc://pair?signal=<url>&room=<hex>&secret=<token>&name=<label>`.
-public struct VNCPairing: Sendable, Equatable, Codable {
+public struct VNCPairing: Sendable, Hashable, Codable {
     public var signal: URL
     public var room: String
     public var secret: String

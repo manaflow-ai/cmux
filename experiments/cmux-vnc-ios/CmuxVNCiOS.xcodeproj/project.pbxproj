@@ -10,31 +10,38 @@
 		0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516E107D77ED1D54537104D0 /* RemoteSession.swift */; };
 		1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */ = {isa = PBXBuildFile; productRef = A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */; };
 		21AD5EC1C4EEF48DEACB62D6 /* KeyInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3922A291E66A69D6BB43CE46 /* KeyInputView.swift */; };
+		26C0895F7E142FEE54DF3D90 /* MacShortcutsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */; };
 		27707F70407ACBE92B626F2C /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */; };
 		2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 70719AB65CB7047B142F5467 /* CmuxVNC */; };
 		3DE4EA9698154D6BF09451C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
 		4A8640D01932E12BFE02CF3A /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
+		8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
 		8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
 		8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
 		A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
 		BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
 		DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
 		E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */; };
+		EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */; };
 		FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789676ADCF30DB0BD93352BC /* Snapshotter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacShortcutsBar.swift; sourceTree = "<group>"; };
 		3922A291E66A69D6BB43CE46 /* KeyInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInputView.swift; sourceTree = "<group>"; };
+		3E1DB2147CBCD84F34A58FA3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3FF8B403BAE7CCD08C35184D /* SeedImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedImport.swift; sourceTree = "<group>"; };
 		516E107D77ED1D54537104D0 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSession.swift; sourceTree = "<group>"; };
 		62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteScreenViewController.swift; sourceTree = "<group>"; };
+		641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxVNCWebRTC; path = ../../Packages/Shared/CmuxVNCWebRTC; sourceTree = SOURCE_ROOT; };
 		763951F27B0C01E5C5523742 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
 		789676ADCF30DB0BD93352BC /* Snapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshotter.swift; sourceTree = "<group>"; };
 		803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionView.swift; sourceTree = "<group>"; };
 		AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
 		B429AE6EE4AA26D818EA95CA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxVNCApp.swift; sourceTree = "<group>"; };
+		C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairView.swift; sourceTree = "<group>"; };
 		E233F29DA734930808AB0D11 /* CmuxVNC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxVNC; path = ../../Packages/Shared/CmuxVNC; sourceTree = SOURCE_ROOT; };
 		E34218DA8A55EF28C184DB10 /* Autopilot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Autopilot.swift; sourceTree = "<group>"; };
 		F7C179D5FF8893AF8F176074 /* HostEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostEditorView.swift; sourceTree = "<group>"; };
@@ -47,6 +54,7 @@
 			files = (
 				2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */,
 				1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */,
+				EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -66,6 +74,8 @@
 			children = (
 				AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */,
 				F7C179D5FF8893AF8F176074 /* HostEditorView.swift */,
+				37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */,
+				C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */,
 				803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */,
 			);
 			path = Views;
@@ -84,6 +94,7 @@
 			isa = PBXGroup;
 			children = (
 				E233F29DA734930808AB0D11 /* CmuxVNC */,
+				641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -92,6 +103,7 @@
 			isa = PBXGroup;
 			children = (
 				B429AE6EE4AA26D818EA95CA /* Assets.xcassets */,
+				3E1DB2147CBCD84F34A58FA3 /* Info.plist */,
 				D1AA787CDD982B7EF1612CD2 /* App */,
 				AC0C8E8586ECFF00F4142739 /* Model */,
 				D16E45DB77BF79E0ECA40B21 /* Screen */,
@@ -148,6 +160,7 @@
 			packageProductDependencies = (
 				70719AB65CB7047B142F5467 /* CmuxVNC */,
 				A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */,
+				4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */,
 			);
 			productName = CmuxVNCiOS;
 			productReference = 0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */;
@@ -178,6 +191,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0142DD7E5D837B0F7D599108 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNC" */,
+				4323414C4B22920C7F4E3231 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNCWebRTC" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0C6DE3CC4D2F5AD0330FDF9F /* Products */;
@@ -211,6 +225,8 @@
 				8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */,
 				DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */,
 				21AD5EC1C4EEF48DEACB62D6 /* KeyInputView.swift in Sources */,
+				26C0895F7E142FEE54DF3D90 /* MacShortcutsBar.swift in Sources */,
+				8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */,
 				BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */,
 				0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */,
 				E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */,
@@ -229,7 +245,9 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC scans the pairing code a Mac's cmux-vnc-host shows.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC connects to screen sharing on computers in your local network and tailnet.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -253,7 +271,9 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CmuxVNCiOS/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "cmux VNC";
+				INFOPLIST_KEY_NSCameraUsageDescription = "cmux VNC scans the pairing code a Mac's cmux-vnc-host shows.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "cmux VNC connects to screen sharing on computers in your local network and tailnet.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -421,9 +441,17 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../Packages/Shared/CmuxVNC;
 		};
+		4323414C4B22920C7F4E3231 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNCWebRTC" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxVNCWebRTC;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxVNCWebRTC;
+		};
 		70719AB65CB7047B142F5467 /* CmuxVNC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxVNC;

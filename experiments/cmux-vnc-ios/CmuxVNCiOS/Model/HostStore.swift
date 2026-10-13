@@ -1,4 +1,5 @@
 import CmuxVNC
+import CmuxVNCWebRTC
 import Foundation
 import Observation
 import Security
@@ -12,8 +13,11 @@ struct SavedHost: Identifiable, Codable, Hashable {
     var address: String
     var username: String
     var options = SessionPreferences()
+    /// Set for a Mac paired over WebRTC (its cmux-vnc-host room); `address` is then a label.
+    var pairing: VNCPairing?
 
     var endpoint: VNCEndpoint? { VNCEndpoint.parse(address)?.endpoint }
+    var subtitle: String { pairing != nil ? "WebRTC · paired with cmux-vnc-host" : (endpoint?.label ?? address) }
 }
 
 /// Per-host session preferences. Decoding tolerates missing keys, so
@@ -89,6 +93,17 @@ final class HostStore {
         if let index = hosts.firstIndex(where: { $0.id == host.id }) { hosts[index] = host } else { hosts.append(host) }
         if let password { Keychain().setPassword(password.isEmpty ? nil : password, for: host.id) }
         persist()
+    }
+
+    /// Adds (or updates) the Mac behind a pairing link.
+    @discardableResult
+    func pair(_ pairing: VNCPairing, username: String = "", password: String? = nil) -> SavedHost {
+        var host = hosts.first { $0.pairing?.room == pairing.room }
+            ?? SavedHost(name: pairing.name, address: "webrtc:\(pairing.room.prefix(8))", username: username)
+        host.pairing = pairing
+        if !username.isEmpty { host.username = username }
+        upsert(host, password: password)
+        return host
     }
 
     func remove(_ host: SavedHost) {

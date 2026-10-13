@@ -1,4 +1,5 @@
 import CmuxVNC
+import CmuxVNCWebRTC
 import SwiftUI
 
 /// The start screen: the built-in demo desktop and saved computers.
@@ -6,6 +7,7 @@ struct ConnectionsView: View {
     @Environment(HostStore.self) private var store
     @State private var editing: SavedHost?
     @State private var session: RemoteSession?
+    @State private var pairingLink: PairingLink?
 
     var body: some View {
         NavigationStack {
@@ -35,7 +37,7 @@ struct ConnectionsView: View {
                             connect(host)
                         } label: {
                             HostRow(title: host.name.isEmpty ? host.address : host.name,
-                                    subtitle: host.endpoint?.label ?? host.address, symbol: "desktopcomputer")
+                                    subtitle: host.subtitle, symbol: host.pairing != nil ? "antenna.radiowaves.left.and.right" : "desktopcomputer")
                         }
                         .swipeActions {
                             Button("Delete", role: .destructive) { store.remove(host) }
@@ -50,7 +52,16 @@ struct ConnectionsView: View {
             }
             .navigationTitle("cmux VNC")
             .toolbar {
-                Button("Add Computer", systemImage: "plus") { editing = SavedHost(name: "", address: "", username: "") }
+                Menu("Add", systemImage: "plus") {
+                    Button("Pair a Mac over WebRTC", systemImage: "qrcode.viewfinder") { pairingLink = PairingLink(value: "") }
+                    Button("Add by Address", systemImage: "network") { editing = SavedHost(name: "", address: "", username: "") }
+                }
+            }
+            .sheet(item: $pairingLink) { link in
+                PairView(link: link.value)
+            }
+            .onOpenURL { url in
+                if VNCPairing(link: url) != nil { pairingLink = PairingLink(value: url.absoluteString) }
             }
             .sheet(item: $editing) { host in
                 HostEditorView(host: host)
@@ -68,6 +79,12 @@ struct ConnectionsView: View {
     }
 
     private func connect(_ host: SavedHost) {
+        if let pairing = host.pairing {
+            let password = store.password(for: host)
+            open(RemoteSession(title: host.name, pairing: pairing,
+                               credentials: VNCCredentials(username: host.username, password: password), preferences: host.options))
+            return
+        }
         guard let parsed = VNCEndpoint.parse(host.address) else { return }
         let password = store.password(for: host) ?? parsed.credentials.password
         let username = host.username.isEmpty ? parsed.credentials.username : host.username
@@ -99,6 +116,12 @@ private struct HostRow: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+/// A pairing link to show in `PairView` (sheet item).
+struct PairingLink: Identifiable {
+    let id = UUID()
+    var value: String
 }
 
 extension RemoteSession: Identifiable {
