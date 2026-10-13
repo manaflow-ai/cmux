@@ -103,6 +103,10 @@ public final class ConversationViewController: UIViewController {
     /// Whether the reader is following the bottom. Only the reader's own
     /// scrolling (or a send) changes it; inset changes never do.
     var isPinnedToBottom = true
+    #if DEBUG
+    /// DEBUG lab: the scripted scroll, when the environment asks for one.
+    var autoScrollDriver: ConversationAutoScrollDriver?
+    #endif
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
     /// never lands under (and is never chased by) that animation.
@@ -319,6 +323,12 @@ public final class ConversationViewController: UIViewController {
         ReplySwipeIndicator.prewarm(traits: traitCollection)
         updateViewing()
         focusComposerIfEmpty()
+        #if DEBUG
+        if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
+            autoScrollDriver = driver
+            driver.start()
+        }
+        #endif
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
