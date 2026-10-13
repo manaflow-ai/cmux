@@ -148,6 +148,7 @@ impl Mux {
             );
         }
     }
+}
 
 impl Mux {
     pub(crate) fn journal_hook_states(

@@ -319,4 +319,3 @@ mod launch_classification {
         false
     }
 }
-
