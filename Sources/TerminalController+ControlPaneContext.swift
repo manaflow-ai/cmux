@@ -568,7 +568,8 @@ extension TerminalController: ControlPaneContext {
             sourcePlaceholder = workspace.newTerminalSurface(
                 inPane: sourcePane,
                 focus: false,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             )?.id
             if sourcePlaceholder == nil {
                 return .sourcePlaceholderFailed
@@ -578,7 +579,8 @@ extension TerminalController: ControlPaneContext {
             targetPlaceholder = workspace.newTerminalSurface(
                 inPane: targetPane,
                 focus: false,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             )?.id
             if targetPlaceholder == nil {
                 return .targetPlaceholderFailed
