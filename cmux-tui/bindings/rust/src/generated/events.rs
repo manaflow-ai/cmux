@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4.
+// cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -341,6 +341,32 @@ pub struct HistoryChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KeybindingsChangedEventOrigin {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "cli")]
+    Cli,
+    #[serde(rename = "mcp")]
+    Mcp,
+    #[serde(rename = "script")]
+    Script,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "app")]
+    App,
+    #[serde(rename = "file")]
+    File,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KeybindingsChangedEvent {
+    pub origin: KeybindingsChangedEventOrigin,
+    pub revision: u64,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
@@ -356,8 +382,12 @@ pub struct MachineUsageChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotificationEvent {
     pub body: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<bool>,
     pub level: T::NotificationLevel,
     pub notification: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub reply: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub source: Option<T::NotificationSource>,
     pub surface: Nullable<T::Id>,
@@ -422,6 +452,13 @@ pub struct PaneClosedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonalChangedEvent {
     pub personal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProgramStatusChangedEvent {
+    pub program_status: Nullable<T::ShownProgramStatus>,
+    pub surface: T::Id,
 }
 
 #[rustfmt::skip]
@@ -834,6 +871,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     HistoryChanged(HistoryChangedEvent),
+    KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
@@ -844,6 +882,7 @@ pub enum Event {
     PaneAdded(PaneAddedEvent),
     PaneClosed(PaneClosedEvent),
     PersonalChanged(PersonalChangedEvent),
+    ProgramStatusChanged(ProgramStatusChangedEvent),
     RenderDelta(RenderDeltaEvent),
     RenderState(RenderStateEvent),
     Resized(ResizedEvent),
@@ -914,6 +953,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::HistoryChanged(_) => Some("history-changed"),
+            Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
@@ -924,6 +964,7 @@ impl Event {
             Self::PaneAdded(_) => Some("pane-added"),
             Self::PaneClosed(_) => Some("pane-closed"),
             Self::PersonalChanged(_) => Some("personal-changed"),
+            Self::ProgramStatusChanged(_) => Some("program-status-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
             Self::RenderState(_) => Some("render-state"),
             Self::Resized(_) => Some("resized"),
@@ -993,6 +1034,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
+            Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
@@ -1003,6 +1045,7 @@ impl Event {
             Self::PaneAdded(_) => Some(&PANE_ADDED_EVENT_METADATA),
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
             Self::PersonalChanged(_) => Some(&PERSONAL_CHANGED_EVENT_METADATA),
+            Self::ProgramStatusChanged(_) => Some(&PROGRAM_STATUS_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
             Self::RenderState(_) => Some(&RENDER_STATE_EVENT_METADATA),
             Self::Resized(_) => Some(&RESIZED_EVENT_METADATA),
@@ -1285,6 +1328,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("keybindings-changed") => match serde_json::from_value::<KeybindingsChangedEvent>(raw.clone()) {
+            Ok(event) => Event::KeybindingsChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("layout-changed") => match serde_json::from_value::<LayoutChangedEvent>(raw.clone()) {
             Ok(event) => Event::LayoutChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1359,6 +1410,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("personal-changed") => match serde_json::from_value::<PersonalChangedEvent>(raw.clone()) {
             Ok(event) => Event::PersonalChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("program-status-changed") => match serde_json::from_value::<ProgramStatusChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ProgramStatusChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

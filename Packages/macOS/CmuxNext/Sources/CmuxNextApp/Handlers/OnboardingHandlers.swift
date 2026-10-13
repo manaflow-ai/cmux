@@ -80,10 +80,19 @@ enum ClassicImportStrings {
         String(localized: "classicImport.toast.sshStays",
                defaultValue: "SSH workspaces whose host didn’t connect stay in classic cmux.", bundle: .module)
     }
+    static var sshScrollbackStays: String {
+        String(localized: "classicImport.toast.sshScrollbackStays",
+               defaultValue: "SSH terminals open without their old scrollback.", bundle: .module)
+    }
+    static var tabsStay: String {
+        String(localized: "classicImport.toast.tabsStay",
+               defaultValue: "Markdown and file preview tabs stay in classic cmux.", bundle: .module)
+    }
 
     /// What opened, then what stayed in classic and why.
     static func notice(_ summary: ClassicImportSummary) -> String {
         let stayed = (summary.leftCloudVMs ? [cloudVMsStay] : []) + (summary.leftSSH ? [sshStays] : [])
+            + (summary.leftSSHScrollback ? [sshScrollbackStays] : []) + (summary.leftTabs ? [tabsStay] : [])
         let opened = summary.opened > 0 ? [imported] : stayed.isEmpty ? [nothingSaved] : []
         return (opened + stayed).joined(separator: " ")
     }

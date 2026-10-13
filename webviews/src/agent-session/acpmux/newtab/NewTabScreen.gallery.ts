@@ -2,6 +2,7 @@
 // The New Tab page (NewTabScreen.tsx, ChatCards.tsx, variant B): the tab opens as the page when
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 
@@ -18,18 +19,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    tools: [
-      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌃⇧⌘G", menu: [] },
-      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight", "splitDown"] },
-      { id: "file.open", title: "Files", symbol: "folder", shortcut: "⇧⌘O", menu: [] },
-      {
-        id: "agentPane.searchChats",
-        title: "Side chat",
-        symbol: "bubble.left.and.text.bubble.right",
-        shortcut: "⌘K",
-        menu: [],
-      },
-    ],
     ...fields,
   },
   newSession: true,
@@ -64,6 +53,26 @@ const withAllChats = <V extends object>(variants: Record<string, V>) =>
     Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
+type GalleryNativeCall = { method: string; params?: Record<string, unknown> };
+
+function galleryNativeCalls(document: Document): GalleryNativeCall[] {
+  return (
+    (
+      document.defaultView as unknown as {
+        cmuxGalleryLog?: GalleryNativeCall[];
+      }
+    ).cmuxGalleryLog ?? []
+  );
+}
+
+async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed", id: string): Promise<void> {
+  await ctx.waitFor(() =>
+    galleryNativeCalls(ctx.document).some(
+      (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
+    ),
+  );
+}
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -73,7 +82,11 @@ export default agentPaneEntry({
     layoutShiftMax: {
       value: 0.4,
       reason:
-        "Typing an address or an open tab's name shows the rows between the field and the chat cards, which move down.",
+        "Typing an address or an open tab's name shows the rows between the field and the recent chats, which move down.",
+    },
+    settleMaxMs: {
+      value: 250,
+      reason: "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
     },
   },
   covers: [
@@ -86,6 +99,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
+    "agent-session/acpmux/DictationMic.tsx#DictationMic",
+    "ui/HideableChrome.tsx#HideableChrome",
+    "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
@@ -100,9 +116,22 @@ export default agentPaneEntry({
       snapshot: noChat(),
       native: {},
     },
-    "many-chats": {
-      note: "The running chat and the one waiting on the user as cards; every chat in All chats below, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+    "calm-default": {
+      note: "The default page is calm (Leo 2026-10-11): the composer with its arrow-up Send, then the five newest chats as quiet rows and All Chats for the rest. No tools row, no Recently Closed, no All chats table.",
       ready: newTab(),
+      snapshot: noChat(manySessions(14)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        // Quiet rows, one line each (the fleet capture drew them 86px tall).
+        const tall = [...ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card")].filter(
+          (row) => row.getBoundingClientRect().height > 32,
+        );
+        if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
+      },
+    },
+    "many-chats": {
+      note: "Threads template: every chat in All chats below the field, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => {
@@ -149,13 +178,8 @@ export default agentPaneEntry({
       ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
       snapshot: noChat(manySessions(4)),
     },
-    "without-tools": {
-      note: "The reserved Tools region is omitted when no host action can run.",
-      ready: newTab({ tools: [] }),
-      snapshot: noChat(manySessions(3)),
-    },
     "split-open-tabs": {
-      note: "Opened by Split Right from a browser tab (cx-jfo7): the workspace's tabs, each one moved into this pane by a click.",
+      note: "Opened by Split Right from a browser tab (cx-jfo7): clicking a workspace tab moves it into this pane.",
       ready: newTab({
         openTabs: [
           { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
@@ -164,10 +188,30 @@ export default agentPaneEntry({
         ],
       }),
       snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /PR #17516/ });
+        await waitForTabJump(ctx, "here", "t2");
+      },
+    },
+    "split-open-tabs-context-menu": {
+      note: "The same split-open tabs can be moved with the row context menu's Move Here action.",
+      ready: newTab({
+        openTabs: [
+          { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
+          { id: "t3", kind: "agent", title: "cmux-next chief" },
+        ],
+      }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.contextMenu({ role: "button", name: /PR #17516/ });
+        await ctx.click({ role: "menuitem", name: "Move Here" });
+        await waitForTabJump(ctx, "here", "t2");
+      },
     },
     "recently-closed": {
-      note: "Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
-      ready: newTab(),
+      note: "Threads template, Recently Closed (cx-d0d.60): the newest closed tabs, screens and workspaces, each reopened by a click; one on a machine that is not connected is dimmed.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(2)),
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyRecentlyClosed?.([
@@ -215,53 +259,17 @@ export default agentPaneEntry({
           },
         ]);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
-      },
-    },
-    "with-tools": {
-      note: "Tools use the host action catalog and shortcut labels.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-    },
-    "tool-menu-open": {
-      note: "A tool's extra actions open from its trailing disclosure without moving the page or clipping the popup.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "The tool menu must be above the New Tab page and fully visible." },
-        layoutShiftMax: { value: 0, reason: "Opening a portaled tool menu must not move the page." },
-      },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".nt-tool-menu-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-tool-menu-popover[role="menu"]'));
-      },
-    },
-    "tool-menu-keyboard": {
-      note: "Arrow navigation and Escape keep the tool menu's focus contract explicit.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      checks: {
-        popupLayer: { value: true, reason: "Keyboard tool menus must remain on top of the page." },
-        layoutShiftMax: { value: 0, reason: "Keyboard menu navigation must not move page content." },
-      },
-      play: async (ctx) => {
-        const trigger = { selector: ".nt-tool-menu-button" };
-        const items = () => ctx.document.querySelectorAll('.nt-tool-menu-popover [role="menuitem"]');
-        const focused = (index: number) => items().length === 2 && ctx.document.activeElement === items()[index];
-        await ctx.focus(trigger);
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(0));
-        await ctx.press("ArrowDown");
-        await ctx.waitFor(() => focused(1));
-        await ctx.press("Escape");
-        await ctx.waitFor(
-          () =>
-            ctx.find(trigger).getAttribute("aria-expanded") === "false" &&
-            ctx.document.activeElement === ctx.find(trigger),
-        );
+        await ctx.click({ role: "button", name: /PR #17516/ });
+        await waitForTabJump(ctx, "closed", "closed:1");
+        await ctx.contextMenu({ role: "button", name: /zsh/ });
+        await ctx.click({ role: "menuitem", name: "Reopen" });
+        await waitForTabJump(ctx, "closed", "closed:2");
+        const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
+        if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
       },
     },
     "typed-prompt": {
-      note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",
+      note: "A typed prompt: Ask first (Return's, highlighted) and a web search in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -269,7 +277,7 @@ export default agentPaneEntry({
       },
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs and visited pages: those rows (with their favicons, a glyph while one loads) and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: {
           tabs: [
@@ -290,12 +298,42 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Two tabs, the two pages and the search: five presses end on the last row.
+        // Ask, the search, two tabs, the workspace and a page: five presses from Ask end on the
+        // last row, and three more wrap round to the first tab.
         for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
+        await ctx.press("Enter");
+        await waitForTabJump(ctx, "tab", "tab-1");
+      },
+    },
+    "typed-reddit": {
+      note: 'The omnibar (Leo 2026-10-12): "reddit" completes to reddit.com (a top site), highlighted for Return, then the matching tab and workspace, a web search and Ask, in a popover over the page (no reflow); a blank browser tab is never offered.',
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            { id: "tab-blank", kind: "browser", title: "about:blank", detail: "about:blank", workspace: "workspace-3" },
+            { id: "tab-1", kind: "browser", title: "Reddit API docs", detail: "reddit.com/dev/api", icon: SITE_ICON },
+          ],
+          workspaces: [{ id: "workspace-1", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "about:blank" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The omnibar's popover floats above the page sections." },
+        // The page never moves (typed-prompt holds it at 0); here the popover's own rows move as
+        // "red" brings reddit.com in on top, as any omnibar's list does while you type.
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
+      },
+      play: async (ctx) => {
+        await ctx.type("reddit", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
       },
     },
     "typed-address": {
-      note: "An address: open it first, then a web search.",
+      note: "An address: open it first (highlighted), then a web search and Ask.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -317,8 +355,60 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(3)),
     },
+    "dictation-mic": {
+      note: "The agent composer's mic, beside send (cx-32bdm): the same dictation, its words land in this field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-send"));
+      },
+    },
+    "dictation-menu": {
+      note: "Right-click on the mic offers Hide Dictation Button, which hides it in every composer until a right-click on the button row offers Show Dictation Button (cx-32bdm, cx-wab7m).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The mic's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening the mic's menu must not move the page." },
+      },
+      play: async (ctx) => {
+        const mic = ctx.find({ selector: ".nt-pickers .acpmux-mic" });
+        const box = mic.getBoundingClientRect();
+        mic.dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+        );
+        await ctx.waitFor(
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide Dictation Button",
+        );
+      },
+    },
+    "dictation-show": {
+      note: "Hidden from its own right-click, the mic comes back from the same row: a right-click there offers Show Dictation Button (cx-wab7m).",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The row's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0.1, reason: "Hiding the mic only closes its 24px gap beside Send." },
+      },
+      play: async (ctx) => {
+        const rightClick = (element: Element) => {
+          const box = element.getBoundingClientRect();
+          element.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
+          );
+        };
+        const item = (label: string) =>
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) => row.textContent === label);
+        rightClick(ctx.find({ selector: ".nt-pickers .acpmux-mic" }));
+        await ctx.waitFor(() => item("Hide Dictation Button"));
+        item("Hide Dictation Button")!.click();
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
+        rightClick(ctx.find({ selector: ".nt-pickers .nt-send" }));
+        await ctx.waitFor(() => item("Show Dictation Button"));
+      },
+    },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no cards or Tools.",
+      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
     },
@@ -338,8 +428,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     projects: {
-      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
-      ready: newTab(),
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats. The calm default lists recent chats only, so this is the Threads template, which lists them all.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Projects" });

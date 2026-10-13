@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4";
+pub const ir_sha256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -172,6 +172,8 @@ pub const Bookmark = struct {
     browser_profile_id: []const u8,
     created_ms: u64,
     favicon_key: ?[]const u8 = null,
+    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.
+    icon: ?[]const u8 = null,
     /// `bm_` and 32 lowercase hex digits.
     id: []const u8,
     /// Dense 0-based position among the node's siblings.
@@ -189,6 +191,7 @@ pub const Bookmark = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "favicon_key",
+        "icon",
         "last_used_ms",
         "source_key",
         "url",
@@ -1264,6 +1267,30 @@ pub const ProcessInfoResult = struct {
     pid: wire.Nullable(u32),
 };
 
+pub const ProgramStatusState = enum {
+    working,
+    blocked,
+    @"error",
+    done,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "working")) return .working;
+        if (std.mem.eql(u8, value, "blocked")) return .blocked;
+        if (std.mem.eql(u8, value, "error")) return .@"error";
+        if (std.mem.eql(u8, value, "done")) return .done;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .working => "working",
+            .blocked => "blocked",
+            .@"error" => "error",
+            .done => "done",
+        };
+    }
+};
+
 pub const ProviderWorkspaceMutationResult = struct {
     key: []const u8,
     workspace: Id,
@@ -1695,6 +1722,11 @@ pub const SetTerminalKeepResult = struct {
     terminal_resource_id: wire.Field([]const u8) = .absent,
 };
 
+pub const ShownProgramStatus = struct {
+    progress: wire.Nullable(u16),
+    state: ProgramStatusState,
+};
+
 pub const ShutdownDaemonResult = struct {
     accepted: bool,
     ended_terminals: wire.Field(u64) = .absent,
@@ -1997,6 +2029,7 @@ pub const Tab = struct {
     kind: TabKind,
     name: wire.Nullable([]const u8),
     notification: wire.Field(NotificationMarker) = .absent,
+    program_status: wire.Field(ShownProgramStatus) = .absent,
     short_id: ?[]const u8 = null,
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
@@ -3673,6 +3706,8 @@ pub const CloseWorkspaceRequest = struct {
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
+    /// With end_terminals: the close is not recorded in the closed history (session_end).
+    reason: wire.Field(CloseReason) = .absent,
     workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -3697,6 +3732,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
+                .{ .name = "reason", .since = null, .capability = "close-reason-v1" },
             },
         },
         request,
@@ -8421,6 +8457,8 @@ pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Dec
 pub const UpdateBookmarkRequest = struct {
     bookmark: []const u8,
     favicon_key: wire.Field([]const u8) = .absent,
+    /// Folders only; null clears. Refused on a url node.
+    icon: wire.Field([]const u8) = .absent,
     last_used_ms: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
@@ -8438,6 +8476,9 @@ pub fn updateBookmark(client: anytype, request: UpdateBookmarkRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "bookmarks-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "bookmark-icon-v1" },
+            },
         },
         request,
     );
@@ -8563,6 +8604,7 @@ pub const UpdateScreenGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8576,6 +8618,9 @@ pub fn updateScreenGroup(client: anytype, request: UpdateScreenGroupRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "screen-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "screen-group-icon-v1" },
+            },
         },
         request,
     );
@@ -8585,6 +8630,7 @@ pub const UpdateTabGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8598,6 +8644,9 @@ pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "tab-group-icon-v1" },
+            },
         },
         request,
     );
@@ -9131,6 +9180,45 @@ pub const HistoryChangedEvent = struct {
     revision: u64,
 };
 
+pub const KeybindingsChangedEventOrigin = enum {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "user")) return .user;
+        if (std.mem.eql(u8, value, "cli")) return .cli;
+        if (std.mem.eql(u8, value, "mcp")) return .mcp;
+        if (std.mem.eql(u8, value, "script")) return .script;
+        if (std.mem.eql(u8, value, "remote")) return .remote;
+        if (std.mem.eql(u8, value, "app")) return .app;
+        if (std.mem.eql(u8, value, "file")) return .file;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .user => "user",
+            .cli => "cli",
+            .mcp => "mcp",
+            .script => "script",
+            .remote => "remote",
+            .app => "app",
+            .file => "file",
+        };
+    }
+};
+
+pub const KeybindingsChangedEvent = struct {
+    event: []const u8,
+    origin: KeybindingsChangedEventOrigin,
+    revision: u64,
+};
+
 pub const LayoutChangedEvent = struct {
     event: []const u8,
     screen: Id,
@@ -9143,14 +9231,18 @@ pub const MachineUsageChangedEvent = struct {
 
 pub const NotificationEvent = struct {
     body: []const u8,
+    desktop: ?bool = null,
     event: []const u8,
     level: NotificationLevel,
     notification: Id,
+    reply: ?bool = null,
     source: ?NotificationSource = null,
     surface: wire.Nullable(Id),
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "desktop",
+        "reply",
         "source",
     };
 };
@@ -9212,6 +9304,12 @@ pub const PaneClosedEvent = struct {
 pub const PersonalChangedEvent = struct {
     event: []const u8,
     personal_revision: u64,
+};
+
+pub const ProgramStatusChangedEvent = struct {
+    event: []const u8,
+    program_status: wire.Nullable(ShownProgramStatus),
+    surface: Id,
 };
 
 pub const RenderDeltaEvent = struct {
@@ -9628,6 +9726,7 @@ pub const Event = union(enum) {
     frontend_projection_changed: FrontendProjectionChangedEvent,
     graphics_status: GraphicsStatusEvent,
     history_changed: HistoryChangedEvent,
+    keybindings_changed: KeybindingsChangedEvent,
     layout_changed: LayoutChangedEvent,
     machine_usage_changed: MachineUsageChangedEvent,
     notification: NotificationEvent,
@@ -9638,6 +9737,7 @@ pub const Event = union(enum) {
     pane_added: PaneAddedEvent,
     pane_closed: PaneClosedEvent,
     personal_changed: PersonalChangedEvent,
+    program_status_changed: ProgramStatusChangedEvent,
     render_delta: RenderDeltaEvent,
     render_state: RenderStateEvent,
     resized: ResizedEvent,
@@ -9706,6 +9806,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .frontend_projection_changed => "frontend-projection-changed",
         .graphics_status => "graphics-status",
         .history_changed => "history-changed",
+        .keybindings_changed => "keybindings-changed",
         .layout_changed => "layout-changed",
         .machine_usage_changed => "machine-usage-changed",
         .notification => "notification",
@@ -9716,6 +9817,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .pane_added => "pane-added",
         .pane_closed => "pane-closed",
         .personal_changed => "personal-changed",
+        .program_status_changed => "program-status-changed",
         .render_delta => "render-delta",
         .render_state => "render-state",
         .resized => "resized",
@@ -9887,6 +9989,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(HistoryChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .history_changed = decoded } };
     }
+    if (std.mem.eql(u8, name, "keybindings-changed")) {
+        const decoded = try wire.decodeLeaky(KeybindingsChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .keybindings_changed = decoded } };
+    }
     if (std.mem.eql(u8, name, "layout-changed")) {
         const decoded = try wire.decodeLeaky(LayoutChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .layout_changed = decoded } };
@@ -9926,6 +10032,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "personal-changed")) {
         const decoded = try wire.decodeLeaky(PersonalChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .personal_changed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "program-status-changed")) {
+        const decoded = try wire.decodeLeaky(ProgramStatusChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .program_status_changed = decoded } };
     }
     if (std.mem.eql(u8, name, "render-delta")) {
         const decoded = try wire.decodeLeaky(RenderDeltaEvent, arena.allocator(), value);
@@ -10380,49 +10490,51 @@ const event_streams_28 = [_][]const u8{"subscribe"};
 const event_streams_29 = [_][]const u8{"subscribe"};
 const event_streams_30 = [_][]const u8{"subscribe"};
 const event_streams_31 = [_][]const u8{"subscribe"};
-const event_streams_32 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
-const event_streams_33 = [_][]const u8{"attach-byte"};
-const event_streams_34 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_35 = [_][]const u8{"subscribe"};
+const event_streams_32 = [_][]const u8{"subscribe"};
+const event_streams_33 = [_][]const u8{ "subscribe", "attach-byte", "attach-browser" };
+const event_streams_34 = [_][]const u8{"attach-byte"};
+const event_streams_35 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
 const event_streams_36 = [_][]const u8{"subscribe"};
-const event_streams_37 = [_][]const u8{"subscribe-deltas"};
+const event_streams_37 = [_][]const u8{"subscribe"};
 const event_streams_38 = [_][]const u8{"subscribe-deltas"};
-const event_streams_39 = [_][]const u8{"subscribe"};
-const event_streams_40 = [_][]const u8{"attach-render"};
-const event_streams_41 = [_][]const u8{"attach-render"};
-const event_streams_42 = [_][]const u8{"attach-byte"};
-const event_streams_43 = [_][]const u8{"subscribe-deltas"};
-const event_streams_44 = [_][]const u8{"subscribe-deltas"};
+const event_streams_39 = [_][]const u8{"subscribe-deltas"};
+const event_streams_40 = [_][]const u8{"subscribe"};
+const event_streams_41 = [_][]const u8{"subscribe"};
+const event_streams_42 = [_][]const u8{"attach-render"};
+const event_streams_43 = [_][]const u8{"attach-render"};
+const event_streams_44 = [_][]const u8{"attach-byte"};
 const event_streams_45 = [_][]const u8{"subscribe-deltas"};
 const event_streams_46 = [_][]const u8{"subscribe-deltas"};
-const event_streams_47 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_48 = [_][]const u8{"subscribe"};
-const event_streams_49 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
+const event_streams_47 = [_][]const u8{"subscribe-deltas"};
+const event_streams_48 = [_][]const u8{"subscribe-deltas"};
+const event_streams_49 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
 const event_streams_50 = [_][]const u8{"subscribe"};
-const event_streams_51 = [_][]const u8{"subscribe"};
+const event_streams_51 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
 const event_streams_52 = [_][]const u8{"subscribe"};
 const event_streams_53 = [_][]const u8{"subscribe"};
 const event_streams_54 = [_][]const u8{"subscribe"};
-const event_streams_55 = [_][]const u8{"subscribe-deltas"};
-const event_streams_56 = [_][]const u8{"subscribe-deltas"};
+const event_streams_55 = [_][]const u8{"subscribe"};
+const event_streams_56 = [_][]const u8{"subscribe"};
 const event_streams_57 = [_][]const u8{"subscribe-deltas"};
 const event_streams_58 = [_][]const u8{"subscribe-deltas"};
-const event_streams_59 = [_][]const u8{"control"};
-const event_streams_60 = [_][]const u8{"control"};
-const event_streams_61 = [_][]const u8{"subscribe"};
-const event_streams_62 = [_][]const u8{"subscribe"};
+const event_streams_59 = [_][]const u8{"subscribe-deltas"};
+const event_streams_60 = [_][]const u8{"subscribe-deltas"};
+const event_streams_61 = [_][]const u8{"control"};
+const event_streams_62 = [_][]const u8{"control"};
 const event_streams_63 = [_][]const u8{"subscribe"};
 const event_streams_64 = [_][]const u8{"subscribe"};
-const event_streams_65 = [_][]const u8{"control"};
-const event_streams_66 = [_][]const u8{"attach-byte"};
-const event_streams_67 = [_][]const u8{"subscribe"};
-const event_streams_68 = [_][]const u8{"subscribe-deltas"};
-const event_streams_69 = [_][]const u8{"subscribe-deltas"};
+const event_streams_65 = [_][]const u8{"subscribe"};
+const event_streams_66 = [_][]const u8{"subscribe"};
+const event_streams_67 = [_][]const u8{"control"};
+const event_streams_68 = [_][]const u8{"attach-byte"};
+const event_streams_69 = [_][]const u8{"subscribe"};
 const event_streams_70 = [_][]const u8{"subscribe-deltas"};
 const event_streams_71 = [_][]const u8{"subscribe-deltas"};
 const event_streams_72 = [_][]const u8{"subscribe-deltas"};
+const event_streams_73 = [_][]const u8{"subscribe-deltas"};
+const event_streams_74 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 73;
+pub const event_count: usize = 75;
 pub const events = [_]EventDescriptor{
     .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
@@ -10454,47 +10566,49 @@ pub const events = [_]EventDescriptor{
     .{ .name = "frontend-projection-changed", .since = 7, .capability = null, .streams = &event_streams_27 },
     .{ .name = "graphics-status", .since = 10, .capability = null, .streams = &event_streams_28 },
     .{ .name = "history-changed", .since = 12, .capability = "history-v1", .streams = &event_streams_29 },
-    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_30 },
-    .{ .name = "machine-usage-changed", .since = 12, .capability = "machine-usage-v1", .streams = &event_streams_31 },
-    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_32 },
-    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_33 },
-    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_34 },
-    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_35 },
-    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_36 },
-    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_37 },
-    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_38 },
-    .{ .name = "personal-changed", .since = 12, .capability = "profiles-v1", .streams = &event_streams_39 },
-    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_40 },
-    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_44 },
-    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_47 },
-    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_48 },
-    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_49 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_50 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_51 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_52 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_53 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_54 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_55 },
-    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_56 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_57 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_58 },
-    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_59 },
-    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_60 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_61 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_62 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_63 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_64 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_65 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_66 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_67 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_68 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_69 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_70 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_71 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_72 },
+    .{ .name = "keybindings-changed", .since = 12, .capability = "keybindings-v1", .streams = &event_streams_30 },
+    .{ .name = "layout-changed", .since = 6, .capability = null, .streams = &event_streams_31 },
+    .{ .name = "machine-usage-changed", .since = 12, .capability = "machine-usage-v1", .streams = &event_streams_32 },
+    .{ .name = "notification", .since = 6, .capability = null, .streams = &event_streams_33 },
+    .{ .name = "output", .since = 5, .capability = null, .streams = &event_streams_34 },
+    .{ .name = "overflow", .since = 7, .capability = null, .streams = &event_streams_35 },
+    .{ .name = "pairing-requested", .since = 7, .capability = null, .streams = &event_streams_36 },
+    .{ .name = "pairing-resolved", .since = 7, .capability = null, .streams = &event_streams_37 },
+    .{ .name = "pane-added", .since = 7, .capability = null, .streams = &event_streams_38 },
+    .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_39 },
+    .{ .name = "personal-changed", .since = 12, .capability = "profiles-v1", .streams = &event_streams_40 },
+    .{ .name = "program-status-changed", .since = 12, .capability = null, .streams = &event_streams_41 },
+    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_46 },
+    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_48 },
+    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_49 },
+    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_50 },
+    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_51 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_52 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_53 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_54 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_55 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_56 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_57 },
+    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_58 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_59 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_60 },
+    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_61 },
+    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_62 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_63 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_64 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_65 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_66 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_67 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_68 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_69 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_70 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_71 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_72 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_73 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_74 },
 };

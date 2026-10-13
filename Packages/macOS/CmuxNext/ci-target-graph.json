@@ -115,6 +115,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -221,11 +222,13 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
+        "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ],
       "reads": [
         "plans/cmux-next/",
+        "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "tests/fixtures/classic-to-next/"
       ]

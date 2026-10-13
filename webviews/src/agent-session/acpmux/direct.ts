@@ -2,6 +2,7 @@ import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
   AcpmuxPermission,
+  AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -366,9 +367,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   current: number | undefined;
   /// The newest event reduced so far.
   private latest = 0;
+  /// The rows in order as of the last ``sorted()``, and each one's index there: a snapshot of a
+  /// long chat whose rows only changed in place copies this instead of sorting every row again.
+  private ordered: AcpmuxRow[] | undefined;
+  private orderedIndex = new Map<string, number>();
 
   override set(id: string, row: AcpmuxRow): this {
-    if (!this.order.has(id)) {
+    const known = this.order.has(id);
+    if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
         this.latest = Math.max(this.latest, this.current);
@@ -377,7 +383,38 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
+    if (this.ordered) this.keepOrdered(id, row, known);
     return super.set(id, row);
+  }
+
+  /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
+  /// sorts after every row, otherwise ``sorted()`` sorts again.
+  private keepOrdered(id: string, row: AcpmuxRow, known: boolean): void {
+    const ordered = this.ordered!;
+    const index = this.orderedIndex.get(id);
+    if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
+      ordered[index] = row;
+      return;
+    }
+    const last = ordered.at(-1);
+    const order = this.order.get(id) ?? 0;
+    const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
+    if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
+      this.orderedIndex.set(id, ordered.length);
+      ordered.push(row);
+      return;
+    }
+    this.ordered = undefined;
+  }
+
+  /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
+  /// time (the tie-break, which a streamed delta moves) cannot move it.
+  private ownsSlot(index: number): boolean {
+    const ordered = this.ordered!;
+    const order = this.order.get(ordered[index]!.id);
+    const before = ordered[index - 1];
+    const after = ordered[index + 1];
+    return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
   }
 
   /// An event was reduced (it may have made no row).
@@ -386,12 +423,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 
   override delete(id: string): boolean {
+    // Every text delta drops the typing row, which is usually gone already.
+    if (!this.has(id)) return false;
+    this.ordered = undefined;
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
   }
 
   override clear(): void {
+    this.ordered = undefined;
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -409,13 +450,20 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Moves the rows made without an event after every event, keeping their order: what a lag
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
+    this.ordered = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
   sorted(): AcpmuxRow[] {
-    return [...this.values()].sort((a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at);
+    if (!this.ordered) {
+      this.ordered = [...this.values()].sort(
+        (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
+      );
+      this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
+    }
+    return this.ordered.slice();
   }
 }
 
@@ -451,6 +499,10 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
+  /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
+  /// is "pending" from its question, or from arriving while one is open, until it completes.
+  private openQuestions = new Set<string>();
+  private heldEdits = new Set<string>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -514,6 +566,9 @@ export class AcpmuxDirectClient {
   private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
+  /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
+  /// before it, so the call and its updates draw no tool row.
+  private planCalls = new Set<string>();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold();
   private readonly listener: Listener;
@@ -666,7 +721,7 @@ export class AcpmuxDirectClient {
           onLost();
         } else this.scheduleReconnect();
       };
-      socket.onmessage = (message) => this.receive(String(message.data));
+      socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
     try {
       const initialized = await this.request("initialize", {
@@ -761,9 +816,13 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
+    this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.groupedPermissions.clear();
+    this.openQuestions.clear();
+    this.heldEdits.clear();
     this.commands = [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
@@ -797,13 +856,17 @@ export class AcpmuxDirectClient {
       // The failure's code (`validation.invalid`, ...) and details ride along for callers that
       // tell failures apart.
       if (message.error) {
-        const data = message.error.data as { code?: unknown; details?: unknown; reason?: unknown } | undefined;
+        const data = message.error.data as
+          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
             code: data?.code ?? message.error.code,
             ...(data?.details === undefined ? {} : { details: data.details }),
             // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
+            ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
@@ -980,9 +1043,10 @@ export class AcpmuxDirectClient {
     return postNative("file.search", { cwd, query, limit });
   }
 
-  /// The selected session's repository changes in one git scope (changes/model.ts).
-  gitDiff(scope: string): Promise<unknown> {
-    return this.git("git.diff", { scope, include_patch: true });
+  /// The selected session's repository changes in one git scope (changes/model.ts); `narrow` names
+  /// files (`paths`) and their unchanged context (`context_lines`, changes/wholeFile.ts).
+  gitDiff(scope: string, narrow: { paths?: string[]; context_lines?: number } = {}): Promise<unknown> {
+    return this.git("git.diff", { scope, include_patch: true, ...narrow });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
@@ -1254,6 +1318,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.toolRows.clear();
+    this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
@@ -1305,10 +1370,15 @@ export class AcpmuxDirectClient {
       }
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") {
+    else if (event.kind === "permission_request") {
+      this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
+      this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
+      this.applyPermission({ ...msg, sessionId: event.sessionId });
+    } else if (event.kind === "permission_decision") {
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
+      if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
+      else this.openQuestions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
         this.pendingPermission = this.permissions.state.supported
           ? undefined
@@ -1361,7 +1431,10 @@ export class AcpmuxDirectClient {
           this.promptAccepts.get(fallbackPromptId)?.();
         }
         this.subagents.closeBatch();
-        this.endAssistantSegment();
+        // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
+        // reply still streams after the steer's row and stays in its row above it, and the next
+        // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
+        if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
         this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -1395,6 +1468,8 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
+        this.openQuestions.clear();
+        this.heldEdits.clear();
         // A new row, never an in-place change: emitted snapshots share row objects, and the
         // transcript's memo compares the drawn row's version with the next one.
         this.endAssistantSegment();
@@ -1481,6 +1556,9 @@ export class AcpmuxDirectClient {
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      const tool = update._meta?.claude?.tool ?? update.title;
+      if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
+      if (this.planCalls.has(callId)) return;
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
       const knownRow = known && this.rows.has(known) ? known : undefined;
@@ -1489,7 +1567,10 @@ export class AcpmuxDirectClient {
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at);
+      const item = this.holdEdit(
+        mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
+        event.kind === "tool_call",
+      );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
       this.rows.set(id, {
@@ -1502,6 +1583,14 @@ export class AcpmuxDirectClient {
       });
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
+    } else if (event.kind === "background_task_update") {
+      const task = backgroundTask(update);
+      if (!task) return;
+      // Noted where it ended: the text and tool fold before it close, as a tool call's would.
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      const id = `bgtask-${event.seq}`;
+      this.rows.set(id, { id, version: 1, at: event.at, kind: "backgroundTask", backgroundTask: task });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -1510,6 +1599,11 @@ export class AcpmuxDirectClient {
         if (existing) this.rows.delete(existing.id);
         this.planRow = undefined;
         return;
+      }
+      // A new checklist ends the text and tool fold before it, as the call it stands for would.
+      if (!existing) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
       }
       const id = existing ? existing.id : `plan-${event.seq}`;
       this.planRow = id;
@@ -1521,6 +1615,37 @@ export class AcpmuxDirectClient {
         ...(plan.length > 0 ? { plan } : { text: text || JSON.stringify(update.entries ?? update.content ?? "") }),
       });
     }
+  }
+
+  /// A call that asks before it runs waits on its permission ("pending") until it completes or
+  /// fails: Claude sends a proposed edit, diff included, before it asks, and it is not an edit yet.
+  private markAwaitingPermission(callId: unknown): void {
+    if (callId != null) this.heldEdits.add(String(callId));
+    const id = callId == null ? undefined : this.toolRows.get(String(callId));
+    const row = id ? this.rows.get(id) : undefined;
+    if (!row) return;
+    const items = (row.items ?? []).map((item) =>
+      item.tool?.id === String(callId) && item.tool.status === "in_progress"
+        ? { ...item, tool: { ...item.tool, status: "pending" } }
+        : item,
+    );
+    this.rows.set(row.id, { ...row, version: row.version + 1, items });
+  }
+
+  /// `item` as the transcript shows it: an edit that waits on a permission question stays
+  /// "pending". Claude asks one question at a time, so an edit that arrives while another's
+  /// question is open sends its diff before its own question, and waits too.
+  private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
+    const tool = item.tool;
+    if (!tool) return item;
+    if (tool.status === "completed" || tool.status === "failed") {
+      this.heldEdits.delete(tool.id);
+      return item;
+    }
+    const isEdit = tool.kind === "edit" || tool.kind === "fileChange";
+    if (isNew && isEdit && this.openQuestions.size > 0) this.heldEdits.add(tool.id);
+    if (!this.heldEdits.has(tool.id) || tool.status === "pending") return item;
+    return { ...item, tool: { ...tool, status: "pending" } };
   }
 
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
@@ -1546,6 +1671,10 @@ export class AcpmuxDirectClient {
   }
 
   private emit(connection = "connected"): void {
+    acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  }
+
+  private emitNow(connection: string): void {
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;
@@ -1735,8 +1864,15 @@ export class AcpmuxDirectClient {
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
-        // The prompt is still in the composer, so Enter sends it again (no Retry button).
-        if (held && !isTrustRefusal(error)) this.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+        // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
+        // for want of a real key or click (dictation's autoSend after a session ended by itself)
+        // says just that, not the generic refusal's pick wording (cx-w2p8r).
+        if (held && !isTrustRefusal(error))
+          this.notice(
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentAgain")
+              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          );
         else this.emit();
         throw error;
       }
@@ -1934,7 +2070,7 @@ export class AcpmuxDirectClient {
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
   /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
   /// chat starts there; a cloud or peer session's folder is not one acpmux can start in here).
-  shownSession(): { sessionId: string; harness?: string; empty: boolean; cwd?: string } | undefined {
+  shownSession(): { sessionId: string; harness?: string; model?: string; empty: boolean; cwd?: string } | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return undefined;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
@@ -1943,6 +2079,7 @@ export class AcpmuxDirectClient {
     return {
       sessionId,
       harness: typeof summary?.harness === "string" ? summary.harness : undefined,
+      ...(typeof summary?.model === "string" && summary.model ? { model: summary.model } : {}),
       empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.turnOpen,
       ...(local && typeof summary?.cwd === "string" && summary.cwd ? { cwd: summary.cwd } : {}),
     };
@@ -2159,10 +2296,17 @@ export class AcpmuxDirectClient {
       ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
     ];
   }
+  /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
+  /// the lists it has and asks each harness before it answers (the picker's Refresh models).
+  refreshModels(): Promise<unknown> {
+    return this.request("_acpmux/models", { refresh: true });
+  }
   /// Enables a folder profile (`_acpmux/harness_enable {folder, id}`). Call it straight from the
   /// click or key handler, with no await before it: the host takes the gesture, shows its own
   /// confirmation and adds the file's hash itself (the pane never sends one). A Cancel there
-  /// rejects with code `transport.harness_not_confirmed`.
+  /// rejects with code `transport.harness_not_confirmed`; when acpmux refused to give the prompt
+  /// (no Trust answer, an invalid file), that rejection carries its reason as `detail`; when
+  /// acpmux gave no prompt (down, too slow), `reason` is `harness.prompt_unavailable`.
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
@@ -2288,6 +2432,18 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
   return { reason, harness: data.harness, folder: data.folder };
 }
 
+/// A `background_task_update`'s shell and how it ended; undefined when it names neither.
+function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
+  const state = update.state;
+  if (typeof update.toolCallId !== "string" || !["completed", "failed", "stopped"].includes(state)) return undefined;
+  return {
+    toolCallId: update.toolCallId,
+    command: typeof update.command === "string" ? update.command : "",
+    state,
+    ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+  };
+}
+
 /// An ACP `plan` update's entries as a todo list; an entry without text is left out.
 function planEntries(entries: unknown): AcpmuxPlanEntry[] {
   if (!Array.isArray(entries)) return [];
@@ -2347,6 +2503,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     // Why acpmux will not start it, when it says: its launcher check (`unavailable`), else its
     // failed model probe (`probeError`).
     ...(harnessRefusal(harness) ? { unavailable: harnessRefusal(harness) } : {}),
+    ...(!harness.unavailable && harnessRefusal(harness) ? { probeFailed: true } : {}),
   }));
 }
 

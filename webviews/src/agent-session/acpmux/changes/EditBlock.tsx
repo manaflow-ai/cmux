@@ -1,6 +1,12 @@
 // One edit in the changes view: its header and its diff on @pierre/diffs.
-import React, { useMemo } from "react";
-import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride, type DiffLineAnnotation } from "@pierre/diffs";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getFiletypeFromFileName,
+  getSingularPatch,
+  processFile,
+  setLanguageOverride,
+  type DiffLineAnnotation,
+} from "@pierre/diffs";
 import { FileDiff, WorkerPoolContext, useStableCallback } from "@pierre/diffs/react";
 import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
 import { isHighlighted } from "../shikiLanguages";
@@ -14,6 +20,7 @@ import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 import { paneHighlightPool } from "../conversation/highlightPool";
+import { readWholeFile, type WholeFile } from "./wholeFile";
 
 export type DiffLayout = "unified" | "split";
 /// A line annotation: a hunk's actions, or a review thread.
@@ -61,10 +68,63 @@ export function EditBlock({
   const patch = useMemo(() => editPatch(file, edit), [file, edit]);
   const highlighted = isHighlighted(getFiletypeFromFileName(file.displayPath));
   const language = highlighted ? getFiletypeFromFileName(file.displayPath) : "text";
+  // Show more lines (cx-ncc.85): a git scope's file is read whole as it comes into view; with both
+  // versions known, the diff is no longer partial and its hunk separators expand.
+  const box = useRef<HTMLDivElement>(null);
+  const [whole, setWhole] = useState<{ patch: string; file: WholeFile }>();
+  const readWhole = on.wholeFile;
+  const expandable =
+    readWhole !== undefined &&
+    !view.collapsed &&
+    edit.numbered &&
+    edit.hunks.length > 0 &&
+    !file.created &&
+    !file.deleted &&
+    !file.binary &&
+    !file.patchTruncated;
+  const wholeFile = whole?.patch === patch ? whole.file : undefined;
+  useEffect(() => {
+    const element = box.current;
+    if (!expandable || !readWhole || !element || wholeFile) return undefined;
+    let live = true;
+    const load = () =>
+      readWhole(file.path).then(
+        (answer) => {
+          const read = answer && readWholeFile(answer.value, answer.named, edit);
+          if (live && read) setWhole({ patch, file: read });
+        },
+        () => undefined,
+      );
+    if (typeof IntersectionObserver === "undefined") {
+      void load();
+      return () => void (live = false);
+    }
+    const watch = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        watch.disconnect();
+        void load();
+      },
+      { rootMargin: "400px 0px" },
+    );
+    watch.observe(element);
+    return () => {
+      live = false;
+      watch.disconnect();
+    };
+  }, [expandable, readWhole, wholeFile, file.path, patch, edit]);
   const fileDiff = useMemo(() => {
-    const parsed = getSingularPatch(patch);
+    const name = file.displayPath;
+    const parsed =
+      (wholeFile &&
+        processFile(patch, {
+          isGitDiff: true,
+          oldFile: { name, contents: wholeFile.before },
+          newFile: { name, contents: wholeFile.after },
+        })) ||
+      getSingularPatch(patch);
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
-  }, [patch, highlighted]);
+  }, [patch, highlighted, wholeFile, file.displayPath]);
   const afterRender = useStableCallback(onPainted);
   const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const workerPool = paneHighlightPool(lineDiffType, language);
@@ -118,10 +178,16 @@ export function EditBlock({
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.
-  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} />;
+  const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} review={review} />;
   const showDiff = !view.collapsed && edit.hunks.length > 0;
   return (
-    <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
+    <div
+      ref={box}
+      className="acpmux-diff-file"
+      data-path={file.path}
+      data-collapsed={view.collapsed ? "" : undefined}
+      data-whole-file={wholeFile ? "" : undefined}
+    >
       {header}
       {!view.collapsed && edit.hunks.length === 0 && (
         <div className="acpmux-diff-empty-edit">

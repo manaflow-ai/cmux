@@ -52,6 +52,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     public var terminalProgress: [ResourceID: TerminalProgressReport] = [:]
     /// OSC 7501 records per terminal; a terminal without records is absent.
     public var terminalProgramStatus: [ResourceID: [ProgramStatusRecord]] = [:]
+    /// When each terminal's running shell command started; a terminal at a prompt is absent.
+    public var terminalBusySinceMs: [ResourceID: UInt64] = [:]
 
     /// The daemon keeps the newest 50 closed items.
     public static let closedLimit = 50
@@ -76,9 +78,10 @@ public struct SessionStateMirror: Sendable, Hashable {
             screens[id] = state
         case .tab(let id, let record):
             tabs[id] = record.flatMap { $0.isEmpty ? nil : $0 }
-        case .terminal(let id, let progress, let programStatus):
+        case .terminal(let id, let progress, let programStatus, let busySinceMs):
             terminalProgress[id] = progress
             terminalProgramStatus[id] = programStatus.isEmpty ? nil : programStatus
+            terminalBusySinceMs[id] = busySinceMs
         case .closed(let item):
             closed.removeAll { $0.id == item.id }
             let index = closed.firstIndex { $0.closedAtMs < item.closedAtMs } ?? closed.endIndex
@@ -121,16 +124,18 @@ public struct StateScreenGroup: Sendable, Hashable, Decodable {
     public var screenIDs: [ResourceID]
     /// The saved screen group this live group is linked to.
     public var savedID: String?
+    /// The shared icon string (`screen-group-icon-v1`); nil is none.
+    public var icon: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, color, collapsed
+        case id, name, color, collapsed, icon
         case workspaceID = "workspace_id"
         case screenIDs = "screen_ids"
         case savedID = "saved_id"
     }
 
     public init(id: String, workspaceID: ResourceID, name: String = "", color: String? = nil, collapsed: Bool = false,
-                screenIDs: [ResourceID] = [], savedID: String? = nil) {
+                screenIDs: [ResourceID] = [], savedID: String? = nil, icon: String? = nil) {
         self.id = id
         self.workspaceID = workspaceID
         self.name = name
@@ -138,6 +143,7 @@ public struct StateScreenGroup: Sendable, Hashable, Decodable {
         self.collapsed = collapsed
         self.screenIDs = screenIDs
         self.savedID = savedID
+        self.icon = icon
     }
 }
 

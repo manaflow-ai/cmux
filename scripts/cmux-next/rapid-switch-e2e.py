@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Live check of rapid switching (briefs/rapid-switch-1009) on a running tagged cmux-next build.
 
-Previous / Next on the browser-style keys: a focused pane with 2+ tabs steps its tabs, wrapping
+Previous / Next (the palette's `navigate.next` / `navigate.previous`): a focused pane with 2+ tabs steps its tabs, wrapping
 inside the pane; any other focus (a 1-tab pane, a field, nothing) steps the sidebar rows. The
 script attaches to an app already running (a capture slot's `capture-host launch`, or a tagged
-build) through its debug socket, makes two workspaces, presses the real chords through
-`debug.key` and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
+build) through its debug socket, makes two workspaces, runs the actions and reads the window's sidebar selection (`debug.sidebar_rows`) and the focused
 pane's selected tab (`debug.surfaces`). With --tab-rows it also turns Show Tabs Under Workspaces
 on and checks that Next walks a workspace's tab rows one at a time. It never launches or quits
 the app.
@@ -62,10 +61,13 @@ def action(name, args=None):
 
 
 def key(name, modifiers):
-    """A chord through the window's real key path; the reply names the action that took it."""
-    reply = rpc("debug.key", {"key": name, "modifiers": modifiers})
+    """Previous / Next run as the palette runs them: since Leo 2026-10-12 the browser-style keys
+    are Chrome tab keys that select sidebar items (chrome-tab-keys-e2e.py), and these two
+    actions have no default key. The reply names the action, as `debug.key`'s did."""
+    command = "navigate.next" if name == "}" else "navigate.previous"
+    action(command)
     time.sleep(0.5)  # test harness: the switch settles
-    return reply if isinstance(reply, dict) else {}
+    return {"action": command}
 
 
 def sidebar():

@@ -56,10 +56,13 @@ extension ActionRegistry {
     }
 
     /// Like ``refuse(_:)`` for an explicit target that names nothing: the
-    /// control socket answers `not_found` instead of `unavailable`.
+    /// control socket answers `not_found` instead of `unavailable`. Quiet: a
+    /// keyboard or menu run whose target is gone (closed while the menu was
+    /// open, or by a close pressed just before) is a no-op, not a notice
+    /// naming a raw id (cx-7cit9).
     public func refuseNotFound(_ reason: String) {
         if isCapturingRefusal, capturedRefusal == nil { capturedRefusalIsNotFound = true }
-        refuse(reason)
+        refuse(reason, quiet: true)
     }
 
     /// ``capturingRefusal(_:)`` that also says whether the refusal was

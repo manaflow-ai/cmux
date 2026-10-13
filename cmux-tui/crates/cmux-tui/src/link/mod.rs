@@ -2,6 +2,7 @@
 //! endpoint (plans/cmux-next/transport.md 3 and 12a). Slice 1: direct paths
 //! to paired peers only, no relay.
 
+mod access_cli;
 mod agent_cli;
 mod cloud;
 mod cloud_fs;
@@ -105,9 +106,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
-    // So does `agent`.
+    // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
         return agent_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("access") {
+        return access_cli::run(&args[1..]);
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {

@@ -140,7 +140,7 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       };
       const describe = (field: HTMLElement) =>
         `${field.tagName.toLowerCase()}${field.className && typeof field.className === "string" ? `.${field.className.trim().split(/\s+/).join(".")}` : ""}[${field.getAttribute("aria-label") ?? field.getAttribute("placeholder") ?? ""}]`;
-      const reports: { field: string; ring: string; shown: boolean }[] = [];
+      const reports: FieldReport[] = [];
       for (const field of fields) {
         if (!field.isConnected) continue;
         field.focus();

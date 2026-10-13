@@ -59,3 +59,33 @@ test("browser profile edits run the profile's actions with its target", async ()
   expect(first.querySelector("[data-delete-profile]")).toBeNull();
   page.unmount();
 });
+
+test("a space and a browser profile with a stored image or SVG icon draw it from the host's icon resource", async () => {
+  // cx-qno.2.3: an `svg:`/`image:` asset ref draws as the host's PNG of it (`icon/<ref>`), never
+  // as the ref's text.
+  const asset = `svg:sha256-${"b".repeat(64)}`;
+  const src = `icon/${encodeURIComponent(asset)}`;
+  const general = await renderPage({ path: "/settings/rooms" });
+  await act(async () => {
+    const rooms = general.provider.host.rooms!.map((room, index) => (index === 0 ? { ...room, icon: asset } : room));
+    general.provider.setHost({ ...general.provider.host, rooms });
+  });
+  await settle();
+  const room = general.container.querySelector('[data-card="rooms"] [data-host-row]')!;
+  expect(room.querySelector("img")?.getAttribute("src")).toBe(src);
+  expect(room.textContent).not.toContain("svg:");
+  general.unmount();
+
+  const browser = await renderPage({ path: "/settings/browser" });
+  await act(async () => {
+    const profiles = browser.provider.host.browser_profiles.map((profile) =>
+      profile.id === "p-work" ? { ...profile, icon: asset } : profile,
+    );
+    browser.provider.setHost({ ...browser.provider.host, browser_profiles: profiles });
+  });
+  await settle();
+  const avatar = browser.container.querySelector('[data-profile="p-work"] .host-avatar')!;
+  expect(avatar.querySelector("img")?.getAttribute("src")).toBe(src);
+  expect(avatar.textContent).toBe("");
+  browser.unmount();
+});

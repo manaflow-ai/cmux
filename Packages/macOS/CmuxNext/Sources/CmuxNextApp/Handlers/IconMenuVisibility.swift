@@ -3,8 +3,8 @@ import CmuxNextDaemon
 
 /// Remove Icon only where there is an icon to remove (cx-k9go): every
 /// object whose icon can be set (workspace, workspace group, space, tab,
-/// screen, browser profile) leaves "Remove Icon" out of its right-click
-/// menu while it shows no icon of its own. The palette, the CLI and MCP keep
+/// screen, screen group, tab group, browser profile) leaves "Remove Icon"
+/// out of its right-click menu while it shows no icon of its own. The palette, the CLI and MCP keep
 /// the action. Lookups here are quiet: building a menu never refuses.
 @MainActor
 enum IconMenuVisibility {
@@ -16,6 +16,17 @@ enum IconMenuVisibility {
         hide("tab.clearIcon", registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return nil }
             return lookup(context.services.locateTab(target.id)?.0) { $0.userIcon }
+        }
+        hide("screenGroup.clearIcon", registry) { invocation in
+            guard let target = invocation.target, target.kind == .screenGroup else { return nil }
+            return lookup(GroupOwnership.screenGroup(ScreenGroupID(rawValue: target.id), machines: context.services.machines)) { $0.group.icon }
+        }
+        hide("tabGroup.clearIcon", registry) { invocation in
+            guard let target = invocation.target, target.kind == .tabGroup else { return nil }
+            let group = TabGroupID(rawValue: target.id)
+            return lookup(GroupOwnership.pane(holdingTabGroup: group, machines: context.services.machines)) { owner in
+                owner.pane.tabGroups.first { $0.id == group }?.icon
+            }
         }
         hide("screen.clearIcon", registry) { invocation in
             guard let target = invocation.target, target.kind == .screen else { return nil }

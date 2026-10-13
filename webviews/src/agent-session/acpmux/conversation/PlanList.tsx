@@ -1,9 +1,16 @@
 // The agent's todo list (cx-ncc.80, Claude parity): an ACP `plan` update (Claude's TodoWrite through
 // acpmux, or Codex's own plan) draws as a checklist under its progress, and a turn's later updates
-// redraw its one list (direct.ts). Done items are struck through, the one in progress is bold.
-import { useT } from "../i18n";
+// redraw its one list (direct.ts). Done items are struck through, the one in progress is bold; a
+// screen reader hears each item's state.
+import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check } from "./icons";
+
+const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
+  completed: "plan.status.completed",
+  in_progress: "plan.status.inProgress",
+  pending: "plan.status.pending",
+};
 
 export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {
   const t = useT();
@@ -21,7 +28,9 @@ export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {
             <span className="cv-plan__mark" aria-hidden="true">
               {entry.status === "completed" && <Check size={10} />}
             </span>
-            {entry.content}
+            <span className="cv-plan__text">{entry.content}</span>
+            {/* The marks and strike-through are drawn only; a screen reader hears the state. */}
+            <span className="cv-plan__state">{t(STATUS[entry.status])}</span>
           </li>
         ))}
       </ul>

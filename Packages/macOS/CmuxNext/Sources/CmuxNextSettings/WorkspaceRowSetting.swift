@@ -99,6 +99,7 @@ extension WorkspaceRowSetting {
         case .progress: SettingsText.keyed("settings.workspaceRow.progress", "Progress")
         case .working: SettingsText.keyed("settings.workspaceRow.working", "Agent Working")
         case .log: SettingsText.keyed("settings.workspaceRow.log", "Log")
+        case .notification: SettingsText.keyed("settings.workspaceRow.notification", "Latest Notification")
         }
     }
 
@@ -112,8 +113,14 @@ extension WorkspaceRowSetting {
         case .progress: SettingsText.keyed("settings.workspaceRow.progress.help", "A progress bar under the row and the busy mark of running work.")
         case .working: SettingsText.keyed("settings.workspaceRow.working.help", "A mark while an agent works in the workspace.")
         case .log: SettingsText.keyed("settings.workspaceRow.log.help", "The newest line agents and scripts log: cmux workspace log append <text>.")
+        case .notification: SettingsText.keyed("settings.workspaceRow.notification.help", "The text of the workspace's newest unread notification.")
         case .directory, .branch, .tabCount, .lastActivity: nil
         }
+    }
+
+    /// The Settings page line; only Log needs one beside its title.
+    static func summary(_ element: WorkspaceRowElement) -> SettingText? {
+        element == .log ? SettingsText.keyed("settings.workspaceRow.log.summary", "Newest line agents and scripts log") : nil
     }
 
     static func kindName(_ kind: WorkspaceRowKind) -> SettingText {
@@ -140,7 +147,7 @@ extension WorkspaceRowSetting {
         let defaults = WorkspaceRowElements.standard
         var rows = WorkspaceRowElement.allCases.map { element in
             SettingDescriptor(path(element), section: .appearance, group: group, title: title(element), help: help(element),
-                              kind: .toggle, default: .bool(defaults.shows(element)),
+                              summary: summary(element), kind: .toggle, default: .bool(defaults.shows(element)),
                               keywords: ["sidebar", "workspace", "row", element.rawValue])
         }
         rows.append(SettingDescriptor(

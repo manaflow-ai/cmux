@@ -1536,6 +1536,15 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "program_status": {
+     "type": {
+      "kind": "ref",
+      "name": "ShownProgramStatus"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
     }
    },
    "additional_properties": false
@@ -8210,6 +8219,17 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "bookmark-icon-v1",
+     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>."
     }
    },
    "additional_properties": true
@@ -8587,6 +8607,37 @@
     "computer_use",
     "waiting"
    ]
+  },
+  "ProgramStatusState": {
+   "kind": "enum",
+   "values": [
+    "working",
+    "blocked",
+    "error",
+    "done"
+   ]
+  },
+  "ShownProgramStatus": {
+   "kind": "object",
+   "fields": {
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "ProgramStatusState"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "progress": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11214,6 +11265,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
@@ -13050,6 +13115,17 @@
       "since": 12,
       "capability": "batch-close-v1"
      },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "CloseReason"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -14755,6 +14831,7 @@
      "pairing-resolved",
      "pane-added",
      "pane-closed",
+     "program-status-changed",
      "screen-added",
      "screen-closed",
      "screen-renamed",
@@ -16625,6 +16702,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
@@ -18592,6 +18683,18 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "bookmark-icon-v1",
+      "description": "Folders only; null clears. Refused on a url node."
      },
      "origin": {
       "type": {
@@ -23328,6 +23431,52 @@
     ]
    }
   },
+  "keybindings-changed": {
+   "since": 12,
+   "capability": "keybindings-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "keybindings-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "user",
+        "cli",
+        "mcp",
+        "script",
+        "remote",
+        "app",
+        "file"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "layout-changed": {
    "since": 6,
    "capability": null,
@@ -23427,6 +23576,26 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-source-v1"
+     },
+     "desktop": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-desktop-v1"
+     },
+     "reply": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-reply-v1"
      }
     },
     "additional_properties": false
@@ -26573,6 +26742,44 @@
       "presence": "required",
       "nullable": true,
       "description": "When the hook observed the event; null on clear."
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "program-status-changed": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "program-status-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "program_status": {
+      "type": {
+       "kind": "ref",
+       "name": "ShownProgramStatus"
+      },
+      "presence": "required",
+      "nullable": true
      }
     },
     "additional_properties": false

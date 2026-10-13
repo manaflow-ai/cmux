@@ -64,15 +64,18 @@ export function WorktreeApply({
   applying,
   setApplying,
   apply,
+  busy,
 }: {
   worktree: HeaderWorktree;
   applying: Applying;
   setApplying: (applying: Applying) => void;
   apply: (key: string) => Promise<unknown>;
+  /// Remove is running: the two never run at once.
+  busy?: boolean;
 }) {
   const t = useT();
   const run = () => {
-    if (applying.step === "applying") return;
+    if (busy || applying.step === "applying") return;
     const key = (applying.step === "applied" ? undefined : applying.key) ?? crypto.randomUUID();
     setApplying({ step: "applying", key });
     apply(key).then(
@@ -97,7 +100,7 @@ export function WorktreeApply({
         </output>
       )}
       {/* Work the agent does later applies again, as a new action. */}
-      <button type="button" disabled={applying.step === "applying"} onClick={run}>
+      <button type="button" disabled={busy || applying.step === "applying"} onClick={run}>
         {applying.step === "applying" ? t("header.worktreeApplying") : t("header.worktreeApply")}
       </button>
       {applying.step === "failed" && <span role="alert">{applying.message}</span>}

@@ -9,11 +9,20 @@ import CmuxNextWakeups
 /// the cmux mark resolves in after `MotionTunables.launchMarkDelay` and
 /// "Connecting to cmux-tui" follows after `launchTextDelay`, so a fast
 /// launch replaces it before either shows. Once the startup deadline
-/// passes, it shows the failure at once.
+/// passes, it shows the failure at once, in plain words, with the raw error
+/// behind Copy Details for a bug report.
 final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    private let copyDetailsButton = NSButton(title: "", target: nil, action: nil)
+    /// The failure's raw text, for Copy Details.
+    private var failureDetails = ""
+    /// Copy Details' write (tests read it instead of the clipboard).
+    var copyToClipboard: (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     private(set) var state: DaemonStartupState = .connecting
     private let markTimer: DemandTimer
     private let statusTimer: DemandTimer
@@ -37,7 +46,14 @@ final class DaemonConnectingView: NSView {
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 4
         detailLabel.isSelectable = true
-        let stack = NSStackView(views: [mark, titleLabel, detailLabel])
+        detailLabel.focusRingType = .none
+        copyDetailsButton.title = Strings.daemonCopyDetails
+        copyDetailsButton.bezelStyle = .accessoryBarAction
+        copyDetailsButton.controlSize = .small
+        copyDetailsButton.target = self
+        copyDetailsButton.action = #selector(copyDetails)
+        copyDetailsButton.isHidden = true
+        let stack = NSStackView(views: [mark, titleLabel, detailLabel, copyDetailsButton])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Metrics.space2
@@ -106,20 +122,44 @@ final class DaemonConnectingView: NSView {
             titleLabel.alphaValue = statusDue ? 1 : 0
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
+            copyDetailsButton.isHidden = true
             staggerIfConnecting()
         case .unavailable(let error):
             cancelStagger()
             statusDue = true
             titleLabel.alphaValue = 1
             if !mark.isRevealed { mark.reveal() }
-            titleLabel.stringValue = Strings.daemonUnavailable
-            detailLabel.stringValue = DaemonStartup.shared.isPermanent(error)
-                ? RefusalStrings.describe(error)
-                : "\(RefusalStrings.describe(error))\n\(Strings.daemonRetrying)"
-            detailLabel.isHidden = false
+            if case .sessionRestoreTimedOut = error {
+                // The service started; it is still restoring terminals.
+                titleLabel.stringValue = RefusalStrings.daemonRestoreTimedOut
+                detailLabel.stringValue = ""
+            } else {
+                titleLabel.stringValue = Strings.daemonServiceUnavailable
+                detailLabel.stringValue = Self.plainReason(error) ?? ""
+            }
+            detailLabel.isHidden = detailLabel.stringValue.isEmpty
+            failureDetails = String(describing: error)
+            copyDetailsButton.isHidden = false
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
     }
 
     var titleText: String { titleLabel.stringValue }
+
+    /// What the user can expect, in plain words, or nil when no advice would be true (another
+    /// app serves the socket, a bad launch tag): Copy Details carries the specifics.
+    private static func plainReason(_ error: DaemonError) -> String? {
+        switch error {
+        case .binaryNotFound: Strings.daemonReinstall
+        case .unsupportedProtocol: RefusalStrings.restartToUpdateDaemon
+        case .missingCapabilities, .sessionRestoreTimedOut: RefusalStrings.describe(error)
+        case .endpointBlocked(let reason): reason
+        case .wrongApp, .invalidSessionName: nil
+        default: DaemonStartup.shared.isPermanent(error) ? nil : Strings.daemonRetrying
+        }
+    }
+
+    @objc private func copyDetails() {
+        copyToClipboard(failureDetails)
+    }
 }

@@ -14,15 +14,12 @@ public struct TabItemMapping {
     /// (the conversation's) and the agent chat icon. `isNewTabPage` marks a
     /// tab still on the New Tab page, which draws the new-tab icon instead.
 
-    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false) -> StripTabItem {
+    /// `asset` draws a stored image or SVG user icon (``TabUserIcon``).
+    public func item(_ tab: TabModel, fallbackTitle: String, isNewTabPage: Bool = false,
+                     asset: (String) -> TabImage? = { _ in nil }) -> StripTabItem {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
-        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        // A terminal its shell has not titled yet shows its folder, which the
-        // shell's first title usually is, so the label does not change a
-        // frame after the tab opens.
-        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
-        let title = untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
+        let title = title(tab, fallbackTitle: fallbackTitle)
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
@@ -34,19 +31,21 @@ public struct TabItemMapping {
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )
+        item.isNewTabPage = isNewTabPage
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)
-        applyUserIcon(tab, to: &item)
+        item.statusDetail = StatusMapping.shared.detail(tab)
+        applyUserIcon(tab, to: &item, asset: asset)
         return item
     }
 
     /// The icon the user set on the tab record replaces every derived icon (kind, agent
     /// mark, page icon, favicon). Callers that set a derived icon after ``item(_:fallbackTitle:isNewTabPage:)``
     /// apply it again last. A busy indicator still covers it while the tab loads.
-    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem) {
-        if let icon = TabUserIcon.shared.icon(tab.userIcon) { item.icon = icon }
+    public func applyUserIcon(_ tab: TabModel, to item: inout StripTabItem, asset: (String) -> TabImage? = { _ in nil }) {
+        if let icon = TabUserIcon.shared.icon(tab.userIcon, asset: asset) { item.icon = icon }
     }
 
     /// A tab's kind icon from the cmux icon registry. A terminal whose agent session is live,
@@ -71,6 +70,20 @@ public struct TabItemMapping {
         guard tab.name?.isEmpty ?? true, title == tab.url,
               let host = URL(string: title)?.host(), !host.isEmpty else { return title }
         return host
+    }
+
+    /// The strip title of `tab`, with `fallbackTitle` for a tab that has
+    /// none of its own (see ``item(_:fallbackTitle:isNewTabPage:)``). The
+    /// App's `TabTitleResolver` picks the fallback.
+    public func title(_ tab: TabModel, fallbackTitle: String) -> String {
+        let isBrowser = tab.kind == .browser
+        let isConversation = tab.kind == .conversation
+        let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
+        // A terminal its shell has not titled yet shows its folder, which the
+        // shell's first title usually is, so the label does not change a
+        // frame after the tab opens.
+        let folder = untitled && !isBrowser && !isConversation ? tab.cwd.map(SidebarMapping.shared.abbreviate) : nil
+        return untitled ? folder ?? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
     }
 
     /// The New Tab page's and the blank page's addresses

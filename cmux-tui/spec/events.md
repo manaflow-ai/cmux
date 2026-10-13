@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -41,6 +41,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
+| `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
@@ -66,6 +67,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `surface-exited` | subscribe | `surface` | protocol 5 |
 | `title-changed` | subscribe | `surface` | protocol 5 |
 | `bell` | subscribe | `surface` | protocol 5 |
+| `program-status-changed` | subscribe | `surface` | protocol 12 additive |
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
@@ -437,6 +439,22 @@ keys whose effective or file value changed (empty when only diagnostics
 changed), and `origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or
 `file` (found on disk). A comment-only edit or an unchanged write publishes
 nothing. Clients refetch `settings.snapshot`.
+### keybindings-changed
+
+| Field | Value |
+| --- | --- |
+| event | `keybindings-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `keybindings-v1` |
+
+Published by the daemon's keybindings owner after a `keybindings.*` mutation
+that changed the file, and after it found a change in `keybindings.json` on
+disk (a hand edit, including one that only changes comments). The payload is
+`{event:"keybindings-changed", revision:uint64, origin:string}`: `revision`
+advances once per change and is the `revision` of `keybindings.get`, and
+`origin` is `user`, `cli`, `mcp`, `script`, `remote`, `app` or `file` (found
+on disk). A write that leaves the text unchanged publishes nothing. Clients
+refetch `keybindings.get`.
 ### conversation-changed
 
 | Field | Value |
@@ -918,6 +936,35 @@ Example:
 {"event":"bell","surface":1}
 ```
 
+### program-status-changed
+
+| Field | Value |
+| --- | --- |
+| event | `program-status-changed` |
+| status | implemented |
+| since | protocol 12 additive |
+
+Payload:
+
+```text
+object{event:"program-status-changed",surface:Id,program_status:ShownProgramStatus|null}
+```
+
+Meaning: The status a PTY surface's tab shows for its programs' OSC 7501
+reports changed. `program_status` is the strongest non-idle record
+(`blocked`, then `error`, `working`, `done`; the newest wins a tie), with
+`progress` 0-100 or null, or null when nothing is shown. The same value is the
+tab's `program_status` field in `list-workspaces`. Coalesced per surface; the
+full records stay on the terminal resource's `extra.program_status`. A
+terminal's exit hides its `working` and `blocked` records without this event;
+clients re-read the tab on `surface-exited`.
+
+Example:
+
+```json
+{"event":"program-status-changed","surface":1,"program_status":{"state":"working","progress":40}}
+```
+
 ### notification
 
 | Field | Value |
@@ -929,10 +976,10 @@ Example:
 Payload:
 
 ```text
-object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon"}
+object{event:"notification",notification:Id,title:string,body:string,level:"info"|"warning"|"error",surface:Id|null,source?:"cli"|"terminal"|"agent"|"daemon",desktop?:boolean,reply?:boolean}
 ```
 
-Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
+Meaning: A notification was posted. With `notification-source-v1`, `source` names who posted it (`notify`'s `source`, `terminal` for OSC 9/777/99 the daemon parsed from terminal output, `agent` for agent hooks); the tab's retained `notification` marker carries the same `source`. With `notification-desktop-v1`, `desktop` is false when the poster asked for no desktop banner (`notification.create` `desktop: false`, `cmux notify --desktop false`); the sidebar marker still shows. With `notification-reply-v1`, `reply` is true when the poster asked for a typed reply (`notification.create` `reply: true`, `cmux notify --reply`): the app's banner takes text and pastes it into the notifying terminal, then submits it. An inactive target surface receives one retained unread marker in the tree; a later notification overwrites it. Active-surface and session-wide notifications remain event-only. Selecting the target clears its marker without a notification lifecycle event.
 
 Example:
 

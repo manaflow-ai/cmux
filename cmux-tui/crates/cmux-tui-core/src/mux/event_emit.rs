@@ -111,6 +111,16 @@ impl Mux {
         }
     }
 
+    pub(crate) fn emit_terminal_program_status(
+        &self,
+        surface: SurfaceId,
+        status: Option<crate::program_status::ShownProgramStatus>,
+    ) {
+        for placement in self.terminal_event_placements(surface) {
+            self.emit(MuxEvent::ProgramStatusChanged { surface: placement, status });
+        }
+    }
+
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));

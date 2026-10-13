@@ -4,7 +4,8 @@
 // (`--agent-motion-in`), and a part only the old one showed goes at once. Cards and the list are
 // different items, so they never crossfade. Only transform and opacity animate (Web Animations),
 // and a switch mid-motion starts from what is on screen: places are read with the running
-// transforms, then those animations are cancelled before the new layout is read.
+// transforms, then those animations are cancelled before the new layout is read. Reduce Motion
+// keeps the fades and drops the slides (motion.md rule 7).
 
 /// The parts that move or appear, with the part they sit in (whose own slide they ride).
 const PARTS: ReadonlyArray<{ name: string; selector: string; parent?: string }> = [
@@ -12,7 +13,6 @@ const PARTS: ReadonlyArray<{ name: string; selector: string; parent?: string }> 
   { name: "prompt", selector: ".nt-prompt-glyph", parent: "box" },
   { name: "field", selector: ".nt-field", parent: "box" },
   { name: "open", selector: ".nt-open-tabs:not(.nt-closed)" },
-  { name: "tools", selector: ".nt-tools" },
   { name: "closed", selector: ".nt-closed" },
   { name: "chats", selector: ".nt-chats" },
   { name: "chats-head", selector: ".nt-chats-head", parent: "chats" },
@@ -55,9 +55,9 @@ export function playTemplateSwitch(screen: HTMLElement | null, before: TemplateP
   if (!screen || before.size === 0) return;
   for (const animation of running.get(screen) ?? []) animation.cancel();
   running.delete(screen);
-  if (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   const style = getComputedStyle(screen);
-  const move = seconds(style.getPropertyValue("--agent-motion-move")) * 1000;
+  const move = reduced ? 0 : seconds(style.getPropertyValue("--agent-motion-move")) * 1000;
   const appear = seconds(style.getPropertyValue("--agent-motion-in")) * 1000;
   const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
   // Reads: the new layout with no motion applied.

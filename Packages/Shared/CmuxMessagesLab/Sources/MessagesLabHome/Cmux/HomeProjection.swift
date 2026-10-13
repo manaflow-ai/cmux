@@ -281,7 +281,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
-        guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
+        // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
+        guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?
         if let deferred {
@@ -534,6 +536,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRefusal(intent, rejection)
             } catch {}
         }
+    }
+
+    func rowsPlaced() {
+        video.place()
     }
 
     func scrolled() {

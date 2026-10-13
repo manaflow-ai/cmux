@@ -24,7 +24,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
-    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true)
+    case openTab(AgentPaneOpenTab)
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
@@ -42,7 +42,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
-    case rememberNewTab(agent: String)
+    case rememberNewTab(AgentPaneRememberedPick)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -77,9 +77,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// `harness.health {id, refresh?}` (cx-ny85): this Mac's acpmux health row for the chat's
-    /// agent CLI; `refresh` checks again (after its Log In or Update).
-    case harnessHealth(String, refresh: Bool)
+    /// `harness.health {id, refresh?, rescan?}` (cx-ny85): this Mac's acpmux health row for the
+    /// chat's agent CLI; `refresh` checks again (after its Log In or Update); `rescan` has acpmux
+    /// look for harnesses first (cx-apoko: after an install from the Harnesses page).
+    case harnessHealth(String, refresh: Bool, rescan: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -195,9 +196,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` with `{show}`: the composer's Hide or Show Context Usage, which the
-    /// host writes to cmux.json (`agentPane.showContextUsage`).
-    case showContextUsage(Bool)
+    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
+    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
+    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    case composerSetting(path: [String], show: Bool)
+    /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
+    /// with what the person typed in its field.
+    case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
+    case upload([AgentPaneUpload])
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -209,6 +216,18 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case .shellRun, .shellRead, .shellStop, .shellComplete: true
         default: false
         }
+    }
+
+    /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
+    public var carriesEntered: Bool {
+        if case .toolCard(_, _, .some) = self { return true }
+        return false
+    }
+
+    /// An upload: the person's files, never logged.
+    public var carriesFiles: Bool {
+        if case .upload = self { return true }
+        return false
     }
 
     /// A transport request: frequent and carrying chat content, so never logged with its values.

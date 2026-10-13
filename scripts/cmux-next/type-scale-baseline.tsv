@@ -6,7 +6,7 @@ webviews/src/agent-session/acpmux/changes/changes.css	size	7
 webviews/src/agent-session/acpmux/checkpoints/styles.css	size	2
 webviews/src/agent-session/acpmux/chips/chips.css	size	1
 webviews/src/agent-session/acpmux/composerStates.css	size	2
-webviews/src/agent-session/acpmux/conversation/CodeBlock.tsx	size	1
+webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx	size	1
 webviews/src/agent-session/acpmux/conversation/RenderCard.tsx	size	1
 webviews/src/agent-session/acpmux/conversation/conversation.css	size	34
 webviews/src/agent-session/acpmux/diffTheme.ts	size	3
@@ -43,5 +43,5 @@ webviews/src/pages/settings/layout.css	size	14
 webviews/src/pages/settings/styles.css	size	14
 webviews/src/pages/shared/pageBase.css	size	1
 webviews/src/sidebar/AllChatsDesigns.css	size	3
-webviews/src/styles.css	size	16
+webviews/src/styles.css	size	13
 webviews/src/viewer-empty/styles.css	size	19

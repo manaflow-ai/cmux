@@ -91,10 +91,15 @@ impl AppIdentity {
         home.join(".local/state/cmux/cmux.sock")
     }
 
-    /// The app's cmux-tui session (`DaemonLauncher.sessionName`).
+    /// The app's cmux-tui session (`DaemonLauncher.sessionName` of
+    /// `DaemonLauncher.daemonTag`): `cmux-app-<tag>` for a tagged build,
+    /// `cmux-app-<channel>` for an untagged nightly, rc or staging build, and
+    /// `cmux-app` for release, so each channel reaches its own daemon.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
-        let Some(tag) = &self.tag else { return Some("cmux-app".into()) };
+        let bundle = self.bundle_id.as_deref().unwrap_or("").trim();
+        let channel = CHANNELS.iter().find(|(id, _)| *id == bundle).map(|(_, channel)| *channel);
+        let Some(tag) = self.tag.as_deref().or(channel) else { return Some("cmux-app".into()) };
         let cleaned: String = tag
             .chars()
             .map(

@@ -450,3 +450,161 @@ fn terminal_move_to_another_workspace_or_screen_publishes_the_focus_change() {
     assert!(leaf_tabs(&changes, &pane_b).unwrap().as_array().unwrap().contains(&tab));
     assert!(leaf_tabs(&changes, &pane_g2).is_none(), "{changes:?}");
 }
+
+/// A pane with three tabs and a split beside it: (pane, tabs, split pane).
+fn three_tabs_and_a_split(server: &HeadlessServer) -> (String, Vec<String>, String) {
+    state_cli(server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(server);
+    let first = snapshot["tabs"].as_array().unwrap()[0].clone();
+    let pane = first["pane_id"].as_str().unwrap().to_string();
+    let mut tabs = vec![first["id"].as_str().unwrap().to_string()];
+    for _ in 0..2 {
+        let before = tab_ids(server);
+        state_cli(server, None, &["tab", "create", "terminal", "--pane", &pane]);
+        tabs.push(new_tab(&before, &tab_ids(server)));
+    }
+    let screen = first_screen_of_pane(&snapshot, &pane);
+    let before = ids_where(&state_cli_topology(server), "panes", "screen_id", &screen);
+    state_cli(server, None, &["pane", &pane, "split", "--right"]);
+    let after = ids_where(&state_cli_topology(server), "panes", "screen_id", &screen);
+    let split = after.into_iter().find(|id| !before.contains(id)).expect("no split pane");
+    (pane, tabs, split)
+}
+
+fn first_screen_of_pane(snapshot: &serde_json::Value, pane: &str) -> String {
+    let pane = snapshot["panes"].as_array().unwrap().iter().find(|item| item["id"] == pane);
+    pane.and_then(|item| item["screen_id"].as_str()).unwrap().to_string()
+}
+
+/// A move from a zoomed pane keeps the pane's zoom in the delta, as the
+/// session snapshot stores it (cx-gzh.27).
+#[test]
+fn terminal_move_from_a_zoomed_pane_keeps_its_zoom() {
+    let server = HeadlessServer::start("terminal-move-zoom");
+    let (pane, tabs, split) = three_tabs_and_a_split(&server);
+    state_cli(&server, None, &["pane", &pane, "zoom", "--enabled", "true"]);
+    let (_stream, rx) = session_events(&server);
+    move_terminal(&server, &tabs[2], &split);
+    let changes = changes_through_tab_upsert(&rx, &tabs[2]);
+    let stored = state_cli_topology(&server)["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == pane.as_str())
+        .map(|item| item["zoomed"].clone())
+        .unwrap();
+    assert_eq!(stored, true, "the source pane lost its zoom");
+    assert_eq!(upsert_of(&changes, "pane", &pane)["zoomed"], stored, "{changes:?}");
+}
+
+/// After a move out of a pane whose active tab is not its first tab, the
+/// live tree and the stored state show the same active tab (cx-gzh.27).
+#[test]
+fn terminal_move_keeps_one_active_tab_in_the_source_pane() {
+    let server = HeadlessServer::start("terminal-move-active-tab");
+    let (pane, tabs, split) = three_tabs_and_a_split(&server);
+    state_cli(&server, None, &["tab", &tabs[1], "focus"]);
+    move_terminal(&server, &tabs[0], &split);
+    let snapshot = state_cli_topology(&server);
+    let screen = first_screen_of_pane(&snapshot, &pane);
+    let screen = snapshot["screens"].as_array().unwrap().iter().find(|item| item["id"] == screen);
+    let changes = vec![serde_json::json!({
+        "kind": "upsert", "resource": "screen", "value": screen.unwrap().clone(),
+    })];
+    let stored = leaf_active(&changes, &pane);
+    assert_eq!(stored, serde_json::json!(tabs[1]), "the stored active tab moved: {changes:?}");
+    let tree =
+        json_socket_request(&server.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}));
+    let live = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+        .flat_map(|screen| screen["panes"].as_array().cloned().unwrap_or_default())
+        .find(|item| item["resource_id"] == pane.as_str())
+        .expect("no live pane");
+    let index = live["active_tab"].as_u64().unwrap() as usize;
+    assert_eq!(live["tabs"][index]["tab_resource_id"], stored, "{live}");
+}
+
+/// The active tab of `pane`'s layout leaf in the screen upserts of `changes`.
+fn leaf_active(changes: &[serde_json::Value], pane: &str) -> serde_json::Value {
+    fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
+        if !node.is_object() {
+            return None;
+        }
+        if node["kind"] == "leaf" && node["pane_id"] == pane {
+            return Some(node["active_tab_id"].clone());
+        }
+        ["first", "second"].iter().find_map(|side| find(&node[*side], pane))
+    }
+    changes
+        .iter()
+        .find_map(|change| find(&change["value"]["layout"]["root"], pane))
+        .unwrap_or_else(|| panic!("no leaf of pane {pane}: {changes:?}"))
+}
+
+/// Retention for `history.closed.maxAgeDays` and `history.closed.maxGroups`
+/// (reopen-closed.md 2; the app applies the settings, like
+/// `history.commandRetentionDays`): `closed clear --before-ms T` deletes the
+/// groups closed before T, and `closed clear --keep-newest N` every group but
+/// the newest N. Both are hard deletes and cannot be reopened.
+#[test]
+fn state_cli_closed_clear_before_and_keep_newest_through_a_real_daemon() {
+    let server = HeadlessServer::start("state-cli-closed-retention");
+    let names = ["oldest", "middle", "newer", "newest"];
+    for name in names {
+        state_cli(&server, None, &["workspace", "create", "--name", name, "--empty"]);
+    }
+    for name in names {
+        let workspace = workspace_id_named(&server, name);
+        state_cli(&server, None, &["workspace", &workspace, "close"]);
+        // Distinct close times, so before-ms can split them.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let closed_names = || -> Vec<String> {
+        let mut names = state_cli(&server, None, &["closed", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(closed_names(), ["middle", "newer", "newest", "oldest"]);
+    let middle_closed_at = state_cli(&server, None, &["closed", "list"])
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "middle")
+        .and_then(|item| item["closed_at_ms"].as_str().map(str::to_string))
+        .expect("middle has a close time");
+
+    let aged = state_cli(&server, None, &["closed", "clear", "--before-ms", &middle_closed_at]);
+    assert_eq!(aged["value"]["deleted"].as_array().map(Vec::len), Some(1), "{aged}");
+    assert_eq!(closed_names(), ["middle", "newer", "newest"]);
+
+    let trimmed = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(trimmed["value"]["deleted"].as_array().map(Vec::len), Some(2), "{trimmed}");
+    assert_eq!(closed_names(), ["newest"]);
+    let none = state_cli(&server, None, &["closed", "clear", "--keep-newest", "1"]);
+    assert_eq!(none["value"]["deleted"], serde_json::json!([]), "{none}");
+
+    for (flags, needle) in [
+        (vec!["closed", "clear", "--keep-newest", "-1"], "--keep-newest"),
+        (vec!["closed", "clear", "--before-ms", "soon"], "--before-ms"),
+    ] {
+        let bad = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&server.socket)
+            .args(&flags)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(!bad.status.success(), "{flags:?} was accepted");
+        assert!(String::from_utf8_lossy(&bad.stderr).contains(needle), "{flags:?}");
+    }
+}

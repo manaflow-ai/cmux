@@ -167,15 +167,15 @@ pub(super) fn collect(folder: &Path) -> anyhow::Result<LocalSet> {
 
 /// A working copy's own git folder and the common one (the same folder
 /// except in a linked worktree).
-struct GitDirs {
-    own: PathBuf,
-    common: PathBuf,
+pub(super) struct GitDirs {
+    pub own: PathBuf,
+    pub common: PathBuf,
 }
 
 impl GitDirs {
     /// None outside git. A subfolder of a working copy is refused: its
     /// repository is above it, so pushing it alone would lose the git state.
-    fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
+    pub(super) fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
         let Ok(top) = git(folder, &["rev-parse", "--show-toplevel"]) else { return Ok(None) };
         let top = std::fs::canonicalize(top.trim()).unwrap_or_else(|_| PathBuf::from(top.trim()));
         if top != folder {
@@ -219,11 +219,11 @@ fn working_files(folder: &Path, skipped: &mut u64) -> anyhow::Result<Vec<(String
     Ok(paths)
 }
 
-fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
+pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
     String::from_utf8(git_bytes(folder, args)?).context("git printed text that is not UTF-8")
 }
 
-fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
     let output =
         Command::new("git").arg("-C").arg(folder).args(args).output().context("cannot run git")?;
     if !output.status.success() {
@@ -276,19 +276,9 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
 /// as skipped (a symlink, a socket, a name the machine cannot hold). A file
 /// deleted from the working tree is left out.
 fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    let holdable = relative.len() <= MAX_PATH_BYTES
-        && relative
-            .split('/')
-            .all(|name| name.len() <= MAX_NAME_BYTES && !name.chars().any(char::is_control));
     match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_file() && holdable => {
-            let mode = meta.permissions().mode();
-            let permissions = match (mode & 0o111 != 0, mode & 0o077 == 0) {
-                (true, true) => 0o700,
-                (true, false) => 0o755,
-                (false, true) => 0o600,
-                (false, false) => 0o644,
-            };
+        Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
+            let permissions = permissions_of(meta.permissions().mode());
             set.files.insert(
                 relative,
                 LocalFile { source: Source::File(path.to_path_buf()), permissions },
@@ -299,6 +289,26 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
         Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
     }
     Ok(())
+}
+
+/// Whether the machine's file owner can hold a file at `relative`: no name
+/// over 255 bytes or with a control character, no path over 4000 bytes.
+pub(super) fn holdable(relative: &str) -> bool {
+    relative.len() <= MAX_PATH_BYTES
+        && relative
+            .split('/')
+            .all(|name| name.len() <= MAX_NAME_BYTES && !name.chars().any(char::is_control))
+}
+
+/// The synced permissions for a file whose mode is `mode`: 0644, 0755, 0600
+/// or 0700, by its executable bit and whether group and others could read it.
+pub(super) fn permissions_of(mode: u32) -> u32 {
+    match (mode & 0o111 != 0, mode & 0o077 == 0) {
+        (true, true) => 0o700,
+        (true, false) => 0o755,
+        (false, true) => 0o600,
+        (false, false) => 0o644,
+    }
 }
 
 /// Calls `visit(relative, path)` for every non-folder entry below `dir`

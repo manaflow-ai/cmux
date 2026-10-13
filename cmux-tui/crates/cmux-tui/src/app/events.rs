@@ -154,6 +154,7 @@ impl SessionEventSender {
             MuxEvent::SurfaceOutput(surface)
             | MuxEvent::SurfaceExited(surface)
             | MuxEvent::Bell(surface) => *surface == filter,
+            MuxEvent::ProgramStatusChanged { surface, .. } => *surface == filter,
             MuxEvent::SurfaceResized { surface, .. }
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }

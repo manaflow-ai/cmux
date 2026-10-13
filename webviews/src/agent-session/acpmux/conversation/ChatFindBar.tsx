@@ -4,9 +4,10 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
-import type { ChatFind } from "./chatFind";
+import type { FindBarState } from "./chatFind";
 
-export function ChatFindBar({ find }: { find: ChatFind }) {
+/** `label` names the field (its placeholder too); Find in Chat by default. */
+export function ChatFindBar({ find, label }: { find: FindBarState; label?: string }) {
   const t = useT();
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -39,8 +40,8 @@ export function ChatFindBar({ find }: { find: ChatFind }) {
           ref={field}
           className="acpmux-find__field"
           type="search"
-          aria-label={t("find.placeholder")}
-          placeholder={t("find.placeholder")}
+          aria-label={label ?? t("find.placeholder")}
+          placeholder={label ?? t("find.placeholder")}
           value={find.query}
           spellCheck={false}
           onChange={(event) => find.setQuery(event.target.value)}

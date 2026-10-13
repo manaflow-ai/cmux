@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-mention.test.ts", async () => {
@@ -75,19 +76,19 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
 
   test("@ then letters lists the chat's matching files and Return writes the path", async () => {
     const result = await play("mention-picker");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toContain("rea");
   });
 
   test("after picking a path markdown escapes, typing on leaves the picker closed", async () => {
     const result = await play("mention-escaped-path");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toEqual(["ini"]);
   });
 
   test("an @ inside a word opens nothing and asks the host for nothing", async () => {
     const result = await play("mention-mid-word");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import CmuxNextDaemon
 import Foundation
 
-/// The two cmux-tui CLIs Move to Cloud runs (cmux-tui `link/sync_cli.rs` and
+/// The cmux-tui CLIs Move to Cloud and Bring Back Local run (cmux-tui `link/sync_cli.rs` and
 /// `link/agent_cli.rs`). Each prints one JSON line on stdout:
 /// `{"ok":true,...}` with exit 0, or `{"ok":false,"error":...,"error_code":...}`
 /// with exit 1; bad usage exits 64. The app reads only that line.
@@ -15,6 +15,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         var sessionID: String?
         /// `link agent move`: the move's id.
         var transferID: String?
+        /// `link sync pull`'s `sync_conflict`: the paths changed on both sides.
+        var conflicts: [String] = []
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -30,11 +32,19 @@ nonisolated struct CloudMoveCLI: Sendable {
         try await run(["link", "sync", "push", "--socket", socket, local, remote])
     }
 
+    /// `cmux link sync pull`: merges the machine's `remote` (what a push left there) back into
+    /// `local`; a conflict changes nothing here and lists its paths.
+    func syncPull(socket: String, local: String, remote: String) async throws -> Answer {
+        try await run(["link", "sync", "pull", "--socket", socket, local, remote])
+    }
+
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
     /// `from` to the machine daemon at `to`, where it runs in `cwd`. A rerun
-    /// resolves a move an earlier run left unresolved.
-    func agentMove(from: String, surface: UInt64, to: String, cwd: String) async throws -> Answer {
-        try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd])
+    /// resolves a move an earlier run left unresolved. `askFirst` has the source narrow the chat
+    /// to an asking policy and mode before it moves (`--ask-first`).
+    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false) async throws -> Answer {
+        let flags = askFirst ? ["--ask-first"] : []
+        return try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd] + flags)
     }
 
     private func run(_ arguments: [String]) async throws -> Answer {
@@ -48,6 +58,7 @@ nonisolated struct CloudMoveCLI: Sendable {
             return Answer(ok: false, errorCode: Self.badAnswer, error: detail.isEmpty ? "exit \(result.status)" : detail)
         }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
-                      sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String)
+                      sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
+                      conflicts: object["conflicts"] as? [String] ?? [])
     }
 }

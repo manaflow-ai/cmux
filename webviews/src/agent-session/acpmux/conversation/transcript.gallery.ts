@@ -291,11 +291,13 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/HighlightedCode.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
@@ -306,7 +308,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
+    "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
+    "agent-session/acpmux/conversation/toolOutput.tsx#OutputMore",
     "agent-session/acpmux/conversation/EditDiff.tsx",
+    "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/PreviewCard.tsx",
     "agent-session/acpmux/conversation/Thinking.tsx",
@@ -427,13 +432,6 @@ export default agentPaneEntry({
     "mark-unread-menu": {
       note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
-      checks: {
-        longFrameFailMs: {
-          value: 140,
-          reason:
-            "Opening Chat actions costs one 64-122 ms frame in dev React, on base too (agent-pane.inspector chat-menu); cx-ncc.87 owns that cost.",
-        },
-      },
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
         await ctx.click({ role: "button", name: "Chat actions" });
@@ -477,7 +475,7 @@ export default agentPaneEntry({
         longFrameFailMs: {
           value: 80,
           reason:
-            "The key that opens the closed Worked for fold re-renders the whole pane (Find state lives in AcpmuxPane) in dev React: 19-35 ms to two frames alone, 56-64 ms on a loaded runner; moving Find state down is cx-ncc.86.",
+            "The key that opens the closed Worked for fold still re-renders the whole pane once (the fold state lives in AcpmuxPane; Find state moved below it in cx-ncc.86): 70-120 ms at 4x CPU throttle in dev React, other keys now render the transcript alone.",
         },
         layoutShiftMax: {
           value: 0.01,
@@ -1020,6 +1018,23 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openSingleShell(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__output")?.textContent === "3 pass\n0 fail");
+      },
+    },
+    "shell-long-colored-output": {
+      note: "A long, coloured test run: no colour codes, its last 400 lines under a cut mark, Show all output, and Copy in the label.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
+          output: Array.from(
+            { length: 1200 },
+            (_, index) => `\x1b[32m(pass)\x1b[0m retry backoff case ${index + 1} \x1b[2m[0.${index % 10}ms]\x1b[0m`,
+          ).join("\n"),
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
       },
     },
     "shell-failed-exit": {

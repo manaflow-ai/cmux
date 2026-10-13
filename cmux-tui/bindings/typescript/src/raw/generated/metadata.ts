@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4. */
+/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4" as const;
+export const SDK_IR_SHA256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -495,6 +495,10 @@ export const COMMAND_METADATA = {
       "origin": {
         "since": 7,
         "capability": null
+      },
+      "reason": {
+        "since": null,
+        "capability": "close-reason-v1"
       }
     },
     "stream": null,
@@ -2773,6 +2777,7 @@ export const COMMAND_METADATA = {
         "pairing-resolved",
         "pane-added",
         "pane-closed",
+        "program-status-changed",
         "screen-added",
         "screen-closed",
         "screen-renamed",
@@ -2998,7 +3003,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "bookmarks-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "bookmark-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3058,7 +3068,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "screen-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3068,7 +3083,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "tab-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3403,6 +3423,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "keybindings-changed": {
+    "since": 12,
+    "capability": "keybindings-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "layout-changed": {
     "since": 6,
     "capability": null,
@@ -3483,6 +3511,14 @@ export const EVENT_METADATA = {
   "personal-changed": {
     "since": 12,
     "capability": "profiles-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "program-status-changed": {
+    "since": 12,
+    "capability": null,
     "streams": [
       "subscribe"
     ],
@@ -4082,6 +4118,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "favicon_key": {
         "nullable": false,
         "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "icon": {
+        "capability": "bookmark-icon-v1",
+        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -7585,6 +7632,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ProgramStatusState": {
+    "kind": "enum",
+    "values": [
+      "working",
+      "blocked",
+      "error",
+      "done"
+    ]
+  },
   "ProviderWorkspaceMutationResult": {
     "additional_properties": false,
     "fields": {
@@ -9605,6 +9661,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ShownProgramStatus": {
+    "additional_properties": false,
+    "fields": {
+      "progress": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ProgramStatusState"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ShutdownDaemonResult": {
     "additional_properties": false,
     "fields": {
@@ -10336,6 +10414,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "NotificationMarker"
+        }
+      },
+      "program_status": {
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "ShownProgramStatus"
         }
       },
       "short_id": {
@@ -13829,6 +13916,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "reason": {
+          "capability": "close-reason-v1",
+          "default": null,
+          "description": "With end_terminals: the close is not recorded in the closed history (session_end).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "CloseReason"
           }
         },
         "workspace": {
@@ -23665,6 +23763,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "bookmark-icon-v1",
+          "default": null,
+          "description": "Folders only; null clears. Refused on a url node.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "last_used_ms": {
           "default": null,
           "nullable": true,
@@ -24037,6 +24147,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "screen-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "name": {
           "default": null,
           "nullable": true,
@@ -24079,6 +24203,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "group": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "capability": "tab-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"
@@ -25703,6 +25841,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "keybindings-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "keybindings-changed"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "user",
+            "cli",
+            "mcp",
+            "script",
+            "remote",
+            "app",
+            "file"
+          ]
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "layout-changed": {
     "additional_properties": false,
     "fields": {
@@ -25758,6 +25934,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "desktop": {
+        "capability": "notification-desktop-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -25780,6 +25966,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "reply": {
+        "capability": "notification-reply-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       },
       "source": {
@@ -26084,6 +26280,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "program-status-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "program-status-changed"
+        }
+      },
+      "program_status": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ShownProgramStatus"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
         }
       }
     },

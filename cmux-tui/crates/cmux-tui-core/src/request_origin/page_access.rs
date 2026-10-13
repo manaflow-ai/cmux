@@ -240,6 +240,10 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::KeybindingsGet
+        | Op::KeybindingsSet
+        | Op::KeybindingsRemove
+        | Op::KeybindingsReset
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
@@ -275,6 +279,7 @@ const fn access(operation: Op) -> Access {
         | Op::TabUpdate
         | Op::TabGroupAddTabs
         | Op::TabGroupClose
+        | Op::LayoutBulk
         | Op::TabGroupCreate
         | Op::TabGroupGet
         | Op::TabGroupList

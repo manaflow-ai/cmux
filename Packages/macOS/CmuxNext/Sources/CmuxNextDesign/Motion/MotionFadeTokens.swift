@@ -27,6 +27,8 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case launch
     /// An agent cursor's click ripple grows and fades (cmux-cua timing).
     case clickPulse
+    /// An agent cursor fades out once its agent goes idle (agent-cursor.md).
+    case cursorHide
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).

@@ -176,8 +176,9 @@ Open: `none` hides loading but keeps waiting/error/done marks (current); alterna
   `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
   `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist
   as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
-- Swift: renders agent states today; reading `workspace_status` loading fields and `extra.busy` / `extra.progress`
-  waits for the cmux-tui pin cut that carries the Rust PR.
+- Swift: renders agent states and plain shell commands (`extra.busy`, source `command`, after
+  `status.inferCommandBusyAfter`; not on an agent's terminal, which shows the agent's own state; cx-urd.65).
+  Reading `workspace_status` loading fields and `extra.progress` is not built yet.
 
 ## 10. Agent working vs loading (WORKING-AND-LOADING-INDICATORS, 2026-10-07)
 

@@ -49,7 +49,7 @@ Discovery (`app_identity.rs`):
   `CFBundleIdentifier` and `LSEnvironment.CMUX_TAG`). The path table mirrors
   `ControlSocketPath`; the Rust tests pin it.
 - Daemon socket: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the app's session
-  `cmux-app[-tag]` under the Darwin per-user temp directory the app starts it with, then
+  `cmux-app[-tag]` (`cmux-app-nightly`, `-rc`, `-staging` for an untagged channel build) under the Darwin per-user temp directory the app starts it with, then
   cmux-tui's `main`.
 - acpmux: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else `~/.acpmux`
   (shared with a standalone acpmux). The home is passed to the daemon it starts.
@@ -290,8 +290,11 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
-2. Nightly and release apps both use daemon session `cmux-app` when untagged
-   (`DaemonLauncher.sessionName`); give each channel its own session.
+2. Done: each untagged channel has its own daemon session and state
+   (`DaemonLauncher.daemonTag`): release keeps `cmux-app` and cmux-tui's default state
+   root; nightly, rc and staging use `cmux-app-<channel>` and
+   `~/Library/Application Support/cmux/tags/<channel>/tui`, like a tagged build. Existing
+   `cmux-app` state stays release's; nightly starts with its own (no copy, see cx-6so.41).
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
 4. Browser downloads and the remaining input verbs have no new-CLI equivalent yet (the
    compat layer had partial ones). Waits, screenshots, tab verbs, cookies and storage

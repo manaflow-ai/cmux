@@ -162,16 +162,28 @@ extension AgentPaneGitRequest {
     /// The session host's params (cmux-tui `spec/resource-operations-v2.json`).
     var sessionHostParams: [String: JSONValue] {
         switch self {
-        case .diff(let cwd, let scope, let includePatch):
+        case .diff(let cwd, let scope, let includePatch, let options):
             ["path": .string(cwd), "scope": .string(scope.rawValue), "include_patch": .bool(includePatch)]
+                .merging(options.sessionHostParams) { first, _ in first }
         case .status(let cwd):
             ["path": .string(cwd)]
         case .filesSearch(let cwd, let query, let limit):
             ["path": .string(cwd), "query": .string(query), "limit": .number(Double(limit))]
-        case .checkpointDiff(let cwd, let from, let to, let includePatch):
+        case .checkpointDiff(let cwd, let from, let to, let includePatch, let options):
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }
+                .merging(options.sessionHostParams) { first, _ in first }
         }
+    }
+}
+
+extension AgentPaneGitDiffOptions {
+    /// `paths` and `context_lines` when the page named them.
+    var sessionHostParams: [String: JSONValue] {
+        var params: [String: JSONValue] = [:]
+        if !paths.isEmpty { params["paths"] = .array(paths.map(JSONValue.string)) }
+        if let contextLines { params["context_lines"] = .number(Double(contextLines)) }
+        return params
     }
 }
 
@@ -197,6 +209,10 @@ extension AgentPaneGitWrite {
             return params
         case .worktreeApply:
             return ["path": .string(cwd)]
+        case .worktreeRemove(_, let discard, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if discard { params["discard"] = .bool(true) }
+            return params
         }
     }
 }

@@ -67,6 +67,10 @@ final class PaletteTableRowView: NSTableRowView {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
 
+    /// The table's selection only tells VoiceOver which row is selected (`syncTableSelection`);
+    /// the row's text keeps its own colors.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
+
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }

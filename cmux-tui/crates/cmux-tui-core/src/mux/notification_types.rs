@@ -55,6 +55,15 @@ impl NotificationSource {
     }
 }
 
+/// `desktop` on `notification.create` and the `notification` event: false
+/// asks the app for no desktop banner (`cmux notify --desktop false`).
+pub const NOTIFICATION_DESKTOP_CAPABILITY: &str = "notification-desktop-v1";
+
+/// `reply` on `notification.create` and the `notification` event: true asks
+/// the app for a banner that takes a typed reply, which it pastes into the
+/// notifying terminal and submits (`cmux notify --reply`).
+pub const NOTIFICATION_REPLY_CAPABILITY: &str = "notification-reply-v1";
+
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
     pub notification: u64,
@@ -63,6 +72,10 @@ pub struct NotificationEvent {
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
     pub source: NotificationSource,
+    /// false: the app shows no desktop banner (`notify --desktop false`).
+    pub desktop: bool,
+    /// true: the banner takes a typed reply for the terminal (`notify --reply`).
+    pub reply: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +90,10 @@ pub struct ResourceNotification {
     pub created_at_ms: u64,
     pub source: NotificationSource,
     pub(crate) surface: Option<SurfaceId>,
+    /// false: the app shows no desktop banner (`notify --desktop false`).
+    pub desktop: bool,
+    /// true: the banner takes a typed reply for the terminal (`notify --reply`).
+    pub reply: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -70,6 +70,45 @@ enum RowDraw {
         return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
     }
 
+    /// The drawn outline (body and tail) of a part in its body frame `body`. Only an outgoing text
+    /// balloon differs from its frame: real Messages (macOS 27) draws it a little inside the frame, in
+    /// width and height alike, while the row and the row pitch keep the frame's 16 n + 14 pt
+    /// (tools/evidence/ANIMATIONS.md section 1 "Multi-line sends", tools/evidence/anim/refs3line/bubheight.py;
+    /// references/real-messages/interactions/send-3line, send-4line, send-2line-break and
+    /// deactivate-activate/tp1200ms.png, summed coverage on flat columns and rows):
+    /// - 2 lines and more (15 bubbles): the top and left edges 0.04 pt outside the frame (0.08 device
+    ///   px: edge fraction .92), the bottom and right edges 0.42 pt inside it (fraction .16), so the
+    ///   balloon is 0.38 pt smaller: 45.62 / 61.62 / 77.62 pt in 46 / 62 / 78 pt rows (h = 15.998 n +
+    ///   13.621, rms 0.005). The right edge of every multi-line balloon in deactivate-activate is 0.42 pt
+    ///   left of the 608 pt edge, and its three balloon widths there are whole device px minus 0.38 pt (742.24,
+    ///   724.24, 694.24 px where our frames are 742.17, 724.70, 694.21 px wide): the frame's left edge is on the
+    ///   device pixel at or left of ours (left edges 472.92, 490.92, 520.92 px for our 473.83, 491.30, 521.79).
+    /// - 1 line (4 bubbles in the send-1line takes, 7 in deactivate-activate): top 0.023 pt outside (fraction .954), bottom 0.106 pt inside (.788): 29.917 pt.
+    /// - The body keeps its frame's corners (BubblePath.make cornersOf).
+    /// - The tail stays at the balloon's bottom right corner (Messages' tail tip moves with it, 1 px up
+    ///   and left in deactivate-activate).
+    /// No cause in our geometry explains it (the mask, tail and text layout all place the frame exactly);
+    /// the same offsets on all four sides of balloons of every width point to Messages' balloon artwork
+    /// being drawn inset in its frame. Messages' edges are also softer (two partly covered device px per
+    /// edge, coverage .21/.87 at the top and .93/.24 at the bottom); ours stay one-pixel crisp edges.
+    /// Incoming balloons are exactly their frames (30 / 46 pt); media, links and custom rows keep theirs.
+    /// macOS 27 only: the macOS 26 fits (MESSAGESLAB_OS_FIT=26) keep the frame. The only macOS 26 reference, the
+    /// original recording (HEVC 4:2:0), has no still multi-line outgoing balloon, and with the inset its flying
+    /// bubble's bottom edge error got worse (motion-gate capture26 parity: edge_B_rms 1.36 -> 1.67 px).
+    static func balloon(_ body: CGRect, row p: PartRow) -> CGRect {
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        return body
+#else
+        guard p.outgoing, case .text = p.part, !ComposeMetrics.macOS26 else { return body }
+        let s = Fixture.renderScale
+        let multi = body.height > 38 // 30 pt for 1 line, 46 for 2
+        let out: CGFloat = multi ? 0.04 : 0.023, inset: CGFloat = multi ? 0.419 : 0.106
+        let left = floor(body.minX * s + 0.001) / s
+        return CGRect(x: left - out, y: body.minY - out,
+                      width: body.maxX - inset - (left - out), height: body.height + out - inset)
+#endif
+    }
+
     /// Outgoing shapes whose fill is the window-position gradient (a layer).
     static func needsFill(_ spec: RowSpec) -> Bool {
         guard case let .part(p) = spec.kind, p.outgoing else { return false }
@@ -119,7 +158,12 @@ enum RowDraw {
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
-            drawTypingBubble(ctx, top: top + 4)
+            // macOS: the bubble is a vector layer of the cell (RowCell.typingBody), placed on whole device pixels;
+            // this bitmap drew it at fractional geometry and was then resampled at a fractional position (each
+            // straight edge spread over 2 px). The iOS app keeps it in the bitmap.
+#if os(iOS) && !targetEnvironment(macCatalyst)
+            drawTypingBubble(ctx, top: top + typingBubble.minY - margin)
+#endif
         case let .threadPreview(pv):
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
@@ -143,21 +187,32 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots (dots are layers that animate).
-    static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest, read from pixel
+    /// coverage of its lossless typing stills (tools/evidence/anim/typedge.py; no model fit): 44 x 27 pt, its
+    /// straight edges on whole device pixels (left 20 pt, top 46.5 pt above the field's top edge). macOS draws it
+    /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
+    /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
+    static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
+    /// The bubble's two tail discs (row coordinates), large then small: layers of their own
+    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears). Messages at rest: the
+    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.27 pt above the bubble's bottom; the
+    /// small one d 4.75 pt at 19.00 pt, 3.40 pt below it (section 6, cx-3cb typing-pixels: exact-coverage
+    /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
+    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
+                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
-        let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
-        Fixture.incoming.setFill()
+        let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
+        Fixture.typingFill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
-        UIBezierPath(ovalIn: CGRect(x: 20.5, y: b.maxY - 7, width: 9, height: 9)).fill()
-        UIBezierPath(ovalIn: CGRect(x: 16.5, y: b.maxY + 1, width: 5, height: 5)).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble
-        return CGPoint(x: b.minX + 12.25 + CGFloat(i) * 9.5, y: b.midY)
+        // Messages at rest: 32.25, 41.75, 51.25 pt (12.25 pt + 9.5 i from the left edge), 0.28 pt above the
+        // bubble's centre (section 6, cx-3cb typing-pixels: centroids against the bubble's pixel edges).
+        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.28)
     }
 }
 
@@ -167,7 +222,8 @@ enum PartRenderer {
         switch p.part {
         case .text:
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
-            BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
+            BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
+                                  cornersOf: body.size)
             _ = lines
             if let md = p.markdown {
                 // Every block, at its scroll offset (thread view, morph and menu copies of the row are
@@ -211,7 +267,7 @@ enum PartRenderer {
         }
         if highlight {
             UIColor(white: 1, alpha: 0.12).setFill()
-            BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).fill()
+            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size).fill()
         }
         if p.failed {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
@@ -975,8 +1031,9 @@ enum Reclaimer {
 
 /// Message bubble fill (outgoing bubbles shade with window position).
 enum BubbleView {
-    static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0) {
-        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail)
+    static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
+                           cornersOf frame: CGSize? = nil) {
+        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame)
         if outgoing {
             if windowY.isNaN { return }     // filled by the row's gradient layer
             ctx.saveGState()

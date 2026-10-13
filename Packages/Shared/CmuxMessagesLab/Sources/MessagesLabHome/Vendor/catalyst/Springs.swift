@@ -132,6 +132,16 @@ struct SpringElement {
         return v
     }
     var settleTime: Double { components.map { $0.delay + $0.activeTime }.max() ?? 0 }
+    /// The same element, every component `s` seconds later (the same curve shape and name). A
+    /// later component holds its start value from the begin time (`Animate.sampled` for a spring,
+    /// `Animate.basic` for a curve), so no frame before the start shows the final value (live and
+    /// paused trees).
+    func delayed(by s: Double) -> SpringElement {
+        guard s > 0 else { return self }
+        var e = self
+        e.components = components.map { var c = $0; c.delay += s; return c }
+        return e
+    }
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
@@ -191,14 +201,20 @@ enum Springs {
     static var bubbleCenterY: SpringElement { osElement("bubble.centerY") }
     static var bubbleScale: SpringElement { osElement("bubble.scale") }
     /// The send morph's elements for one send (macOS 27): after a draft that shrinks the field, the
-    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, the `.oneLine` fits where they
-    /// exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
+    /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
+    /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
+    /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
     /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
     struct Bubble {
         var right, width, centerY, scale, opacity: SpringElement
         init(fieldShrinks: Bool) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
+                // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
+                // send references, ANIMATIONS.md section 1 "1-line seven-reference fit"). iOS keeps `.oneLine`.
+                #if os(macOS) || targetEnvironment(macCatalyst)
+                if !fieldShrinks, let mac = Springs.all[n + ".oneLineMac"] { return mac }
+                #endif
                 return Springs.all[n + (fieldShrinks ? ".fieldShrink" : ".oneLine")] ?? base
             }
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
@@ -223,6 +239,17 @@ enum Springs {
         guard !ComposeMetrics.macOS26 else { return 0 }
         return fieldShrinks ? -0.0066 : 0
     }
+    /// The transcript's own delay in a send (s, after the send's begin time, for the rows only). Live drop-free
+    /// paired takes on cmux-lawrence-2 (tools/evidence/ANIMATIONS.md section 5 "rows-later"; rows phase with the
+    /// anchor frame as the base, scroll.py phase_anchor): main's rows are ahead of Messages' by 13.0 ms after a
+    /// 1-line draft and 6.6 ms after a draft that shrinks the field; a first delay of 9.0 / 4.0 ms moved them by
+    /// 9.1 / 3.5 ms and left 4.0 / 3.0 ms. The flying bubble's width is 2-4 ms ahead in both and stays. The
+    /// rows' moves, the fades and receipts of the rows the send changes, and an older bubble still flying in its
+    /// row start this much later; the new bubble's flight and the field keep `sendPhase`. macOS 26: none.
+    static func sendRowsDelay(fieldShrinks: Bool) -> Double {
+        guard !ComposeMetrics.macOS26 else { return 0 }
+        return fieldShrinks ? 0.007 : 0.013
+    }
     static var fieldOpacity: SpringElement { element("field.opacity") }
 
     /// A single-spring element for small effects that the recording does not
@@ -234,15 +261,61 @@ enum Springs {
     /// expressed as springs.
     /// The typing bubble's appearance, macOS (lossless send-typed-take1, send-typed-media-take1,
     /// typing-unfocused-take1; tools/evidence/ANIMATIONS.md section 6): scale 0 -> 1 about
-    /// `RowDraw.typingAnchor`, opacity 0 -> 1, and a drift of `typingDrift` (pt, window) to its place;
+    /// `RowDraw.typingAnchor`, opacity 0 -> 1 (the row's content: bubble, dots and discs fade as one), and
+    /// a drift of `typingDrift` (pt, window) to its place;
     /// time 0 = the insert's begin (the rows' `transcript.typing`).
     static var typingScale: SpringElement { element("typing.scale") }
     static var typingOpacity: SpringElement { element("typing.opacity") }
     static var typingDriftX: SpringElement { element("typing.driftX") }
     static var typingDriftY: SpringElement { element("typing.driftY") }
     static let typingDrift = CGPoint(x: 4.79, y: -7.66)
+    /// The two tail discs (`RowDraw.typingDiscs`, large then small), macOS: each a layer of its own at its
+    /// window place (not in the scaled bubble). Messages shows them from its first frames at 0.5 and 0.8 of
+    /// their size, a few points right of and above their place, and moves them there in about 0.25 s while
+    /// the bubble grows (lossless send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md section 6).
+    /// Offsets in window pt; their opacity is the bubble's (`typingOpacity`, on the row's content).
+    static let typingDiscFrom: [(x: Double, y: Double, scale: Double)] = [(2.531, -8.190, 0.496), (3.643, -10.700, 0.800)]
+    static func typingDiscX(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.x" : "typing.discS.x") }
+    static func typingDiscY(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.y" : "typing.discS.y") }
+    static func typingDiscScale(_ i: Int) -> SpringElement { element(i == 0 ? "typing.discL.scale" : "typing.discS.scale") }
     /// The dots' pulse phase (Cell.startTypingDots) starts this long after the insert's begin.
     static let typingDotsPhase = 0.05
+    /// One breathing wave of the typing indicator (RowCell.breathe): an additive scale
+    /// `amplitude` x (1 - cos(2 pi (t - start) / period)) / 2 from `start` (s after the insert's begin) on,
+    /// repeating while the indicator shows: from its rest size (0) to 1 + amplitude and back.
+    struct Breath { var amplitude: Double; var period: Double; var start: Double }
+    /// Messages' typing indicator breathes while it shows, from the end of its appearance until the reply
+    /// (lossless send-typed-media-take1 +4.94 s, 2.2 s at rest; typing-unfocused-take1, link-ask-instinct-take1
+    /// and the 13 typing-dots stills agree; tools/evidence/ANIMATIONS.md section 6 "cx-3cb typing-breath"):
+    /// three waves of their own, each from its rest size up and back, all at rest when the appearance ends.
+    /// Large disc +10.6 % every 0.901 s, small disc +15.1 % every 0.700 s (each about its centre), the bubble
+    /// with its dots +2.9 % every 1.906 s about `typingBreathAnchor`. When the reply comes, all three are
+    /// at rest again on the arrival's first frame (RowCell.stopTypingBreath).
+    static let typingBreathBody = Breath(amplitude: 0.0290, period: 1.906, start: 0.296)
+    static let typingBreathDiscs = [Breath(amplitude: 0.1057, period: 0.901, start: 0.242),
+                                    Breath(amplitude: 0.1510, period: 0.700, start: 0.178)]
+    /// The point the bubble breathes about (row coordinates): 7.00 pt right of its left edge and 8.63 pt under its
+    /// top (15.00 pt left of and 4.87 pt above its centre). Read from the pixel edges of every frame of the media
+    /// take's 2.2 s at rest (tools/evidence/anim/typanchor.py, typanchorfit.py; ANIMATIONS.md section 6, cx-3cb
+    /// typing-anchor): right +1.073 pt, top -0.271, bottom +0.552 at the peak. With this wave's +2.9 % the right edge
+    /// gives x; y is the least-squares point of the top and bottom (their sum is 3.05 %: -0.250 and +0.533 here).
+    /// Messages' left edge does not show its -0.20 pt: it clips the bubble to its frame rounded to whole device
+    /// pixels (RowCell.clipTypingBody does the same). Before: 15.35 and 4.70 pt from the centre (a capsule fit with a
+    /// blur bias; within this measurement's spread of about 1 pt, 0.03 pt at the edges).
+    static var typingBreathAnchor: CGPoint {
+        CGPoint(x: RowDraw.typingBubble.minX + 7.00, y: RowDraw.typingBubble.minY + 8.63)
+    }
+    /// `--typing-phase S` (still scenes only): the typing dots hold S s into their cycle and the breathing
+    /// at rest (animation speed 0), so a still capture of the indicator is the same in every run.
+    static let typingStillPhase: Double? = {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "--typing-phase") else { return nil }
+        guard let v = a.dropFirst(i + 1).first.flatMap({ Double($0) }), v.isFinite else {
+            FileHandle.standardError.write(Data("--typing-phase needs a finite number of seconds; the indicator animates\n".utf8))
+            return nil
+        }
+        return v
+    }()
     /// The iOS app's typing pop and receipt cross-fade (ios/Sources/ChatColumn.swift; the macOS
     /// transcript uses the fits above and below).
     static let typingPop = simple("typing.pop", delay: 0.05, duration: 0.209)

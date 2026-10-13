@@ -105,6 +105,14 @@ impl Daemon {
             ready.clear();
         }
         assert!(ready.contains("\"ready\":true"), "daemon not ready");
+        // The socket it bound: a short alias when the configured path is past
+        // the Unix limit (a long TMPDIR).
+        if let Some(bound) = serde_json::from_str::<Value>(&ready)
+            .ok()
+            .and_then(|v| v["socket"].as_str().map(PathBuf::from))
+        {
+            self.socket = bound;
+        }
         self.child = Some(child);
     }
 

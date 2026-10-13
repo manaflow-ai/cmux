@@ -202,7 +202,7 @@ function RetryModelMenu({
 
 /// A failed turn's note (cx-w10a): the cause in plain words, naming the harness and the proxy or endpoint
 /// when the error names one, never a generic "sign-in expired"; the agent's own message under Details;
-/// Switch model for capacity, network, key and proxy failures; Copy error always.
+/// Switch model for capacity, network, key, proxy and sign-in failures; Copy error always.
 function TurnFailure({
   message,
   route,
@@ -216,7 +216,10 @@ function TurnFailure({
   const [copied, setCopied] = useState(false);
   const kind = failureKind(message, route);
   const sentence = failureCopy(t, message, route);
-  const offersSwitch = switchModel && ["rate-limited", "unreachable", "invalid-key", "proxy-auth"].includes(kind);
+  // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
+  const offersSwitch =
+    switchModel &&
+    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
   return (
     <span className="cv-turn-note" data-failure-kind={kind}>
       <span className="text-fg">{sentence}</span>

@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4";
+    public static final String IR_SHA256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -46,6 +46,7 @@ public final class Protocol {
             case "frontend-projection-changed" -> FrontendProjectionChangedEvent.fromWire(value);
             case "graphics-status" -> GraphicsStatusEvent.fromWire(value);
             case "history-changed" -> HistoryChangedEvent.fromWire(value);
+            case "keybindings-changed" -> KeybindingsChangedEvent.fromWire(value);
             case "layout-changed" -> LayoutChangedEvent.fromWire(value);
             case "machine-usage-changed" -> MachineUsageChangedEvent.fromWire(value);
             case "notification" -> NotificationEvent.fromWire(value);
@@ -56,6 +57,7 @@ public final class Protocol {
             case "pane-added" -> PaneAddedEvent.fromWire(value);
             case "pane-closed" -> PaneClosedEvent.fromWire(value);
             case "personal-changed" -> PersonalChangedEvent.fromWire(value);
+            case "program-status-changed" -> ProgramStatusChangedEvent.fromWire(value);
             case "render-delta" -> RenderDeltaEvent.fromWire(value);
             case "render-state" -> RenderStateEvent.fromWire(value);
             case "resized" -> ResizedEvent.fromWire(value);

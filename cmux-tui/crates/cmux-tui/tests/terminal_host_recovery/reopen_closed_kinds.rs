@@ -326,3 +326,290 @@ fn another_live_window_never_reopens_a_windows_closed_tab() {
     assert_eq!(from_a["ok"], true, "{from_a}");
     assert_eq!(from_a["result"]["value"]["tab_ids"].as_array().map(Vec::len), Some(1), "{from_a}");
 }
+
+/// Secrets in a closed browser tab's URL never reach closed history
+/// (reopen-closed.md 7.17): query keys on the deny-list (tokens, codes,
+/// signatures, keys, passwords) are dropped from the URL and from every
+/// back/forward entry before the group is stored; the rest of the query,
+/// the path and the fragment come back on reopen.
+#[test]
+fn a_closed_browser_tab_keeps_no_secret_query_keys() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-browser-secrets");
+    let url = "https://example.com/cb?page=2&access_token=abc&q=a%20b&code=oauth&X-Amz-Signature=s1&api_key=k&PHPSESSID=p9#top";
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":url,"engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let history = serde_json::json!({
+        "entries":[
+            {"url":"https://example.com/login?next=%2Fhome&password=hunter2","title":"Login"},
+            {"url":url,"title":"Callback"},
+            {"url":"https://docs.example.com/d/1/edit?authuser=1&pageToken=pg2&sort_key=name&accessKey=ak7","title":"Doc"},
+        ],
+        "index":1,"scroll":{"x":0,"y":40},
+    });
+    app.send(serde_json::json!({"cmd":"set-frontend-browser-history","surface":surface,"history":history}));
+    let back = close_and_reopen(&harness, &mut app, surface, "browser-secrets");
+    // Kept query bytes stay exactly as they were (no re-encoding).
+    assert_eq!(back["url"], "https://example.com/cb?page=2&q=a%20b#top", "{back}");
+    let surface = back["surface"].as_u64().expect("the reopened tab has a surface");
+    let restored =
+        app.send(serde_json::json!({"cmd":"get-frontend-browser-history","surface":surface}));
+    let text = restored.to_string();
+    for secret in
+        ["abc", "oauth", "s1", "hunter2", "api_key", "access_token", "password", "p9", "ak7"]
+    {
+        assert!(!text.contains(secret), "{secret} reached closed history: {restored}");
+    }
+    assert!(text.contains("next=%2Fhome"), "a harmless query key was dropped: {restored}");
+    // Account choice, pagination and sort keys are not secrets.
+    assert!(
+        text.contains("edit?authuser=1&pageToken=pg2&sort_key=name"),
+        "a harmless query key was dropped: {restored}"
+    );
+    assert!(text.contains("\"y\":40"), "the scroll position was lost: {restored}");
+}
+
+/// An incognito window (its workspaces are ephemeral) leaves no closed
+/// history (reopen-closed.md 7.5): closing it records no `window` group,
+/// while a normal window that closes still does.
+#[test]
+fn a_closed_incognito_window_is_never_recorded() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-incognito-window");
+    resource_request(
+        &harness.socket,
+        "incognito-create",
+        "workspace.create",
+        serde_json::json!({"machine":"current","session":"current","name":"secret",
+                           "initial_content":"empty","ephemeral":true}),
+        Some("incognito-create"),
+    );
+    let key_of = |app: &mut AppConnection, name: &str| -> String {
+        app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+            .unwrap_or_else(|| panic!("no workspace {name}"))
+    };
+    let secret = key_of(&mut app, "secret");
+    let kinds = key_of(&mut app, "kinds");
+    put_window(&harness, "win-private", Some(&secret), true, "private-open");
+    put_window(&harness, "win-private", Some(&secret), false, "private-close");
+    let window_groups = |list: Vec<serde_json::Value>| -> Vec<serde_json::Value> {
+        list.into_iter().filter(|item| item["kind"] == "window").collect()
+    };
+    assert!(
+        window_groups(closed_list(&harness, "private-list")).is_empty(),
+        "an incognito window was recorded"
+    );
+    put_window(&harness, "win-normal", Some(&kinds), true, "normal-open");
+    put_window(&harness, "win-normal", Some(&kinds), false, "normal-close");
+    let groups = window_groups(closed_list(&harness, "normal-list"));
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["window"], "reopen-kinds/win-normal");
+    // A window listing only workspaces this daemon does not know (another
+    // machine's, or not loaded yet) is not incognito: it is recorded.
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), true, "remote-open");
+    put_window(&harness, "win-remote", Some("ws-key-on-another-machine"), false, "remote-close");
+    let groups = window_groups(closed_list(&harness, "remote-list"));
+    assert!(groups.iter().any(|group| group["window"] == "reopen-kinds/win-remote"), "{groups:?}");
+}
+
+/// The live tab groups the daemon lists.
+fn tab_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
+    let reply = resource_request(
+        &harness.socket,
+        request,
+        "tab_group.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    reply.as_array().or_else(|| reply["value"].as_array()).cloned().unwrap_or_default()
+}
+
+/// Ungroup (cx-gzh.10, RECOVERABLE-BY-DEFAULT) is one closed-history group:
+/// its tabs stay open, and Cmd-Shift-T in the window forms the group again
+/// with its id, name, color and members in order.
+#[test]
+fn an_ungrouped_tab_group_reopens_whole() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-ungroup");
+    let key = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+        .expect("the workspace has a key");
+    put_window(&harness, "win-u", Some(&key), true, "win-u-open");
+    let tabs = (0..2)
+        .map(|_| {
+            let surface = app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"]
+                .as_u64()
+                .unwrap();
+            app.tab(surface)["tab_resource_id"].as_str().expect("the tab has an id").to_string()
+        })
+        .collect::<Vec<_>>();
+    resource_request(
+        &harness.socket,
+        "ungroup-create",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "tabs":tabs,"name":"Build","color":"blue"}),
+        Some("ungroup-create"),
+    );
+    let created = tab_groups(&harness, "ungroup-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+    let before = closed_list(&harness, "ungroup-closed-1").len();
+
+    resource_request(
+        &harness.socket,
+        "ungroup",
+        "tab_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","tab_group":group_id}),
+        Some("ungroup"),
+    );
+    assert!(tab_groups(&harness, "ungroup-list-2").is_empty());
+    let closed = closed_list(&harness, "ungroup-closed-2");
+    assert_eq!(closed.len(), before + 1, "the ungroup was not recorded: {closed:?}");
+    assert_eq!(closed[0]["window"], "reopen-kinds/win-u", "{closed:?}");
+
+    let reply = reopen_from(&harness, "reopen-kinds/win-u", "ungroup-reopen");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = tab_groups(&harness, "ungroup-list-3");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Build");
+    assert_eq!(groups[0]["color"], "blue");
+    assert_eq!(groups[0]["tab_ids"], serde_json::json!(tabs));
+    assert_eq!(closed_list(&harness, "ungroup-closed-3").len(), before);
+
+    // A group formed since the ungroup keeps its tab: the reopen forms the
+    // old group around the rest.
+    resource_request(
+        &harness.socket,
+        "ungroup-2",
+        "tab_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","tab_group":group_id}),
+        Some("ungroup-2"),
+    );
+    resource_request(
+        &harness.socket,
+        "ungroup-create-2",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "tabs":[tabs[1]],"name":"Since","color":"red"}),
+        Some("ungroup-create-2"),
+    );
+    let reply = reopen_from(&harness, "reopen-kinds/win-u", "ungroup-reopen-2");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = tab_groups(&harness, "ungroup-list-4");
+    let by_name = |name: &str| groups.iter().find(|group| group["name"] == name).cloned();
+    let old =
+        by_name("Build").unwrap_or_else(|| panic!("the group was not formed again: {groups:?}"));
+    assert_eq!(old["id"], group_id.as_str());
+    assert_eq!(old["tab_ids"], serde_json::json!([tabs[0]]));
+    let since =
+        by_name("Since").unwrap_or_else(|| panic!("the newer group lost its tab: {groups:?}"));
+    assert_eq!(since["tab_ids"], serde_json::json!([tabs[1]]));
+}
+
+fn screen_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
+    let reply = resource_request(
+        &harness.socket,
+        request,
+        "screen_group.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    reply.as_array().or_else(|| reply["value"].as_array()).cloned().unwrap_or_default()
+}
+
+/// A screen group's Ungroup (cx-gzh.10) is one closed-history group too:
+/// Cmd-Shift-T forms it again with its id, name, color and screens in order.
+#[test]
+fn an_ungrouped_screen_group_reopens_whole() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-screen-ungroup");
+    let workspaces = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"].clone();
+    let workspace = workspaces
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .cloned()
+        .expect("the workspace exists");
+    let key = workspace["key"].as_str().expect("the workspace has a key").to_string();
+    put_window(&harness, "win-s", Some(&key), true, "win-s-open");
+    for _ in 0..2 {
+        app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                    "cols":80,"rows":24}));
+    }
+    let public = resource_request(
+        &harness.socket,
+        "screen-ungroup-workspaces",
+        "workspace.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    )
+    .as_array()
+    .into_iter()
+    .flatten()
+    .find(|listed| listed["name"] == "kinds")
+    .and_then(|listed| listed["id"].as_str().map(str::to_string))
+    .expect("the workspace has a public id");
+    let screens = resource_request(
+        &harness.socket,
+        "screen-ungroup-screens",
+        "screen.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    )
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter(|screen| screen["workspace_id"] == public.as_str())
+    .filter_map(|screen| screen["id"].as_str().map(str::to_string))
+    .collect::<Vec<_>>();
+    assert_eq!(screens.len(), 3, "{screens:?}");
+    let members = vec![screens[1].clone(), screens[2].clone()];
+    resource_request(
+        &harness.socket,
+        "screen-ungroup-create",
+        "screen_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "screens":members,"name":"Agents","color":"green"}),
+        Some("screen-ungroup-create"),
+    );
+    let created = screen_groups(&harness, "screen-ungroup-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+    let before = closed_list(&harness, "screen-ungroup-closed-1").len();
+
+    resource_request(
+        &harness.socket,
+        "screen-ungroup",
+        "screen_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","screen_group":group_id}),
+        Some("screen-ungroup"),
+    );
+    assert!(screen_groups(&harness, "screen-ungroup-list-2").is_empty());
+    let closed = closed_list(&harness, "screen-ungroup-closed-2");
+    assert_eq!(closed.len(), before + 1, "the ungroup was not recorded: {closed:?}");
+    assert_eq!(closed[0]["window"], "reopen-kinds/win-s", "{closed:?}");
+
+    let reply = reopen_from(&harness, "reopen-kinds/win-s", "screen-ungroup-reopen");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = screen_groups(&harness, "screen-ungroup-list-3");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Agents");
+    assert_eq!(groups[0]["color"], "green");
+    assert_eq!(groups[0]["screen_ids"], serde_json::json!(members));
+    assert_eq!(closed_list(&harness, "screen-ungroup-closed-3").len(), before);
+}

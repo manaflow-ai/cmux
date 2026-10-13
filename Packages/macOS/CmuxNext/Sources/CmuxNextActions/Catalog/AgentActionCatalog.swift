@@ -184,8 +184,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Decision K1: no default shortcut (Cmd-K clears the terminal). The command
-                // palette's chats page lists every chat; this opens it from anywhere.
+                // Cmd-K outside a terminal (KeyBindingDefaults.scopedEntries; Leo 2026-10-12):
+                // decision K1 keeps Cmd-K as Clear in a terminal, so the catalog key stays
+                // unset. The command palette's chats page lists every chat.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
             ),
             // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt, as the

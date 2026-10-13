@@ -17,7 +17,7 @@ extension SidebarView {
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
         let alpha: CGFloat = revealed ? 1 : 0
-        let mode = DesignSettings.shared.sidebarSections.minimalMode
+        let mode = design.sidebarSections.minimalMode
         let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0
         let below: CGFloat = revealed || !mode.hidesBottom ? 1 : 0
         let hidden = (top: above == 0, bottom: below == 0)

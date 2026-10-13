@@ -76,6 +76,15 @@
   color: var(--page-text-3);
 }
 
+.history-error {
+  flex: none;
+  margin: 0;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
+
 /* Narrow panes wrap the filters onto a second row; none is ever hidden. */
 .history-chips {
   display: flex;
@@ -183,4 +192,3 @@
   padding: 24px;
   text-align: center;
 }
-

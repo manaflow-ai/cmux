@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import GhosttyNextKit
 
 /// The theme colors of the applied Ghostty config, as 8-bit sRGB values.
@@ -27,6 +28,12 @@ public nonisolated struct GhosttyThemeColors: Hashable, Sendable {
 }
 
 extension GhosttyRuntime {
+    /// The theme `themeOverride` names for the current color scheme (a pair's variant); nil while
+    /// the Ghostty config's own theme applies, which has no name.
+    public static var themeName: String? {
+        themeOverride.flatMap(ThemeSpec.init).map { $0.name(isDark: colorSchemeIsDark) }
+    }
+
     /// Colors of the config currently applied to every surface. Nil when
     /// libghostty failed to load a config.
     public var themeColors: GhosttyThemeColors? {

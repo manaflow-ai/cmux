@@ -20,6 +20,9 @@ final class SidebarRows {
     /// fast run of clicks toggles once per click.
     private var folds: [GroupID: (collapsed: Bool, serial: Int)] = [:]
     private var foldSerial = 0
+    /// The rows of creates the daemon has not reported yet, at their slots
+    /// over the edits (`PendingWorkspaceRows`), and the home workspace.
+    private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
 
     init(model: SidebarModel) {
         self.model = model
@@ -30,10 +33,12 @@ final class SidebarRows {
         document.withoutChats
     }
 
-    /// Shows `live` (when given) with the pending edits applied.
-    func show(_ live: [SidebarRowSection]? = nil) {
+    /// Shows `live` (when given) with the pending edits applied, then the
+    /// rows of the creates in flight (`creating`, when given).
+    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {
         if let live { self.live = live }
-        var sections = pending.apply(to: self.live)
+        if let creating { self.creating = creating }
+        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home)
         for (group, fold) in folds {
             guard let (s, n) = SidebarEdits.locateGroup(group, in: sections),
                   case var .group(shown) = sections[s].nodes[n], shown.isCollapsed != fold.collapsed else { continue }

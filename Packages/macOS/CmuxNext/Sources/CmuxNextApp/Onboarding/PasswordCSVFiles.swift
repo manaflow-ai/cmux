@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextBrowserImport
 import Foundation
 import UniformTypeIdentifiers
@@ -49,14 +50,19 @@ struct PasswordCSVFiles {
                            run: (PasswordCSVImporter) async throws -> PasswordImportReport) async -> ActionWorkFailure? {
         let cef = services.cache.cef
         guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-        let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
+        // Conflicts are held for Replace only when this fork can replace them (API 20).
+        let hold = cef.canReplacePasswords ? PasswordConflictHold { rows, profile in try await cef.replacePasswords(rows, in: profile) } : nil
+        let destination = AppPasswordDestination(available: true, hold: hold) { rows, profile in
+            try await cef.importPasswords(rows, into: profile)
+        }
         do {
             let report = try await run(PasswordCSVImporter(destination: destination))
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
-            Self.trash(url, report: report) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+            Self.trash(url, report: report, hold: hold) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
             return nil
         } catch PasswordCSVImporter.Failure.cancelled {
+            hold?.release()
             return nil
         } catch {
             return ActionWorkFailure(PasswordCSVStrings.failure(error))
@@ -78,15 +84,66 @@ struct PasswordCSVFiles {
     /// to the Trash now and the toast's Undo puts it back. When some rows did
     /// not go in (a conflict keeps the saved password, a rejected row), the
     /// file may be the only copy: it stays and the toast offers Move to Trash,
-    /// as it does when the move fails.
-    static func trash(_ url: URL, report: PasswordImportReport,
+    /// as it does when the move fails. Conflicts the `hold` kept are offered
+    /// for Replace first (cx-dwg.6).
+    static func trash(_ url: URL, report: PasswordImportReport, hold: PasswordConflictHold? = nil,
                       windowLookup: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
         let summary = summaryLines(report)
         guard let window = windowLookup() else {
+            hold?.release()
             logger.info("password CSV import done with no window; the file stays")
             return
         }
+        if let hold, hold.count > 0 {
+            return offerReplace(url, summary, hold, othersMissing: report.store.rejected, in: window, windowLookup: windowLookup)
+        }
         guard report.store.conflict + report.store.rejected == 0 else { return offerTrash(url, summary, in: window) }
+        recycle(url, summary, windowLookup: windowLookup)
+    }
+
+    /// Never overwritten silently: the saved passwords stay unless the person
+    /// presses Replace. Then the file goes to the Trash when every row is in
+    /// the store; otherwise, or when the toast goes without Replace, it offers
+    /// Move to Trash.
+    private static func offerReplace(_ url: URL, _ summary: [String], _ hold: PasswordConflictHold, othersMissing: Int,
+                                     in window: NSWindow, windowLookup: @escaping @MainActor () -> NSWindow?) {
+        let toast = CmuxToast(id: toastID, message: summary.joined(separator: " "),
+                              action: CmuxToast.Action(title: PasswordCSVStrings.replace), duration: .seconds(20))
+        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        handle.onAction = {
+            Task { @MainActor in
+                let replaced: ChromiumPasswordReplaceResult
+                do {
+                    replaced = try await hold.replace()
+                } catch {
+                    logger.error("password CSV replace failed: \(String(describing: error), privacy: .public)")
+                    guard let window = windowLookup() else { return }
+                    return offerTrash(url, [PasswordCSVStrings.replaceFailed], in: window)
+                }
+                let lines = [PasswordCSVStrings.replaced(replaced.updated)]
+                guard othersMissing + replaced.missing + replaced.rejected == 0 else {
+                    guard let window = windowLookup() else { return }
+                    return offerTrash(url, lines, in: window)
+                }
+                recycle(url, lines, windowLookup: windowLookup)
+            }
+        }
+        handle.onDismiss = { reason in
+            guard reason != .action else { return }
+            hold.release()
+            // After the toast center ends this one (a dismiss can come from inside its show).
+            Task { @MainActor in
+                guard let window = windowLookup() else { return }
+                // A newer password CSV toast took the slot and says what happened next;
+                // unrelated toasts that pushed this one out do not.
+                if reason == .replaced, CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == toastID }) { return }
+                offerTrash(url, summary, in: window)
+            }
+        }
+    }
+
+    /// Moves the file to the Trash; the toast's Undo puts it back.
+    private static func recycle(_ url: URL, _ summary: [String], windowLookup: @escaping @MainActor () -> NSWindow?) {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
@@ -129,6 +186,13 @@ enum PasswordCSVStrings {
         t("passwords.csv.plaintext", "The CSV file still holds these passwords in plain text. Move it to the Trash?")
     }
     static var moveToTrash: String { t("passwords.csv.trash", "Move to Trash") }
+    static var replace: String { t("passwords.csv.replace", "Replace Saved Passwords") }
+    static func replaced(_ count: Int) -> String {
+        String(format: t("passwords.csv.replaced", "Replaced: %lld."), count)
+    }
+    static var replaceFailed: String {
+        t("passwords.csv.replaceFailed", "The saved passwords couldn’t be replaced. cmux kept them.")
+    }
     static var trashed: String { t("passwords.csv.trashed", "The CSV file is in the Trash.") }
     static var unavailable: String { t("passwords.csv.unavailable", "This version of cmux can’t save passwords yet.") }
 

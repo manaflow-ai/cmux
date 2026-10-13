@@ -22,13 +22,27 @@ public final class ThemeScope {
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
-    public var backdropSelection: BackdropSelection? { selectedBackdropSelection ?? parent?.backdropSelection }
+    /// A room shows the background its shown workspace pinned (cx-t2x.5),
+    /// so a top page (`show(nil)`) is back on the app's.
+    public var backdropSelection: BackdropSelection? {
+        if let shown, shown.pinsBackdrop { return shown.backdropSelection }
+        return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
+    }
+    /// The glass tint over art a workspace chose (``pinBackdropTint(_:)``): a room reads its shown
+    /// workspace's; nil keeps the work's own tint. The legibility floor still applies on top.
+    public var backdropTintOpacity: Double? { shown?.pinnedTint ?? pinnedTint }
+    private var pinnedTint: Double?
+    /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
+    private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
+    private var isPinned = false
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
         return nil
     }
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
     private var selectedBackdropSelection: BackdropSelection?
+    /// Plain glass here even when an ancestor has art (``pinBackdrop(_:)``).
+    private var pinsNoBackdrop = false
     private var selectedAppearanceTuning: AppearanceTuning?
     /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
     /// like art: one app-wide setting, read by every surface's owner through
@@ -54,6 +68,35 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
+    /// Gives this scope its own background over its ancestors' (a workspace's own pick, cx-t2x.5):
+    /// `.none` is plain glass even under art, `.inherit` follows the ancestors again.
+    public func pinBackdrop(_ pin: BackdropPin) {
+        let (selection, none): (BackdropSelection?, Bool) = switch pin {
+        case .inherit: (nil, false)
+        case .none: (nil, true)
+        case .selection(let selection): (selection, false)
+        }
+        guard selectedBackdropSelection != selection || pinsNoBackdrop != none else { return }
+        selectedBackdropSelection = selection
+        pinsNoBackdrop = none
+        isPinned = selection != nil
+        BackdropImageStore.shared.prewarm(selection)
+        repaintBackdropArt()
+        // The rooms showing this scope draw its background.
+        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+    }
+
+    /// Gives this scope its own glass tint over art (a workspace's Opacity, cx-t2x.5), 0...0.95 so
+    /// the art always shows; nil follows the work's own tint.
+    public func pinBackdropTint(_ tint: Double?) {
+        // A non-finite tint (a hand-edited "nan") follows the work's.
+        let tint = tint.flatMap { $0.isFinite ? min(max($0, 0), WindowBackdrop.maximumWorkspaceTint) : nil }
+        guard pinnedTint != tint else { return }
+        pinnedTint = tint
+        repaintBackdropArt()
+        for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
+    }
+
     /// Changes live tuning without changing theme colors or persisted settings.
     public func setAppearanceTuning(_ tuning: AppearanceTuning) {
         let clamped = AppearanceTuning(glassTransparency: tuning.glassTransparency,
@@ -64,7 +107,17 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
+    /// The theme's own accent (`ThemeInput.accentColor`) this scope inherits, apart from Art Color.
+    private var themeAccentColor: ThemeRGB? {
+        if level == .config { return ThemeStore.shared.input.accentColor }
+        if let overrideInput { return overrideInput.accentColor }
+        guard let parent else { return ThemeStore.shared.input.accentColor }
+        return parent.themeAccentColor
+    }
+
     private func repaintBackdropArt() {
+        // Art Color: another work is another accent.
+        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false)
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
@@ -127,6 +180,8 @@ public final class ThemeScope {
         ownTokens = parent.ownTokens
         displayed = ownTokens
         parent.children.add(self)
+        // Art Color: the parent's input carries its own art's hue, not this scope's.
+        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
     }
 
     /// The spec in effect here: this scope's, else the nearest ancestor's.
@@ -195,10 +250,12 @@ public final class ThemeScope {
             if candidate === self { return }
             next = candidate.shown
         }
+        let backdrop = (backdropSelection, backdropTintOpacity)
         shown?.viewers.remove(self)
         shown = scope
         scope?.viewers.add(self)
         refreshDisplay(animated: animated, repaint: true)
+        if backdropSelection != backdrop.0 || backdropTintOpacity != backdrop.1 { repaintBackdropArt() }
     }
 
     /// Repaints and notifies when `tokens` moved away from what was last
@@ -226,9 +283,20 @@ public final class ThemeScope {
         update(animated: false, repaint: false)
     }
 
+    /// Art Color turned on or off: the config's own colors did not change, so every scope below
+    /// re-derives its accent itself.
+    func accentSourceDidChange() {
+        update(animated: false, repaint: false)
+        for child in children.allObjects { child.accentSourceDidChange() }
+    }
+
     private func update(animated: Bool, repaint: Bool) {
         var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
         next.accent = ThemeStore.shared.accent
+        // Art Color: the hue of the art this scope shows, else the theme's own accent.
+        if ThemeStore.shared.accentFollowsArt, level != .config {
+            next.accentColor = backdropArt?.accentHue ?? themeAccentColor
+        }
         // The parent's light/dark may have flipped even when these colors
         // did not (an overridden workspace in a room that changed).
         defer { for view in roots.allObjects { applyAppearance(to: view) } }

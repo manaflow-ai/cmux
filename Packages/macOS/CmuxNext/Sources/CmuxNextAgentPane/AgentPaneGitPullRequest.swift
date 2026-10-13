@@ -6,7 +6,8 @@ import Foundation
 /// branch has none: a failed lookup creates nothing). It answers `{url, number}`. It never pushes
 /// (the session host's Push does, cx-ncc.1), so a branch that is not exactly its upstream (none,
 /// ahead or behind) is refused, and gh never has anything to push. It needs a real click or key in the pane, a chat on this
-/// Mac and `cwd` inside the pane's folders; gh never prompts, and each step has a deadline.
+/// Mac and `cwd` inside the pane's folders; gh never prompts, and each step has a deadline. A
+/// worktree chat's branch targets the branch it was made from (cx-lyqio.6), not the default.
 public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// The chat's folder, absolute.
     public let cwd: String
@@ -57,7 +58,8 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         if request.readsThreads { return await threads(in: folder, gh: gh) }
         if let number = request.merges, let url = request.mergeURL { return await merge(number, url: url, in: folder, gh: gh) }
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
-        guard await git(["symbolic-ref", "--quiet", "--short", "HEAD"]).status == 0 else { return .refused(detachedMessage) }
+        let head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        guard head.status == 0 else { return .refused(detachedMessage) }
         let counts = await git(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
         let behindAhead = counts.text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
         guard counts.status == 0, behindAhead.count == 2, behindAhead[1] == 0 else { return .refused(pushFirstMessage) }
@@ -69,11 +71,33 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         if open.status == 0, let opened = opened(fromView: open.text) { return opened }
         // Create only when gh found no pull request, or only a merged or closed one.
         guard open.status == 0 || open.text.contains("no pull requests found") else { return .refused(message(open)) }
-        let created = await cli(["pr", "create", "--fill"])
+        let target = await recordedBase(of: head.text.trimmingCharacters(in: .whitespacesAndNewlines), git: git)
+        let created = await cli(["pr", "create", "--fill"] + (target.map { ["--base", $0] } ?? []))
         guard created.status == 0, let url = created.text.split(separator: "\n").map(String.init).last(where: isPullRequestURL) else {
             return .refused(message(created))
         }
         return .opened(url: url, number: Int(url.split(separator: "/").last ?? ""))
+    }
+
+    /// The remote name of the branch `branch` was made from (`branch.<b>.cmuxBase`, recorded by the
+    /// session host's `git.worktree.create`): a local branch by its upstream's name, a
+    /// remote-tracking branch without its remote. Nil (gh's default, as before) for no record, a
+    /// commit, a local branch with no upstream, or the remote's HEAD.
+    static func recordedBase(of branch: String,
+                             git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String? {
+        let recorded = await git(["config", "--get", "branch.\(branch).cmuxBase"])
+        let base = recorded.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard recorded.status == 0, !base.isEmpty, !base.hasPrefix("-") else { return nil }
+        if await git(["show-ref", "--verify", "--quiet", "refs/heads/\(base)"]).status == 0 {
+            let merge = await git(["config", "--get", "branch.\(base).merge"])
+            let upstream = merge.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard merge.status == 0, upstream.hasPrefix("refs/heads/") else { return nil }
+            return String(upstream.dropFirst("refs/heads/".count))
+        }
+        guard await git(["show-ref", "--verify", "--quiet", "refs/remotes/\(base)"]).status == 0,
+              let slash = base.firstIndex(of: "/") else { return nil }
+        let name = String(base[base.index(after: slash)...])
+        return name.isEmpty || name == "HEAD" ? nil : name
     }
 
     /// `gh pr view --json url,number,state`'s answer when that pull request is open.

@@ -33,7 +33,8 @@
     "palette_usage",
     "git_checkpoint",
     "conversation",
-    "setting"
+    "setting",
+    "keybinding"
   ],
   "types": {
     "RequestOrigin": {
@@ -5607,6 +5608,17 @@
             }
           },
           "description": "The saved group this live group syncs with."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -5759,6 +5771,17 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the saved group's icon, the shared icon string; a reopen gives the live group this icon. null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6162,6 +6185,17 @@
             }
           },
           "description": "Members in screen order; they are contiguous."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6258,6 +6292,14 @@
               "kind": "primitive",
               "name": "string"
             }
+          }
+        },
+        "empty": {
+          "required": false,
+          "description": "True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no session yet) or a browser on `about:blank`. Recently Closed leaves it out. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
           }
         }
       },
@@ -6627,6 +6669,56 @@
       },
       "extra": false
     },
+    "LayoutBulkResult": {
+      "kind": "object",
+      "fields": {
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Every tab the call closed, in container order."
+        },
+        "pane_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          },
+          "description": "At level `pane`: the panes the selector chose; else empty."
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "At level `screen`: the screens the selector chose; else empty."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "At level `workspace`: the workspaces the selector chose; else empty."
+        }
+      },
+      "extra": false
+    },
     "SettingsChange": {
       "kind": "object",
       "fields": {
@@ -6640,6 +6732,189 @@
             }
           },
           "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingEntry": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The entry's position in the keybindings.json array."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chord's strokes in keybindings.json syntax (ctrl+k, s); one to four."
+        },
+        "command": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The command id; a removal entry names it without its leading -."
+        },
+        "when": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The entry's when clause; null when it has none."
+        },
+        "args": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            }
+          },
+          "description": "The entry's args object, passed to the command; null when it has none."
+        },
+        "removal": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "A -command entry: it unbinds a default binding of command instead of adding one."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingTarget": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's chord in keybindings.json syntax."
+        },
+        "when": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's when clause; absent matches the binding without one."
+        },
+        "command": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's command; absent is the new binding's command."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingDiagnostic": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "The entry the problem is in; null for a problem with the whole file."
+        },
+        "problem": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unreadable_file",
+              "not_an_object",
+              "missing_command",
+              "missing_key",
+              "invalid_key",
+              "too_many_keys",
+              "first_key_needs_command_or_control",
+              "invalid_when",
+              "invalid_args"
+            ]
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "KeybindingsSnapshot": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The keybindings.json path the owner reads and writes."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Advances once per change the owner saw (its own writes and hand edits); keybindings-changed carries the same revision."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingEntry"
+            }
+          },
+          "description": "The entries the file holds, in file order; an entry with a problem is left out and reported in diagnostics."
+        },
+        "diagnostics": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingDiagnostic"
+            }
+          }
         }
       },
       "extra": false
@@ -10922,6 +11197,22 @@
         "extra": false
       }
     },
+    "keybindings.invalid": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
+        "extra": false
+      }
+    },
+    "keybindings.unreadable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
+        "extra": false
+      }
+    },
     "local.io": {
       "retryable": false,
       "details": {
@@ -13484,6 +13775,23 @@
             },
             "description": "With all: delete only groups closed at or after this Unix time in milliseconds."
           },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "With all: delete only groups closed before this Unix time in milliseconds (retention by age)."
+          },
+          "keep_newest": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "With all: delete every group but the newest N (retention by count). With before_ms, one pass deletes both sets. Not with since_ms."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14819,6 +15127,17 @@
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
           },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
+          },
           "max_files": {
             "required": false,
             "type": {
@@ -15373,6 +15692,17 @@
             },
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
           },
           "max_files": {
             "required": false,
@@ -16591,6 +16921,428 @@
         "Sets the title of the newest visit of the URL in the profile."
       ]
     },
+    "keybindings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {path, revision, entries, diagnostics} for keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it). A missing file has no entries; an unreadable one has one unreadable_file diagnostic with a null index."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "KeybindingsSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Unbinds one binding of command: a user entry is dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Removes every entry and every removal entry of command, so its default bindings apply again.",
+          "A file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The command's args object; absent or empty binds without args."
+          },
+          "replaces": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "KeybindingTarget"
+            },
+            "description": "The binding this one replaces; its command defaults to command."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Binds key to command. With replaces, that binding goes: a user entry is edited or dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "layout.bulk": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional"
+        },
+        "fields": {
+          "verb": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close"
+              ]
+            },
+            "description": "`close` archives the chosen objects as one closed group."
+          },
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "tab",
+                "pane",
+                "screen",
+                "workspace"
+              ]
+            }
+          },
+          "selector": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "this",
+                "others",
+                "to_right",
+                "to_left",
+                "all",
+                "selection"
+              ]
+            },
+            "description": "`this`, `others`, `to_right`, `to_left` and `all` work in the anchor's container, in its order: the pane's tabs, the screen's panes, the workspace's screens, the session's workspaces. `selection` closes `ids`."
+          },
+          "anchor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Public id at `level` the selector is relative to. Omit to use the object the selectors name at `level` (`tab: current`)."
+          },
+          "ids": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "min_items": 1,
+              "max_items": 4096
+            },
+            "description": "Public ids at `level` for `selection`, from any containers."
+          },
+          "include_pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also close pinned tabs, screens and workspaces. Default false: every selector but `this` and `selection` skips them."
+          },
+          "end_terminals": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "End the terminals whose every view closes, as a workspace close does. Default false."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "One call is one commit and one closed group: Reopen Closed restores every object it closed.",
+          "Containers the close empties close in the same commit and join the group.",
+          "The home workspace anchors a selector but never closes; an object with no tab has nothing to close and is not reported. A call with nothing to close commits nothing and keeps no idempotency receipt.",
+          "`to_right` and `to_left` are refused at level `pane`.",
+          "At most 4096 tabs per call."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "LayoutBulkResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "machine.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -16808,6 +17560,22 @@
               "name": "NotificationLevel"
             },
             "default": "info"
+          },
+          "desktop": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "false: the app shows no desktop banner for it (cmux notify --desktop false); the sidebar marker still shows. Default true."
+          },
+          "reply": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: the app's banner takes a typed reply, which it pastes into the notifying terminal and submits (cmux notify --reply). Default false."
           },
           "terminal_id": {
             "required": false,
@@ -20375,6 +21143,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20386,7 +21165,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -23505,6 +24284,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. A linked saved group follows. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -23516,7 +24306,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -25368,6 +26158,35 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The first terminal's folder. Needs initial_content terminal."
+          },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "The first terminal's exact executable and arguments, instead of the login shell. Needs initial_content terminal; not with shell."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the first terminal runs with the server platform default shell and -lc. Needs initial_content terminal; not with argv."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -25389,7 +26208,10 @@
         },
         "extra": false,
         "constraints": [
-          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly."
+          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly.",
+          "cwd, argv and shell launch the first terminal, so they need initial_content terminal.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "A command in argv or shell needs the workspace:execute app scope, as workspace.run does."
         ]
       },
       "result": {

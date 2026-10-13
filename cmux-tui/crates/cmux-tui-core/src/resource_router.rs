@@ -4,6 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+mod browser_engine;
 mod config;
 mod content;
 mod credential;
@@ -243,6 +244,7 @@ fn dispatch_resource_request(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
+    browser_engine::refuse_without_provider(mux, &request)?;
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),
@@ -512,6 +514,8 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         "terminal_id": terminal_id,
         "created_at_ms": created_at_ms,
         "source": crate::NotificationSource::Cli.as_str(),
+        "desktop": request.fields.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+        "reply": request.fields.get("reply").and_then(Value::as_bool).unwrap_or(false),
     });
     let preparation = mux
         .prepare_resource_effect(
@@ -642,6 +646,9 @@ fn execute_notification_effect(
         .and_then(Value::as_str)
         .and_then(crate::NotificationSource::parse)
         .unwrap_or(crate::NotificationSource::Cli);
+    // Intents written before the field existed post a banner.
+    let desktop = intent.get("desktop").and_then(Value::as_bool).unwrap_or(true);
+    let reply = intent.get("reply").and_then(Value::as_bool).unwrap_or(false);
     let numeric_id = mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
@@ -652,6 +659,8 @@ fn execute_notification_effect(
         terminal_id.clone(),
         created_at_ms,
         source,
+        desktop,
+        reply,
     );
     let notification = crate::ResourceNotification {
         id: notification_id.clone(),
@@ -663,6 +672,8 @@ fn execute_notification_effect(
         created_at_ms,
         source,
         surface,
+        desktop,
+        reply,
     };
     let value = mux.created_notification_value(&notification, &session_id);
     let outcome = ResourceEffectOutcome::Success(value.clone());
@@ -886,6 +897,8 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
     ResourceError::validation_invalid(field, message)
 }
 
+#[cfg(test)]
+mod browser_engine_tests;
 #[cfg(test)]
 mod closed_content_tests;
 #[cfg(test)]

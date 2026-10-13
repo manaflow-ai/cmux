@@ -228,6 +228,7 @@ extension DaemonStore {
             return .none
         case .notification(let notification):
             notifications.append(notification)
+            recordNotificationText(notification)
             if notifications.count > notificationLimit { notifications.removeFirst(notifications.count - notificationLimit) }
             // The daemon retains a marker only for an inactive target and
             // follows with `tree-changed`/`tab-changed`, which settle the state.
@@ -241,7 +242,7 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
-        case .bookmarksChanged, .historyChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
+        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event)
             return .none

@@ -3,6 +3,8 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { AcpmuxSnapshot } from "../model";
 import type { MessageBranch } from "./branches";
 
 export type TurnActions = {
@@ -46,3 +48,15 @@ export type TurnActions = {
 };
 
 export const TurnActionsContext = createContext<TurnActions>({});
+
+/// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
+/// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).
+export function chatLoginCommand(
+  catalog: AcpmuxSnapshot["catalog"],
+  harness: string | undefined,
+  health: HarnessHealth | undefined,
+): string | undefined {
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  const checked = health && health.id === harness ? health.login?.trim() : undefined;
+  return profile || checked || undefined;
+}
