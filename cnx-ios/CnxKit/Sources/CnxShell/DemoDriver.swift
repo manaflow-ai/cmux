@@ -23,13 +23,15 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
         switch name {
         case "drawer": await drawer()
         case "settings": await settings()
+        case "settings-bottom": await settingsScrolled(to: "bottom")
+        case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
         case "editor": await editor()
         case "rubber": await rubber()
@@ -114,6 +116,14 @@ struct DemoDriver {
         await pause(1.0)
         shell.settingsScrollTarget = "top"
         await pause(1.5)
+    }
+
+    /// Settings scrolled to `target` ("bottom" or a section id) and left
+    /// there, for still captures.
+    private func settingsScrolled(to target: String) async {
+        shell.tab = .settings
+        await pause(0.8)
+        shell.settingsScrollTarget = target
     }
 
     private func states() async {

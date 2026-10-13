@@ -21,6 +21,8 @@ public struct ShellLaunchOptions: Sendable {
     public var demo: String?
     public var forceSetup = false
     public var initialEmail: String?
+    /// DEBUG: open Settings on this page (`SettingsRoute` case name).
+    public var settingsPage: String?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -33,6 +35,7 @@ public struct ShellLaunchOptions: Sendable {
         demo = value("-cnx-demo") ?? DeveloperOptions.launchDemo.flatMap { DemoDriver.names.contains($0) ? $0 : nil }
         forceSetup = arguments.contains("-cnx-setup")
         initialEmail = value("-cnx-email")
+        settingsPage = value("-cnx-settings-page")
         #endif
     }
 }
@@ -149,6 +152,10 @@ struct ShellView: View {
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
+        if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
+            shell.tab = .settings
+            shell.settingsPath = [page]
+        }
         _shell = State(initialValue: shell)
         self.options = options
     }
