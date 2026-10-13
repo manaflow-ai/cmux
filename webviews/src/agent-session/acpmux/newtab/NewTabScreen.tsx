@@ -482,9 +482,8 @@ export function NewTabScreen(props: Props) {
       <div ref={setBox} className="nt-box">
         {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
-            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. The row is
-            not a control of its own: the field is, so the row takes no role. */}
-        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
         <div className="nt-input" onMouseDown={focusFromRow}>
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">

@@ -1,9 +1,9 @@
-import AppKit
-import CmuxNextAgentActivity
-import CmuxNextSettings
+public import AppKit
+public import CmuxNextAgentActivity
+public import CmuxNextSettings
 import Darwin
 import Foundation
-import Observation
+public import Observation
 import os
 import CmuxNextCompat
 
@@ -60,8 +60,8 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// `state` is observable: Computer Use Setup follows it.
 @MainActor
 @Observable
-final class ComputerUseHelperDaemon {
-    enum State: Equatable {
+public final class ComputerUseHelperDaemon {
+    public enum State: Equatable {
         case off
         /// On, but no Developer ID signed helper is installed (or it did not start).
         case unavailable
@@ -69,9 +69,9 @@ final class ComputerUseHelperDaemon {
     }
 
     /// The app's helper. One per process.
-    static let shared = ComputerUseHelperDaemon()
+    public static let shared = ComputerUseHelperDaemon()
 
-    private(set) var state: State = .off
+    public private(set) var state: State = .off
     @ObservationIgnored let socketPath: String
     @ObservationIgnored let stateDirectory: URL
     @ObservationIgnored private let identity: CuaHelperIdentity
@@ -85,7 +85,7 @@ final class ComputerUseHelperDaemon {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var observation: Task<Void, Never>?
     /// The helper v2 (`computerUse.driver = "upstream"`).
-    @ObservationIgnored let upstream: ComputerUseHelperV2
+    @ObservationIgnored public let upstream: ComputerUseHelperV2
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -109,7 +109,7 @@ final class ComputerUseHelperDaemon {
     /// environment while the helper runs: the socket and the agent token,
     /// never the host token. Empty while off. Any thread may read it
     /// (spawn paths run off the main actor); only this daemon writes it.
-    nonisolated var childEnvironment: [String: String] {
+    public nonisolated var childEnvironment: [String: String] {
         published.withLock { $0 }
     }
 
@@ -121,7 +121,7 @@ final class ComputerUseHelperDaemon {
 
     /// The socket and both tokens for this app's own readers (onboarding,
     /// the Agent Activity pane) while the helper runs.
-    var configuration: AgentActivitySocketSource.Configuration? {
+    public var configuration: AgentActivitySocketSource.Configuration? {
         guard case .running = state else { return nil }
         return AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,
                                                        hostAuthToken: hostToken, machineName: "")
@@ -129,7 +129,7 @@ final class ComputerUseHelperDaemon {
 
     /// Follows `computerUse.enabled`, `computerUse.driver` (and
     /// DisabledFeatures) for the app's life.
-    func follow(_ settings: SettingsController, disabledByPolicy: @escaping () -> Bool) {
+    public func follow(_ settings: SettingsController, disabledByPolicy: @escaping () -> Bool) {
         observation?.cancel()
         observation = Task { [weak self, weak settings] in
             guard let settings else { return }
@@ -214,7 +214,7 @@ final class ComputerUseHelperDaemon {
     }
 
     /// App quit: no further starts, and the helper stops.
-    func applicationWillTerminate() {
+    public func applicationWillTerminate() {
         observation?.cancel()
         observation = nil
         generation &+= 1
@@ -226,7 +226,7 @@ final class ComputerUseHelperDaemon {
     /// (argv is visible to every local user; tokens go in the environment).
     /// The helper removes an agent's cursor only when its session ends, so
     /// the idle fade is what clears it after a run (cx-ujus); 0 disables it.
-    nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
+    public nonisolated static func arguments(socketPath: String, ownerPID: pid_t? = nil) -> [String] {
         ["serve", "--socket", socketPath, "--no-permissions-gate", "--cursor-shape", "cmux", "--idle-hide-ms", "10000"]
             + (ownerPID.map { ["--owner-pid", String($0)] } ?? [])
     }
@@ -252,7 +252,7 @@ final class ComputerUseHelperDaemon {
         identity.resolve(running: nil, installed: candidates())
     }
 
-    nonisolated static var isDevBuild: Bool {
+    public nonisolated static var isDevBuild: Bool {
         (Bundle.main.bundleIdentifier ?? "").contains(".debug")
     }
 
