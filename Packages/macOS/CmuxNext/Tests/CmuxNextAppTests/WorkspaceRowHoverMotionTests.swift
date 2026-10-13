@@ -16,11 +16,12 @@ struct WorkspaceRowHoverMotionTests {
 
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
-    /// Every animation key path on `layer` and the layers under it.
+    /// Every animation key path on `layer` and the layers under it, masks included
+    /// (the title's fade is its text layer's mask).
     private static func keyPaths(under layer: CALayer?) -> [String] {
         guard let layer else { return [] }
         let own = (layer.animationKeys() ?? []).compactMap { (layer.animation(forKey: $0) as? CAPropertyAnimation)?.keyPath }
-        return own + (layer.sublayers ?? []).flatMap { keyPaths(under: $0) }
+        return own + ((layer.sublayers ?? []) + [layer.mask].compactMap { $0 }).flatMap { keyPaths(under: $0) }
     }
 
     /// The row's hover buttons, by name.
