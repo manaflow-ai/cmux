@@ -21,7 +21,7 @@ extension SidebarBridge {
 @MainActor
 enum SidebarCardFeed {
     static let updateCardID = "update"
-    /// Tip notices are `tip:<tip id>`; their one button is `try`.
+    /// Tip notices are `tip:<tip id>`; their one button is `try`, their x's menu `UpdaterService.tipMenu`.
     static let tipPrefix = "tip:"
     static let tryActionID = "try"
     static let testFeedCardID = "test-feed"
@@ -105,7 +105,7 @@ enum SidebarCardFeed {
 
     /// A notice button: the update status's actions (Release Notes is a
     /// link `open` shows like a popover link), Use Real Feed, an
-    /// announcement's allow-listed Try It, a tip's Try It.
+    /// announcement's allow-listed Try It, a tip's Try It and its x's menu.
     static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
         if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
             if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
@@ -117,8 +117,8 @@ enum SidebarCardFeed {
             try? updater.useTestFeed(nil, pinned: false)
         } else if card.hasPrefix(announcementPrefix), PageDescriptor.changelogTryItActions.contains(action) {
             updater.runAllowListedAction?(action)
-        } else if card.hasPrefix(tipPrefix), action == tryActionID {
-            updater.tryTip(String(card.dropFirst(tipPrefix.count)))
+        } else if card.hasPrefix(tipPrefix) {
+            updater.tipCardAction(String(card.dropFirst(tipPrefix.count)), action)
         }
     }
 
@@ -157,8 +157,8 @@ enum SidebarCardFeed {
         guard let tip = updater.tip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
-                                 shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)),
-                                 dismissLabel: UpdaterService.tipDismissLabel)
+                                 shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,
+                                 dismissMenu: UpdaterService.tipMenu.map { SidebarNoticeCard.Action(id: $0.id, title: $0.title) })
     }
 
     /// The update status as a notice: one model (``UpdateCard``), its icon,

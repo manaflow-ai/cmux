@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4b9bc99896a9c6585d4e2de8475a1e113c24647f97621137f5dbd1b95c4df84f",
-      "size": 68630
+      "sha256": "c7f2dd71413592ea07571866a331ebcdb785ef0693a4e64eccfc34d2cb27a5d6",
+      "size": 68976
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1097,8 +1097,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "22fec22ca49331a0be92cb8c5d9782483e3376c67b59eab35e90e75a49f3df7c",
-      "size": 59854
+      "sha256": "68f6a7957092ef21d6250ad3864f6e09d9a54f79fb36b56786b5a78095e2bd16",
+      "size": 60075
     },
     {
       "path": "GetBlobRequest.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9128da12e32e4df9e51e0cf4008ea48046024510ad70d89c0c729006a0220a25",
+      "sha256": "8c8fd83a3b81abff530ae94c6c00abd20459d616b6d4c48d3dcb97691ea032cf",
       "size": 6393
     },
     {
@@ -2237,8 +2237,8 @@
     },
     {
       "path": "SetPersonalWorkspaceRequest.java",
-      "sha256": "88d2e4bb172507add225cd5cbce9b6f1c00a5a0259dd32890fef5c2edd77e4cd",
-      "size": 5707
+      "sha256": "80cbd34d585964edf70dde0cbba78d687adb623f050ad80597ce88284aa472da",
+      "size": 6531
     },
     {
       "path": "SetProfileFollowsRequest.java",
@@ -2264,6 +2264,11 @@
       "path": "SetScreenPinnedRequest.java",
       "sha256": "db8f87159e8c9e2929324e5befd1ad65afeacac7894d90704bd93985a1a72491",
       "size": 2711
+    },
+    {
+      "path": "SetSessionIconRequest.java",
+      "sha256": "fe3e3cc63f28645f6e51450f7ea340fe42532bf7e68cc5ace1caf0f70cb1a09b",
+      "size": 2831
     },
     {
       "path": "SetSizeCountsRequest.java",
@@ -3012,7 +3017,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "f850a4916cbca6e8f4aa52405f0158f7b84f3eccedcb12d07d4e37dfb15f0548",
+  "ir_sha256": "374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

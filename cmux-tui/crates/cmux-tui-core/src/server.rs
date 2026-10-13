@@ -89,9 +89,11 @@ use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
     Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
-    PairingDecision, PaneId, Rgb, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
-    TerminalColors, TreeDecorations, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
+    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind, TreeDecorations,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
+#[cfg(test)]
+use crate::{Rgb, TerminalColors};
 #[cfg(test)]
 use ghostty_vt::KeyInput;
 
@@ -1729,6 +1731,8 @@ enum Command {
         #[serde(default)]
         force: bool,
     },
+    /// Set or clear a session's (machine's) icon (`session-icon-v1`).
+    SetSessionIcon(personal::SetSessionIconParams),
     /// One-time copy of a remote session's shared groups and order.
     ImportSessionOrganization {
         session_id: String,
@@ -1780,6 +1784,9 @@ enum Command {
         browser_profile_id: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         theme: Option<Option<String>>,
+        /// `personal-remote-localhost-v1`; null clears.
+        #[serde(default, deserialize_with = "present_nullable")]
+        remote_localhost: Option<Option<bool>>,
     },
     /// Set or clear (null) the own theme of a session-qualified terminal.
     SetPersonalTerminal {
@@ -2862,45 +2869,8 @@ fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
-fn color_hex(color: Option<Rgb>) -> Option<String> {
-    color.map(|color| format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b))
-}
-
-fn terminal_colors_json(colors: TerminalColors, include_overrides: bool) -> Value {
-    let cursor_style = colors.cursor_style.map(|style| match style {
-        ghostty_vt::CursorShape::Bar => "bar",
-        ghostty_vt::CursorShape::Underline => "underline",
-        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
-    });
-    let palette = colors
-        .palette
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, color)| {
-            color_hex(color).map(|color| (index.to_string(), Value::String(color)))
-        })
-        .collect::<serde_json::Map<String, Value>>();
-    let mut value = json!({
-        "fg": color_hex(colors.fg),
-        "bg": color_hex(colors.bg),
-        "cursor": color_hex(colors.cursor),
-        "selection_bg": color_hex(colors.selection_bg),
-        "selection_fg": color_hex(colors.selection_fg),
-        "palette": palette,
-        "cursor_style": cursor_style,
-        "cursor_blink": colors.cursor_blink,
-    });
-    // Older generated SDKs reject unknown fields. Only viewers that opted in
-    // before attaching receive the additional provenance object.
-    if include_overrides {
-        value["overrides"] = json!({
-            "fg": color_hex(colors.fg_override),
-            "bg": color_hex(colors.bg_override),
-            "cursor": color_hex(colors.cursor_override),
-        });
-    }
-    value
-}
+mod terminal_colors;
+use terminal_colors::terminal_colors_json;
 
 mod render_messages;
 use render_messages::{
@@ -3600,6 +3570,7 @@ fn handle_command_with_cancellation(
         Command::ForgetSession { session_id, force } => {
             cmd_profiles::forget_session(mux, session_id, force)
         }
+        Command::SetSessionIcon(params) => personal::set_session_icon(mux, params),
         Command::ImportSessionOrganization { session_id, groups, workspaces } => {
             cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
         }
@@ -3615,22 +3586,9 @@ fn handle_command_with_cancellation(
         Command::MovePersonalGroup { group, index } => {
             cmd_profiles::move_personal_group(mux, group, index)
         }
-        Command::SetPersonalWorkspace {
-            session_id,
-            workspace_key,
-            index,
-            group,
-            browser_profile_id,
-            theme,
-        } => cmd_profiles::set_personal_workspace(
-            mux,
-            session_id,
-            workspace_key,
-            index,
-            group,
-            browser_profile_id,
-            theme,
-        ),
+        command @ Command::SetPersonalWorkspace { .. } => {
+            cmd_profiles::set_personal_workspace(mux, command)
+        }
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
             cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
         }
@@ -3780,7 +3738,6 @@ fn handle_command_with_cancellation(
     }
 }
 
-/// Validate the start options of a placement command.
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {

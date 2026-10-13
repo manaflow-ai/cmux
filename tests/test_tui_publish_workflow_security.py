@@ -368,10 +368,12 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
     # A pull request's merge tree has no publisher of its own: a same-repository
-    # PR's probe dispatches one; a fork PR's never does.
+    # PR's probe dispatches one; a fork PR's never does. The scheduled DEV run
+    # (a workflow_dispatch with dev_daily) dispatches its cold tree too.
     dispatch_gate = (
-        "${{ github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}"
+        "${{ (github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository || "
+        "github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}"
     )
     assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
@@ -2022,35 +2024,16 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
-def test_windows_cargo_cache_is_push_only() -> None:
-    # Chief decision 2026-10-12 (trust note on #13742): published binaries may build from a cargo
-    # cache, but a pull_request_target run builds pull request code and must neither read nor
-    # write that cache. Every cache step of the Windows job is gated on a push event, and no
-    # other cache use exists there.
+def test_package_workflow_uses_no_shared_build_cache() -> None:
+    # Chief decision 2026-10-12 (#13742): the push-only Windows cargo cache was removed. A
+    # pull_request_target job runs pull request code in the base branch's cache scope and gets a
+    # runtime token that can write cache entries, so a cache that published binaries read is a
+    # supply-chain risk. No job of the package workflow may use actions/cache. A later cache needs
+    # a separate, write-protected scope that only release builds can write.
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    cache_steps = [s for s in steps if "actions/cache" in str(s.get("uses", ""))]
-    assert {s["name"] for s in cache_steps} == {
-        "Restore the Windows cargo cache (push builds only)",
-        "Save the Windows cargo cache (push builds only)",
-    }
-    for step in cache_steps:
-        condition = str(step.get("if", ""))
-        assert condition.startswith("github.event_name == 'push'"), step["name"]
-        assert "pull_request" not in condition
-        assert "||" not in condition, step["name"]
-        assert "-push-" in str(step["with"]["key"]) or "cache-primary-key" in str(step["with"]["key"])
-    restore = next(s for s in cache_steps if s["name"].startswith("Restore"))
-    assert "actions/cache/restore@" in restore["uses"]
-    assert all(line.startswith("cmux-tui-win-gnu-push-") for line in str(restore["with"]["restore-keys"]).split())
-    # The save step runs after the build and before any test or smoke step adds outputs.
-    names = [s.get("name") for s in steps]
-    assert names.index("Save the Windows cargo cache (push builds only)") == names.index(
-        "Build libghostty-vt + cmux-tui (Windows GNU)") + 1
-    # No other job of the package workflow uses a cache (pull request builds run them all).
     for name, job in jobs.items():
-        if name == "build-windows" or not isinstance(job, dict):
+        if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
             assert "actions/cache" not in str(step.get("uses", "")), name
