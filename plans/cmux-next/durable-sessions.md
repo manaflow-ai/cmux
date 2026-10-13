@@ -9,7 +9,7 @@ which makes this plan a precondition), cmux-tui/spec/terminal-host.md, docs/clou
 
 ## 1. Today's truth
 
-Processes on a Mac: the app; the cmux-tui daemon (`cmux-tui --headless --session cmux-app[-tag]`),
+Processes on a Mac: the app; the cmux-tui daemon (`cmux-tui --headless --session cmux-app[-tag|-channel]`),
 started by `server ensure`, which spawns it with `setsid` and exits (`cmux-tui/src/local_owner.rs:447-520`);
 one `__terminal-host` process per PTY, spawned by the daemon with `setsid`
 (`cmux-tui-core/src/terminal_host_runtime.rs:1955-1981`); acpmux (`acpmux daemon run --ready-fd 3`),
