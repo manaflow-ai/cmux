@@ -199,7 +199,11 @@ impl SessionFold {
                     // A prompt while a turn is open (an older log without its
                     // end) closes that turn where the new one starts.
                     if let Some(start) = self.open.take() {
-                        self.turns.push(Turn { start: Some(start), end: at, status: TurnStatus::Completed });
+                        self.turns.push(Turn {
+                            start: Some(start),
+                            end: at,
+                            status: TurnStatus::Completed,
+                        });
                     }
                     self.open = Some(at);
                     if self.in_range(at) {
@@ -226,7 +230,9 @@ impl SessionFold {
                 if self.open.is_some() {
                     let status = if record.kind == "turn_error" {
                         TurnStatus::Failed
-                    } else if record.msg.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
+                    } else if record.msg.get("stopReason").and_then(Value::as_str)
+                        == Some("cancelled")
+                    {
                         TurnStatus::Cancelled
                     } else {
                         TurnStatus::Completed
@@ -307,7 +313,11 @@ impl SessionFold {
         if let Some(start) = self.open.take()
             && live
         {
-            self.turns.push(Turn { start: Some(start), end: self.options.until, status: TurnStatus::Running });
+            self.turns.push(Turn {
+                start: Some(start),
+                end: self.options.until,
+                status: TurnStatus::Running,
+            });
         }
         if let Some(since) = self.waiting_since.take()
             && live
@@ -356,7 +366,9 @@ impl Fold {
     }
 
     fn day(&mut self, day: i64) -> &mut DayStats {
-        self.days.entry(day).or_insert_with(|| DayStats { day: civil_date(day), ..DayStats::default() })
+        self.days
+            .entry(day)
+            .or_insert_with(|| DayStats { day: civil_date(day), ..DayStats::default() })
     }
 
     fn add(&mut self, meta: &SessionMeta, session: SessionFold) {

@@ -34,12 +34,24 @@ struct Log<'a> {
 impl Log<'_> {
     fn push(&mut self, at: u64, dir: &str, kind: &str, msg: Value) {
         self.seq += 1;
-        let record = EventRecord { seq: self.seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq: None };
+        let record = EventRecord {
+            seq: self.seq,
+            at,
+            dir: dir.into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
         self.store.append(&self.id, &record).unwrap();
     }
 
     fn prompt(&mut self, at: u64) {
-        self.push(at, "mux", "user_message", json!({"text": "secret prompt text", "promptId": "p"}));
+        self.push(
+            at,
+            "mux",
+            "user_message",
+            json!({"text": "secret prompt text", "promptId": "p"}),
+        );
     }
 
     fn started(&mut self, at: u64) {
@@ -169,7 +181,9 @@ fn ranges_clip_and_old_sessions_are_skipped() {
     edge.prompt(DAY0 - HOUR);
     edge.started(DAY0 - HOUR);
     edge.result(DAY0 + HOUR, "completed");
-    let s = summarize(&store, &StatsOptions { since: DAY0, until: DAY0 + DAY, tz_offset_minutes: 0 }).unwrap();
+    let s =
+        summarize(&store, &StatsOptions { since: DAY0, until: DAY0 + DAY, tz_offset_minutes: 0 })
+            .unwrap();
     assert_eq!(s.sessions, 1);
     assert_eq!(s.working_ms, HOUR);
 }
@@ -185,9 +199,13 @@ fn days_hours_and_streaks_follow_the_callers_offset() {
         log.started(at);
         log.result(at + 10 * MIN, "completed");
     }
-    let pacific = StatsOptions { since: DAY0 - DAY, until: DAY0 + 3 * DAY, tz_offset_minutes: -8 * 60 };
+    let pacific =
+        StatsOptions { since: DAY0 - DAY, until: DAY0 + 3 * DAY, tz_offset_minutes: -8 * 60 };
     let s = summarize(&store, &pacific).unwrap();
-    assert_eq!(s.days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(), ["2026-10-12", "2026-10-13", "2026-10-14"]);
+    assert_eq!(
+        s.days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(),
+        ["2026-10-12", "2026-10-13", "2026-10-14"]
+    );
     assert_eq!(s.hours[15], 30 * MIN);
     assert_eq!((s.streak.current, s.streak.longest), (3, 3));
     // The same turns at UTC fall on the same three dates.

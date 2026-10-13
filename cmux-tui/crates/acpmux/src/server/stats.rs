@@ -12,7 +12,11 @@ use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use crate::stats::StatsOptions;
 
-pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn handle(
+    hub: &Arc<Hub>,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
     if !matches!(origin, Origin::Local | Origin::LocalApp) {
         return Err(RpcError::method_not_found(method::MUX_STATS));
     }
