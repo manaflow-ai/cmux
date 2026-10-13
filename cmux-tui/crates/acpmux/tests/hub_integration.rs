@@ -22,6 +22,8 @@ mod questions;
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/session_offers.rs"]
+mod session_offers;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
@@ -1488,7 +1490,6 @@ mod quit_spawn;
 
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
-
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]

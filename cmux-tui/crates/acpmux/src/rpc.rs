@@ -293,6 +293,10 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
+    /// the person accepts or dismisses with `offer_respond`.
+    pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
+    pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
