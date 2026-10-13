@@ -27,6 +27,8 @@ public actor AgentSessionAttachClient {
     private var closed = false
     /// The connected daemon serves `agent-session-start-v1` (read from its own `identify`).
     private var servesStart = false
+    /// The connected daemon serves `agent-session-trust-v1`.
+    private var servesTrust = false
 
     /// `surface`: the tab's surface id in the daemon's store.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), endpoint: @escaping EndpointProvider) {
@@ -63,6 +65,19 @@ public actor AgentSessionAttachClient {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
         }
         return session
+    }
+
+    /// `agent-session-trust` (`agent-session-trust-v1`): the trust of `cwd` on the daemon's machine
+    /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
+    /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
+    public func trust(cwd: String, level: String?) async throws -> Data {
+        _ = try await liveTransport()
+        guard servesTrust else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
+        }
+        var params: [String: any Sendable] = ["cwd": cwd]
+        if let level { params["level"] = level }
+        return try await call("agent-session-trust", params)
     }
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
@@ -172,6 +187,7 @@ public actor AgentSessionAttachClient {
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: "the daemon does not serve agent session attach")
             }
             servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
+            servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: "cmux-next agent attach", kind: "agent-session-attach", capabilities: []),
                 on: transport, timeout: requestTimeout)

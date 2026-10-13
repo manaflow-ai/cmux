@@ -8173,8 +8173,9 @@ letters, digits or `_`, `.`, `-`); `cwd` is an absolute folder (at most 4096
 bytes; acpmux checks that it exists). The folder must already be trusted on
 this machine (acpmux's folder trust decision, else the agent's own level for
 Claude and Codex), checked before the agent starts and again for the family
-it runs; otherwise `agent_session.untrusted_folder` (the remote side cannot
-answer the trust question; the user answers it on the machine). There is no command, env, policy, mode,
+it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
+the trust question; the person answers it on the machine or through
+`agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; an unknown param is
 `agent_session.bad_request`. The daemon's machine decides first, from its
 own identity read at each start and never from the request: on a Cloud VM, a
@@ -8200,6 +8201,27 @@ folder-trust checks repeat acpmux's remote rules; its remote approval floor,
 sandbox, folder-profile refusal and agent tools rules do not apply, and later
 prompts and permission answers through the attach verbs are local control
 (plans/cmux-next/remote-agent-attach.md, "Remote start").
+
+### agent-session-trust
+
+`agent-session-trust-v1`: `{id, cmd:"agent-session-trust", surface, cwd, level?}`
+reads or records the trust of a folder of this machine for a chat of this
+store (cx-1bhjj), so a chat that `agent-session-start` refused with
+`agent_session.untrusted_folder` starts once the person trusts the folder.
+Without `level` it answers acpmux's `acp.trust.get {cwd}` reply
+(`{cwd, level, harnesses?, decided?}`); with `level` (`trusted`, `untrusted`
+or `unknown`, which forgets the answer) it answers acpmux's
+`acp.trust.set {cwd, level}` reply. Any other level, a `cwd` that is not
+absolute (at most 4096 bytes, no control characters) or an unknown param is
+`agent_session.bad_request`; acpmux checks that the folder exists. The tab
+must be an `agent_session` tab of this store whose `host` names this store
+(bound or not), else `agent_session.unknown_tab`; the machine kind gate,
+the trusted local connection rule and the acpmux start are those of
+`agent-session-start`. The daemon never answers by itself: a client sends a
+`level` only for the person's own answer (the app's agent pane relay needs
+a fresh gesture for a set that trusts, as for a chat on the Mac's own
+acpmux). acpmux takes it as from a unix client (the person's own CLI);
+a WebSocket client of acpmux still cannot answer (`trust.remote`).
 
 ## Agent chat transfer
 

@@ -236,7 +236,7 @@ fn run(
 }
 
 /// A link to acpmux, starting it once when nothing listens.
-fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
@@ -271,8 +271,8 @@ fn start_and_bind(
     }
     // The folder must be trusted before an agent starts there (an agent can
     // run the folder's own hooks and settings at start); this daemon reaches
-    // acpmux over its unix socket, which acpmux's trust gate does not hold,
-    // and the remote side can never answer the question.
+    // acpmux over its unix socket, which acpmux's trust gate does not hold;
+    // only the person answers it (`agent-session-trust`, from the app).
     let trust = link
         .call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
