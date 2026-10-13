@@ -306,18 +306,13 @@ public enum HermesAgentHookConfig {
             .drop(while: { $0 == " " || $0 == "\t" })
             .dropFirst("- command:".count)
             .trimmingCharacters(in: .whitespaces)
-        if !commandValue.hasPrefix("|") && !commandValue.hasPrefix(">") {
-            return commandValue.range(of: "cmux", options: .caseInsensitive) != nil
-        }
+        if commandValue.range(of: "cmux", options: .caseInsensitive) != nil { return true }
 
         let commandIndex = item.firstIndex(of: commandLine) ?? item.startIndex
-        let commandIndent = leadingWhitespace(commandLine).count
+        // A scalar continues deeper than the mapping fields after the list dash.
+        let fieldIndent = leadingWhitespace(commandLine).count + 2
         let continuation = item[item.index(after: commandIndex)...].prefix {
-            let trimmed = $0.trimmingCharacters(in: .whitespaces)
-            guard !["matcher:", "timeout:", "requires_env:"].contains(where: trimmed.hasPrefix) else {
-                return false
-            }
-            return leadingWhitespace($0).count > commandIndent
+            !isSignificantLine($0) || leadingWhitespace($0).count > fieldIndent
         }
         return continuation.contains { $0.range(of: "cmux", options: .caseInsensitive) != nil }
     }
