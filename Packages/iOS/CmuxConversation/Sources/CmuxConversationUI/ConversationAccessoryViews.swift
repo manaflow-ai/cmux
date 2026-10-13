@@ -16,7 +16,10 @@ final class ConversationAvatarView: UIView {
         super.init(frame: frame)
         layer.addSublayer(gradient)
         layer.addSublayer(monogram)
-        clipsToBounds = true
+        // The disc clips itself: a rounded view clipping its sublayers
+        // renders them offscreen every frame it moves (scrolling), a rounded
+        // leaf layer does not. The initials sit well inside the circle.
+        gradient.masksToBounds = true
         isAccessibilityElement = false
         // Decorative: the sender is spoken in the bubble, the header has its own button.
         accessibilityElementsHidden = true
@@ -58,8 +61,13 @@ final class ConversationAvatarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // The view's radius shapes a border set on it (header cluster).
         layer.cornerRadius = bounds.width / 2
-        gradient.frame = bounds
+        // Under a border the disc stops mid-border, so its own edge never
+        // tints the border's outer edge.
+        let inset = layer.borderWidth / 2
+        gradient.frame = bounds.insetBy(dx: inset, dy: inset)
+        gradient.cornerRadius = gradient.frame.width / 2
         monogram.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         monogram.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
         monogram.fontSize = bounds.width * ConversationTheme.monogramFontScale
