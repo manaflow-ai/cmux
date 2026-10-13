@@ -888,7 +888,10 @@ struct CLICoderouterAliasTests {
         try writeExecutable(
             """
             #!/bin/sh
-            if (: <&0) 2>/dev/null; then
+            # With descriptor 0 closed, sh opens this script on it, so a plain
+            # `<&0` probe always succeeds. Stdin is open only when descriptor 0
+            # exists and is not this script.
+            if [ -e /dev/fd/0 ] && ! [ /dev/fd/0 -ef "$0" ]; then
               printf 'stdin-open\\n'
               exit 91
             fi
@@ -971,7 +974,7 @@ struct CLICoderouterAliasTests {
     @Test("only exact top-level agent names use socket handoff")
     func routedCommandClassificationIsExact() throws {
         #expect(launchPolicy.commandRequiresHandoff(["codex"]))
-        #expect(launchPolicy.commandRequiresHandoff(["add", "codex"]))
+        #expect(!launchPolicy.commandRequiresHandoff(["add", "codex"]))
         #expect(launchPolicy.commandRequiresHandoff(["opencode", "--help"]))
         #expect(launchPolicy.commandRequiresHandoff(["pi", "arg"]))
         #expect(!launchPolicy.commandRequiresHandoff([]))
