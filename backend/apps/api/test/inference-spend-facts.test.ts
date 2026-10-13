@@ -134,8 +134,15 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     const { t, team, user } = await paidPerson("spend-facts-kept")
     fakeProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "kept" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000004 } }))
     expect((await chat(t)).status).toBe(200)
-    // The alarm 40 days later prunes old dedupe keys; the call's money fact stays.
-    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => m.onWake(Date.now() + 40 * 86_400_000))
+    const stub = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    await stub.record(team, [{ key: "step:run_kept:s1", meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now() }])
+    // The alarm 40 days later prunes old dedupe keys (the step row); the call's money fact stays.
+    let steps = -1
+    await inDO(stub, async (m) => {
+      await m.onWake(Date.now() + 40 * 86_400_000)
+      steps = Number(m.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM usage_ledger WHERE meter = 'automation.steps'`).one().n)
+    })
+    expect(steps).toBe(0)
     const c = await counters(t, team, user)
     expect(c.facts).toHaveLength(1)
     expect(c.facts[0]).toMatchObject({ user, quantity: 0.000004, source: "coderouter" })

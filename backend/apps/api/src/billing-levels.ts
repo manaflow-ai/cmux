@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts"
-import { timingSafeEqual } from "./ingress/verify.ts"
+import { readRawBody, timingSafeEqual } from "./ingress/verify.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
 
 /**
@@ -38,7 +38,8 @@ const parseItem = (env: Env, raw: unknown): Item | string => {
     return { team: stackTeamIdFor(env.STACK_PROJECT_ID, id), stack_team: id, from, to }
   }
   if (typeof r.stack_user === "string" && r.stack_team === undefined && STACK_ID.test(r.stack_user)) {
-    const id = normalId(r.stack_user)
+    // As auth.ts derives the user id: the token subject exactly as the sign-in service issues it.
+    const id = r.stack_user
     return { team: personalTeamIdFor(userIdFor(env.STACK_PROJECT_ID, id)), stack_user: id, from, to }
   }
   return "each item names exactly one of stack_team or stack_user"
@@ -50,12 +51,11 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
   const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "")
   if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
-  if (Number(request.headers.get("content-length") ?? "0") > MAX_BODY) return json({ error: "body too large" }, 413)
-  const text = await request.text()
-  if (text.length > MAX_BODY) return json({ error: "body too large" }, 413)
+  const raw = await readRawBody(request, MAX_BODY)
+  if (!raw.ok) return json({ error: raw.message }, raw.status)
   let body: { items?: unknown }
   try {
-    body = JSON.parse(text) as { items?: unknown }
+    body = JSON.parse(raw.text) as { items?: unknown }
   } catch {
     return json({ error: "body must be JSON" }, 400)
   }
@@ -72,7 +72,10 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
       const l = await meter.level(item.team, item.from, item.to)
       return { ...item, micros: l.micros, facts: l.facts, last_at: l.last_at, price_version: AI_PRICE_VERSION }
     })
-  ).catch(() => null)
+  ).catch((e: unknown) => {
+    console.error(JSON.stringify({ msg: "billing.levels.meter_failed", error: String(e).slice(0, 160) }))
+    return null
+  })
   if (!levels) return json({ error: "a usage meter is unavailable; retry", retryable: true }, 503)
   return json({ levels, read_at: Date.now() })
 }

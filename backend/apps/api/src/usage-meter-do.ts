@@ -55,6 +55,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,
       run TEXT, automation TEXT, step TEXT, attempt INTEGER, commit_sha TEXT, observed_at INTEGER NOT NULL, recorded_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_recorded ON usage_ledger (recorded_at)`)
+    // Per meter: the prune's oldest row per retention, its deletes and the billing level (S2 review P2-1).
+    ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_meter_recorded ON usage_ledger (meter, recorded_at)`)
     // A fact names its member, and a correction names the fact it corrects (cx-y79zh S1); older objects get the columns.
     const ledgerCols = new Set(ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_ledger)`).toArray().map((c) => c.name))
     if (!ledgerCols.has("user")) ctx.storage.sql.exec(`ALTER TABLE usage_ledger ADD COLUMN user TEXT`)
@@ -237,10 +239,12 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
 
   protected override nextWakeAt(): number | null {
     const sql = this.ctx.storage.sql
-    const oldest = (money: boolean) => sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE (meter = 'model.spend_usd') = ?`, money ? 1 : 0).toArray()[0]?.at
+    // One index probe per meter (usage_ledger_meter_recorded); a handful of meters.
+    const oldest = sql.exec<{ meter: string; at: number }>(`SELECT meter, MIN(recorded_at) AS at FROM usage_ledger GROUP BY meter`).toArray()
     // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-    const due = (at: number | null | undefined, keep: number) => (at === null || at === undefined ? null : Number(at) + keep + 3600_000)
-    const times = [due(oldest(false), USAGE_KEY_RETENTION_MS), due(oldest(true), BILLABLE_FACT_RETENTION_MS), nextUserWake(sql)].filter((t): t is number => t !== null)
+    const times = oldest.map((r) => Number(r.at) + (r.meter === "model.spend_usd" ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+    const reservations = nextUserWake(sql)
+    if (reservations !== null) times.push(reservations)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -257,7 +261,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * amount is our cost (AI_PRICE_VERSION). The reconcile worker sends this level, never deltas.
    */
   async level(entity: string, from: number, to: number): Promise<{ micros: number; facts: number; last_at: number | null }> {
-    this.bind(entity)
+    // A team that never used the meter has no facts; a read does not bind (create) its object (S2 review P3).
+    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null }
     const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
       `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at >= ? AND recorded_at < ?`,
       from, to

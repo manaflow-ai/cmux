@@ -19,6 +19,21 @@ S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/us
 the call's fact and every counter in one transaction, on the charged path too; the proof is
 `backend/apps/api/test/inference-spend-facts.test.ts` at the route.
 
+S2 (period levels, billable fact retention): money facts are kept 400 days, count-meter dedupe keys
+35 days; `POST /v1/internal/billing/levels` (BILLING_LEVELS_KEY) and `UsageMeterDO.level` sum the
+facts by `recorded_at` in [from, to). Decision (S2 review P2-2): the bill's period is the fact's
+recording time, not its `month` column. A call reserved at 23:59 on the last day of a month and
+settled (or expired) after midnight counts in the old UTC month for the member limit and in the
+new billing period on the invoice. A closed period's level never changes after the period ends. The
+daily counter check compares `user_month`/`usage_month` with facts grouped by the `month` column.
+
+Placement (lane lead 2026-10-13, after Lawrence's "no main merge without his yes"): the pusher is in
+the cmux-next API Worker (option a), with its own test-mode Stripe key; it reads the team link from
+Stripe subscription metadata (stackTeamId / stackUserId) and needs no web database or main change.
+
+Live decisions for Lawrence (add to the live step list):
+- Team included amount: per team or per seat (per seat means the pusher subtracts it and the price is flat).
+
 Support note (S1 behavior change): the team cap now counts charged failures (the provider may have
 billed, so the full reservation is charged) and expired reservations (a call that never settled is
 charged at its reserved amount, and corrected if the real cost arrives later). Before S1 the team cap

@@ -37,6 +37,7 @@ export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { BILLING_LEVELS_PATH, handleBillingLevels } from "./billing-levels.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -191,7 +192,7 @@ export default {
     if (url.pathname === "/v1/hooks/sendblue") return handleSendblueHook(request, env)
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
     // The usage reconcile worker's period levels (service key; cx-y79zh S2).
-    if (url.pathname === "/v1/internal/billing/levels") return (await import("./billing-levels.ts")).handleBillingLevels(request, env)
+    if (url.pathname === BILLING_LEVELS_PATH) return handleBillingLevels(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
