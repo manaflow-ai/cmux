@@ -6,19 +6,27 @@ import Foundation
 /// daemon's workspace/tab mirror. The census is refreshed only while the relaunch gate asks for
 /// it, so an idle app does not poll the agent daemon.
 @MainActor
-final class UpdateAgentActivity {
+public final class UpdateAgentActivity {
     private let environment: AcpmuxEnvironment?
     private var chiefInTurn: Bool?
     private var refreshedAt: Date?
     private var refreshTask: Task<Void, Never>?
 
-    init(environment: AcpmuxEnvironment?) {
+    /// Creates a census-backed relaunch safety coordinator.
+    ///
+    /// - Parameter environment: the local acpmux environment, or `nil` when no acpmux daemon is
+    ///   available to protect.
+    public init(environment: AcpmuxEnvironment?) {
         self.environment = environment
         // No acpmux environment means this app has no Home Chief to protect.
         self.chiefInTurn = environment == nil ? false : nil
     }
 
-    func applying(to blockers: UpdateRelaunchBlockers) -> UpdateRelaunchBlockers {
+    /// Adds Home Chief activity to a daemon relaunch snapshot, conservatively holding unknown state.
+    ///
+    /// - Parameter blockers: the tab and input blockers already collected by the daemon service.
+    /// - Returns: the blockers with the Home Chief turn included when known.
+    public func applying(to blockers: UpdateRelaunchBlockers) -> UpdateRelaunchBlockers {
         guard environment != nil else { return blockers }
         refreshIfNeeded()
         var result = blockers
