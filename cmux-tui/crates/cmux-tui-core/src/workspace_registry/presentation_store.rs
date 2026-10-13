@@ -1139,22 +1139,11 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
-    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
-    pub fn update_frontend_browser(
-        &mut self,
-        browser_id: &str,
-        url: Option<&str>,
-        title: Option<&str>,
-        favicon_url: Option<Option<&str>>,
-    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
-        self.update_frontend_browser_with_profile(browser_id, url, title, favicon_url, None)
-    }
-
     /// Update a frontend browser's location, presentation, or browser
-    /// profile. `Some(None)` clears the profile; `None` leaves it unchanged.
-    pub fn update_frontend_browser_with_profile(
+    /// profile. `None` leaves a field unchanged; `Some(None)` clears a
+    /// nullable field. The owner changes only on the state commit path
+    /// (`Mux::commit_browser_owner`).
+    pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
         url: Option<&str>,

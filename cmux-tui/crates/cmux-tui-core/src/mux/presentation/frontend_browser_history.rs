@@ -74,7 +74,7 @@ impl Mux {
         }
         let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            let result = registry.update_frontend_browser_with_profile(
+            let result = registry.update_frontend_browser(
                 browser_id.as_str(),
                 url.as_deref(),
                 title.as_deref(),
