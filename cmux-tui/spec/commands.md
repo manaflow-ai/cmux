@@ -2022,10 +2022,11 @@ error and creates nothing. Without a key every request creates a tab and
 | status | implemented |
 | since | protocol 12 additive extension; capability `frontend-browser-tabs-v1` |
 
-Records the URL, title, or favicon a frontend-rendered browser reports. An
-absent field is unchanged and `favicon_url:null` clears the favicon. A change
-persists durably and emits `title-changed` (when the title changed) and
-`tab-changed`. Fails for a tab that is not frontend-rendered.
+Records the URL, title, favicon, or browser profile a frontend-rendered browser
+reports. An absent field is unchanged and `favicon_url:null` or
+`profile_id:null` clears the corresponding value. A change persists durably and
+emits `title-changed` (when the title changed) and `tab-changed`. Fails for a
+tab that is not frontend-rendered.
 
 Params:
 
@@ -2035,12 +2036,13 @@ Params:
 | `url` | string | optional | As in `new-frontend-browser-tab` |
 | `title` | string | optional | As in `new-frontend-browser-tab` |
 | `favicon_url` | string or null | optional | As `url`; null clears |
+| `profile_id` | string or null | optional | As in `new-frontend-browser-tab`; null clears |
 | `owner` | string | optional | As in `new-frontend-browser-tab` |
 
 Result:
 
 ```text
-object{surface:Id, url:string, title:string|null, favicon_url:string|null, owner:string|null, changed:bool}
+object{surface:Id, url:string, title:string|null, favicon_url:string|null, profile_id:string|null, owner:string|null, changed:bool}
 ```
 
 ### restart-tab
