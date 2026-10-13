@@ -68,9 +68,9 @@ const counters = async (t: string, team: string, user: string) => {
   const summary = await post("/v1/read", t, { op: "usage.summary", params: {} })
   const model = summary.value.meters.find((m: any) => m.meter === "model.spend_usd")
   const spends = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any).userSpends(team, [user])
-  let facts: Array<{ key: string; quantity: number; source: string }> = []
+  let facts: Array<{ key: string; user: string | null; quantity: number; source: string }> = []
   await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
-    facts = m.ctx.storage.sql.exec(`SELECT key, quantity, source FROM usage_ledger WHERE meter = 'model.spend_usd'`).toArray()
+    facts = m.ctx.storage.sql.exec(`SELECT key, user, quantity, source FROM usage_ledger WHERE meter = 'model.spend_usd'`).toArray()
   })
   return { team_usd: model.usd as number, member_usd: spends[user] as number, facts }
 }
@@ -87,7 +87,7 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect(r.status).toBe(200)
     const c = await counters(t, team, user)
     expect(c.facts).toHaveLength(1)
-    expect(c.facts[0]).toMatchObject({ quantity: 0.000012, source: "coderouter" })
+    expect(c.facts[0]).toMatchObject({ user, quantity: 0.000012, source: "coderouter" })
     expect(c.member_usd).toBeCloseTo(0.000012, 9)
     expect(c.team_usd).toBeCloseTo(0.000012, 9)
   })
@@ -99,7 +99,7 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect(r.status).toBe(502)
     const c = await counters(t, team, user)
     expect(c.facts).toHaveLength(1)
-    expect(c.facts[0]).toMatchObject({ source: "coderouter" })
+    expect(c.facts[0]).toMatchObject({ user, source: "coderouter" })
     expect(c.member_usd).toBeGreaterThan(0)
     // Before S1 the team counter stayed at 0 here: the member and the team disagreed.
     expect(c.team_usd).toBeCloseTo(c.member_usd, 6)
