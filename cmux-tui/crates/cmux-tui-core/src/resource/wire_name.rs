@@ -235,6 +235,7 @@ impl ResourceOperation {
             Self::TabUpdate => "tab.update",
             Self::TabGroupAddTabs => "tab_group.add_tabs",
             Self::TabGroupClose => "tab_group.close",
+            Self::LayoutBulk => "layout.bulk",
             Self::TabGroupCreate => "tab_group.create",
             Self::TabGroupGet => "tab_group.get",
             Self::TabGroupList => "tab_group.list",
