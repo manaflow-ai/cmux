@@ -49,7 +49,6 @@ elif ".sha256" in url:
 
 FAKE_SLEEP = """#!/bin/sh
 echo "sleep $*" >> "$FAKE_LOG"
-exit 99
 """
 
 FAKE_CLAIM = """#!/bin/sh
@@ -126,8 +125,8 @@ def run_wait(owner, **fake):
 
 def main():
     result, out, log = run_wait("4")
-    _check(result.returncode == 0 and "takeover=false" in out and "sleep" not in log,
-           f"a live owner and an unpublished tree: no build and no waiting ({result.returncode}, {out.strip()!r}, {log.strip()!r})")
+    _check(result.returncode == 0 and "takeover=false" in out and "sleep" not in log and "claim" not in log,
+           f"a live owner and an unpublished tree: no build, no waiting and no claim ({result.returncode}, {out.strip()!r}, {log.strip()!r})")
 
     result, out, log = run_wait("4", FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure",
                                 FAKE_CLAIM_RESULT="owner=5 granted=true")
@@ -145,8 +144,8 @@ def main():
 
     result, out, log = run_wait("4", FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure",
                                 FAKE_CLAIM_RESULT="owner=4 granted=false")
-    _check(result.returncode == 0 and "takeover=true" in out,
-           f"a claim that still names the ended owner does not strand the key ({out.strip()!r})")
+    _check(result.returncode == 0 and "takeover=true" in out and log.count("claim ") == 2,
+           f"a claim that still names the ended owner is asked again, then does not strand the key ({out.strip()!r}, {log.strip()!r})")
 
     result, out, log = run_wait("4")
     _check("deferred=true" in out, f"a run that defers to a live owner says so ({out.strip()!r})")
@@ -160,6 +159,8 @@ def main():
     result, out, log = run_wait("")
     _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
 
+    _check({"macos-cross-shadow", "macos-cross-runtime-x86_64"} <= set(job("notify-unpublished-tree")["needs"]),
+           "the hand-off runs after the jobs that keep the owner in progress")
     _check(int(job("tree-owner-wait")["timeout-minutes"]) <= 10, "the owner check holds a runner for at most 10 minutes")
 
     promote = job("request-nightly-next")
@@ -179,8 +180,8 @@ def main():
                and "run rerun 9" not in log and "rerun 5" not in log,
                f"an owner that ends unpublished re-runs one deferred run, feat-cmux-next first, never itself ({log.strip()!r})")
         result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n", rerun_fails="8")
-        _check(result.returncode == 0 and "run rerun 9" in log and "artifacts/11" in log,
-               f"a deferred run that cannot be re-run passes the key to the next ({log.strip()!r})")
+        _check(result.returncode == 0 and "run rerun 9" in log and "artifacts/11" in log and "artifacts/12" not in log,
+               f"a deferred run that cannot be re-run keeps its marker and passes the key to the next ({log.strip()!r})")
         result, log = run_handoff("")
         _check(result.returncode == 0 and "rerun" not in log, "no deferred run: nothing is re-run")
 
