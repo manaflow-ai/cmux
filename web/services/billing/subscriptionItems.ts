@@ -13,5 +13,14 @@ export type SubscriptionItemLike = {
 export function planItem<T extends SubscriptionItemLike>(
   subscription: { readonly items?: { readonly data?: readonly T[] | null } | null } | null | undefined,
 ): T | undefined {
-  return subscription?.items?.data?.find((item) => item?.price?.recurring?.usage_type !== "metered");
+  // Stored raw payloads are untrusted JSON: anything but an array has no plan item.
+  const data: unknown = subscription?.items?.data;
+  if (!Array.isArray(data)) return undefined;
+  return (data as readonly T[]).find((item) => item?.price?.recurring?.usage_type !== "metered");
 }
+
+/**
+ * The same rule in SQL for a stored `raw` subscription payload (jsonb): the first item whose price
+ * is not metered. An item without `price.recurring.usage_type` counts as a plan item.
+ */
+export const PLAN_ITEM_JSONPATH = '$.items.data[*] ? (!exists(@.price.recurring.usage_type ? (@ == "metered")))';
