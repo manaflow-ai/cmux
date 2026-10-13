@@ -92,3 +92,29 @@ struct TerminalSessionCacheTests {
         #expect(TerminalSessionCache.evictions(recent: [1, 2], keep: 4) { _ in false }.isEmpty)
     }
 }
+
+struct LaunchHostTests {
+    private func host(_ id: String, online: Bool?) -> APIClient.Host {
+        APIClient.Host(id: id, name: id, platform: "macos", online: online, lastSeen: nil)
+    }
+
+    @Test func savedChoiceWinsEvenWhenOffline() {
+        let hosts = [host("a", online: true), host("b", online: false)]
+        #expect(hosts.launchHost(selectedID: "b")?.id == "b")
+    }
+
+    @Test func withoutAChoiceAnOnlineMacBeatsAnOfflineOne() {
+        let hosts = [host("old", online: false), host("mini", online: true)]
+        #expect(hosts.launchHost(selectedID: nil)?.id == "mini")
+    }
+
+    @Test func aForgottenChoiceFallsBackToAnOnlineMac() {
+        let hosts = [host("old", online: false), host("mini", online: true)]
+        #expect(hosts.launchHost(selectedID: "unpaired")?.id == "mini")
+    }
+
+    @Test func allOfflineFallsBackToTheFirst() {
+        let hosts = [host("a", online: nil), host("b", online: false)]
+        #expect(hosts.launchHost(selectedID: nil)?.id == "a")
+    }
+}
