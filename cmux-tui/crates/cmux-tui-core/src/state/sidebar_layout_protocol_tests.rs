@@ -234,3 +234,46 @@ fn int_max_index_appends_through_the_protocol() {
         "validation.invalid"
     );
 }
+
+/// cx-qno.2.4 (a custom Home icon, S14): a layout item takes the user's icon
+/// through `item.update`: an SF Symbol or one emoji, or an image or SVG the
+/// daemon stores, which the blob sweep keeps while the layout names it.
+/// `null` clears it and `shows_label` is untouched; a malformed value or an
+/// asset this daemon never stored is refused and changes nothing.
+#[test]
+fn a_layout_item_takes_a_user_icon_and_keeps_its_asset_from_the_sweep() {
+    use crate::workspace_registry::personal_store::blobs::{prepare_blob, sweep_blobs};
+    let mux = Mux::new_for_test("sidebar-layout-item-icon", SurfaceOptions::default());
+    let home = || read(&mux, "sidebar_layout.get", json!({}))["sections"][0]["items"][0].clone();
+    let set = |icon: Value, key: &str| {
+        update(&mux, key, json!({"kind": "item.update", "id": "itm_home", "icon": icon}))
+    };
+
+    set(json!("🏠"), "icon-emoji").unwrap();
+    assert_eq!(home()["icon"], "🏠");
+    assert_eq!(home()["shows_label"], true);
+    set(json!("house.fill"), "icon-symbol").unwrap();
+    assert_eq!(home()["icon"], "house.fill");
+    let missing = format!("svg:sha256-{}", "0".repeat(64));
+    for (index, bad) in [json!("Not A Symbol"), json!(""), json!(missing)].into_iter().enumerate() {
+        assert_eq!(error_code(set(bad, &format!("icon-bad-{index}"))), "validation.invalid");
+    }
+    assert_eq!(home()["icon"], "house.fill");
+
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#;
+    let icon = mux
+        .with_icon_registry(|registry| registry.put_blob(prepare_blob("image/svg+xml", svg)?))
+        .unwrap()
+        .icon();
+    set(json!(icon), "icon-asset").unwrap();
+    assert_eq!(home()["icon"], json!(icon));
+    // Long after the put, only the layout's reference keeps the blob.
+    mux.with_icon_registry(|registry| sweep_blobs(&registry.connection.get(), u64::MAX / 2))
+        .unwrap();
+    mux.with_icon_registry(|registry| registry.get_blob(&icon)).unwrap();
+
+    set(Value::Null, "icon-clear").unwrap();
+    assert!(home().get("icon").is_none());
+    assert_eq!(home()["shows_label"], true);
+    mux.shutdown();
+}
