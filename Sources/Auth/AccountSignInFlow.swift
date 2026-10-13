@@ -9,6 +9,9 @@ protocol AccountSignInFlow: AnyObject {
     var isCompletingSignIn: Bool { get }
     var signInIsSlow: Bool { get }
     var lastSignInFailure: AccountSignInModel.Failure? { get }
+    /// True while sign-in waits to retry after the sign-in service said
+    /// too many requests came from this network.
+    var isRetryingAfterRateLimit: Bool { get }
     /// True from Switch Account's sign-out until its private sign-in ends.
     var isSwitchingAccount: Bool { get }
 
@@ -23,4 +26,8 @@ protocol AccountSignInFlow: AnyObject {
 
     /// Copies a previously issued sign-in URL to the pasteboard.
     func copySignInURL(_ url: URL) -> Bool
+}
+
+extension AccountSignInFlow {
+    var isRetryingAfterRateLimit: Bool { false }
 }
