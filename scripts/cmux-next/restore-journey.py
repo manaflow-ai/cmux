@@ -218,7 +218,12 @@ class App:
                 say(f"  crash: kill failed: {error}")
                 return False
         elif variant == "wedged":
-            say(f"  debug.quit wedge_engine_stop -> {json.dumps(rpc('debug.quit', {'wedge_engine_stop': True}, timeout=10))[:200]}")
+            armed = rpc("debug.quit", {"wedge_engine_stop": True}, timeout=10)
+            say(f"  debug.quit wedge_engine_stop -> {json.dumps(armed)[:200]}")
+            if not (isinstance(armed, dict) and armed.get("wedges_engine_stop") is True):
+                # A build without the seam (not a debug build) would quit normally and pass falsely.
+                RESULTS.append((f"{variant}: the engine-stop wedge is armed", False, "debug.quit has no wedge_engine_stop (not a debug build?)", "harness"))
+                return False
             started = time.time()
             say(f"  action.run quitKeepSessions -> {json.dumps(rpc('action.run', {'action': 'quitKeepSessions'}, timeout=30))[:200]}")
             ended = wait(lambda: not self.alive(), 60, 0.25)
@@ -231,7 +236,7 @@ class App:
                 return True
             # The red case: action.run is wedged too (the main thread never runs it).
             answer = rpc("action.run", {"action": "equalizeSplits"}, timeout=10)
-            RESULTS.append((f"{variant}: action.run still runs while the quit hangs", "error" not in answer,
+            RESULTS.append((f"{variant}: action.run still runs while the quit hangs", isinstance(answer, dict) and "error" not in answer,
                             json.dumps(answer)[:160], "app quit"))
             identity = rpc("system.identify", timeout=5)
             if isinstance(identity, dict) and int(identity.get("pid") or 0) == self.pid and self.alive():

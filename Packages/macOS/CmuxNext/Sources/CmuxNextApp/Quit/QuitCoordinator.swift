@@ -182,11 +182,11 @@ final class QuitCoordinator {
                 await services.home.chief.shutdownForEndSessions()
                 return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self] in
+            stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
-                self?.deadline.arm(after: QuitDeadline.engineStopLimit)
+                deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
                 #if DEBUG
                 if self?.wedgesEngineStop == true { QuitEngineWedge.block(self?.watchdog) }
