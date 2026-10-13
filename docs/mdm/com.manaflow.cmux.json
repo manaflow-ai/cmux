@@ -1117,6 +1117,29 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.toolbarButtons" : {
+      "default" : [
+        "media",
+        "zoom",
+        "downloads"
+      ],
+      "description" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.",
+      "items" : {
+        "enum" : [
+          "media",
+          "zoom",
+          "favorites",
+          "downloads",
+          "designMode",
+          "profile",
+          "theme",
+          "devTools"
+        ],
+        "type" : "string"
+      },
+      "title" : "Toolbar Buttons",
+      "type" : "array"
+    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
