@@ -60,7 +60,9 @@ strip_executable() {
 }
 
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
-strip_executable "$APP_PATH/Contents/Resources/bin/cmux"
+# bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
+# symbols (-S -x) so its crash reports still name functions.
+strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
 strip_executable "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 # Every other helper in bin/ and libexec/ keeps its global symbols: the
 # nightly's optchat-chief, cmux-app-host, cmux-browser-host, cmux-cloud, ghostty

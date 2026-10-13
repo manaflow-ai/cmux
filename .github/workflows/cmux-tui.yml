@@ -941,14 +941,10 @@ jobs:
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            # The trusted Linux lane has 32 vCPUs, so let independent test
-            # processes and the Cargo build use that capacity. The macOS
-            # fallback keeps its conservative test parallelism.
-            test_threads=2
-            if [[ "$RUNNER_OS" == "Linux" ]]; then
-              test_threads=32
-            fi
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads="$test_threads"
+            # Process-heavy CLI tests can exceed the runner's child-process
+            # limit on the smaller macOS and Windows matrix runners, and
+            # timing-bound tests flake at 32 threads on Linux.
+            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
