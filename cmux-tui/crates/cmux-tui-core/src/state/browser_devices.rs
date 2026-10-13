@@ -31,6 +31,7 @@ pub(crate) const MAX_CUSTOM: usize = 200;
 /// Largest stored device object.
 const MAX_DEVICE_BYTES: usize = 16 * 1024;
 const MAX_TITLE_CHARS: usize = 128;
+const MAX_USER_AGENT_BYTES: usize = 1024;
 /// Chrome's device editor limits (DeviceModeModel MinDeviceSize/MaxDeviceSize,
 /// MaxDeviceScaleFactor).
 const MIN_SIZE: i64 = 50;
@@ -154,6 +155,7 @@ pub(crate) fn add_custom(transaction: &Transaction<'_>, device: &Value) -> anyho
 /// `browser.devices.remove_custom`: whether a device was removed. Tabs that
 /// emulate it keep their own copy.
 pub(crate) fn remove_custom(transaction: &Transaction<'_>, title: &str) -> anyhow::Result<bool> {
+    let title = title.trim();
     Ok(transaction.execute("DELETE FROM browser_custom_devices WHERE title = ?1", [title])? > 0)
 }
 
@@ -210,8 +212,17 @@ pub(crate) fn stored_emulation(
             }
         }
     };
+    // A stored custom row is checked again: a newer limit may refuse it.
+    check(&device).map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
     let orientation = pick_orientation(&device, orientation.as_deref())?;
-    Ok(Some(serde_json::to_string(&json!({"device": device, "orientation": orientation}))?))
+    let stored = serde_json::to_string(&json!({"device": device, "orientation": orientation}))?;
+    anyhow::ensure!(
+        stored.len() <= MAX_DEVICE_BYTES,
+        "bad request: a device is at most {MAX_DEVICE_BYTES} bytes of JSON"
+    );
+    // Only what resolves is stored, so extra.emulation never goes missing silently.
+    anyhow::ensure!(resolve(&stored).is_some(), "bad request: the device does not resolve");
+    Ok(Some(stored))
 }
 
 /// The device titled `name`: an exact title first (custom devices win), then
@@ -262,12 +273,23 @@ fn orientations(device: &Value) -> Vec<&'static str> {
     for name in named {
         if let Some(name) = orientation_name(&name)
             && !seen.contains(&name)
+            && (!name.ends_with("-spanned") || spans(device))
             && device["screen"].get(name).is_some_and(Value::is_object)
         {
             seen.push(name);
         }
     }
     seen
+}
+
+/// Chrome reads a spanned screen only for a dual-screen or foldable device.
+fn spans(device: &Value) -> bool {
+    ["dual-screen", "foldable-screen"].iter().any(|key| device.get(*key) == Some(&json!(true)))
+}
+
+/// A string without control characters (a user agent or title goes to the engine as is).
+fn plain(text: &str) -> bool {
+    !text.chars().any(char::is_control)
 }
 
 fn pick_orientation(device: &Value, asked: Option<&str>) -> anyhow::Result<&'static str> {
@@ -296,8 +318,14 @@ fn pick_orientation(device: &Value, asked: Option<&str>) -> anyhow::Result<&'sta
 fn check(device: &Value) -> Result<(), String> {
     let object = device.as_object().ok_or("a device is a JSON object")?;
     let title = object.get("title").and_then(Value::as_str).unwrap_or_default();
-    if title.trim().is_empty() || title.chars().count() > MAX_TITLE_CHARS {
-        return Err(format!("title must be 1 to {MAX_TITLE_CHARS} characters"));
+    if title.trim().is_empty()
+        || title.trim() != title
+        || title.chars().count() > MAX_TITLE_CHARS
+        || !plain(title)
+    {
+        return Err(format!(
+            "title must be 1 to {MAX_TITLE_CHARS} characters, without control characters or edge spaces"
+        ));
     }
     let screen = object.get("screen").and_then(Value::as_object).ok_or("screen is missing")?;
     let ratio = screen.get("device-pixel-ratio").and_then(Value::as_f64).unwrap_or(0.0);
@@ -319,9 +347,26 @@ fn check(device: &Value) -> Result<(), String> {
                 ));
             }
         }
+        // A fold or gap (Chrome's parseHinge): whole CSS px of 0 or more
+        // (Chrome's own Asus Zenbook Fold hinge is wider than its screen).
+        if let Some(hinge) = size.get("hinge") {
+            let number = |key: &str| hinge.get(key).and_then(Value::as_i64).filter(|v| *v >= 0);
+            if ["x", "y", "width", "height"].iter().any(|key| number(key).is_none()) {
+                return Err(format!(
+                    "{title}: screen.{name}.hinge needs x, y, width and height of 0 or more"
+                ));
+            }
+        }
     }
-    if object.get("user-agent").is_some_and(|agent| !agent.is_string()) {
-        return Err(format!("{title}: user-agent must be a string"));
+    if let Some(agent) = object.get("user-agent") {
+        match agent.as_str() {
+            Some(agent) if agent.len() <= MAX_USER_AGENT_BYTES && plain(agent) => {}
+            _ => {
+                return Err(format!(
+                    "{title}: user-agent must be a string of at most {MAX_USER_AGENT_BYTES} bytes without control characters"
+                ));
+            }
+        }
     }
     if let Some(capabilities) = object.get("capabilities")
         && !capabilities.as_array().is_some_and(|list| list.iter().all(Value::is_string))
@@ -346,6 +391,20 @@ fn patch_user_agent(agent: &str, major: &str) -> String {
         }
     }
     result
+}
+
+/// Every string in `value` with "%s" patched as in the user agent.
+fn patch_metadata(value: &Value, major: &str) -> Value {
+    match value {
+        Value::String(text) => Value::String(patch_user_agent(text, major)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| patch_metadata(v, major)).collect())
+        }
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(k, v)| (k.clone(), patch_metadata(v, major))).collect())
+        }
+        other => other.clone(),
+    }
 }
 
 /// `extra.emulation` of a tab: the resolved values of the stored
@@ -388,29 +447,27 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
             })
         });
     let posture = if display_feature.is_some() { "folded" } else { "continuous" };
-    // Client hints go with a user agent only (DevTools sends them together).
+    // Client hints go with a user agent only (DevTools sends them together),
+    // as the device gives them, "%s" patched as in the user agent
+    // (patchUserAgentMetadataWithChromeVersion). Without brands the engine
+    // keeps its own brand list, as in Chrome.
     let metadata = device
         .get("user-agent-metadata")
         .filter(|meta| meta.is_object() && !user_agent.is_empty())
-        .map(|meta| {
-            let text = |key: &str| meta.get(key).and_then(Value::as_str).unwrap_or_default();
-            let brands = |version: String| {
-                json!([
-                    {"brand": "Chromium", "version": version},
-                    {"brand": "Not_A Brand", "version": "24"},
-                ])
-            };
-            json!({
-                "brands": brands(major.clone()),
-                "fullVersionList": brands(format!("{major}.0.0.0")),
-                "fullVersion": format!("{major}.0.0.0"),
-                "platform": text("platform"),
-                "platformVersion": text("platformVersion"),
-                "architecture": text("architecture"),
-                "model": text("model"),
-                "mobile": meta.get("mobile").and_then(Value::as_bool).unwrap_or(mobile),
+        .map(|meta| patch_metadata(meta, &major));
+    // The selected mode's safe-area insets (Chrome sends them only behind
+    // its devToolsMobileSafeAreaEmulation flag, so no call carries them).
+    let safe_area = device
+        .get("modes")
+        .and_then(Value::as_array)
+        .and_then(|modes| {
+            modes.iter().find(|mode| {
+                mode.get("orientation").and_then(Value::as_str).and_then(orientation_name)
+                    == Some(orientation)
             })
-        });
+        })
+        .and_then(|mode| mode.get("safe-area-insets"))
+        .cloned();
     let mut metrics = Map::new();
     for (key, value) in [
         ("width", json!(width)),
@@ -463,6 +520,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
         "screen_orientation": screen_orientation,
         "display_feature": display_feature,
         "device_posture": posture,
+        "safe_area_insets": safe_area,
         "chromium_calls": chromium_calls,
     }))
 }

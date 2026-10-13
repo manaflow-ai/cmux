@@ -13578,7 +13578,7 @@
         },
         "extra": false,
         "constraints": [
-          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, chromium_calls}; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing.",
+          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
           "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
         ]
       },
@@ -13637,7 +13637,7 @@
         },
         "extra": false,
         "constraints": [
-          "A browser tab only. Stops the tab's device emulation: extra.emulation goes away and the engine restores the view's own size, scale factor and user agent. A tab that emulates nothing commits no change to its emulation."
+          "A browser tab only. Stops the tab's device emulation: extra.emulation goes away and the engine restores the view's own size, scale factor and user agent. A tab that emulates nothing keeps emulating nothing (the tab is still published again)."
         ]
       },
       "result": {

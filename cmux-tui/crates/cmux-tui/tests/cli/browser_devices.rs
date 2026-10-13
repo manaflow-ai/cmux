@@ -126,6 +126,7 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     assert_eq!((applied["mobile"].as_bool(), applied["touch"].as_bool()), (Some(true), Some(true)));
     assert!(applied["user_agent"].as_str().unwrap().contains("iPhone OS"), "{applied}");
     assert_eq!(applied["screen_orientation"]["type"], "landscapePrimary");
+    assert!(applied["safe_area_insets"].is_object(), "{applied}");
     let calls = applied["chromium_calls"].as_array().unwrap();
     assert_eq!(calls[0]["method"], "Emulation.setDeviceMetricsOverride");
     assert_eq!(calls[0]["params"]["width"], 852);
@@ -144,6 +145,8 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     let pixel = find(&pixel, "emulation").unwrap();
     assert!(pixel["user_agent"].as_str().unwrap().contains("Chrome/154.0.0.0"), "{pixel}");
     assert_eq!(pixel["user_agent_metadata"]["platform"], "Android");
+    // Client hints as the device gives them: the engine keeps its own brands.
+    assert!(pixel["user_agent_metadata"].get("brands").is_none(), "{pixel}");
     assert_eq!(pixel["device_scale_factor"], 2.625);
 
     // A foldable's unfolded screen sends its hinge as the display feature.
@@ -185,6 +188,11 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
             &["tab", &browser, "emulate", "--device", "Nest Hub Max", "--orientation", "portrait"]
         )
         .contains("no vertical orientation")
+    );
+    let bad_agent = r#"{"title":"Bad","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2},"user-agent":"A\r\nX-Injected: 1"}"#;
+    assert!(
+        refused(&server, &["tab", &browser, "emulate", "--custom-json", bad_agent])
+            .contains("user-agent")
     );
     let terminal = tab_of("terminal");
     assert!(
