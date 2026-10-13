@@ -214,7 +214,7 @@ extension WindowManager {
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
-        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame) }
+        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
@@ -346,7 +346,8 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, fallbackWindow: fallback)
+            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                               fallbackWindow: fallback)
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }

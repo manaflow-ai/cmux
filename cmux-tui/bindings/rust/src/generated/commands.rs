@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67.
+// cmux-tui mux protocol 12, IR 374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2969,6 +2969,17 @@ pub type SetScreenPinnedResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetSessionIconRequest {
+    /// An icon value sets the session's (machine's) icon; null clears it.
+    pub icon: Nullable<String>,
+    pub session_id: String,
+}
+
+#[rustfmt::skip]
+pub type SetSessionIconResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetSizeCountsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub client: Optional<u64>,
@@ -4738,6 +4749,10 @@ impl CmuxClient {
 
     pub fn set_screen_pinned(&mut self, request: SetScreenPinnedRequest) -> Result<SetScreenPinnedResult> {
         self.execute(&SET_SCREEN_PINNED_METADATA, &request)
+    }
+
+    pub fn set_session_icon(&mut self, request: SetSessionIconRequest) -> Result<SetSessionIconResult> {
+        self.execute(&SET_SESSION_ICON_METADATA, &request)
     }
 
     pub fn set_size_counts(&mut self, request: SetSizeCountsRequest) -> Result<T::SetSizeCountsResult> {

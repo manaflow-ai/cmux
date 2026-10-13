@@ -83,7 +83,9 @@ export const startRun = (
   state: SchedulerState,
   a: Automation,
   trigger: Run["trigger"],
-  ctx: ReduceContext
+  ctx: ReduceContext,
+  /** Who started it (a person's manual run); otherwise the automation's charged member (cx-ds09i). */
+  startedBy?: string
 ): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } | { rejected: ReturnType<typeof rateLimited> } => {
   const refused = runPolicyRefusal(state.run_policy)
   if (refused) return { rejected: refused }
@@ -108,6 +110,7 @@ export const startRun = (
     outcome: null,
     dispatched: false,
     body: a.body,
+    charged_user: startedBy ?? state.charged_to?.[a.id] ?? a.created_by,
     // The run's limit: the automation's own budget, else (agent runs) the team default, else the built-in default.
     ...(a.budget.wall_clock_seconds !== undefined
       ? { wall_clock_seconds: a.budget.wall_clock_seconds }

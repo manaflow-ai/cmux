@@ -210,7 +210,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-            field.heightAnchor.constraint(equalToConstant: Metrics.tabHeight),
+            field.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
             stack.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.width - 2 * p),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space3),
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space3),
