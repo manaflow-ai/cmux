@@ -278,7 +278,8 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "for b in node claude codex opencode pi agent-browser bun; do test -L /usr/local/bin/$b || exit 1; done && echo agent-symlinks-ok",
   // Claude Code sign-in mode: the entry is the launcher, which adds the
   // CodeRouter env per launch in team mode only (agent-auth.sh).
-  'test "$(readlink /usr/local/bin/claude)" = /etc/cmux/claude && test -x /usr/local/libexec/cmux-claude-real && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}"\' && echo claude-launcher-ok',
+  // A login shell's PATH (nvm first) must resolve claude to the launcher too.
+  'test "$(readlink /usr/local/bin/claude)" = /etc/cmux/claude && test -x /usr/local/libexec/cmux-claude-real && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" && test "$(readlink -f "$(type -P claude)")" = /etc/cmux/claude && test "$(type -t claude)" = function\' && echo claude-launcher-ok',
   ...pins.map((pin) => `env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm sudo -n -u ${DEVBOX_WORK_USER} bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
   // Non-login probe, as the work user: probing as root with the work user's
   // HOME would itself leave root-owned state dirs behind.

@@ -273,6 +273,24 @@ describe("Cloud machine Claude Code sign-in precedence", () => {
     }
   });
 
+  test("a shell whose PATH puts another claude first still launches through the launcher", async () => {
+    // The base's login PATH puts nvm's bin ahead of /usr/local/bin/claude.
+    const m = machine();
+    choose(m, "team");
+    const nvm = path.join(m.root, "nvm-bin");
+    mkdirSync(nvm);
+    writeFileSync(path.join(nvm, "claude"), "#!/bin/sh\necho nvm-claude-bypassed-the-launcher\n");
+    chmodSync(path.join(nvm, "claude"), 0o755);
+    const config = path.join(m.root, "agent-config.sh");
+    writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/etc/cmux/claude", m.launcher));
+    const result = await runChild("/bin/bash", ["-c", `. ${config}; claude --resume x`], {
+      env: { ...bootEnv(m), PATH: `${nvm}:${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}` },
+    });
+    expect(result.stdout).not.toContain("bypassed");
+    expect(result.stdout).toContain(`ANTHROPIC_API_KEY=${PLACEHOLDER}\n`);
+    expect(result.stdout).toContain("args=--resume x");
+  });
+
   test("--version and --help skip the mode resolution", async () => {
     const m = machine();
     const result = await runChild(m.launcher, ["--version"], { env: bootEnv(m, { FAKE_CURL_BODY: ACTIVE }) });

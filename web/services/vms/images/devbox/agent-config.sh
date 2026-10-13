@@ -284,6 +284,18 @@ opencode() {
   command opencode "$@"
 }
 
+# claude sign-in mode: every launch goes through the launcher, whatever PATH
+# order a shell has (the base's login PATH puts nvm's bin first, ahead of
+# /usr/local/bin/claude). The bake also points nvm's entry at the launcher,
+# for direct execs; this covers shells on any toolchain layout.
+claude() {
+  if [ -x /etc/cmux/claude ]; then
+    /etc/cmux/claude "$@"
+  else
+    command claude "$@"
+  fi
+}
+
 # claude folder-trust gate: claude's trust check short-circuits on
 # CLAUDE_CODE_SANDBOXED (the escape its own self-hosted runner provisioning
 # uses), which describes this machine exactly: a disposable cloud VM the user
