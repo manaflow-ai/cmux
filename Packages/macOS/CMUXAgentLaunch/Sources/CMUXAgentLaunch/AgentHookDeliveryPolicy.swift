@@ -104,4 +104,24 @@ public struct AgentHookDeliveryPolicy: Sendable {
         }
         return Self.auxiliaryQueuedSubcommands[normalizedAgent]?.contains(normalizedSubcommand) == true
     }
+
+    /// Chooses the agent process that owns one hook invocation.
+    ///
+    /// - Parameters:
+    ///   - environmentPID: The agent PID exported in the hook's environment.
+    ///   - invocationAgentPID: The nearest non-shell ancestor of the hook
+    ///     process, which is the agent that ran the hook.
+    ///   - controllingTerminal: Returns a live process's controlling terminal
+    ///     device, or `nil` when the process has none or no longer exists.
+    /// - Returns: The PID whose terminal identifies the hook's pane.
+    public func hookAgentPID(
+        environmentPID: Int?,
+        invocationAgentPID: Int?,
+        controllingTerminal: (Int) -> Int64?
+    ) -> Int? {
+        if let environmentPID, environmentPID > 0 {
+            return environmentPID
+        }
+        return invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
+    }
 }
