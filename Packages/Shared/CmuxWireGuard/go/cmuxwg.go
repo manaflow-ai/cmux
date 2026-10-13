@@ -25,6 +25,8 @@ import "C"
 import (
 	"time"
 	"unsafe"
+
+	"github.com/manaflow-ai/cmux/cmuxwg/tunnel"
 )
 
 // cmuxwg_set_logger installs a log sink (nil removes it). level 0 is
@@ -33,10 +35,10 @@ import (
 //export cmuxwg_set_logger
 func cmuxwg_set_logger(fn C.cmuxwg_log_fn, context unsafe.Pointer) {
 	if fn == nil {
-		logSink = nil
+		tunnel.LogSink = nil
 		return
 	}
-	logSink = func(level int32, message string) {
+	tunnel.LogSink = func(level int32, message string) {
 		m := C.CString(message)
 		C.cmuxwg_call_log(fn, context, C.int32_t(level), m)
 		C.free(unsafe.Pointer(m))
@@ -49,10 +51,10 @@ func cmuxwg_set_logger(fn C.cmuxwg_log_fn, context unsafe.Pointer) {
 //
 //export cmuxwg_start
 func cmuxwg_start(address *C.char, uapi *C.char, mtu C.int32_t) C.int64_t {
-	h, err := start(C.GoString(address), C.GoString(uapi), int(mtu))
+	h, err := tunnel.Start(C.GoString(address), C.GoString(uapi), int(mtu))
 	if err != nil {
-		emit(1, "start: %v", err)
-		return C.int64_t(errno(err))
+		tunnel.Emit(1, "start: %v", err)
+		return C.int64_t(tunnel.Errno(err))
 	}
 	return C.int64_t(h)
 }
@@ -61,9 +63,9 @@ func cmuxwg_start(address *C.char, uapi *C.char, mtu C.int32_t) C.int64_t {
 //
 //export cmuxwg_set
 func cmuxwg_set(handle C.int64_t, uapi *C.char) C.int32_t {
-	if err := set(int64(handle), C.GoString(uapi)); err != nil {
-		emit(1, "set: %v", err)
-		return C.int32_t(errno(err))
+	if err := tunnel.Set(int64(handle), C.GoString(uapi)); err != nil {
+		tunnel.Emit(1, "set: %v", err)
+		return C.int32_t(tunnel.Errno(err))
 	}
 	return 0
 }
@@ -73,7 +75,7 @@ func cmuxwg_set(handle C.int64_t, uapi *C.char) C.int32_t {
 //
 //export cmuxwg_get
 func cmuxwg_get(handle C.int64_t) *C.char {
-	s, err := get(int64(handle))
+	s, err := tunnel.Get(int64(handle))
 	if err != nil {
 		return nil
 	}
@@ -89,9 +91,9 @@ func cmuxwg_free(p *C.char) {
 //
 //export cmuxwg_rebind
 func cmuxwg_rebind(handle C.int64_t) C.int32_t {
-	if err := rebind(int64(handle)); err != nil {
-		emit(1, "rebind: %v", err)
-		return C.int32_t(errno(err))
+	if err := tunnel.Rebind(int64(handle)); err != nil {
+		tunnel.Emit(1, "rebind: %v", err)
+		return C.int32_t(tunnel.Errno(err))
 	}
 	return 0
 }
@@ -101,7 +103,7 @@ func cmuxwg_rebind(handle C.int64_t) C.int32_t {
 //
 //export cmuxwg_stop
 func cmuxwg_stop(handle C.int64_t) {
-	stop(int64(handle))
+	tunnel.Stop(int64(handle))
 }
 
 // cmuxwg_listen opens a TCP listener on the tunnel address and returns a
@@ -109,10 +111,10 @@ func cmuxwg_stop(handle C.int64_t) {
 //
 //export cmuxwg_listen
 func cmuxwg_listen(handle C.int64_t, port C.int32_t) C.int64_t {
-	lh, err := listen(int64(handle), int(port))
+	lh, err := tunnel.Listen(int64(handle), int(port))
 	if err != nil {
-		emit(1, "listen: %v", err)
-		return C.int64_t(errno(err))
+		tunnel.Emit(1, "listen: %v", err)
+		return C.int64_t(tunnel.Errno(err))
 	}
 	return C.int64_t(lh)
 }
@@ -123,9 +125,9 @@ func cmuxwg_listen(handle C.int64_t, port C.int32_t) C.int64_t {
 //
 //export cmuxwg_accept
 func cmuxwg_accept(listener C.int64_t, peer *C.char, peerLen C.int32_t) C.int32_t {
-	fd, remote, err := accept(int64(listener))
+	fd, remote, err := tunnel.Accept(int64(listener))
 	if err != nil {
-		return C.int32_t(errno(err))
+		return C.int32_t(tunnel.Errno(err))
 	}
 	if peer != nil && peerLen > 0 {
 		b := unsafe.Slice((*byte)(unsafe.Pointer(peer)), int(peerLen))
@@ -139,7 +141,7 @@ func cmuxwg_accept(listener C.int64_t, peer *C.char, peerLen C.int32_t) C.int32_
 //
 //export cmuxwg_close_listener
 func cmuxwg_close_listener(listener C.int64_t) {
-	closeListener(int64(listener))
+	tunnel.CloseListener(int64(listener))
 }
 
 // cmuxwg_dial opens a tunneled TCP connection to address ("10.77.0.1:7300")
@@ -147,9 +149,9 @@ func cmuxwg_close_listener(listener C.int64_t) {
 //
 //export cmuxwg_dial
 func cmuxwg_dial(handle C.int64_t, address *C.char, timeoutMs C.int32_t) C.int32_t {
-	fd, err := dial(int64(handle), C.GoString(address), time.Duration(timeoutMs)*time.Millisecond)
+	fd, err := tunnel.Dial(int64(handle), C.GoString(address), time.Duration(timeoutMs)*time.Millisecond)
 	if err != nil {
-		return C.int32_t(errno(err))
+		return C.int32_t(tunnel.Errno(err))
 	}
 	return C.int32_t(fd)
 }

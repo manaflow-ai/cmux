@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"bufio"
@@ -33,7 +33,7 @@ func keypair(t *testing.T) (priv, pub string) {
 
 func listenPort(t *testing.T, h int64) string {
 	t.Helper()
-	dump, err := get(h)
+	dump, err := Get(h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,20 +54,20 @@ func TestTunnelCarriesTCPBothWays(t *testing.T) {
 	phonePriv, phonePub := keypair(t)
 	psk := strings.Repeat("ab", 32)
 
-	host, err := start("10.77.0.1", fmt.Sprintf("private_key=%s\nlisten_port=0\npublic_key=%s\npreshared_key=%s\nallowed_ip=10.77.0.2/32\n", hostPriv, phonePub, psk), 0)
+	host, err := Start("10.77.0.1", fmt.Sprintf("private_key=%s\nlisten_port=0\npublic_key=%s\npreshared_key=%s\nallowed_ip=10.77.0.2/32\n", hostPriv, phonePub, psk), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stop(host)
+	defer Stop(host)
 	port := listenPort(t, host)
 
-	phone, err := start("10.77.0.2", fmt.Sprintf("private_key=%s\npublic_key=%s\npreshared_key=%s\nendpoint=127.0.0.1:%s\nallowed_ip=10.77.0.1/32\npersistent_keepalive_interval=25\n", phonePriv, hostPub, psk, port), 0)
+	phone, err := Start("10.77.0.2", fmt.Sprintf("private_key=%s\npublic_key=%s\npreshared_key=%s\nendpoint=127.0.0.1:%s\nallowed_ip=10.77.0.1/32\npersistent_keepalive_interval=25\n", phonePriv, hostPub, psk, port), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stop(phone)
+	defer Stop(phone)
 
-	ln, err := listen(host, 7300)
+	ln, err := Listen(host, 7300)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +78,11 @@ func TestTunnelCarriesTCPBothWays(t *testing.T) {
 	}
 	got := make(chan accepted, 1)
 	go func() {
-		fd, peer, err := accept(ln)
+		fd, peer, err := Accept(ln)
 		got <- accepted{fd, peer, err}
 	}()
 
-	cfd, err := dial(phone, "10.77.0.1:7300", 10*time.Second)
+	cfd, err := Dial(phone, "10.77.0.1:7300", 10*time.Second)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -128,23 +128,23 @@ func TestUnknownPeerCannotConnect(t *testing.T) {
 	_, knownPub := keypair(t)
 	strangerPriv, _ := keypair(t)
 
-	host, err := start("10.77.0.1", fmt.Sprintf("private_key=%s\nlisten_port=0\npublic_key=%s\nallowed_ip=10.77.0.2/32\n", hostPriv, knownPub), 0)
+	host, err := Start("10.77.0.1", fmt.Sprintf("private_key=%s\nlisten_port=0\npublic_key=%s\nallowed_ip=10.77.0.2/32\n", hostPriv, knownPub), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stop(host)
+	defer Stop(host)
 	port := listenPort(t, host)
-	if _, err := listen(host, 7300); err != nil {
+	if _, err := Listen(host, 7300); err != nil {
 		t.Fatal(err)
 	}
 
-	stranger, err := start("10.77.0.2", fmt.Sprintf("private_key=%s\npublic_key=%s\nendpoint=127.0.0.1:%s\nallowed_ip=10.77.0.1/32\n", strangerPriv, hostPub, port), 0)
+	stranger, err := Start("10.77.0.2", fmt.Sprintf("private_key=%s\npublic_key=%s\nendpoint=127.0.0.1:%s\nallowed_ip=10.77.0.1/32\n", strangerPriv, hostPub, port), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer stop(stranger)
+	defer Stop(stranger)
 
-	if fd, err := dial(stranger, "10.77.0.1:7300", 2*time.Second); err == nil {
+	if fd, err := Dial(stranger, "10.77.0.1:7300", 2*time.Second); err == nil {
 		syscall.Close(fd)
 		t.Fatal("stranger connected")
 	} else if err != syscall.ETIMEDOUT {

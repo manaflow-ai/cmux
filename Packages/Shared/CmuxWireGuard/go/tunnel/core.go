@@ -1,4 +1,6 @@
-package main
+// Package tunnel runs userspace WireGuard devices on gVisor netstack and
+// hands tunneled TCP connections out as socketpair file descriptors.
+package tunnel
 
 import (
 	"context"
@@ -37,10 +39,11 @@ type registry struct {
 var handles = &registry{next: 1, tunnels: map[int64]*tunnel{}, listeners: map[int64]*tunnel{}}
 
 // logSink receives device and bridge log lines. level 0 = verbose, 1 = error.
-var logSink func(level int32, message string)
+var LogSink func(level int32, message string)
 
-func emit(level int32, format string, args ...any) {
-	if sink := logSink; sink != nil {
+// Emit sends one formatted line to LogSink.
+func Emit(level int32, format string, args ...any) {
+	if sink := LogSink; sink != nil {
 		sink(level, fmt.Sprintf(format, args...))
 	}
 }
@@ -75,7 +78,7 @@ func (r *registry) add(t *tunnel) int64 {
 // start brings up a device whose tunnel address is address. uapi is the
 // WireGuard UAPI set configuration. mtu <= 0 picks 1280, which fits every
 // common underlay including cellular.
-func start(address, uapi string, mtu int) (int64, error) {
+func Start(address, uapi string, mtu int) (int64, error) {
 	addr, err := netip.ParseAddr(address)
 	if err != nil {
 		return 0, fmt.Errorf("tunnel address: %w", syscall.EINVAL)
@@ -88,8 +91,8 @@ func start(address, uapi string, mtu int) (int64, error) {
 		return 0, fmt.Errorf("netstack: %v: %w", err, syscall.EIO)
 	}
 	logger := &device.Logger{
-		Verbosef: func(format string, args ...any) { emit(0, format, args...) },
-		Errorf:   func(format string, args ...any) { emit(1, format, args...) },
+		Verbosef: func(format string, args ...any) { Emit(0, format, args...) },
+		Errorf:   func(format string, args ...any) { Emit(1, format, args...) },
 	}
 	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 	if err := dev.IpcSet(uapi); err != nil {
@@ -103,7 +106,7 @@ func start(address, uapi string, mtu int) (int64, error) {
 	return handles.add(&tunnel{dev: dev, net: tnet, lns: map[int64]net.Listener{}}), nil
 }
 
-func set(handle int64, uapi string) error {
+func Set(handle int64, uapi string) error {
 	t := handles.tunnel(handle)
 	if t == nil {
 		return syscall.EBADF
@@ -114,7 +117,7 @@ func set(handle int64, uapi string) error {
 	return nil
 }
 
-func get(handle int64) (string, error) {
+func Get(handle int64) (string, error) {
 	t := handles.tunnel(handle)
 	if t == nil {
 		return "", syscall.EBADF
@@ -122,7 +125,7 @@ func get(handle int64) (string, error) {
 	return t.dev.IpcGet()
 }
 
-func rebind(handle int64) error {
+func Rebind(handle int64) error {
 	t := handles.tunnel(handle)
 	if t == nil {
 		return syscall.EBADF
@@ -130,7 +133,7 @@ func rebind(handle int64) error {
 	return t.dev.BindUpdate()
 }
 
-func stop(handle int64) {
+func Stop(handle int64) {
 	handles.mu.Lock()
 	t := handles.tunnels[handle]
 	delete(handles.tunnels, handle)
@@ -152,7 +155,7 @@ func stop(handle int64) {
 	t.dev.Close()
 }
 
-func listen(handle int64, port int) (int64, error) {
+func Listen(handle int64, port int) (int64, error) {
 	t := handles.tunnel(handle)
 	if t == nil {
 		return 0, syscall.EBADF
@@ -174,7 +177,7 @@ func listen(handle int64, port int) (int64, error) {
 
 // accept waits for the next tunneled connection and returns a socket fd for
 // it plus the remote tunnel address.
-func accept(listener int64) (int, string, error) {
+func Accept(listener int64) (int, string, error) {
 	_, ln := handles.listener(listener)
 	if ln == nil {
 		return -1, "", syscall.EBADF
@@ -191,7 +194,7 @@ func accept(listener int64) (int, string, error) {
 	return fd, c.RemoteAddr().String(), nil
 }
 
-func closeListener(listener int64) {
+func CloseListener(listener int64) {
 	handles.mu.Lock()
 	t := handles.listeners[listener]
 	delete(handles.listeners, listener)
@@ -208,7 +211,7 @@ func closeListener(listener int64) {
 	}
 }
 
-func dial(handle int64, address string, timeout time.Duration) (int, error) {
+func Dial(handle int64, address string, timeout time.Duration) (int, error) {
 	t := handles.tunnel(handle)
 	if t == nil {
 		return -1, syscall.EBADF
@@ -221,7 +224,7 @@ func dial(handle int64, address string, timeout time.Duration) (int, error) {
 	defer cancel()
 	c, err := t.net.DialContextTCPAddrPort(ctx, ap)
 	if err != nil {
-		emit(0, "dial %v: %v", ap, err)
+		Emit(0, "dial %v: %v", ap, err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return -1, syscall.ETIMEDOUT
 		}
@@ -281,7 +284,7 @@ func splice(c net.Conn) (int, error) {
 }
 
 // errno maps an error to a negative errno for the C ABI.
-func errno(err error) int64 {
+func Errno(err error) int64 {
 	var e syscall.Errno
 	if errors.As(err, &e) {
 		return -int64(e)
