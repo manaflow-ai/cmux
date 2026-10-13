@@ -7,11 +7,11 @@ import Foundation
 /// Shell integration reports the shell's `$PWD`, which cannot change while
 /// Claude is the foreground process. `claude --worktree` and Claude's worktree
 /// tools move the session into another checkout, and the hook payload's `cwd`
-/// is the only report of that move. These helpers send it through the same
-/// `report_pwd` command shell integration uses, so the sidebar directory and
-/// branch, new splits and the Files root all follow it. SessionEnd hands the
-/// pane back to the launch directory, because the shell re-reports only a
-/// directory it has not already sent.
+/// is the only report of that move. These helpers send that checkout's root
+/// through the same `report_pwd` command shell integration uses, so the
+/// sidebar directory and branch, new splits and the Files root all follow it. SessionEnd hands the
+/// pane back to the launch directory; the shell also re-reports its `$PWD`
+/// at the first prompt after a `claude` command.
 extension CMUXCLI {
     /// Reports a Claude hook's session cwd as the pane's working directory.
     ///
@@ -70,27 +70,55 @@ extension CMUXCLI {
     }
 
     /// The directory to report for a hook cwd, or nil when the cwd is not an
-    /// existing absolute directory. The launch directory keeps the shell's
-    /// spelling, so a symlinked checkout does not flip to its physical path
-    /// whenever Claude reports it.
+    /// existing absolute directory.
+    ///
+    /// Claude's hook cwd also follows every `cd` in its Bash tool, so the pane
+    /// follows only a move into another checkout: when the cwd's nearest
+    /// checkout root differs from the launch directory's, that root is
+    /// reported (`<repo>/.claude/worktrees/wt2` for a session working anywhere
+    /// in that worktree). Otherwise the launch directory is reported, in the
+    /// shell's spelling, so a `cd` within the launch checkout or a symlinked
+    /// path changes nothing.
     private func claudeHookPaneDirectory(hookCwd: String?, launchDirectory: String) -> String? {
-        guard let cwd = normalizedHookValue(hookCwd), cwd.hasPrefix("/") else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+        guard let cwd = normalizedHookValue(hookCwd), cwd.hasPrefix("/"),
+              let resolvedCwd = resolvedClaudeHookDirectory(cwd) else {
             return nil
         }
-        if let resolvedCwd = resolvedClaudeHookDirectory(cwd),
-           resolvedCwd == resolvedClaudeHookDirectory(launchDirectory) {
+        let resolvedLaunch = resolvedClaudeHookDirectory(launchDirectory)
+        guard let checkoutRoot = claudeHookCheckoutRoot(containing: resolvedCwd),
+              checkoutRoot != resolvedLaunch.flatMap(claudeHookCheckoutRoot(containing:)) else {
             return launchDirectory
         }
-        return cwd
+        return checkoutRoot
     }
 
+    /// The nearest directory at or above `directory` holding a `.git` entry:
+    /// a directory for a main checkout, a file for a linked worktree. Uses
+    /// stat only, since hooks run on every turn and must not spawn git.
+    private func claudeHookCheckoutRoot(containing directory: String) -> String? {
+        var candidate = directory
+        while true {
+            var info = stat()
+            if lstat(candidate + (candidate == "/" ? ".git" : "/.git"), &info) == 0 {
+                return candidate
+            }
+            guard candidate != "/" else { return nil }
+            let parent = (candidate as NSString).deletingLastPathComponent
+            candidate = parent.isEmpty ? "/" : parent
+        }
+    }
+
+    /// The physical path of an existing directory, or nil.
     private func resolvedClaudeHookDirectory(_ path: String) -> String? {
         guard let resolved = realpath(path, nil) else { return nil }
         defer { free(resolved) }
-        return String(cString: resolved)
+        let resolvedPath = String(cString: resolved)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolvedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return resolvedPath
     }
 
     private func sendClaudeHookPaneDirectory(
