@@ -57,13 +57,7 @@ struct PaneHostDetachedRefreshTests {
         let firstPane = try #require(controller.focusedPaneId)
         _ = try #require(controller.splitPane(firstPane, orientation: .horizontal))
         Self.settle(window)
-        var paneHosts = Self.paneHosts(in: bonsplitHost)
-        for _ in 0..<400 where paneHosts.count < 2 {
-            CFRunLoopRunInMode(.defaultMode, 0.005, true)
-            window.displayIfNeeded()
-            contentView.layoutSubtreeIfNeeded()
-            paneHosts = Self.paneHosts(in: bonsplitHost)
-        }
+        let paneHosts = Self.waitForPaneHosts(in: bonsplitHost, window: window, count: 2)
         if paneHosts.count != 2 {
             print("PaneHostDetachedRefreshTests: view tree\n" + Self.describeTree(contentView))
         }
@@ -102,6 +96,18 @@ struct PaneHostDetachedRefreshTests {
         contentView.layoutSubtreeIfNeeded()
         #expect(paneHost.window === window)
         paneHost.removeFromSuperview()
+    }
+
+    /// Steps the run loop one source at a time until the split mounts its pane hosts.
+    private static func waitForPaneHosts(in root: NSView, window: NSWindow, count: Int) -> [NSView] {
+        var hosts = paneHosts(in: root)
+        for _ in 0..<400 where hosts.count < count {
+            CFRunLoopRunInMode(.defaultMode, 0.005, true)
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            hosts = paneHosts(in: root)
+        }
+        return hosts
     }
 
     private static func drainMainQueue() async {
