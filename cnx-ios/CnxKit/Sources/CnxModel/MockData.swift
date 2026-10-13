@@ -8,6 +8,10 @@ extension AppStore {
                 MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
                 MacDevice(id: "mac-mini-2", name: "cmux mini 2", isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
+                // An online Mac with nothing open and an offline one never
+                // seen with workspaces: the Mac filter's empty states.
+                MacDevice(id: "mba", name: "MacBook Air", isOnline: true),
+                MacDevice(id: "mini-office", name: "Office mini", isOnline: false, lastSeenAt: now.addingTimeInterval(-3 * 86_400)),
             ]),
             Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),

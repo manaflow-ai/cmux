@@ -72,9 +72,7 @@ struct DemoDriver {
             // A session with no turns (the empty state), as a new workspace
             // shows before its first prompt.
             AgentSessionDirectory.shared.makeSource = { summary in
-                let session = MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude")
-                session.replaysHistory = false
-                return session
+                MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: false)
             }
             if name == "kbd-empty" {
                 shell.tab = .workspaces

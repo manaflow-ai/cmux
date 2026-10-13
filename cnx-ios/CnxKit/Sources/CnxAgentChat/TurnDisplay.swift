@@ -176,3 +176,55 @@ public struct ToolWording: Sendable {
         return "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
 }
+
+extension Array where Element == TurnRow {
+    /// Whether a running turn shows the "Working" label after its rows
+    /// (SPEC 4.5). The label marks where the next block will start, so it
+    /// is hidden while the last row already shows live progress (streaming
+    /// text or thinking, a running tool with its own shimmer and spinner)
+    /// or waits on the person (an open permission or question card).
+    public var needsWorkingIndicator: Bool {
+        guard let last else { return true }
+        switch last {
+        case .message, .thought, .question:
+            return false
+        case .tool(let call), .edit(let call):
+            return !call.isRunning
+        case .toolGroup(_, let calls):
+            return !calls.contains(where: \.isRunning)
+        case .permission(let record):
+            return record.resolution != nil
+        case .plan, .subagents:
+            return true
+        }
+    }
+}
+
+extension AgentTurn {
+    /// Header of a message's context menu (SPEC 4.4, ChatGPT "Today, 11:51 AM"):
+    /// "Today, 3:03 PM", "Yesterday, 9:12 AM", the weekday within a week,
+    /// else the date.
+    public static func menuTimestamp(_ date: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
+        var time = Date.FormatStyle.dateTime.hour().minute()
+        time.calendar = calendar
+        time.timeZone = calendar.timeZone
+        time.locale = locale
+        let clock = date.formatted(time)
+        if calendar.isDate(date, inSameDayAs: now) { return "Today, \(clock)" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "Yesterday, \(clock)"
+        }
+        var day: Date.FormatStyle
+        if let weekAgo = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)), date >= weekAgo, date <= now {
+            day = Date.FormatStyle.dateTime.weekday(.wide)
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            day = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        } else {
+            day = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
+        }
+        day.calendar = calendar
+        day.timeZone = calendar.timeZone
+        day.locale = locale
+        return "\(date.formatted(day)), \(clock)"
+    }
+}

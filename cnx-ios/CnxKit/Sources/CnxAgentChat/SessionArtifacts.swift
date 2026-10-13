@@ -53,6 +53,11 @@ public struct SessionArtifacts: Sendable {
         func normalize(_ reference: String) -> String {
             var reference = reference
             if cwd.hasPrefix("/"), reference.hasPrefix(cwd + "/") { reference = String(reference.dropFirst(cwd.count + 1)) }
+            // A display folder (`~/x`): an absolute path under any home's `x` is the same file.
+            if cwd.hasPrefix("~/"), reference.hasPrefix("/"), let range = reference.range(of: String(cwd.dropFirst()) + "/") {
+                let home = reference[..<range.lowerBound].split(separator: "/")
+                if home.count == 2, ["Users", "home"].contains(home[0]) { reference = String(reference[range.upperBound...]) }
+            }
             if reference.hasPrefix("./") { reference = String(reference.dropFirst(2)) }
             return reference
         }

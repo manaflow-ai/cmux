@@ -1077,19 +1077,25 @@ capsule) and `grok-03-composer-typed`; top chrome to `grok-06-scroll-edge-top`; 
 
 ### 11.1 Workspaces tab
 
-- Toolbar: leading drawer, principal "Workspaces", trailing capsule `square.and.pencil` (New
+- Toolbar: leading drawer, the title menu below, trailing capsule `square.and.pencil` (New
   workspace: a tap creates one at once on the preferred Mac with the Mac's default first tab and
   pushes it, the row optimistic until the Mac confirms; a hold opens a menu of the starts the
   backend supports: agent or browser first tab, recent directories, Mac picker) + `ellipsis`
   (Sort: Recent / Name / By Mac; Show offline Macs). No Mac: "Connect your Mac" steps (sign in
   as the account, allow iPhone connections) with a live status line; no pairing code.
-- `List` style `.plain` on `bg`, one section per Mac (iOS 26 plain headers): header row 44 h: `StatusDot` + Mac name (`subheadline` semibold) + `meta` "Online" /
-  "Last seen 2h ago"; trailing `ellipsis` menu (Pair details, Unpair, Reconnect).
-- Workspace row 64 h: leading 36 pt rounded square with the workspace's glyph or color (from
-  cmux-next workspace color), title `body`, subtitle `footnote` `label2`: branch name in mono +
-  " · 3 tabs"; trailing: `meta` relative time, and a status: `warning` dot "Needs you" pill
-  (capsule 22 h, `fill`, `caption` semibold) when an agent waits, a 12 pt spinner when an agent
-  is working. Unread: 8 pt `label` dot leading the title.
+- Title: a `toolbarTitleMenu` Mac filter, "All Macs ⌄" or the Mac's name, subtitle "3 of 5 Macs
+  online" or the Mac's presence. Menu: All Macs (workspace count), then a "Macs" section (online
+  first, filled or hollow dot, subtitle "Online · 2 workspaces" / "Last seen 2h ago"). Remembered
+  per team. New Workspace targets the filtered Mac (disabled while it is offline; the Mac picker
+  shows only under All Macs). See `verify/workspaces-list.md`.
+- `List` style `.plain` on `bg`. All Macs: one section per Mac under a pinned opaque header row 44 h:
+  `StatusDot` + Mac name (`subheadline` semibold) + `meta` "Online" / "Last seen 2h ago" +
+  workspace count; trailing `ellipsis` menu (Reconnect, live only). One Mac: flat, no header.
+- Workspace row (Mail style, no icon): 16 pt gutter with an 8 pt `label` unread dot; line 1 title
+  `body` semibold + `meta` relative time; line 2 `meta` `label2`: branch in mono (or directory)
+  + tab-kind glyphs with counts; line 3 `subheadline`: `warning` dot "Needs you" + agent and task,
+  an animated `ellipsis` "Codex is working" + task, or the latest tab's subtitle. Offline Macs'
+  rows are greyed, "Unavailable while offline", not tappable.
 - Tap → Workspace: pushes the workspace's last tab (terminal, browser or agent chat) with the
   tab bar hidden; the tab title menu (10.1) switches tabs in place (crossfade `snap`).
 - "All tabs" sheet (`.large`): 2-column grid of tab cards (16:10 snapshot thumbnails, radius 16,

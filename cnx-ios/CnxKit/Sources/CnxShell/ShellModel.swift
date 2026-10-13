@@ -67,6 +67,24 @@ final class ShellModel {
         }
     }
 
+    /// Points terminal tabs and new workspaces at `live`, or back at the mocks
+    /// when it is nil. RootView creates the coordinator when the account
+    /// resolves, which can be after this shell was built (a restored session,
+    /// a DEBUG auto sign-in), so this runs on every change, not once.
+    func attach(live: LiveCoordinator?) {
+        if self.live !== live, self.live != nil { terminalTabs.reset() }
+        self.live = live
+        if let live {
+            terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+            terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
+            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
+        } else {
+            terminalTabs.sessionProvider = nil
+            terminalTabs.artifactSourceProvider = nil
+            creator.backend = mockCreation
+        }
+    }
+
     /// The Mac refused a new workspace: its row is already gone; leave its
     /// screen if it is open, and say so.
     private func workspaceCreationFailed(_ placeholder: Workspace, message: String) {

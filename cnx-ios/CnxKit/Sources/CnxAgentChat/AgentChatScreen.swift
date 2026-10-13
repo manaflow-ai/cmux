@@ -48,6 +48,18 @@ public final class AgentChatSurface {
     var demoHandoffStart = 0
     @ObservationIgnored private var lastDemoSerial = -1
     var replyInsteadOfPermission = false
+    /// A permission arrived while the person was typing: the composer stays
+    /// (the draft is a follow-up, not an answer) and the card offers the choices.
+    var permissionDeferred = false
+    /// Whether the permission bar is out of the composer's place.
+    var permissionBarHidden: Bool { replyInsteadOfPermission || permissionDeferred }
+
+    /// Brings the permission choices back in the composer's place.
+    func showPermissionChoices() {
+        replyInsteadOfPermission = false
+        permissionDeferred = false
+        composerFocused = false
+    }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
     /// Screen y of the top of the floating bottom stack (tab mode), so the
@@ -303,6 +315,22 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
+        .overlay(alignment: .top) {
+            // Under foreign chrome (a workspace tab) there is no navigation
+            // bar to draw the scroll edge effect, and text ran under the
+            // status bar's clock. Fade it out the way the bar would.
+            if let topInset {
+                LinearGradient(stops: [
+                    .init(color: Color.cnxBackground, location: 0),
+                    .init(color: Color.cnxBackground, location: 0.6),
+                    .init(color: Color.cnxBackground.opacity(0), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: topInset + 16)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
         .navigationDestination(item: $surface.diffRoute) { route in
             if let file = route.fileID {
                 DiffFileScreen(changeSet: route.changes, fileID: file)
@@ -346,6 +374,7 @@ struct AgentChatTurns: View {
                     .id(turn.id)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
     }
 }
@@ -365,6 +394,7 @@ struct AgentChatEmptyState: View {
                 Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
             }
             .multilineTextAlignment(.center)
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -444,19 +474,27 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                if let permission = store.pendingPermission, !surface.replyInsteadOfPermission {
+                if !store.queue.isEmpty {
+                    QueuedPromptsView(store: store, text: $surface.text)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request) { option in
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
                         withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
-                        surface.composerFocused = true
+
                     }
                     .padding(12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
-                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty)
+                    let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
+                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
+                                 expandOnAppear: surface.replyInsteadOfPermission,
+                                 placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
+                                 denyingPermission: replying)
                         .transition(.opacity)
                 }
             }
@@ -480,9 +518,25 @@ public struct AgentChatBottomStack: View {
         }
         .padding(.bottom, bottomPadding)
         .animation(.cnxSmooth, value: store.pendingPermission?.request.id)
-        .onChange(of: store.pendingPermission?.request.id) { surface.replyInsteadOfPermission = false }
+        .animation(.cnxSmooth, value: store.queue)
+        .onChange(of: store.pendingPermission?.request.id) { _, new in
+            surface.replyInsteadOfPermission = false
+            // Never pull the composer out from under someone typing.
+            let drafting = composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
+            surface.permissionDeferred = new != nil && drafting
+        }
         .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
-        .onChange(of: composerFocused) { _, focused in if surface.composerFocused != focused { surface.composerFocused = focused } }
+        .task {
+            // Opened focused (a new chat): the field exists once this appears.
+            if surface.composerFocused, !composerFocused { composerFocused = true }
+        }
+        .onChange(of: composerFocused) { _, focused in
+            if surface.composerFocused != focused { surface.composerFocused = focused }
+            // Leaving "Reply instead" without typing brings the permission choices back.
+            if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
+                withAnimation(.cnxSmooth) { surface.showPermissionChoices() }
+            }
+        }
     }
 }
 
@@ -517,10 +571,10 @@ struct TurnView: View {
                     rowView(row, isLastRow: row.id == rows.last?.id)
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                 }
-                if turn.status == .running, showsWorking(rows) {
-                    WorkingLabel(store.pendingPermission != nil ? "Waiting for permission" : (store.pendingQuestion != nil ? "Waiting for your answer" : "Working"),
-                                 since: turn.startedAt)
+                if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
+                    WorkingLabel("Working", since: turn.startedAt)
                         .frame(minHeight: 28)
+                        .transition(.opacity)
                 }
                 if turn.status != .running, let changes = turn.changeSet {
                     EditedFilesCard(changeSet: changes).padding(.top, 4)
@@ -538,15 +592,6 @@ struct TurnView: View {
                     EmptyView()
                 }
             }
-        }
-    }
-
-    private func showsWorking(_ rows: [TurnRow]) -> Bool {
-        guard let last = rows.last else { return true }
-        switch last {
-        case .message: return false
-        case .thought: return false
-        default: return true
         }
     }
 
@@ -570,10 +615,19 @@ struct TurnView: View {
         case .plan(_, let entries):
             PlanCard(entries: entries)
         case .permission(let record):
-            PermissionCard(record: record, agentName: store.summary.agentName)
+            PermissionCard(record: record, agentName: store.summary.agentName,
+                           showChoices: surface?.permissionBarHidden == true && record.request.id == store.pendingPermission?.request.id
+                               ? { withAnimation(.cnxSmooth) { surface?.showPermissionChoices() } } : nil)
         case .question(let id):
             if let question = turn.question(id) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
+                if question.isPending, question.source.rejectOption != nil {
+                    // A phone's answer can be refused (only the Mac may answer); a decline always goes through.
+                    Button("Decline") { store.decline(question) }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
             }
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store) { surface?.parityRoute = .subagent($0) }
@@ -626,11 +680,7 @@ struct UserBubble: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             if !turn.attachments.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(turn.attachments) { attachment in
-                        AttachmentThumb(attachment: attachment)
-                    }
-                }
+                SentAttachments(attachments: turn.attachments)
             }
             Text(turn.prompt)
                 .font(.body)
@@ -640,7 +690,7 @@ struct UserBubble: View {
                 .background(Color.cnxBubble, in: .rect(cornerRadius: 20, style: .continuous))
                 .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
                 .contextMenu {
-                    Section(turn.promptAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
+                    Section(AgentTurn.menuTimestamp(turn.promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
                         Button("Select text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
@@ -663,6 +713,55 @@ struct UserBubble: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+}
+
+/// Sent attachments above the user bubble (SPEC 4.4 "images above text as
+/// a stacked strip, radius 16"): a lone image shows large like ChatGPT and
+/// Messages; several share a row of squares; files stay chips. Trailing
+/// edges line up with the bubble (no remove-badge room).
+struct SentAttachments: View {
+    let attachments: [AgentAttachment]
+
+    var body: some View {
+        let images = attachments.filter { $0.kind == .image }
+        let files = attachments.filter { $0.kind != .image }
+        VStack(alignment: .trailing, spacing: 6) {
+            if images.count == 1, let image = images.first {
+                thumbnail(image, size: CGSize(width: 200, height: 150))
+            } else if !images.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(images.prefix(3)) { image in
+                        thumbnail(image, size: CGSize(width: 96, height: 96))
+                            .overlay {
+                                if image.id == images.prefix(3).last?.id, images.count > 3 {
+                                    Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .background(.black.opacity(0.45), in: .rect(cornerRadius: 16, style: .continuous))
+                                }
+                            }
+                    }
+                }
+            }
+            ForEach(files) { file in
+                AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
+        Group {
+            if let data = attachment.data, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.cnxFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel(Text("Image, \(attachment.name)"))
     }
 }
 
@@ -695,7 +794,7 @@ struct AnswerActionRow: View {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
             Menu {
-                Section(turn.promptAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
+                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 }

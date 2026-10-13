@@ -141,6 +141,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         default: tab = WorkspaceTab(id: id, kind: .terminal, title: "zsh", subtitle: workspace?.directory)
         }
         if tab.kind == .browser { browsers[id] = BrowserTabModel(url: nil) }
+        // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
+        // open a new chat with the keyboard up).
+        if tab.kind == .agent { surface(id).composerFocused = true }
         store.appendTab(tab, to: workspaceID)
         activate(id)
         return id

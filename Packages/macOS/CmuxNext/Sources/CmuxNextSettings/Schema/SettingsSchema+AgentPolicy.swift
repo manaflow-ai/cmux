@@ -209,6 +209,8 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // On, a phone signed in to the same account can open this Mac's terminals and agents.
+        "mobile.allowIPhoneConnections": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

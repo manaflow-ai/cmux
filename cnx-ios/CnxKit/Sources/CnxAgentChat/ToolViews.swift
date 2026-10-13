@@ -301,6 +301,7 @@ struct DiffSnippet: View {
 struct EditedFilesCard: View {
     let changeSet: DiffChangeSet
     @Environment(\.openDiff) private var openDiff
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -309,14 +310,21 @@ struct EditedFilesCard: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.forwardslash.minus").font(.system(size: 14))
-                    Text("\(changeSet.files.count) \(changeSet.files.count == 1 ? "file" : "files") changed").font(.subheadline.weight(.semibold))
-                    DiffCounts(additions: changeSet.additions, deletions: changeSet.deletions)
-                    Spacer()
-                    Text("Review").font(.subheadline.weight(.semibold))
+                    // Accessibility sizes stack the counts under the title instead of truncating both.
+                    let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+                    layout {
+                        Text("\(changeSet.files.count) \(changeSet.files.count == 1 ? "file" : "files") changed").font(.subheadline.weight(.semibold))
+                        DiffCounts(additions: changeSet.additions, deletions: changeSet.deletions).fixedSize()
+                    }
+                    Spacer(minLength: 4)
+                    if !typeSize.isAccessibilitySize {
+                        Text("Review").font(.subheadline.weight(.semibold))
+                    }
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 16)
-                .frame(height: 48)
+                .padding(.vertical, 8)
+                .frame(minHeight: 48)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -328,13 +336,24 @@ struct EditedFilesCard: View {
                     HStack(spacing: 10) {
                         Image(systemName: file.status == .added ? "doc.badge.plus" : "doc.text")
                             .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
-                        Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1)
-                        Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
-                        Spacer(minLength: 4)
-                        DiffCounts(additions: file.additions, deletions: file.deletions)
+                        if typeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(2).truncationMode(.middle)
+                                DiffCounts(additions: file.additions, deletions: file.deletions).fixedSize()
+                            }
+                            Spacer(minLength: 0)
+                        } else {
+                            Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).layoutPriority(1)
+                            Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                            Spacer(minLength: 4)
+                            DiffCounts(additions: file.additions, deletions: file.deletions)
+                                .fixedSize()
+                                .layoutPriority(2)
+                        }
                     }
                     .padding(.horizontal, 16)
-                    .frame(height: 40)
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 40)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

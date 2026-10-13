@@ -65,6 +65,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
     private var tuiRows = 0
+    /// A Mac terminal's primary screen on the bottom rows of the surface.
+    private var rowShift = TerminalRowShift()
     private var gridColumns = 0
     private var cell = CGSize.zero
     /// Ghostty's scrollbar: total rows, viewport top row, visible rows.
@@ -202,14 +204,33 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 statusScrim.isUserInteractionEnabled = false
                 statusScrim.translatesAutoresizingMaskIntoConstraints = false
                 let base = CnxGhosttyApp.background
-                statusScrim.gradient.colors = [base.withAlphaComponent(0.92).cgColor, base.withAlphaComponent(0.6).cgColor, base.withAlphaComponent(0).cgColor]
-                statusScrim.gradient.locations = [0, 0.6, 1]
+                // A top bar under the status bar: solid terminal background
+                // to the status bar's bottom, then a short fade. (A 92 %
+                // gradient left scrollback legible under the clock; on iOS 26
+                // the page read as having no top bar.)
+                statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+                statusScrim.gradient.locations = [0, 0.75, 1]
+                statusScrim.layer.zPosition = 1
                 view.addSubview(statusScrim)
             }
         }
         let guide = view.keyboardLayoutGuide
-        guide.followsUndockedKeyboard = false
+        // The stack rides the keyboard only while the keyboard is docked at
+        // the bottom. With a hardware keyboard the guide can report a 0-wide,
+        // 44 pt frame near the top (172 pt on iPhone 17 Pro): pinned to it,
+        // the composer and key bar jumped to the top of the page and the
+        // terminal went blank. Away from the bottom the stack rests at the
+        // chrome's line instead and the key bar folds away.
+        guide.followsUndockedKeyboard = true
         guide.usesBottomSafeArea = false
+        guide.setConstraints([
+            bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
+            prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
+            keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
+        ], activeWhenNearEdge: .bottom)
+        guide.setConstraints([
+            keyBarClip.heightAnchor.constraint(equalToConstant: 0),
+        ], activeWhenAwayFrom: .bottom)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -218,9 +239,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
             bottomStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             stackRestingLimit,
-            prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
+            // Rest on the chrome's line when nothing pins the stack higher.
+            prioritized(bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor), .defaultLow),
             composer.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
             composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
@@ -238,7 +259,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBar.view.heightAnchor.constraint(equalToConstant: 44),
             keyBarClip.heightAnchor.constraint(lessThanOrEqualToConstant: 44),
             keyBarClip.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
-            keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), .defaultHigh - 1),
 
             tuiTop,
@@ -327,6 +347,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         embeddedInsets = insets
         tuiTop.constant = insets.top
         statusScrimHeight?.constant = insets.top + 18
+        if insets.top > 0 { statusScrim.gradient.locations = [0, NSNumber(value: Double(insets.top / (insets.top + 18))), 1] }
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
@@ -409,7 +430,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.ingest(event)
         switch event {
         case .output(let data):
-            surface.feed(data)
+            if let remote = model.session.remoteRows {
+                let offset = max(0, surface.grid.rows - remote)
+                surface.feed(rowShift.filter(data, offset: offset, remoteRows: remote))
+            } else {
+                surface.feed(data)
+            }
         case .alternateScreen(let on):
             applyMode(tui: on)
         default:
@@ -422,18 +448,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             scrollbar = (total, offset, visible)
             updateDocument()
-            if placesFromReport, !model.isTUI {
-                place(atRow: offset)
-                // The document did not change size, so updateDocument did not
-                // ask for the visible rows; ask now.
-                updateViewport(visibleMinY: scrollView.contentOffset.y)
-            }
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
+            #endif
+            if placesFromReport, !model.isTUI { place(atRow: offset) }
+            // Whatever moved Ghostty's viewport (a request, a cursor probe
+            // restoring an older row), it must cover the visible rows; a
+            // report that leaves them uncovered asks again. Without this, a
+            // reattach replay left the probe's restore at row 0 while the
+            // screen showed the bottom: a blank page.
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .outputProcessed:
             outputSinceProbe = true
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm processed %@", debugState) }
+            #endif
             if refreshAfterTUI, !model.isTUI {
                 // The switch back from the alternate screen is processed by
                 // now: ask for the primary screen's viewport and its report.
@@ -450,6 +483,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func layoutTerminal() {
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") {
+            NSLog("cnxterm layout kb=%@ stack=%@ view=%@ window=%@", NSCoder.string(for: view.keyboardLayoutGuide.layoutFrame), NSCoder.string(for: bottomStack.frame), NSCoder.string(for: view.frame), NSCoder.string(for: view.convert(view.bounds, to: nil)))
+        }
+        #endif
         let measured = surface.cellSize
         if measured.height > 0 { cell = measured }
         let cellHeight = cell.height > 0 ? cell.height : 16
@@ -558,10 +596,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             || current > maxTop
         guard needsNew else { return }
         let top = min(max(0, visibleTop - margin), maxTop)
-        guard top != current, top != viewportTop else { return }
-        recentTops.append(viewportTop)
-        if recentTops.count > 6 { recentTops.removeFirst() }
-        viewportTop = top
+        guard top != current else { return }
+        // Ghostty reports a viewport other than the one last asked for (a
+        // cursor probe or a reset moved it): ask again rather than wait for a
+        // report that will not come, which left the visible rows blank.
+        if top != viewportTop {
+            recentTops.append(viewportTop)
+            if recentTops.count > 6 { recentTops.removeFirst() }
+            viewportTop = top
+        } else if scrollbar.total == 0 {
+            return
+        }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
+        #endif
         surface.scroll(toRow: top)
     }
 
@@ -645,6 +693,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
+        // Moving the surface to another superview resigns first responder:
+        // typing into vim, then `:q`, used to drop the keyboard's input on the
+        // floor (the composer still said "Typing into terminal").
+        let hadFocus = surface.isFirstResponder
+        defer {
+            if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
+        }
         if tui {
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
@@ -666,7 +721,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             placesFromReport = true
             refreshAfterTUI = true
             // Direct typing outlives the TUI only while the terminal keeps focus.
-            if !surface.isFirstResponder { model.directTyping = false }
+            if !hadFocus { model.directTyping = false }
             documentRows = 0
             updateDocument()
             scrollView.contentOffset.y = maxOffsetY

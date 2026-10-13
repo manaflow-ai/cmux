@@ -267,6 +267,34 @@ mod tests {
         );
     }
 
+    /// The exact lines the iOS app's terminal tabs send (CnxLive DaemonTerminalSession
+    /// through CnxTransport DaemonClient: flat params, sorted keys, string ids).
+    #[test]
+    fn allows_the_phone_terminal_session() {
+        for line in [
+            br#"{"cmd":"identify","id":"m1"}"#.as_slice(),
+            br#"{"cmd":"attach-surface","id":"m2","surface":7}"#,
+            br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
+            br#"{"cmd":"resize-surface","cols":80,"id":"m4","rows":24,"surface":7}"#,
+            br#"{"cmd":"release-surface-size","id":"m5","surface":7}"#,
+            br#"{"cmd":"detach-attached-view","id":"m6","surface":7}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        // Starting or replacing the program behind a terminal stays the Mac's.
+        for line in [
+            br#"{"cmd":"respawn-surface","id":"m7","surface":7,"argv":["sh"]}"#.as_slice(),
+            br#"{"cmd":"run","id":"m8","argv":["sh","-c","id"]}"#,
+            br#"{"cmd":"create-terminal","id":"m9","workspace":1,"argv":["sh"]}"#,
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+    }
+
     #[test]
     fn refuses_unlisted_and_command_bearing_requests() {
         for line in [

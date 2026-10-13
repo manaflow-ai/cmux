@@ -175,20 +175,39 @@ public final class AgentChatStore {
 
     // MARK: Intents
 
-    public func send(prompt: String, attachments: [AgentAttachment] = [], steer: Bool = false) {
+    /// `denyingPermission`: the message is "Reply instead" for the pending
+    /// permission (SPEC 6.5): deny it so the agent goes on, and send the
+    /// message as guidance. A plain message while a permission waits queues.
+    public func send(prompt: String, attachments: [AgentAttachment] = [], steer: Bool = false, denyingPermission: Bool = false) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
+        if denyingPermission, let permission = pendingPermission {
+            let options = permission.request.options
+            let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
+            respond(to: permission.request, option: deny)
+        }
         source.send(.prompt(text: text, attachments: attachments, steer: steer))
     }
 
     public func cancel() { source.send(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
+        // A refusal is about the previous answer ("Approve this on your Mac"):
+        // a new answer, such as the decline that follows, replaces it.
+        clientError = nil
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
     }
 
+    /// Declines a pending question with its reject option.
+    public func decline(_ question: AgentQuestion) {
+        guard question.isPending, let reject = question.source.rejectOption else { return }
+        clientError = nil
+        source.send(.respondPermission(permissionId: question.id, optionId: reject))
+    }
+
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
+        clientError = nil
         source.send(.answerQuestion(questionId: question.id, answer: answer))
     }
 
@@ -223,9 +242,19 @@ public final class AgentChatStore {
                 turn.endedAt = at
                 turn.errorText = errorText
                 for index in turn.items.indices {
-                    if case .tool(var call) = turn.items[index], call.isRunning {
+                    switch turn.items[index] {
+                    case .tool(var call) where call.isRunning:
                         call.status = status == .completed ? .completed : .failed
                         turn.items[index] = .tool(call)
+                    // Requests the turn no longer waits on stop looking live.
+                    case .question(var question) where question.isPending:
+                        question.state = .cancelled
+                        turn.items[index] = .question(question)
+                    case .permission(var record) where record.resolution == nil:
+                        record.resolution = .cancelled
+                        turn.items[index] = .permission(record)
+                    default:
+                        break
                     }
                 }
             }

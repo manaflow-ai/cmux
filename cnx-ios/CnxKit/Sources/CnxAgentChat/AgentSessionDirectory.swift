@@ -11,7 +11,8 @@ public final class AgentSessionDirectory {
     public static let shared = AgentSessionDirectory()
     private var stores: [String: AgentChatStore] = [:]
     public var makeSource: (AgentSessionSummary) -> any AgentSessionSource = { summary in
-        MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude")
+        // Tabs made on the phone ("New session") start empty.
+        MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
     }
 
     public init() {}
@@ -24,6 +25,10 @@ public final class AgentSessionDirectory {
     }
 
     public func existingStore(id: String) -> AgentChatStore? { stores[id] }
+
+    /// Forgets the tab's store; the next `store(for:)` builds one from
+    /// `makeSource` again (the tab's session changed on the Mac).
+    public func invalidate(id: String) { stores[id] = nil }
 
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(

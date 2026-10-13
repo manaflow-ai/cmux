@@ -22,8 +22,8 @@ public final class MockAgentSession: AgentSessionSource {
     private var effort = "medium"
     private var mode = "default"
     private let richFirstTurn: Bool
-    /// Replays two finished turns on connect (false: a new, empty session).
-    public var replaysHistory = true
+    /// false: a brand-new session (no earlier turns to replay).
+    private let history: Bool
     /// Checkpoints recorded around turns (newest last).
     var checkpointLog: [AgentCheckpoint] = []
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
@@ -31,11 +31,12 @@ public final class MockAgentSession: AgentSessionSource {
     public var chunkDelay: Duration = .milliseconds(16)
 
     public init(
-        summary: AgentSessionSummary, richFirstTurn: Bool = true,
+        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.summary = summary
         self.richFirstTurn = richFirstTurn
+        self.history = history
         self.sleep = sleep
     }
 
@@ -58,6 +59,15 @@ public final class MockAgentSession: AgentSessionSource {
             }
         case .cancel:
             running?.cancel()
+            // A turn waiting on the person ends too (an agent cancels its
+            // outstanding request when the prompt is cancelled).
+            if let id = pendingPermissionID { emit(.permissionDecision(permissionId: id, optionId: nil)) }
+            pendingPermissionID = nil
+            pendingQuestionID = nil
+            permissionWaiter?.resume(returning: nil)
+            permissionWaiter = nil
+            questionWaiter?.resume(returning: nil)
+            questionWaiter = nil
         case .respondPermission(let id, let optionID):
             guard id == pendingPermissionID else { return }
             emit(.permissionDecision(permissionId: id, optionId: optionID))
@@ -117,8 +127,8 @@ public final class MockAgentSession: AgentSessionSource {
             ACPAvailableCommand(name: "init", description: "Create a CLAUDE.md for this project"),
             ACPAvailableCommand(name: "test", description: "Run the test suite", hint: "filter"),
         ])))
-        emit(.update(.usage(used: 48_000, size: 200_000)))
-        guard replaysHistory else { return }
+        emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
+        guard history else { return }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))
@@ -281,6 +291,7 @@ public final class MockAgentSession: AgentSessionSource {
         ], cwd: "~/Development/cmux")))
         let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
         try Task.checkCancellation()
+        let allowed = choice != nil && choice != "deny"
         if let choice, choice != "deny" {
             emit(.update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "x2", status: .inProgress))))
             try await pause(1500)
@@ -293,7 +304,7 @@ public final class MockAgentSession: AgentSessionSource {
         plan[3].status = .inProgress
         emit(.update(.plan(plan)))
         // AskUserQuestion with two items.
-        try await stream(S.beforeQuestion, messageID: "m-q")
+        try await stream(allowed ? S.beforeQuestion : S.beforeQuestionDenied, messageID: "m-q")
         let question = S.question(session: summary.id)
         pendingQuestionID = question.id
         emit(.question(question))

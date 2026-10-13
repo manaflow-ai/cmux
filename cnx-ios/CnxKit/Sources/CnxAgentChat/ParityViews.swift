@@ -164,6 +164,10 @@ struct SubagentsScreen: View {
                         Text(Duration.seconds(entry.agent.duration).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
                             .font(.footnote.monospacedDigit())
                             .foregroundStyle(.tertiary)
+                        // Drill-down affordance, as on every pushed row.
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.tertiary)
                     }
                     .padding(.leading, CGFloat(entry.depth) * 24)
                     .frame(minHeight: 52)
@@ -173,6 +177,7 @@ struct SubagentsScreen: View {
             }
         }
         .listStyle(.plain)
+        .contentMargins(.top, 8, for: .scrollContent)
         .overlay {
             if store.subagents.isEmpty {
                 ContentUnavailableView("No subagents", systemImage: "person.2.wave.2",
@@ -360,7 +365,7 @@ struct CheckpointsScreen: View {
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
             Button("Cancel", role: .cancel) {}
         } message: { checkpoint in
-            Text("\(checkpoint.files) files in \(store.summary.workspaceTitle) go back to \(checkpoint.isBeforeTurn ? "before" : "after") “\(checkpoint.title)”. The agent's conversation is not changed.")
+            Text("\(checkpoint.files) \(checkpoint.files == 1 ? "file" : "files") in \(store.summary.workspaceTitle) go back to \(checkpoint.isBeforeTurn ? "before" : "after") “\(checkpoint.title)”. The agent's conversation is not changed.")
         }
         .task { await reload() }
         .onChange(of: surface.demoCheckpointRestore) { _, id in
@@ -381,14 +386,16 @@ struct CheckpointsScreen: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(checkpoint.caption ?? "\(checkpoint.isBeforeTurn ? "Before" : "After") “\(checkpoint.title)”").font(.body).lineLimit(2)
+                    // Branch and head on one line, count and age on the next (one line truncated the age).
                     HStack(spacing: 4) {
-                        if let branch = checkpoint.branch { Text(branch).font(.footnote.monospaced()) }
-                        if let head = checkpoint.head { Text("· \(head)").font(.footnote.monospaced()) }
-                        Text("· \(checkpoint.files) files · \(checkpoint.createdAt.formatted(.relative(presentation: .named)))")
+                        if let branch = checkpoint.branch { Text(branch).font(.footnote.monospaced()).lineLimit(1).truncationMode(.middle) }
+                        if let head = checkpoint.head { Text("· \(head)").font(.footnote.monospaced()).fixedSize() }
                     }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    Text("\(checkpoint.files) \(checkpoint.files == 1 ? "file" : "files") · \(checkpoint.createdAt.formatted(.relative(presentation: .named)))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                     if !checkpoint.complete {
                         Label("\(checkpoint.skipped) \(checkpoint.skipped == 1 ? "file" : "files") left out (too large or ignored)", systemImage: "exclamationmark.circle")
                             .font(.caption)
