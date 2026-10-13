@@ -1,6 +1,4 @@
-import CmuxNextControl
-import CmuxNextDaemon
-import Foundation
+public import Foundation
 import os
 
 /// Runs this Mac's `cmux link` for the Cloud app server (cx-rtipa S3): the
@@ -15,16 +13,16 @@ import os
 /// registration, socket and key never meet another build's link; it binds
 /// any free UDP port (`--port 0`) and reads no `~/.config/cmux/server.json`
 /// (the tag's own `server.json`, normally absent).
-nonisolated struct CloudLinkLauncher: Sendable {
+public nonisolated struct CloudLinkLauncher: Sendable {
     /// What `link ensure` answered.
-    struct Ensured: Decodable, Equatable, Sendable {
+    public struct Ensured: Decodable, Equatable, Sendable {
         /// `running`, `started` or `restarted`.
-        var status: String
-        var pid: Int32?
-        var socket: String?
+        public var status: String
+        public var pid: Int32?
+        public var socket: String?
     }
 
-    enum Failure: Error, Equatable {
+    public enum Failure: Error, Equatable {
         /// The command failed; `detail` is its last stderr line.
         case failed(String)
         case badAnswer
@@ -42,7 +40,7 @@ nonisolated struct CloudLinkLauncher: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
     private static let timeout: Duration = .seconds(30)
 
-    init(binary: URL, stateRoot: URL?, runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(), tagged: Bool,
+    public init(binary: URL, stateRoot: URL?, runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(), tagged: Bool,
          clock: any Clock<Duration> = ContinuousClock()) {
         self.binary = binary
         self.stateRoot = stateRoot
@@ -55,11 +53,10 @@ nonisolated struct CloudLinkLauncher: Sendable {
     /// a `CMUX_NEXT_TUI_BIN` override) and the launch tag's state. A DEBUG
     /// build without a tag gets no link: it would share the release app's
     /// state directory.
-    static func forApp(bundle: Bundle = .main) -> CloudLinkLauncher? {
+    public static func forApp(bundle: Bundle = .main, tag: String?) -> CloudLinkLauncher? {
         guard let resources = bundle.resourceURL else { return nil }
         let binary = resources.appendingPathComponent("bin/cmux-tui")
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { return nil }
-        let tag = LaunchIdentity.current().tag
         #if DEBUG
         guard tag != nil else { return nil }
         #endif
@@ -115,7 +112,7 @@ nonisolated struct CloudLinkLauncher: Sendable {
     }
 
     /// Starts the link unless one of this build runs. Off the main actor.
-    @concurrent func ensure(install: String) async throws -> Ensured {
+    @concurrent public func ensure(install: String) async throws -> Ensured {
         let result = try await run(ensureArguments(install: install))
         guard let ensured = try? JSONDecoder().decode(Ensured.self, from: Self.lastLine(result.stdout)) else {
             throw Failure.badAnswer
@@ -128,7 +125,7 @@ nonisolated struct CloudLinkLauncher: Sendable {
 
     /// Stops the link (sign-out, session end, policy). A failure is logged
     /// with the install id only (the old config then stays).
-    @concurrent func stop(install: String? = nil) async {
+    @concurrent public func stop(install: String? = nil) async {
         do {
             _ = try await run(stopArguments())
         } catch {
@@ -138,7 +135,7 @@ nonisolated struct CloudLinkLauncher: Sendable {
 
     /// Archives the signed-out install's key and peers (`link archive`). A
     /// failure is logged only.
-    @concurrent func archive(install: String? = nil) async {
+    @concurrent public func archive(install: String? = nil) async {
         do {
             _ = try await run(archiveArguments())
         } catch {

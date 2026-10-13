@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -109,7 +110,7 @@ final class CloudService {
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
-        linkLauncher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp() : nil
+        linkLauncher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
