@@ -87,6 +87,7 @@ final class DiffViewModel {
             expandedGaps = [:]
             contents = [:]
             phase = .loaded
+            await resolveTrailingGaps(token: token)
         } catch is CancellationError {
             return
         } catch {
@@ -121,6 +122,27 @@ final class DiffViewModel {
         guard rendered[file.index] == nil else { return }
         await rerender(file)
     }
+
+    /// A last hunk with a full 3 lines of trailing context may or may not
+    /// end the file. Read the first few such files so "Expand remaining
+    /// lines" only shows when there is something left (GitHub knows the
+    /// blob length; we read the file once and reuse it for expanding).
+    private func resolveTrailingGaps(token: Int) async {
+        guard let contextLoader else { return }
+        let ambiguous = files.filter { file in
+            guard rendered[file.index] != nil, file.status != .deleted, !file.isBinary,
+                  let last = file.hunks.last else { return false }
+            return !DiffRenderer.reachesEndOfFile(file, last: last)
+        }
+        for file in ambiguous.prefix(Self.trailingGapReads) {
+            guard token == generation, contents[file.index] == nil,
+                  let text = try? await contextLoader(file.path), token == generation else { continue }
+            contents[file.index] = await Task.detached { DiffRenderer.contentLines(text) }.value
+            await rerender(file)
+        }
+    }
+
+    static let trailingGapReads = 12
 
     /// Expands the hidden lines before hunk `gap` (or after the last hunk).
     func expand(_ file: DiffFile, gap: Int) async {

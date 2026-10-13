@@ -136,7 +136,7 @@ public struct GitService: Sendable {
         if let base = params.base { revision.append(base) }
         let pathspec = ["--"] + (params.path.map { [$0] } ?? [])
 
-        let text = try await run(cwd, ["diff", "--no-color", "--no-ext-diff"] + revision + pathspec)
+        let text = try await run(cwd, ["diff", "--no-color", "--no-ext-diff", "-U3"] + revision + pathspec)
         let numstat = try await run(cwd, ["diff", "--no-color", "--no-ext-diff", "--numstat", "-z"] + revision + pathspec)
         let nameStatus = try await run(cwd, ["diff", "--no-color", "--no-ext-diff", "--name-status", "-z"] + revision + pathspec)
         var diffText = text.stdoutText
@@ -152,7 +152,7 @@ public struct GitService: Sendable {
                     truncated = true
                     break
                 }
-                let one = try await run(top, ["diff", "--no-color", "--no-ext-diff", "--no-index", "--", "/dev/null", path], allow: [0, 1])
+                let one = try await run(top, ["diff", "--no-color", "--no-ext-diff", "-U3", "--no-index", "--", "/dev/null", path], allow: [0, 1])
                 let stat = try await run(top, ["diff", "--no-ext-diff", "--no-index", "--numstat", "--", "/dev/null", path], allow: [0, 1])
                 diffText += one.stdoutText
                 let parts = stat.stdoutText.split(separator: "\t")

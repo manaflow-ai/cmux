@@ -215,7 +215,7 @@ enum DiffRenderer {
         }
 
         // Trailing gap after the last hunk.
-        if expandable, let last = file.hunks.last {
+        if expandable, let last = file.hunks.last, !reachesEndOfFile(file, last: last) {
             let trailing = file.hunks.count
             let after = newSpan(last).after
             if expanded.contains(trailing), let contents {
@@ -228,6 +228,18 @@ enum DiffRenderer {
         }
 
         return RenderedDiffFile(unified: unified, split: split, maxColumns: maxColumns, numberDigits: String(maxNumber).count)
+    }
+}
+
+extension DiffRenderer {
+    /// Whether the last hunk already ends at the end of the file, so there
+    /// is nothing to expand after it. The host asks git for 3 context lines
+    /// (`-U3`); git stops short of that only at the end of the file.
+    static func reachesEndOfFile(_ file: DiffFile, last: DiffHunk) -> Bool {
+        if file.status == .added { return true }
+        if last.lines.contains(where: { $0.kind == .noNewline }) { return true }
+        let trailingContext = last.lines.reversed().prefix { $0.kind == .context }.count
+        return trailingContext < 3
     }
 }
 

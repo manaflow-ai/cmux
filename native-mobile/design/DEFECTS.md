@@ -98,6 +98,7 @@ owner-handoff (written up for the owning agent).
 | 70 | Composer | Hardware Return added a line instead of sending (field grew). Return now sends (or presses Enter when empty), Shift-Return adds a line; the software keyboard's Return still adds a line. | fixed | qa5 |
 | 71 | Files | Browse opened in the working directory with no way up to its parents. The Files title is now a menu of parent folders on Browse (same as pushed folders). | fixed | qa5 |
 | 72 | Files | Logs, notes and CSVs showed the code icon; a stray separator sat above the first folder row. Prose files use doc.text; the top separator is hidden. | fixed | qa5 |
+| 73 | Diff | "Expand remaining lines" showed under hunks that already reached the end of the file (and under new files); tapping it did nothing. Git (now pinned to -U3 on the host) stops short of 3 trailing context lines only at EOF; ambiguous files (exactly 3) are read once in the background, up to 12. | fixed | qa5 |
 
 ## Performance
 
