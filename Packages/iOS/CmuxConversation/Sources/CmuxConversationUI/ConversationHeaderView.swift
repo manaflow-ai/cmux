@@ -322,9 +322,7 @@ final class ConversationHeaderView: UIView {
             avatars.first?.frame = avatarContainer.bounds
         } else {
             clusterDisc.frame = avatarContainer.bounds
-            for (avatar, frame) in zip(avatars, ConversationHeaderGeometry.groupClusterSlots) {
-                avatar.frame = CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale)
-            }
+            for (avatar, slot) in zip(avatars, ConversationHeaderGeometry.groupClusterSlots(in: avatarContainer.bounds)) { avatar.frame = slot }
         }
         avatarTapButton.frame = layout.avatar
         let pill = CGRect(x: layout.name.minX - ConversationHeaderGeometry.compactNameGap, y: layout.barTop,

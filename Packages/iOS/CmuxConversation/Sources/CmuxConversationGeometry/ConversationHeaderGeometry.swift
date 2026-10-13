@@ -28,6 +28,15 @@ public enum ConversationHeaderGeometry {
         CGRect(x: 52.0 / 3, y: 112.0 / 3, width: 52.0 / 3, height: 52.0 / 3),
     ]
 
+    /// The cluster's slots scaled onto `square` (the details page's 80 pt
+    /// disc draws the same arrangement as the header's 60 pt one).
+    public static func groupClusterSlots(in square: CGRect) -> [CGRect] {
+        let k = square.width / 60
+        return groupClusterSlots.map {
+            CGRect(x: square.minX + $0.minX * k, y: square.minY + $0.minY * k, width: $0.width * k, height: $0.height * k)
+        }
+    }
+
     /// The cluster's discs are drawn bare; with the gaps no ring separates
     /// them.
     public static let groupClusterRingWidth: CGFloat = 0
