@@ -15,7 +15,7 @@ use serde_json::Value;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{RETIRED_KEYS, retired_reason};
+pub use retired::{retired_keys, retired_reason};
 pub use url::new_tab_page_url_is_valid;
 
 use crate::value::canonical;
