@@ -216,6 +216,8 @@ describe("devbox image: the kind is written on the machine, never baked", () => 
     const unit = devboxVmKindSyncUnit();
     expect(unit).toContain("User=root\n");
     expect(unit).toContain("ExecStart=/usr/local/bin/cmux-vm-kind-sync\n");
+    expect(unit).toContain("StartLimitIntervalSec=0\n");
+    expect(devboxParkDaemonCommand()).toContain("{ systemctl stop cmux-vm-kind-sync 2>/dev/null || true; } && " + devboxNoVmKindCommand());
     const noKind = bake.indexOf('await step("no-baked-vm-kind", devboxNoVmKindCommand());');
     expect(noKind).toBeGreaterThan(bake.indexOf('await step("cmux-vm-kind-sync-unit"'));
     expect(bake.indexOf("const snap = await vm.snapshot(")).toBeGreaterThan(noKind);
