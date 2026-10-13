@@ -66,6 +66,10 @@ const rename = await api("POST", "/v1/devices", { deviceId: macId, kind: "mac", 
 check("device rename", rename.json?.device?.name === "smoke-mac-renamed" && rename.json.device.createdAt === mac.json.device.createdAt)
 const macs = await api("GET", `/v1/teams/${teamId}/macs`)
 check("team macs", macs.status === 200 && macs.json.macs.some((m: any) => m.deviceId === macId && m.online === false))
+const mine = await api("GET", "/v1/me/macs")
+check("my macs in every space", mine.status === 200 && mine.json.macs.some((m: any) => m.deviceId === macId && m.teamId === teamId) && !mine.json.macs.some((m: any) => m.deviceId === phoneId), `${mine.json?.macs?.length ?? 0} macs`)
+const forged = await fetch(`${BASE}/v1/me/macs`, { headers: { authorization: `Bearer ${token.slice(0, -4)}AAAA` } })
+check("401 names the reason", forged.status === 401 && /\((bad_signature|malformed)\)$/.test(((await forged.json()) as any)?.error?.message ?? ""))
 const color = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0").toUpperCase()}`
 const put = await api("PUT", `/v1/teams/${teamId}/prefs`, { color, emoji: "🧪" })
 const got = await api("GET", `/v1/teams/${teamId}/prefs`)

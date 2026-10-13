@@ -12,7 +12,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.4.0",
+    "API_VERSION": "0.5.0",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
   },
@@ -27,13 +27,15 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.4.0",
+        "API_VERSION": "0.5.0",
         // Dev (primary) and production Stack users: production cnx builds use this dev Worker too.
         "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }] },
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TeamHub"] }],
-      // PlanetScale Postgres cnx-ios (org cmux), branch main, role cnx-ios-dev.
+      // PlanetScale Postgres cnx-ios (org cmux), branch main, role cnx-ios-dev. The Hyperdrive config has
+      // query caching disabled (`wrangler hyperdrive update <id> --caching-disabled true`): with the default
+      // 60 s cache a newly registered Mac stayed missing from /macs and /me/macs. Do the same for prod.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "e4fd2e88cfcd4f00841ddc5b49c3ee06" }]
     },
     "prod": {
@@ -44,7 +46,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.4.0",
+        "API_VERSION": "0.5.0",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }] },
