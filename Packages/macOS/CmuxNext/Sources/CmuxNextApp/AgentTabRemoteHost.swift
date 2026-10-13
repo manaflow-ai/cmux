@@ -38,32 +38,41 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             }
         }
         let route: AgentPaneRemoteRoute
+        // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
+        let trust: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] cwd, level in
+            let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
+            let answer: Result<Data, any Error>
+            do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level) }) } catch { answer = .failure(error) }
+            await client.close()
+            return try answer.get()
+        }
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
                 let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session, trust: trust)
             }
         } else if let start {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
-                RemoteAcpmuxWire { cwd, harness in
+                RemoteAcpmuxWire(start: { cwd, harness in
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await start(cwd, harness)
                     } catch let refusal as AgentRemoteStartRefusal {
-                        throw AgentSessionRemoteError(code: refusal.code, message: refusal.userMessage)
+                        throw AgentSessionRemoteError(code: refusal.code, message: refusal.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client), started.session)
-                }
+                }, trust: trust)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
         }
         var handshake = AgentPaneHandshake.acpmux(.remote(route), sessionId: session)
-        // The chat exists on its machine: never a fallback to another one.
-        if session != nil { handshake.sessionMustExist = true }
+        // The chat exists on its machine: never a fallback to another one. A new one starts in its
+        // seed's folder, which the page asks the trust question about before the first send.
+        if session != nil { handshake.sessionMustExist = true } else { handshake.newSession = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
         return handshake
@@ -120,7 +129,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     }
 
     /// The daemon's refusal as the pane's error (its `agent_session.*` code reaches the page).
-    private func mapped(_ work: () async throws -> Data) async throws -> Data {
+    func mapped(_ work: () async throws -> Data) async throws -> Data {
         do {
             return try await work()
         } catch let error as AgentSessionAttachError {

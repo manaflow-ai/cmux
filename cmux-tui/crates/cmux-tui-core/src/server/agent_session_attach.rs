@@ -65,6 +65,8 @@ use serde_json::{Value, json};
 pub(super) mod agent_session_link;
 #[path = "agent_session_start.rs"]
 mod agent_session_start;
+#[path = "agent_session_trust.rs"]
+mod agent_session_trust;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -72,6 +74,7 @@ use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
+pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -452,6 +455,9 @@ pub(super) fn try_handle(
     if cmd == "agent-session-start" {
         return Some(start(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-trust" {
+        return Some(trust(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
@@ -500,6 +506,26 @@ fn start(
         return refuse(writer, id, Refusal::Unavailable);
     };
     agent_session_start::start(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-trust` (agent_session_trust.rs), with the same checks.
+fn trust(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(socket) = mux.control_clients.agent_sessions.socket() else {
+        return refuse(writer, id, Refusal::Unavailable);
+    };
+    agent_session_trust::trust(mux, id, socket, params, writer)
 }
 
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
