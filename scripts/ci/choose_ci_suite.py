@@ -134,6 +134,21 @@ SHARD_LAYOUT_PATHS = (
 )
 
 
+# Vendored code an app diff never shows: the bonsplit and ghostty submodule
+# pins, and the GhosttyKit checksums a ghostty pin bump rewrites. A pin bump
+# runs the full suite (all seven shards), the UI fuzz regression replays and
+# the shards on macOS 27, whatever the policy or labels say: #19606 skipped
+# the shards and ui-tests, #19672 ran no ui-tests and passed shard 3 on
+# Blacksmith macos-26 only to crash on the macOS 27 minis, and #19443 ran only
+# the changed suites.
+VENDORED_PIN_PATHS = ("vendor/bonsplit", "ghostty", "scripts/ghosttykit-checksums.txt")
+
+
+def vendored_pin_changed(paths: Iterable[str] | None) -> bool:
+    """True when the diff moves a vendored pin; an unreadable diff is already a full suite."""
+    return any(path.strip() in VENDORED_PIN_PATHS for path in paths or ())
+
+
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
     """True when the diff contains changes compile admission cannot judge.
 
@@ -694,17 +709,20 @@ def main(argv: list[str]) -> int:
         except OSError:
             app_diff = None
 
-    full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
+    pin = vendored_pin_changed(paths)
+    full = pin or wants_full_suite(args.event_name, args.pull_request_policy, labels)
     layout = shard_layout_changed(args.root, paths, diff)
-    unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
-    opted_out = SUITE_OPT_OUT_LABEL in {label.strip() for label in labels or ()}
+    unit = pin or layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
+    # no-full-ci opts out of the replays, but not for a pin bump.
+    opted_out = SUITE_OPT_OUT_LABEL in {label.strip() for label in labels or ()} and not pin
     ui_run = args.event_name == "pull_request" and not opted_out
     class_selectors = changed_ui_selectors(args.root, paths) if ui_run else []
     # Only the changed classes judge a cmuxUITests/ diff; the replays never do.
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit, ui_suite=bool(class_selectors))
     # A fork's `ui-tests` job refuses to run anything, so a fork gets no replay.
     same_repository = bool(args.event_path) and same_repository_from_event(args.event_path)
-    fuzz = fuzz_regression_selectors(paths) if ui_run and same_repository else []
+    fuzz = (fuzz_regression_selectors(paths) or ([FUZZ_REGRESSIONS_SELECTOR] if pin else [])) \
+        if ui_run and same_repository else []
     ui_selectors = class_selectors or []
     if fuzz and not fits_one_ui_run(ui_selectors + fuzz):
         # The classes judge the diff; the replay is extra and gives way.
@@ -759,6 +777,8 @@ def main(argv: list[str]) -> int:
         f"ui_selectors={' '.join(ui_selectors or ())}",
         f"unit_canary={'true' if canary else 'false'}",
         f"unit_in_admission={'true' if in_admission else 'false'}",
+        # ci.yml's pool choice keeps the shards on macOS 27 (simple_pool_picker.py).
+        f"macos27={'true' if pin else 'false'}",
     ]
     for line in lines:
         print(line)

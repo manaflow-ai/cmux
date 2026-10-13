@@ -4589,6 +4589,9 @@ def test_a_vendored_pin_bump_runs_every_suite_on_macos_27() -> None:
     assert re.search(r"^      macos27:\n", macos, re.M)
     shards = macos[macos.index("\n  app-host-unit-tests:\n"):macos.index("\n  cli-product-tests:\n")]
     assert "inputs.macos27 == 'true'" in shards and "sw_vers -productVersion" in shards
+    # Blacksmith's macOS 27 image has Xcode 27 alone: the shard runs the
+    # admission-built product with it rather than failing on the 26.6 pin.
+    assert "MACOS27: ${{ inputs.macos27 }}" in shards and "Xcode_26.6.app" in shards
 
 
 def test_a_diff_the_fuzz_repros_exercise_asks_for_their_replays() -> None:
