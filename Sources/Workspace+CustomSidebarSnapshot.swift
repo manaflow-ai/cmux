@@ -150,10 +150,9 @@ extension Workspace {
         panelLifecycles: [String: AgentHibernationLifecycleState]?
     ) -> String? {
         // A lifecycle belongs to the currently bound session. Avoid exposing
-        // a newer session's panel state on an ended record.
+        // a newer session's panel state on an ended or superseded record.
         if case .ended = state { return nil }
-        _ = sessionID
-        _ = currentSessionID
+        guard currentSessionID == sessionID else { return nil }
 
         let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
         guard let lifecycle = panelLifecycles?[key] else { return nil }
