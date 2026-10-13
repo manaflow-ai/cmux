@@ -133,15 +133,9 @@ final class PaneToolbarView: NSView {
         reveal.setPointerInside(rect.contains(host.convert(window.mouseLocationOutsideOfEventStream, from: nil)))
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        guard event.trackingArea === corner else { return super.mouseEntered(with: event) }
-        reveal.setPointerInside(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        guard event.trackingArea === corner else { return super.mouseExited(with: event) }
-        reveal.setPointerInside(false)
-    }
+    // The corner is this view's only tracking area (the reveal's probe and "…"'s hover own theirs).
+    override func mouseEntered(with event: NSEvent) { reveal.setPointerInside(true) }
+    override func mouseExited(with event: NSEvent) { reveal.setPointerInside(false) }
 
     /// A keyboard or VoiceOver press; a pointer press opens the menu on mouse-down.
     @objc private func openMore() {
